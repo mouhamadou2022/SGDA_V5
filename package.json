@@ -27,7 +27,10 @@
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/$1"
     },
-    "modulePathIgnorePatterns": ["<rootDir>/.next/", "<rootDir>/dist/"]
+    "modulePathIgnorePatterns": [
+      "<rootDir>/.next/",
+      "<rootDir>/dist/"
+    ]
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
@@ -106,7 +109,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.0",
+    "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/html2canvas": "^0.5.35",
