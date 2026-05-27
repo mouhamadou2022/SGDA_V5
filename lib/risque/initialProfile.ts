@@ -1,0 +1,360 @@
+// lib/risque/initialProfile.ts
+// Calcul du profil de risque initial à la création d'un aérodrome ou hélistation.
+// S'exécute sans données historiques (aucun écart, surveillance, événement).
+// Les heuristiques sont calibrées pour éviter le faux "tout va bien" d'un aérodrome non encore audité.
+
+import { Aerodrome, ProfilRisque } from '@/lib/store'
+import { calculateC1, calculateGlobalScore } from '@/lib/risque'
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface RecommandationInitiale {
+  domaine: string
+  priorite: 'critique' | 'haute' | 'moyenne' | 'basse'
+  message: string
+  action: string
+  ref_reglementaire?: string
+}
+
+export interface ProfilInitialResult {
+  profil: ProfilRisque
+  recommandations: RecommandationInitiale[]
+  confiance: number   // 0-100 — faible au départ (pas de données historiques)
+  source: 'initial_form'
+}
+
+// ─── Heuristiques multi-domaines C3 / C4 / C5 ────────────────────────────────
+
+const POIDS_DOMAINES: Record<string, number> = {
+  SGS: 0.25, PHY: 0.15, OLS: 0.10, MFP: 0.15, SLI: 0.10, OPS: 0.15, RA: 0.10,
+}
+
+function parseCat(aerodrome: Aerodrome): number {
+  return parseInt(aerodrome.categorie_sslia, 10) || 1
+}
+
+type ScoreDomaine = {
+  SGS: number; PHY: number; OLS: number; MFP: number; SLI: number; OPS: number; RA: number
+}
+
+function scorePondere(domaines: ScoreDomaine): number {
+  let score = 0
+  for (const [dom, val] of Object.entries(domaines)) {
+    score += val * (POIDS_DOMAINES[dom] || 0.10)
+  }
+  return score
+}
+
+function scoresDomaines(aerodrome: Aerodrome, c3: boolean, c4: boolean, c5: boolean): ScoreDomaine {
+  const cat  = parseCat(aerodrome)
+  const type = aerodrome.type ?? 'national'
+  const sgs  = aerodrome.maturite_sgs ?? 50
+  const heli = aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte'
+  const precision = aerodrome.piste_principale?.type_approche === 'cat1' || aerodrome.piste_principale?.type_approche === 'cat2'
+  const raRisk = aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda'
+
+  // Scores C3 (conformité) : 100 = conforme
+  const sgsC3 = sgs
+  const phyC3 = heli ? 55 : 70
+  const olsC3 = precision ? 55 : 70
+  const mfpC3 = Math.max(40, 80 - Math.max(0, (cat - 3)) * 5)
+  const sliC3 = aerodrome.horaires === 'h24' ? 60 : 75
+  const opsC3 = type === 'international' ? 55 : type === 'national' ? 70 : 80
+  const raC3  = raRisk ? 50 : 75
+
+  // Scores C4 (écarts latents) : 100 = aucun risque d'écart caché
+  const sgsC4 = sgs <= 25 ? 30 : sgs <= 50 ? 55 : sgs <= 75 ? 75 : 90
+  const phyC4 = heli ? 50 : 70
+  const olsC4 = precision ? 50 : 70
+  const mfpC4 = Math.max(35, 80 - Math.max(0, (cat - 3)) * 6)
+  const sliC4 = aerodrome.horaires === 'h24' ? 55 : 75
+  const opsC4 = type === 'international' ? 50 : type === 'national' ? 70 : 80
+  const raC4  = raRisk ? 45 : 75
+
+  // Scores C5 (résilience) : 100 = très résilient
+  const sgsC5 = Math.round(30 + (sgs / 100) * 50)
+  const phyC5 = heli ? 45 : 65
+  const olsC5 = precision ? 50 : 65
+  const mfpC5 = Math.max(35, 70 - Math.max(0, (cat - 3)) * 4)
+  const sliC5 = aerodrome.horaires === 'h24' ? 55 : 70
+  const opsC5 = type === 'international' ? 50 : type === 'national' ? 65 : 75
+  const raC5  = raRisk ? 40 : 65
+
+  return {
+    SGS: c3 ? sgsC3 : c4 ? sgsC4 : sgsC5,
+    PHY: c3 ? phyC3 : c4 ? phyC4 : phyC5,
+    OLS: c3 ? olsC3 : c4 ? olsC4 : olsC5,
+    MFP: c3 ? mfpC3 : c4 ? mfpC4 : mfpC5,
+    SLI: c3 ? sliC3 : c4 ? sliC4 : sliC5,
+    OPS: c3 ? opsC3 : c4 ? opsC4 : opsC5,
+    RA:  c3 ? raC3  : c4 ? raC4  : raC5,
+  }
+}
+
+function baselineC3(aerodrome: Aerodrome): number {
+  const d = scoresDomaines(aerodrome, true, false, false)
+  return Math.min(95, Math.max(30, Math.round(scorePondere(d))))
+}
+
+function baselineC4(aerodrome: Aerodrome): number {
+  const d = scoresDomaines(aerodrome, false, true, false)
+  return Math.min(95, Math.max(30, Math.round(scorePondere(d))))
+}
+
+function baselineC5(aerodrome: Aerodrome): number {
+  const d = scoresDomaines(aerodrome, false, false, true)
+  return Math.min(95, Math.max(25, Math.round(scorePondere(d))))
+}
+
+// ─── Calcul principal ────────────────────────────────────────────────────────
+
+export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult {
+  const c1 = calculateC1(aerodrome.maturite_sgs ?? 50)
+  const c3 = baselineC3(aerodrome)
+  const c4 = baselineC4(aerodrome)
+  const c5 = baselineC5(aerodrome)
+
+  // C2 : dégradée par l'âge de l'aérodrome (pas d'écarts = risque latent croissant avec le temps)
+  const c2 = degradeC2ParTemps(aerodrome)
+
+  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
+
+  let niveau: ProfilRisque['niveau'] = 'faible'
+  if (scoreGlobal < 30) niveau = 'critique'
+  else if (scoreGlobal < 60) niveau = 'eleve'
+  else if (scoreGlobal < 80) niveau = 'moyen'
+  else niveau = 'faible'
+
+  const sgs = aerodrome.maturite_sgs ?? 50
+  const tendanceOffset = sgs >= 75 ? 2 : sgs <= 25 ? -4 : 0
+  const tendance: ProfilRisque['tendance'] = sgs >= 75 ? 'hausse' : sgs <= 25 ? 'baisse' : 'stable'
+
+  // C2 dégradée dans le temps : si l'aérodrome existe depuis longtemps sans audit,
+  // le risque de retard PAC latent augmente
+  function degradeC2ParTemps(aerodrome: Aerodrome): number {
+    if (!aerodrome.created_at) return 100
+    const ageJours = (Date.now() - new Date(aerodrome.created_at).getTime()) / 86400000
+    if (ageJours < 90) return 100
+    if (ageJours < 180) return 92
+    if (ageJours < 365) return 82
+    if (ageJours < 730) return 68
+    return 50
+  }
+
+  const c2Reel = degradeC2ParTemps(aerodrome)
+
+  const profil: ProfilRisque = {
+    aerodrome_id: aerodrome.id,
+    score_global: scoreGlobal,
+    niveau,
+    c1,
+    c2: c2Reel,
+    c3, c4, c5,
+    prediction_3m:  Math.min(100, Math.max(0, scoreGlobal + tendanceOffset)),
+    infrastructure: {
+      type_entite: aerodrome.type_entite,
+      horaires: aerodrome.horaires,
+      aides_visuelles: aerodrome.aides_visuelles,
+      revetement: aerodrome.piste_principale?.revetement,
+      type_approche: aerodrome.piste_principale?.type_approche,
+      categorie_sslia: aerodrome.categorie_sslia,
+      type: aerodrome.type,
+    },
+    prediction_6m:  Math.min(100, Math.max(0, scoreGlobal + tendanceOffset * 2)),
+    prediction_12m: Math.min(100, Math.max(0, scoreGlobal + tendanceOffset * 3)),
+    prediction_interval_3m: { lower: Math.max(0, scoreGlobal - 12), upper: Math.min(100, scoreGlobal + 12) },
+    prediction_interval_6m: { lower: Math.max(0, scoreGlobal - 18), upper: Math.min(100, scoreGlobal + 18) },
+    tendance,
+    computed_at: new Date().toISOString(),
+    historical_scores: [],
+    // Hawkes / efficacité : aucune donnée → neutre
+    hawkes_intensity: 0,
+    effectiveness_score: 50,
+    // Prédiction incidents : faible mais non nulle (aérodrome non audité = incertitude)
+    incident_prediction_3m:  0.05,
+    incident_prediction_6m:  0.12,
+    incident_prediction_12m: 0.22,
+    event_frequency:        0,
+    event_trend_acceleration: 0,
+    days_since_last_event:  undefined,
+    event_severity_trend:   'stable',
+    // Bayésien : prior à 0.3 (incertitude élevée, peu de données)
+    bayesian_posterior: 0.30,
+    bayesian_prior:     0.30,
+    bayesian_black_swan: false,
+    // Faible confiance sur un profil de départ (0-1, affiché × 100 %)
+    ensemble_confidence: 0.15,
+    scenarios: [
+      {
+        nom: 'Optimiste',
+        description: 'Premières surveillances conformes, SGS progresse rapidement',
+        probabilite: 0.30,
+        scoreProjecte: Math.min(100, scoreGlobal + 8),
+        intervalleConfiance: [scoreGlobal, Math.min(100, scoreGlobal + 15)],
+        actionsRecommandees: ['Maintenir le programme SGS', 'Programmer la surveillance initiale dans les 60 jours'],
+      },
+      {
+        nom: 'Réaliste',
+        description: 'Quelques écarts mineurs détectés lors de la première surveillance',
+        probabilite: 0.50,
+        scoreProjecte: scoreGlobal,
+        intervalleConfiance: [Math.max(0, scoreGlobal - 10), Math.min(100, scoreGlobal + 5)],
+        actionsRecommandees: ['Préparer les équipes à la première surveillance', 'Documenter les procédures opérationnelles'],
+      },
+      {
+        nom: 'Pessimiste',
+        description: 'Plusieurs écarts critiques découverts lors de l\'audit initial',
+        probabilite: 0.15,
+        scoreProjecte: Math.max(0, scoreGlobal - 20),
+        intervalleConfiance: [Math.max(0, scoreGlobal - 30), scoreGlobal],
+        actionsRecommandees: ['Planifier un audit complet immédiat', 'Renforcer le dispositif SGS'],
+      },
+      {
+        nom: 'Catastrophe',
+        description: 'Défaillance critique SSLIA ou SGS — fermeture temporaire requise',
+        probabilite: 0.05,
+        scoreProjecte: Math.max(0, scoreGlobal - 40),
+        intervalleConfiance: [0, Math.max(0, scoreGlobal - 25)],
+        actionsRecommandees: ['Déclencher protocole d\'urgence', 'Alerter la Direction Générale ANACIM'],
+      },
+    ],
+  }
+
+  return {
+    profil,
+    recommandations: genererRecommandations(aerodrome),
+    confiance: 15,
+    source: 'initial_form',
+  }
+}
+
+// ─── Recommandations IA initiales ────────────────────────────────────────────
+
+function genererRecommandations(aerodrome: Aerodrome): RecommandationInitiale[] {
+  const recs: RecommandationInitiale[] = []
+  const sgs   = aerodrome.maturite_sgs ?? 50
+  const cat   = parseCat(aerodrome)
+  const type  = aerodrome.type ?? 'national'
+  const entite = aerodrome.type_entite ?? 'aerodrome'
+
+  if (sgs <= 25) {
+    recs.push({
+      domaine: 'SGS',
+      priorite: 'critique',
+      message: `Maturité SGS faible (${sgs}/100) — programme de sécurité insuffisant pour l'exploitation`,
+      action: 'Mettre en place un plan de renforcement SGS immédiatement (Annexe 19 OACI)',
+      ref_reglementaire: 'RAS 14 I §1.4 / Annexe 19 OACI',
+    })
+  } else if (sgs <= 50) {
+    recs.push({
+      domaine: 'SGS',
+      priorite: 'haute',
+      message: 'SGS en développement — progression à documenter',
+      action: 'Établir un plan de progression SGS sur 12 mois et programmer une surveillance de maturité',
+      ref_reglementaire: 'RAS 14 I §1.4',
+    })
+  } else {
+    recs.push({
+      domaine: 'SGS',
+      priorite: 'basse',
+      message: `SGS mature (${sgs}/100) — maintenir le programme de revue périodique`,
+      action: 'Planifier la revue annuelle SGS et la mise à jour du Manuel de Sécurité',
+      ref_reglementaire: 'RAS 14 I §1.4',
+    })
+  }
+
+  // ── SSLIA ──
+  if (cat >= 7) {
+    recs.push({
+      domaine: 'SLI',
+      priorite: 'critique',
+      message: `Catégorie SSLIA ${cat} — niveau critique : équipements lourds et personnels spécialisés requis`,
+      action: `Vérifier la dotation complète en équipements SSLIA cat. ${cat} avant toute opération`,
+      ref_reglementaire: 'RAS 14 I Partie 9 / Doc OACI 9137',
+    })
+  } else if (cat >= 4) {
+    recs.push({
+      domaine: 'SLI',
+      priorite: 'haute',
+      message: `Catégorie SSLIA ${cat} — surveillance du dispositif de secours obligatoire`,
+      action: `Programmer un exercice SSLIA dans les 30 jours suivant l'ouverture`,
+      ref_reglementaire: 'RAS 14 I Partie 9',
+    })
+  } else {
+    recs.push({
+      domaine: 'SLI',
+      priorite: 'moyenne',
+      message: `Catégorie SSLIA ${cat} — vérifier la conformité des équipements de secours`,
+      action: 'Réaliser une inspection SSLIA lors de la première surveillance physique',
+      ref_reglementaire: 'RAS 14 I Partie 9',
+    })
+  }
+
+  // ── International ──
+  if (type === 'international') {
+    recs.push({
+      domaine: 'OPS',
+      priorite: 'haute',
+      message: 'Aérodrome international — exigences OACI renforcées sur tous les domaines',
+      action: 'Réaliser un audit initial complet (PHY, OLS, MFP, SLI, SGS, OPS) dans les 90 jours',
+      ref_reglementaire: 'Annexe 14 OACI Vol. I / RAS 14',
+    })
+  }
+
+  // ── Hélistation ──
+  if (entite === 'helistation' || entite === 'mixte') {
+    recs.push({
+      domaine: 'PHY',
+      priorite: 'haute',
+      message: 'Hélistation — normes surfaces de poser, marques H et obstacles spécifiques',
+      action: 'Vérifier conformité TLOF/FATO, marquages H, balise lumineuse et dégagement obstacles',
+      ref_reglementaire: 'RAS 14 II / Doc OACI 9261',
+    })
+  }
+
+  // ── Conformité physique (toujours) ──
+  recs.push({
+    domaine: 'PHY',
+    priorite: type === 'international' ? 'haute' : 'moyenne',
+    message: 'Aucune surveillance physique enregistrée — état initial des infrastructures inconnu',
+    action: 'Programmer une surveillance PHY initiale dans les 60 jours (piste, balisage, clôture, obstacles)',
+    ref_reglementaire: 'RAS 14 I Partie 3',
+  })
+
+  // ── Obstacle Limitation Surface ──
+  recs.push({
+    domaine: 'OLS',
+    priorite: 'moyenne',
+    message: 'Surface de limitation d\'obstacles à vérifier — risque de pénétration non détectée',
+    action: 'Effectuer un relevé OLS initial et mettre à jour le registre des obstacles',
+    ref_reglementaire: 'RAS 14 I Partie 4',
+  })
+
+  // ── Risque animalier ──
+  if (aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') {
+    recs.push({
+      domaine: 'RA',
+      priorite: 'haute',
+      message: 'Région à risque animalier élevé — plan de gestion faune requis',
+      action: 'Élaborer ou mettre à jour le Plan de Gestion du Risque Animalier (PGRA)',
+      ref_reglementaire: 'RAS 14 I §9.4 / Circulaire ANACIM RA',
+    })
+  }
+
+  return recs
+}
+
+// ─── Résumé textuel pour notifications ───────────────────────────────────────
+
+export function resumeRisqueInitial(result: ProfilInitialResult): string {
+  const { profil, recommandations } = result
+  const niveauLabel = {
+    critique: '🔴 CRITIQUE',
+    eleve:    '🟠 ÉLEVÉ',
+    moyen:    '🟡 MODÉRÉ',
+    faible:   '🟢 FAIBLE',
+  }[profil.niveau]
+  const critiques = recommandations.filter(r => r.priorite === 'critique').length
+  const hautes    = recommandations.filter(r => r.priorite === 'haute').length
+  return `Risque initial ${niveauLabel} (${profil.score_global}/100) · ${critiques} action(s) critique(s), ${hautes} haute(s) priorité`
+}

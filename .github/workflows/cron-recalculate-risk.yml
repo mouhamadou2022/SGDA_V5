@@ -1,0 +1,24 @@
+# .github/workflows/cron-recalculate-risk.yml
+# Recalcule tous les profils de risque toutes les 6 heures (4x/jour)
+# Gratuit — utilise les GitHub Actions cron (max 1x/5min, pas de limite sur le nombre)
+# Nécessite : secrets.CRON_SECRET + secrets.SITE_URL dans les secrets GitHub
+
+name: Recalcul automatique des profils de risque
+
+on:
+  schedule:
+    # Toutes les 6h à 00:00, 06:00, 12:00, 18:00 UTC
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch: # Permet un déclenchement manuel depuis l'interface GitHub
+
+jobs:
+  recalculate:
+    name: Recalculer profils de risque
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler l'API de recalcul
+        run: |
+          curl -s -o response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.SITE_URL }}/api/cron/recalculate-risk"
+          echo "Status: $(cat response.json)"

@@ -1,0 +1,25 @@
+# .github/workflows/cron-ml-retrain.yml
+# Ré-entraîne tous les modèles ML/DL chaque semaine (dimanche à 02:00 UTC)
+# et après chaque recalcul de risque si assez de nouvelles données
+
+name: Re-entraînement automatique des modèles ML
+
+on:
+  schedule:
+    - cron: '0 2 * * 0' # Dimanche à 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  retrain:
+    name: Entraîner tous les modèles ML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler l'API ML retrain_all
+        run: |
+          curl -s -o response.json -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"retrain_all"}' \
+            "${{ secrets.SITE_URL }}/api/ia/ml"
+          echo "Response: $(cat response.json)"

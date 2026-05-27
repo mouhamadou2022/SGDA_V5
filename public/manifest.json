@@ -1,0 +1,20 @@
+{
+  "name": "SGDA — ANACIM",
+  "short_name": "SGDA",
+  "description": "Système de Gestion des Aérodromes du Sénégal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a237e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "fr"
+}
