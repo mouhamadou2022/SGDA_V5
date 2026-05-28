@@ -73,6 +73,33 @@ export function initSurveillanceAutoCreator() {
           continue
         }
       }
+
+      // ── Déclencheur 4 : Certification/Homologation fraîche → maintien dans 6 mois ──
+      const certsAero = (state.certifications || []).filter(c =>
+        c.aerodrome_id === aero.id
+      )
+      const homoAero = (state.homologations || []).filter(h =>
+        h.aerodrome_id === aero.id
+      )
+      const derniereCertif = certsAero.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0]
+      const derniereHomo = homoAero.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0]
+      const certifFraiche = derniereCertif && derniereCertif.statut_global === 'certifie' &&
+        Date.now() - new Date(derniereCertif.updated_at).getTime() < 24 * 60 * 60 * 1000
+      const homoFraiche = derniereHomo && derniereHomo.statut_global === 'homologue' &&
+        Date.now() - new Date(derniereHomo.updated_at).getTime() < 24 * 60 * 60 * 1000
+      if (certifFraiche || homoFraiche) {
+        const dejaMaintien = state.surveillances.some(s =>
+          s.aerodrome_id === aero.id &&
+          s.statut !== 'archivee' &&
+          s.type === 'maintien' &&
+          s.portee?.length >= 6 &&
+          Date.now() - new Date(s.created_at).getTime() < 180 * 24 * 60 * 60 * 1000
+        )
+        if (!dejaMaintien) {
+          autoCreateSurveillance(aero.id, certifFraiche ? 'certification_fraiche' : 'homologation_fraiche').catch(console.error)
+          continue
+        }
+      }
     }
 
     prevProfils = state.profilsRisque
@@ -126,7 +153,7 @@ async function recalculateAllRiskProfiles() {
   }
 }
 
-async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_critique' | 'sgs_absent' | 'sgs_faible' = 'risque_critique') {
+async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' = 'risque_critique') {
   const store = useAppStore.getState()
   const aerodrome = store.aerodromes.find(a => a.id === aerodromeId)
   if (!aerodrome) return
@@ -150,6 +177,12 @@ async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_criti
     portee = ['SGS']
     priorite = 'haute'
     objectifs = `[AUTO] SGS insuffisant (score ${aerodrome.maturite_sgs ?? 'inconnu'}/100 ≤ 50) — surveillance SGS renforcée automatique.`
+  } else if (raison === 'certification_fraiche' || raison === 'homologation_fraiche') {
+    type = 'maintien'
+    portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
+    priorite = 'moyenne'
+    const label = raison === 'certification_fraiche' ? 'certification' : 'homologation'
+    objectifs = `[AUTO] ${label} obtenue — surveillance de maintien programmée automatiquement pour garantir la conformité continue.`
   } else {
     portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
     objectifs = `[AUTO] Score critique (${profil?.score_global ?? '?'}/100) — surveillance d'urgence créée automatiquement par le profil de risque`
@@ -162,7 +195,7 @@ async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_criti
     aerodrome_id: aerodromeId,
     type,
     date_debut: now,
-    date_fin: new Date(Date.now() + (raison === 'sgs_absent' ? 14 : 7) * 24 * 60 * 60 * 1000).toISOString(),
+    date_fin: new Date(Date.now() + (raison === 'sgs_absent' ? 14 : raison === 'certification_fraiche' || raison === 'homologation_fraiche' ? 180 : 7) * 24 * 60 * 60 * 1000).toISOString(),
     portee,
     equipe_ids: [],
     chef_id: '',
@@ -229,11 +262,17 @@ async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_criti
   }
 
   // 5. Notification
-  const label = raison === 'sgs_absent' ? 'SGS absent' : raison === 'sgs_faible' ? 'SGS insuffisant' : 'Score critique'
+  const label = raison === 'sgs_absent' ? 'SGS absent'
+    : raison === 'sgs_faible' ? 'SGS insuffisant'
+    : raison === 'certification_fraiche' ? 'Certification obtenue'
+    : raison === 'homologation_fraiche' ? 'Homologation obtenue'
+    : 'Score critique'
   store.addNotification({
     user_id: store.user?.id || '',
-    type: 'danger',
-    title: raison === 'risque_critique' ? 'Surveillance critique auto-créée' : 'Surveillance SGS auto-créée',
+    type: raison === 'risque_critique' || raison === 'sgs_absent' ? 'danger' : 'info',
+    title: raison === 'risque_critique' ? 'Surveillance critique auto-créée'
+      : raison === 'certification_fraiche' || raison === 'homologation_fraiche' ? 'Maintien post-certification auto-créé'
+      : 'Surveillance SGS auto-créée',
     message: `⚠️ ${aerodrome.code_oaci} — ${label}. Une surveillance ${type === 'audit_complet' ? 'd\'audit' : 'de maintien'} a été générée automatiquement.`,
     canal: 'in_app',
     link: `/surveillance/${surveillance.id}`,

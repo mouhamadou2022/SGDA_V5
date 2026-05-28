@@ -1070,6 +1070,76 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           } catch { /* génération silencieuse */ }
         }
       }
+
+      // ── Pre-remplir les items checklist avec les prédictions IA (checklistMemory) ──
+      try {
+        const { checklistMemory } = await import('@/lib/checklistMemory')
+        const profil = useAppStore.getState().profilsRisque?.[planning.aerodrome_id]
+        const surv = useAppStore.getState().surveillances.find(s => s.id === surveillance.id)
+        const hierarchy = surv?.checklist_hierarchy
+
+        if (hierarchy && profil) {
+          const typeSurv = surv?.type || 'programmee'
+          let changed = false
+
+          const prefillItems = (domaines: any[]) => {
+            for (const domaine of domaines) {
+              const items = domaine.items || []
+              for (const item of items) {
+                try {
+                  const pred = checklistMemory.getPredictionForItem(
+                    planning.aerodrome_id,
+                    typeSurv,
+                    domaine.nom || '',
+                    '',
+                    '',
+                    item.id || '',
+                    profil
+                  )
+                  if (pred && pred.prediction) {
+                    item.resultat = pred.prediction
+                    item.prediction = { resultat: pred.prediction, confiance: pred.confiance || 70, justification: pred.justification || '' }
+                    item.confiance = pred.confiance || 70
+                    changed = true
+                  }
+                } catch { /* ignorer les items sans prediction */ }
+              }
+              if (domaine.sousDomaines) prefillItems(domaine.sousDomaines)
+              if (domaine.sousSousDomaines) {
+                for (const ssd of domaine.sousSousDomaines) {
+                  for (const item of (ssd.items || [])) {
+                    try {
+                      const pred = checklistMemory.getPredictionForItem(
+                        planning.aerodrome_id,
+                        typeSurv,
+                        domaine.nom || '',
+                        ssd.nom || '',
+                        '',
+                        item.id || '',
+                        profil
+                      )
+                      if (pred && pred.prediction) {
+                        item.resultat = pred.prediction
+                        item.prediction = { resultat: pred.prediction, confiance: pred.confiance || 70, justification: pred.justification || '' }
+                        item.confiance = pred.confiance || 70
+                        changed = true
+                      }
+                    } catch { /* ignorer */ }
+                  }
+                }
+              }
+            }
+          }
+
+          if (hierarchy) {
+            prefillItems(hierarchy)
+            if (changed) {
+              updateSurveillance(surveillance.id, { checklist_hierarchy: hierarchy })
+              useAppStore.getState().setChecklistHierarchy(surveillance.id, hierarchy)
+            }
+          }
+        }
+      } catch { /* silencieux si checklistMemory indisponible */ }
     }
 
     addNotification({

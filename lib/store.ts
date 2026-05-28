@@ -3945,12 +3945,19 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       addCertification: (certification) => set((state) => ({
         certifications: [...state.certifications, certification],
       })),
-      updateCertification: (id, data) => set((state) => ({
-        certifications: state.certifications.map((c) => c.id === id ? { ...c, ...data } : c),
-        currentCertification: state.currentCertification?.id === id
-          ? { ...state.currentCertification, ...data }
-          : state.currentCertification,
-      })),
+      updateCertification: (id, data) => {
+        const oldCert = get().certifications.find(c => c.id === id)
+        set((state) => ({
+          certifications: state.certifications.map((c) => c.id === id ? { ...c, ...data } : c),
+          currentCertification: state.currentCertification?.id === id
+            ? { ...state.currentCertification, ...data }
+            : state.currentCertification,
+        }))
+        // Recalculer le profil de risque quand la certification change de statut (surtout certifie)
+        if (data.statut_global && data.statut_global !== oldCert?.statut_global && oldCert?.aerodrome_id) {
+          get().recalculerProfilRisque(oldCert.aerodrome_id)
+        }
+      },
       deleteCertification: (id) => set((state) => ({
         certifications: state.certifications.filter((c) => c.id !== id),
         currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
@@ -3990,12 +3997,18 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       addHomologation: (homologation) => set((state) => ({
         homologations: [...state.homologations, homologation],
       })),
-      updateHomologation: (id, data) => set((state) => ({
-        homologations: state.homologations.map((h) => h.id === id ? { ...h, ...data } : h),
-        currentHomologation: state.currentHomologation?.id === id
-          ? { ...state.currentHomologation, ...data }
-          : state.currentHomologation,
-      })),
+      updateHomologation: (id, data) => {
+        const oldHomo = get().homologations.find(h => h.id === id)
+        set((state) => ({
+          homologations: state.homologations.map((h) => h.id === id ? { ...h, ...data } : h),
+          currentHomologation: state.currentHomologation?.id === id
+            ? { ...state.currentHomologation, ...data }
+            : state.currentHomologation,
+        }))
+        if (data.statut_global && data.statut_global !== oldHomo?.statut_global && oldHomo?.aerodrome_id) {
+          get().recalculerProfilRisque(oldHomo.aerodrome_id)
+        }
+      },
       deleteHomologation: (id) => set((state) => ({
         homologations: state.homologations.filter((h) => h.id !== id),
         currentHomologation: state.currentHomologation?.id === id ? null : state.currentHomologation,
