@@ -234,9 +234,9 @@ export const SGS_COMPOSANTES = [
         id: '1.1',
         label: 'Engagement de la direction',
         questions: [
-          { id: '1.1.q1', ref: 'SGS-01.1', texte: 'La politique de sécurité est-elle documentée dans le manuel SGS ?', niveau: 'absent' as PAOELevel },
-          { id: '1.1.q2', ref: 'SGS-01.2', texte: 'La politique est-elle signée par le directeur de l\'aéroport ?', niveau: 'absent' as PAOELevel },
-          { id: '1.1.q3', ref: 'SGS-01.3', texte: 'La politique est-elle communiquée à tout le personnel (affichage, réunions, intranet) ?', niveau: 'absent' as PAOELevel },
+          { id: '1.1.q1', ref: 'SGS-01.1', texte: 'La politique de sécurité est-elle documentée dans le manuel SGS ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §3.2.1' },
+          { id: '1.1.q2', ref: 'SGS-01.2', texte: 'La politique est-elle signée par le directeur de l\'aéroport ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §3.2.2' },
+          { id: '1.1.q3', ref: 'SGS-01.3', texte: 'La politique est-elle communiquée à tout le personnel (affichage, réunions, intranet) ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §3.3.1' },
         ],
         directives: {
           present: ['Documentée dans le manuel SGS', 'Version contrôlée et datée', 'Accessible au personnel'],
@@ -255,7 +255,7 @@ export const SGS_COMPOSANTES = [
         label: 'Obligation de rendre compte et responsabilités en matière de sécurité',
         questions: [
           { id: '1.2.q1', ref: 'SGS-02.1', texte: 'Des objectifs sécurité quantifiables sont-ils définis (ex: réduire les incidents de 10%) ?', niveau: 'absent' as PAOELevel },
-          { id: '1.2.q2', ref: 'SGS-02.2', texte: 'Les objectifs sont-ils revus au moins annuellement par la direction ?', niveau: 'absent' as PAOELevel },
+          { id: '1.2.q2', ref: 'SGS-02.2', texte: 'Les objectifs sont-ils revus au moins annuellement par la direction ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'RAS 14 I §1.5.2' },
         ],
         directives: {
           present: ['Objectifs écrits et documentés', 'Indicateurs de performance définis', 'Cibles chiffrées'],
@@ -273,7 +273,7 @@ export const SGS_COMPOSANTES = [
         label: 'Nomination du personnel clé chargé de la sécurité',
         questions: [
           { id: '1.3.q1', ref: 'SGS-03.1', texte: 'Les rôles et responsabilités SGS sont-ils définis et documentés ?', niveau: 'absent' as PAOELevel },
-          { id: '1.3.q2', ref: 'SGS-03.2', texte: 'Un responsable SGS est-il nommé avec l\'autorité nécessaire ?', niveau: 'absent' as PAOELevel },
+          { id: '1.3.q2', ref: 'SGS-03.2', texte: 'Un responsable SGS est-il nommé avec l\'autorité nécessaire ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'RAS 14 I §1.5.3' },
         ],
         directives: {
           present: ['Organigramme SGS documenté', 'Fiches de poste incluant responsabilités sécurité', 'Responsable SGS identifié'],
@@ -309,7 +309,7 @@ export const SGS_COMPOSANTES = [
         label: 'Documentation relative au SGS',
         questions: [
           { id: '1.5.q1', ref: 'SGS-05.1', texte: 'La direction démontre-t-elle un engagement visible envers la sécurité ?', niveau: 'absent' as PAOELevel },
-          { id: '1.5.q2', ref: 'SGS-05.2', texte: 'La direction participe-t-elle aux revues de sécurité et aux enquêtes ?', niveau: 'absent' as PAOELevel },
+          { id: '1.5.q2', ref: 'SGS-05.2', texte: 'La direction participe-t-elle aux revues de sécurité et aux enquêtes ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §3.2.3' },
         ],
         directives: {
           present: ['Déclarations de la direction sur la sécurité', 'Budget sécurité alloué', 'Participation aux réunions sécurité'],
@@ -334,7 +334,7 @@ export const SGS_COMPOSANTES = [
         id: '2.1',
         label: 'Identification des dangers',
         questions: [
-          { id: '2.1.q1', ref: 'SGR-01.1', texte: 'Un processus formel d\'identification des dangers est-il en place ?', niveau: 'absent' as PAOELevel },
+          { id: '2.1.q1', ref: 'SGR-01.1', texte: 'Un processus formel d\'identification des dangers est-il en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §4.1.1' },
           { id: '2.1.q2', ref: 'SGR-01.2', texte: 'Une base de données des dangers est-elle maintenue et mise à jour ?', niveau: 'absent' as PAOELevel },
         ],
         directives: {
@@ -353,7 +353,7 @@ export const SGS_COMPOSANTES = [
         label: 'Évaluation et atténuation des risques de sécurité',
         questions: [
           { id: '2.2.q1', ref: 'SGR-02.1', texte: 'Une méthodologie d\'analyse des risques est-elle définie et appliquée ?', niveau: 'absent' as PAOELevel },
-          { id: '2.2.q2', ref: 'SGR-02.2', texte: 'Une matrice de risque est-elle utilisée pour évaluer les dangers ?', niveau: 'absent' as PAOELevel },
+          { id: '2.2.q2', ref: 'SGR-02.2', texte: 'Une matrice de risque est-elle utilisée pour évaluer les dangers ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §4.2.2' },
         ],
         directives: {
           present: ['Méthodologie documentée', 'Matrice de risque définie', 'Critères d\'acceptabilité établis'],
@@ -379,7 +379,7 @@ export const SGS_COMPOSANTES = [
         label: 'Suivi et mesure de la performance de sécurité',
         questions: [
           { id: '3.1.q1', ref: 'SGA-01.1', texte: 'Des KPI sécurité sont-ils définis et suivis ?', niveau: 'absent' as PAOELevel },
-          { id: '3.1.q2', ref: 'SGA-01.2', texte: 'Des tableaux de bord sécurité sont-ils produits régulièrement ?', niveau: 'absent' as PAOELevel },
+          { id: '3.1.q2', ref: 'SGA-01.2', texte: 'Des tableaux de bord sécurité sont-ils produits régulièrement ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §5.1.2' },
         ],
         directives: {
           present: ['KPI définis et documentés', 'Tableaux de bord existants', 'Fréquence de production définie'],
@@ -396,7 +396,7 @@ export const SGS_COMPOSANTES = [
         id: '3.2',
         label: 'La gestion du changement',
         questions: [
-          { id: '3.2.q1', ref: 'SGA-02.1', texte: 'Un programme d\'audits internes est-il en place ?', niveau: 'absent' as PAOELevel },
+          { id: '3.2.q1', ref: 'SGA-02.1', texte: 'Un programme d\'audits internes est-il en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §5.2.1' },
           { id: '3.2.q2', ref: 'SGA-02.2', texte: 'Les audits sont-ils réalisés selon le planning ?', niveau: 'absent' as PAOELevel },
         ],
         directives: {
@@ -414,8 +414,8 @@ export const SGS_COMPOSANTES = [
         id: '3.3',
         label: 'Amélioration continue du SGS',
         questions: [
-          { id: '3.3.q1', ref: 'SGA-03.1', texte: 'Un processus formel d\'amélioration continue est-il en place ?', niveau: 'absent' as PAOELevel },
-          { id: '3.3.q2', ref: 'SGA-03.2', texte: 'Les retours d\'expérience sont-ils intégrés dans le SGS ?', niveau: 'absent' as PAOELevel },
+          { id: '3.3.q1', ref: 'SGA-03.1', texte: 'Un processus formel d\'amélioration continue est-il en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §5.3.1' },
+          { id: '3.3.q2', ref: 'SGA-03.2', texte: 'Les retours d\'expérience sont-ils intégrés dans le SGS ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §5.3.2' },
         ],
         directives: {
           present: ['Processus documenté', 'Sources de retours identifiées', 'Méthode d\'intégration définie'],
@@ -440,8 +440,8 @@ export const SGS_COMPOSANTES = [
         id: '4.1',
         label: 'Formation et sensibilisation',
         questions: [
-          { id: '4.1.q1', ref: 'SGP-01.1', texte: 'Un programme de formation sécurité est-il en place ?', niveau: 'absent' as PAOELevel },
-          { id: '4.1.q2', ref: 'SGP-01.2', texte: 'Les habilitations sont-elles suivies et mises à jour ?', niveau: 'absent' as PAOELevel },
+          { id: '4.1.q1', ref: 'SGP-01.1', texte: 'Un programme de formation sécurité est-il en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §6.1.1' },
+          { id: '4.1.q2', ref: 'SGP-01.2', texte: 'Les habilitations sont-elles suivies et mises à jour ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §6.1.2' },
         ],
         directives: {
           present: ['Programme de formation documenté', 'Catalogue de formations sécurité', 'Planning de formation'],
@@ -458,8 +458,8 @@ export const SGS_COMPOSANTES = [
         id: '4.2',
         label: 'Communication en matière de sécurité',
         questions: [
-          { id: '4.2.q1', ref: 'SGP-02.1', texte: 'Des canaux de communication sécurité sont-ils en place ?', niveau: 'absent' as PAOELevel },
-          { id: '4.2.q2', ref: 'SGP-02.2', texte: 'Des newsletters ou bulletins sécurité sont-ils diffusés ?', niveau: 'absent' as PAOELevel },
+          { id: '4.2.q1', ref: 'SGP-02.1', texte: 'Des canaux de communication sécurité sont-ils en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §6.2.1' },
+          { id: '4.2.q2', ref: 'SGP-02.2', texte: 'Des newsletters ou bulletins sécurité sont-ils diffusés ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §6.2.2' },
         ],
         directives: {
           present: ['Canaux identifiés (affichage, intranet, réunions)', 'Newsletter existante', 'Fréquence de diffusion définie'],
@@ -484,7 +484,7 @@ export const SGS_COMPOSANTES = [
         id: '5.1',
         label: 'Documentation des interfaces',
         questions: [
-          { id: '5.1.q1', ref: 'SGI-01.1', texte: 'Les interfaces avec prestataires, sous-traitants et autorités sont-elles documentées ?', niveau: 'absent' as PAOELevel },
+          { id: '5.1.q1', ref: 'SGI-01.1', texte: 'Les interfaces avec prestataires, sous-traitants et autorités sont-elles documentées ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §7.1.1' },
           { id: '5.1.q2', ref: 'SGI-01.2', texte: 'Les responsabilités de chaque partie sont-elles clairement définies ?', niveau: 'absent' as PAOELevel },
         ],
         directives: {
@@ -503,7 +503,7 @@ export const SGS_COMPOSANTES = [
         label: 'Coordinations',
         questions: [
           { id: '5.2.q1', ref: 'SGI-02.1', texte: 'Des réunions de coordination régulières sont-elles organisées ?', niveau: 'absent' as PAOELevel },
-          { id: '5.2.q2', ref: 'SGI-02.2', texte: 'Des protocoles d\'échange d\'informations sont-ils en place ?', niveau: 'absent' as PAOELevel },
+          { id: '5.2.q2', ref: 'SGI-02.2', texte: 'Des protocoles d\'échange d\'informations sont-ils en place ?', niveau: 'absent' as PAOELevel, sourceReglementaire: 'Doc 9859 §7.2.2' },
         ],
         directives: {
           present: ['Planning de réunions défini', 'Protocoles d\'échange documentés', 'Listes de diffusion établies'],

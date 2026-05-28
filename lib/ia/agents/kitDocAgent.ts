@@ -2646,7 +2646,7 @@ Génère un JSON avec cette structure exacte:
         responseFormat: 'json_object',
       },
       {
-        questions: [{ ref: `${elementId}.q1`, texte: `L'élément ${elementLabel} est-il documenté?`, sourceReglementaire: 'RAS 19' }],
+        questions: [{ ref: `${elementId}.q1`, texte: `L'élément ${elementLabel} est-il documenté?`, sourceReglementaire: 'Doc 9859 (SGS OACI)' }],
         directives: {
           present: ['Documenté et accessible'],
           approprie: ['Adapté au contexte'],
