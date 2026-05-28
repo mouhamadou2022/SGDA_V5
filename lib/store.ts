@@ -2959,6 +2959,10 @@ getActiveAerodromes: () => {
             })
           }
         }
+        // Réévaluation du risque → recalculer le profil
+        if (ecart.aerodrome_id) {
+          get().recalculerProfilRisque(ecart.aerodrome_id)
+        }
       },
 
       soumettrePreuves: async (ecartId, preuves) => {
@@ -3116,6 +3120,10 @@ getActiveAerodromes: () => {
               canal: 'in_app'
             })
           }
+        }
+        // Réévaluation du risque → recalculer le profil pour evaluerPreuves
+        if (validation.niveau_risque_reevalue && ecart.aerodrome_id) {
+          get().recalculerProfilRisque(ecart.aerodrome_id)
         }
       },
 
