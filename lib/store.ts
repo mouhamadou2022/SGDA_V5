@@ -21,6 +21,7 @@ import { createAdvancedModelsSlice, AdvancedModelsSlice } from './store/advanced
 import { syncLearningFromStore, syncPACFromStore, startScheduledLearningRecalibration } from './learningPersistence';
 import { codeAccesUtils } from './codeAccesUtils';
 import { registreUtils } from './registreUtils';
+import { genererPlanning } from './services/planningGenerator';
 import type { ResultatChecklist } from './stylet';
 import type { HelistationData } from './types/helistation'
 import type { SuggestionDetaillee } from './checklistMemory';
@@ -4189,21 +4190,28 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       },
 
       genererPlanningN1: (aerodromeId, annee) => {
-        const profilRisque = get().getProfilRisque(aerodromeId)
-        if (!profilRisque) return []
-        const historiqueSurveillances = get().surveillances
-          .filter(s => s.aerodrome_id === aerodromeId)
-          .map(s => ({
-            type: s.type,
-            date: s.date_debut,
-            domaines: s.portee
-          }))
-        return risqueUtils.genererPlanningN1(
-          aerodromeId,
-          annee,
-          profilRisque,
-          historiqueSurveillances
-        ) as Planning[]
+        const state = get()
+        const profil = state.profilsRisque?.[aerodromeId]
+        const historique = state.surveillances
+          .filter(s => s.aerodrome_id === aerodromeId && s.statut === 'archivee')
+          .map(s => ({ type: s.type, date: s.date_debut, domaines: s.portee || [] }))
+        const ecarts = (state.ecarts || []).filter(e => e.aerodrome_id === aerodromeId)
+        const certs = (state.certifications || []).filter(c => c.aerodrome_id === aerodromeId)
+        const homos = (state.homologations || []).filter(h => h.aerodrome_id === aerodromeId)
+        const inspecteurs = (state.inspecteurs || []).filter(i => !i.deleted_at)
+          .map(i => ({ id: i.id, prenom: i.prenom, nom: i.nom, competences: i.competences }))
+
+        // Nouveau générateur centralisé (profil + carry-over + certif)
+        const proposals = genererPlanning({
+          aerodromeId, annee,
+          profilRisque: profil,
+          ecartsActifs: ecarts,
+          certifications: certs,
+          homologations: homos,
+          inspecteurs,
+          historiqueSurveillances: historique,
+        })
+        return proposals as unknown as Planning[]
       },
 
       // ============================================================
