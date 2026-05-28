@@ -20,6 +20,7 @@ import { learningEnginePAC, PACLearningFeedback, PreuveLearningFeedback } from '
 import { createAdvancedModelsSlice, AdvancedModelsSlice } from './store/advancedModelsSlice';
 import { syncLearningFromStore, syncPACFromStore, startScheduledLearningRecalibration } from './learningPersistence';
 import { codeAccesUtils } from './codeAccesUtils';
+import { registreUtils } from './registreUtils';
 import type { ResultatChecklist } from './stylet';
 import type { HelistationData } from './types/helistation'
 import type { SuggestionDetaillee } from './checklistMemory';
@@ -3954,12 +3955,25 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         certifications: state.certifications.filter((c) => c.id !== id),
         currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
       })),
-      archiverCertification: (id) => set((state) => ({
-        certifications: state.certifications.map((c) =>
-          c.id === id ? { ...c, statut_global: 'archive' as const, archived_at: new Date().toISOString() } : c
-        ),
-        currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
-      })),
+      archiverCertification: (id) => {
+        const cert = get().certifications.find(c => c.id === id);
+        if (!cert) return;
+        const now = new Date().toISOString();
+        set((state) => ({
+          certifications: state.certifications.map((c) =>
+            c.id === id ? { ...c, statut_global: 'archive' as const, archived_at: now } : c
+          ),
+          currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
+        }));
+        const aerodrome = get().aerodromes.find(a => a.id === cert.aerodrome_id);
+        const entry = registreUtils.toRegistreEntryFromCertification(cert, aerodrome);
+        get().addRegistreEntry({
+          id: crypto.randomUUID(),
+          ...entry,
+          timeline: [{ id: crypto.randomUUID(), etape: 'Archivage automatique', date: now, acteur: get().user?.prenom + ' ' + get().user?.nom || 'Système', acteur_role: 'systeme' }],
+          created_at: now,
+        });
+      },
       restaurerCertification: (id) => set((state) => ({
         certifications: state.certifications.map((c) =>
           c.id === id ? { ...c, statut_global: 'en_cours' as const, archived_at: null } : c
@@ -3986,12 +4000,25 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         homologations: state.homologations.filter((h) => h.id !== id),
         currentHomologation: state.currentHomologation?.id === id ? null : state.currentHomologation,
       })),
-      archiverHomologation: (id) => set((state) => ({
-        homologations: state.homologations.map((h) =>
-          h.id === id ? { ...h, statut_global: 'archive' as const, archived_at: new Date().toISOString() } : h
-        ),
-        currentHomologation: state.currentHomologation?.id === id ? null : state.currentHomologation,
-      })),
+      archiverHomologation: (id) => {
+        const homo = get().homologations.find(h => h.id === id);
+        if (!homo) return;
+        const now = new Date().toISOString();
+        set((state) => ({
+          homologations: state.homologations.map((h) =>
+            h.id === id ? { ...h, statut_global: 'archive' as const, archived_at: now } : h
+          ),
+          currentHomologation: state.currentHomologation?.id === id ? null : state.currentHomologation,
+        }));
+        const aerodrome = get().aerodromes.find(a => a.id === homo.aerodrome_id);
+        const entry = registreUtils.toRegistreEntryFromHomologation(homo, aerodrome);
+        get().addRegistreEntry({
+          id: crypto.randomUUID(),
+          ...entry,
+          timeline: [{ id: crypto.randomUUID(), etape: 'Archivage automatique', date: now, acteur: get().user?.prenom + ' ' + get().user?.nom || 'Système', acteur_role: 'systeme' }],
+          created_at: now,
+        });
+      },
       restaurerHomologation: (id) => set((state) => ({
         homologations: state.homologations.map((h) =>
           h.id === id ? { ...h, statut_global: 'en_cours' as const, archived_at: null } : h
