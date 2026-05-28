@@ -37,7 +37,6 @@ function getConformiteBadgeColor(taux: number): string {
 
 
 const DOMAINES_PREDEFINIS = [
-  { id: 'sgs', nom: 'SGS', description: 'Système de Gestion de la Sécurité' },
   { id: 'sli', nom: 'SLI', description: 'Sauvetage et Lutte Incendie' },
   { id: 'phy', nom: 'PHY', description: 'Caractéristiques physiques' },
   { id: 'ols', nom: 'OLS', description: 'Surface de limitation d\'obstacles' },

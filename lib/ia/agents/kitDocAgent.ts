@@ -2104,7 +2104,7 @@ Identifie jusqu'à 5 extraits clés. Format:
     const allDomainesImpactes = [...new Set(allAnalyses.flatMap(a => a.analyse.domaines_impactes))]
     const domainesActifs = allDomainesImpactes.length > 0
       ? expandDomaines(allDomainesImpactes)
-      : ['SGS','SLI','PHY','OLS','RA','ELEC','MFP','COP','OPS']
+      : ['SLI','PHY','OLS','RA','ELEC','MFP','COP','OPS']
 
     const result: any[] = []
 
