@@ -350,6 +350,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistSuiviEcarts
             surveillanceId={surveillanceId}
             aerodromeId={surveillance?.aerodrome_id || ''}
+            onSave={handleSaveChecklist}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -367,6 +368,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={surveillance?.aerodrome_id || ''}
+            onSave={handleSaveChecklist}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -459,6 +461,7 @@ export default function ChecklistPage() {
             <SurveillanceChecklistSuiviEcarts
               surveillanceId={surveillanceId}
               aerodromeId={surveillance?.aerodrome_id || ''}
+              onSave={handleSaveChecklist}
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
@@ -475,6 +478,7 @@ export default function ChecklistPage() {
             <SurveillanceChecklistPAC
               surveillanceId={surveillanceId}
               aerodromeId={surveillance?.aerodrome_id || ''}
+              onSave={handleSaveChecklist}
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
@@ -494,6 +498,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistSuiviEcarts
             surveillanceId={surveillanceId}
             aerodromeId={surveillance.aerodrome_id}
+            onSave={handleSaveChecklist}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -511,6 +516,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={surveillance.aerodrome_id}
+            onSave={handleSaveChecklist}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}

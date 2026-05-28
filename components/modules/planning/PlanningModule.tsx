@@ -997,11 +997,17 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
 
     enregistrerFeedbackPlanning(planning, true, 'Planning validé et lancé');
 
+    // Certification et homologation incluent SGS d'office
+    const porteeComplete = [...(planning.portee || [])];
+    if ((planning.type === 'certification' || planning.type === 'homologation') && !porteeComplete.includes('SGS')) {
+      porteeComplete.push('SGS');
+    }
+
     const nouvelleSurveillance: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'> = {
       aerodrome_id: planning.aerodrome_id,
       planning_id: planning.id,
       type: planning.type,
-      portee: planning.portee || [],
+      portee: porteeComplete,
       equipe_ids: planning.equipe_ids || [],
       chef_id: planning.chef_id || '',
       date_debut: planning.date_debut,

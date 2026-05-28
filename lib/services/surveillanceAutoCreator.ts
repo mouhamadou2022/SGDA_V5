@@ -131,6 +131,9 @@ async function recalculateAllRiskProfiles() {
   const aerodromes = store.aerodromes?.filter(a => !a.deleted_at) || []
   if (aerodromes.length === 0) return
 
+  // Vérifier les certifications/homologations arrivant à expiration
+  try { verifierExpirationsCertifications() } catch { /* silencieux */ }
+
   const toRecalculate = aerodromes
     .filter(a => {
       const profil = store.profilsRisque?.[a.id]
@@ -151,6 +154,101 @@ async function recalculateAllRiskProfiles() {
       console.error(`[PeriodicRecalc] Erreur ${aero.code_oaci}:`, e)
     }
   }
+}
+
+// Vérifie les certifications et homologations arrivant à expiration dans ≤ 6 mois
+// Envoie une notification aux exploitants de l'aérodrome concerné
+function verifierExpirationsCertifications() {
+  const store = useAppStore.getState()
+  const sixMois = 180 * 24 * 60 * 60 * 1000
+  const troisMois = 90 * 24 * 60 * 60 * 1000
+  const unMois = 30 * 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const alreadyNotifiedKey = 'sgda_certif_expiry_notified'
+  const notified: Record<string, number> = JSON.parse(sessionStorage.getItem(alreadyNotifiedKey) || '{}')
+
+  const aerodromes = store.aerodromes?.filter(a => !a.deleted_at) || []
+  const exploitants = store.utilisateurs?.filter(u =>
+    ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+  ) || []
+
+  for (const aero of aerodromes) {
+    const certsAero = (store.certifications || []).filter(c =>
+      c.aerodrome_id === aero.id && c.statut_global === 'certifie' && c.date_expiration
+    )
+    const homosAero = (store.homologations || []).filter(h =>
+      h.aerodrome_id === aero.id && h.statut_global === 'homologue' && h.date_expiration
+    )
+
+    for (const cert of certsAero) {
+      const expireAt = new Date(cert.date_expiration!).getTime()
+      const remaining = expireAt - now
+      if (remaining <= 0) continue
+
+      const key = `cert_${cert.id}_${aero.id}`
+      // Éviter les doublons : notifier max 1x par période (6m, 3m, 1m)
+      let seuil = 0
+      let label = ''
+      if (remaining <= unMois && remaining > 0) { seuil = unMois; label = '1 mois' }
+      else if (remaining <= troisMois && remaining > unMois) { seuil = troisMois; label = '3 mois' }
+      else if (remaining <= sixMois && remaining > troisMois) { seuil = sixMois; label = '6 mois' }
+      else continue
+
+      const lastNotified = notified[key] || 0
+      if (now - lastNotified < seuil) continue // déjà notifié pour cette période
+
+      const opsAero = exploitants.filter(u => u.aerodrome_id === aero.id)
+      for (const op of opsAero) {
+        store.addNotification({
+          user_id: op.id,
+          type: label === '1 mois' ? 'danger' : 'warning',
+          title: `⏰ Certification — renouvellement dans ${label}`,
+          message: `La certification de ${aero.code_oaci} (${cert.numero_cert || cert.reference}) expire le ${new Date(cert.date_expiration!).toLocaleDateString('fr-FR')}. Démarrez le processus de renouvellement.`,
+          canal: 'in_app',
+        })
+      }
+      // Notifier aussi les inspecteurs concernés
+      store.addNotification({
+        user_id: store.user?.id || '',
+        type: 'info',
+        title: `📋 Renouvellement certif — ${aero.code_oaci}`,
+        message: `Certification ${cert.numero_cert || cert.reference} expire dans ${label} (${new Date(cert.date_expiration!).toLocaleDateString('fr-FR')}). Planifier une surveillance de renouvellement.`,
+        canal: 'in_app',
+      })
+      notified[key] = now
+    }
+
+    for (const homo of homosAero) {
+      const expireAt = new Date(homo.date_expiration!).getTime()
+      const remaining = expireAt - now
+      if (remaining <= 0) continue
+
+      const key = `homo_${homo.id}_${aero.id}`
+      let seuil = 0
+      let label = ''
+      if (remaining <= unMois && remaining > 0) { seuil = unMois; label = '1 mois' }
+      else if (remaining <= troisMois && remaining > unMois) { seuil = troisMois; label = '3 mois' }
+      else if (remaining <= sixMois && remaining > troisMois) { seuil = sixMois; label = '6 mois' }
+      else continue
+
+      const lastNotified = notified[key] || 0
+      if (now - lastNotified < seuil) continue
+
+      const opsAero = exploitants.filter(u => u.aerodrome_id === aero.id)
+      for (const op of opsAero) {
+        store.addNotification({
+          user_id: op.id,
+          type: label === '1 mois' ? 'danger' : 'warning',
+          title: `⏰ Homologation — renouvellement dans ${label}`,
+          message: `L'homologation de ${aero.code_oaci} (${homo.numero_decision || homo.reference}) expire le ${new Date(homo.date_expiration!).toLocaleDateString('fr-FR')}. Démarrez le processus de renouvellement.`,
+          canal: 'in_app',
+        })
+      }
+      notified[key] = now
+    }
+  }
+
+  try { sessionStorage.setItem(alreadyNotifiedKey, JSON.stringify(notified)) } catch {}
 }
 
 async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' = 'risque_critique') {
