@@ -987,9 +987,14 @@ export function SurveillanceChecklistPAC({
   useEffect(() => {
     const items: ItemVerification[] = [];
     
-    // 1. Ajouter les actions PAC si écart avec PAC
+    // 1. Ajouter les actions PAC si écart avec PAC (filtrées par échéance : dans 30j ou dépassées)
     if (ecart && ecart.pac && ecart.pac.actions) {
+      const dans30Jours = Date.now() + 30 * 24 * 60 * 60 * 1000
       ecart.pac.actions.forEach((action: any, idx: number) => {
+        const datePrevue = new Date(action.date_prevue)
+        const estApprocheOuDepasse = !isNaN(datePrevue.getTime()) && datePrevue.getTime() < dans30Jours
+        if (!estApprocheOuDepasse) return // ignorer les actions dont l'échéance est > 30 jours
+
         items.push({
           id: `pac-${Date.now()}-${idx}`,
           type: 'action_pac',

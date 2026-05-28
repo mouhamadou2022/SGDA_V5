@@ -7,10 +7,11 @@ import { useAppStore, useDecisionChecklist } from '@/lib/store';
 import { SurveillanceChecklistStandard } from '@/components/modules/surveillance';
 import { SurveillanceChecklistSuiviEcarts } from '@/components/modules/surveillance';
 import { SurveillanceChecklistPAC } from '@/components/modules/surveillance';
+import SurveillanceChecklistMaintien from '@/components/modules/surveillance/SurveillanceChecklistMaintien';
 import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation';
 import type { DomaineChecklist, EvaluationSGS } from '@/types/checklist';
 import type { TypeChecklist } from '@/lib/domaines';
-import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type } from 'lucide-react';
+import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type, RefreshCw } from 'lucide-react';
 
 // Composant pour la version MIXTE (3 checklists dans des onglets)
 function ChecklistMixte({
@@ -26,9 +27,9 @@ function ChecklistMixte({
   onSave?: (domaines: DomaineChecklist[]) => void;
   onComplete: () => void;
   userRole: string;
-  initialTab?: 'standard' | 'suivi' | 'pac';
+  initialTab?: 'standard' | 'suivi' | 'pac' | 'maintien';
 }) {
-  const [activeTab, setActiveTab] = useState<'standard' | 'suivi' | 'pac'>(initialTab || 'standard');
+  const [activeTab, setActiveTab] = useState<'standard' | 'suivi' | 'pac' | 'maintien'>(initialTab || 'standard');
   const surveillances = useAppStore(s => s.surveillances);
   const surveillance = surveillances.find(s => s.id === surveillanceId);
 
@@ -65,6 +66,13 @@ function ChecklistMixte({
           <CheckCircle2 className="w-4 h-4 inline mr-2" />
           Mise en œuvre PAC
         </button>
+        <button
+          onClick={() => setActiveTab('maintien')}
+          className={`tab py-2 px-4 ${activeTab === 'maintien' ? 'active' : ''}`}
+        >
+          <RefreshCw className="w-4 h-4 inline mr-2" />
+          Maintien
+        </button>
       </div>
 
       <div className="tab-content">
@@ -96,6 +104,15 @@ function ChecklistMixte({
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={aerodromeId}
+            onComplete={onComplete}
+            userRole={userRole}
+          />
+        )}
+        {activeTab === 'maintien' && (
+          <SurveillanceChecklistMaintien
+            surveillanceId={surveillanceId}
+            aerodromeId={aerodromeId}
+            onSave={onSave}
             onComplete={onComplete}
             userRole={userRole}
           />

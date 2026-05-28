@@ -547,58 +547,92 @@ export function SurveillanceChecklistSuiviEcarts({
     };
   }, []);
   
-  // Générer les items de vérification
+  // Générer les items de vérification à partir des vrais écarts
   useEffect(() => {
-    if (ecart) {
-      const domaineEcart = (ecart as any).domaine as DomaineCode | undefined;
-      // Générer des items de vérification basés sur l'écart
-      const items: SuiviItem[] = [
-        {
-          id: `item-${Date.now()}-1`,
-          numero: '1.1',
-          domaine: domaineEcart,
-          reference_reglementaire: ecart.ref_reglementaire,
-          point_verification: `Vérification de l'état d'avancement de l'écart ${ecart.reference}`,
-          directive_preuve: 'Documents, photos, constats terrain',
-          ordre: 1,
-        },
-        {
-          id: `item-${Date.now()}-2`,
-          numero: '1.2',
-          domaine: domaineEcart,
-          reference_reglementaire: ecart.ref_reglementaire,
-          point_verification: 'Vérification des actions correctives mises en œuvre',
-          directive_preuve: 'Preuves de réalisation des actions',
-          ordre: 2,
-        },
-        {
-          id: `item-${Date.now()}-3`,
-          numero: '1.3',
-          domaine: domaineEcart,
-          reference_reglementaire: ecart.ref_reglementaire,
-          point_verification: 'Évaluation de l\'efficacité des actions',
-          directive_preuve: 'Tests, mesures, inspections',
-          ordre: 3,
-        },
-      ];
-      
-      setVerification({
-        id: `suivi-${Date.now()}`,
-        ecart_id: ecart.id,
-        domaine: domaineEcart,
-        ecart_reference: ecart.reference,
-        ecart_libelle: ecart.libelle,
-        ecart_niveau: ecart.niveau_risque,
-        date_echeance: ecart.delai_regularisation,
-        statut: ecart.statut,
-        progression_pac: ecart.pac?.version ? 50 : 0,
-        items,
-        observations_generales: '',
-        progression: 0,
-        isExpanded: true,
-      });
+    // Récupérer tous les écarts de l'aérodrome qui nécessitent un suivi
+    // États concernés : ouvert (pas encore de PAC), pac_attendu (PAC demandé mais non soumis), en_retard
+    const ecartsASuivre = ecarts.filter(e => {
+      if (e.aerodrome_id !== aerodromeId) return false
+      if (e.statut === 'cloture') return false
+      // Écarts sans PAC soumis : ouvert, pac_attendu, en_retard
+      if (['ouvert', 'pac_attendu', 'en_retard'].includes(e.statut)) return true
+      // Écarts avec PAC soumis mais sans preuves ou preuves partielles
+      if (e.pac && ['pac_soumis', 'pac_refuse'].includes(e.statut)) return true
+      return false
+    })
+
+    if (ecartsASuivre.length === 0) {
+      setVerification(null)
+      return
     }
-  }, [ecart]);
+
+    // Construire les items pour chaque écart
+    const tousItems: SuiviItem[] = []
+    let itemCounter = 1
+
+    for (const ec of ecartsASuivre) {
+      const domaineEcart = (ec as any).domaine as DomaineCode | undefined
+      const ref = ec.ref_reglementaire || ec.reference
+      const echeance = ec.delai_regularisation
+        ? new Date(ec.delai_regularisation).toLocaleDateString('fr-FR')
+        : ec.delai_pac
+          ? new Date(ec.delai_pac).toLocaleDateString('fr-FR')
+          : 'Non définie'
+
+      // Item 1 : état d'avancement
+      tousItems.push({
+        id: `suivi-${ec.id}-1`,
+        numero: `${itemCounter++}.1`,
+        domaine: domaineEcart,
+        reference_reglementaire: ref,
+        point_verification: `[${ec.reference}] Vérifier l'état d'avancement — ${ec.libelle?.substring(0, 100) || 'écart sans libellé'}`,
+        directive_preuve: 'Constats terrain, photos, documents',
+        ordre: tousItems.length + 1,
+      })
+
+      // Item 2 : actions correctives engagées
+      tousItems.push({
+        id: `suivi-${ec.id}-2`,
+        numero: `${itemCounter++}.2`,
+        domaine: domaineEcart,
+        reference_reglementaire: ref,
+        point_verification: `[${ec.reference}] Vérifier les actions correctives engagées — délai régularisation : ${echeance}`,
+        directive_preuve: 'Preuves de mise en œuvre, devis, planning travaux',
+        ordre: tousItems.length + 1,
+      })
+
+      // Item 3 : évaluation de l'efficacité (seulement si actions engagées)
+      if (ec.pac || ec.date_detection) {
+        tousItems.push({
+          id: `suivi-${ec.id}-3`,
+          numero: `${itemCounter++}.3`,
+          domaine: domaineEcart,
+          reference_reglementaire: ref,
+          point_verification: `[${ec.reference}] Évaluer l'efficacité des mesures prises — écart ${ec.niveau_risque}, ${ec.statut}`,
+          directive_preuve: 'Rapport d\'évaluation, mesures avant/après, indicateurs',
+          ordre: tousItems.length + 1,
+        })
+      }
+    }
+
+    // Créer l'objet de vérification
+    const premierEcart = ecartsASuivre[0]
+    const verif: EcartSuiviVerification = {
+      id: `suivi-${surveillanceId}-${Date.now()}`,
+      ecart_id: premierEcart.id,
+      domaine: (premierEcart as any).domaine,
+      ecart_reference: `${ecartsASuivre.length} écart(s) à suivre`,
+      ecart_libelle: ecartsASuivre.map(e => `${e.reference} (${e.niveau_risque})`).join(', '),
+      ecart_niveau: premierEcart.niveau_risque as 'critique' | 'eleve' | 'moyen' | 'faible',
+      date_echeance: premierEcart.delai_regularisation || premierEcart.delai_pac || new Date().toISOString(),
+      statut: premierEcart.statut,
+      progression_pac: premierEcart.pac?.version,
+      items: tousItems,
+      progression: 0,
+      isExpanded: true,
+    }
+    setVerification(verif)
+  }, [aerodromeId, ecarts, surveillanceId])
   
   // Générer les suggestions
   useEffect(() => {

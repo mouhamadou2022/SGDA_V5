@@ -176,9 +176,6 @@ function verifierExpirationsCertifications() {
     const certsAero = (store.certifications || []).filter(c =>
       c.aerodrome_id === aero.id && c.statut_global === 'certifie' && c.date_expiration
     )
-    const homosAero = (store.homologations || []).filter(h =>
-      h.aerodrome_id === aero.id && h.statut_global === 'homologue' && h.date_expiration
-    )
 
     for (const cert of certsAero) {
       const expireAt = new Date(cert.date_expiration!).getTime()
@@ -215,35 +212,6 @@ function verifierExpirationsCertifications() {
         message: `Certification ${cert.numero_cert || cert.reference} expire dans ${label} (${new Date(cert.date_expiration!).toLocaleDateString('fr-FR')}). Planifier une surveillance de renouvellement.`,
         canal: 'in_app',
       })
-      notified[key] = now
-    }
-
-    for (const homo of homosAero) {
-      const expireAt = new Date(homo.date_expiration!).getTime()
-      const remaining = expireAt - now
-      if (remaining <= 0) continue
-
-      const key = `homo_${homo.id}_${aero.id}`
-      let seuil = 0
-      let label = ''
-      if (remaining <= unMois && remaining > 0) { seuil = unMois; label = '1 mois' }
-      else if (remaining <= troisMois && remaining > unMois) { seuil = troisMois; label = '3 mois' }
-      else if (remaining <= sixMois && remaining > troisMois) { seuil = sixMois; label = '6 mois' }
-      else continue
-
-      const lastNotified = notified[key] || 0
-      if (now - lastNotified < seuil) continue
-
-      const opsAero = exploitants.filter(u => u.aerodrome_id === aero.id)
-      for (const op of opsAero) {
-        store.addNotification({
-          user_id: op.id,
-          type: label === '1 mois' ? 'danger' : 'warning',
-          title: `⏰ Homologation — renouvellement dans ${label}`,
-          message: `L'homologation de ${aero.code_oaci} (${homo.numero_decision || homo.reference}) expire le ${new Date(homo.date_expiration!).toLocaleDateString('fr-FR')}. Démarrez le processus de renouvellement.`,
-          canal: 'in_app',
-        })
-      }
       notified[key] = now
     }
   }
