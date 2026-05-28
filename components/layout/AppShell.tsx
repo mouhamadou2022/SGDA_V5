@@ -8,6 +8,8 @@ import { AppHeader } from './AppHeader'
 import { Breadcrumb } from './Breadcrumb'
 import { AppNav } from './AppNav'
 import { CommandPalette } from './CommandPalette'
+import { OfflineBanner } from './OfflineBanner'
+import { SyncStatusBadge } from './SyncStatus'
 import { AIAssistant } from '@/components/ui/AIAssistant'
 import { AuthUser } from '@/lib/auth'
 import { Plane } from 'lucide-react'
@@ -131,6 +133,7 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
 
   return (
     <div className="min-h-screen" data-role={user.role}>
+      <OfflineBanner />
       <TimerBar />
       <AppHeader user={user} onLogout={onLogout} />
       <Breadcrumb items={breadcrumbItems} onNavigate={setActiveModule} />
