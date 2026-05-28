@@ -1105,6 +1105,13 @@ export interface Planning {
   checklist_pac?: any[]
   checklist_suivi_ecarts?: any[]
   sgs_evaluation_prepa?: any  // EvaluationSGS — sauvegardée lors de la préparation
+  // Rappels avant surveillance
+  rappels_envoyes?: { j30?: boolean; j15?: boolean; j7?: boolean }
+  // Confirmation par l'inspecteur
+  confirme_le?: string
+  confirme_par?: string
+  date_confirmee?: string
+  motif_report?: string
   created_at: string
   updated_at: string
   deleted_at?: string
@@ -2684,7 +2691,79 @@ getActiveAerodromes: () => {
             canal: 'in_app'
           })
         })
-        get().incrementerVersion()
+
+        // ── Rappels planning (surveillances programmées) ──
+        const maintenant2 = new Date()
+        const rappelsSurveillance = [
+          { jours: 30, cle: 'j30' as const, label: 'J-30' },
+          { jours: 15, cle: 'j15' as const, label: 'J-15' },
+          { jours: 7, cle: 'j7' as const, label: 'J-7' },
+        ]
+        state.plannings?.filter(p => p.statut === 'planifiee' && !p.deleted_at).forEach(planning => {
+          const dateDebut = new Date(planning.date_debut)
+          const joursAvant = Math.ceil((dateDebut.getTime() - maintenant2.getTime()) / (1000 * 60 * 60 * 24))
+          if (joursAvant < 0) return
+
+          rappelsSurveillance.forEach(({ jours, cle, label }) => {
+            if (joursAvant === jours) {
+              const dejaEnvoye = planning.rappels_envoyes?.[cle]
+              if (!dejaEnvoye) {
+                // Mettre à jour le flag rappels_envoyes
+                const updated = { ...planning.rappels_envoyes, [cle]: true }
+                get().updatePlanning(planning.id, { rappels_envoyes: updated } as any)
+
+                const aerodrome = state.aerodromes.find(a => a.id === planning.aerodrome_id)
+                const codeOaci = aerodrome?.code_oaci || planning.aerodrome_id
+                const dateStr = new Date(planning.date_debut).toLocaleDateString('fr-FR')
+                const typeLabel = (planning.type as string)?.replace(/_/g, ' ') || 'surveillance'
+                const domaines = (planning.portee || []).slice(0, 3).join(', ')
+
+                // Notifier les inspecteurs de l'équipe
+                const equipeIds = planning.equipe_ids || []
+                equipeIds.forEach(uid => {
+                  get().addNotification({
+                    user_id: uid,
+                    type: jours <= 7 ? 'danger' : jours <= 15 ? 'warning' : 'info',
+                    title: `⏰ Surveillance ${label} — ${codeOaci}`,
+                    message: `La surveillance ${typeLabel} de ${codeOaci} est prévue le ${dateStr} (dans ${jours} jours). Domaines : ${domaines || 'tous'}. Confirmez ou réajustez les dates si nécessaire.`,
+                    canal: 'in_app',
+                    link: `/planning`,
+                  })
+                })
+
+                // Notifier le chef
+                if (planning.chef_id && !equipeIds.includes(planning.chef_id)) {
+                  get().addNotification({
+                    user_id: planning.chef_id,
+                    type: jours <= 7 ? 'danger' : jours <= 15 ? 'warning' : 'info',
+                    title: `⏰ Surveillance ${label} — ${codeOaci}`,
+                    message: `En tant que chef d'équipe, confirmez la surveillance ${typeLabel} du ${dateStr} (J-${jours}).`,
+                    canal: 'in_app',
+                    link: `/planning`,
+                  })
+                }
+
+                // J-7 : notifier aussi les exploitants
+                if (jours <= 7) {
+                  const exploitants = state.utilisateurs?.filter(u =>
+                    u.aerodrome_id === planning.aerodrome_id &&
+                    ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+                  ) || []
+                  exploitants.forEach(op => {
+                    get().addNotification({
+                      user_id: op.id,
+                      type: 'warning',
+                      title: `📋 Surveillance imminente — ${codeOaci}`,
+                      message: `La surveillance ${typeLabel} aura lieu le ${dateStr}. Domaines : ${domaines || 'tous'}. Préparez vos documents et registres.`,
+                      canal: 'in_app',
+                      link: `/operatorDashboard`,
+                    })
+                  })
+                }
+              }
+            }
+          })
+        })
       },
       
       getActiveSurveillances: () => {
@@ -4116,6 +4195,36 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           ;[..._equipeIds, ..._exploitants.map(u => u.id)].forEach(uid =>
             _addN({ user_id: uid, type, title, message, canal: 'in_app' })
           )
+        }
+
+        // ── Confirmation par l'inspecteur → notifier les exploitants ──
+        if (data.confirme_le && !oldPlanning?.confirme_le) {
+          const dateConfirmee = data.date_confirmee || oldPlanning.date_debut
+          const dateStr = new Date(dateConfirmee).toLocaleDateString('fr-FR')
+          const motif = data.motif_report ? `\nMotif du report : ${data.motif_report}` : ''
+          const user = get().user
+          const confirmePar = user ? `${user.prenom} ${user.nom}` : 'ANACIM'
+          _exploitants.forEach(op => {
+            _addN({
+              user_id: op.id,
+              type: 'success',
+              title: `✅ Surveillance confirmée — ${_codeOaci}`,
+              message: `La surveillance ${_typeLabel} de ${_codeOaci} est confirmée pour le ${dateStr} par ${confirmePar}.${motif}\nPréparez vos documents et registres.`,
+              canal: 'in_app',
+            })
+            // Email à l'exploitant
+            if (op.notifications_email && op.email) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: op.email,
+                  subject: `SGDA - Surveillance confirmée ${_codeOaci} - ${dateStr}`,
+                  message: `Bonjour,\n\nLa surveillance ${_typeLabel} de votre aérodrome (${_codeOaci}) est confirmée pour le ${dateStr}.\nDomaines concernés : ${(oldPlanning.portee || []).join(', ') || 'tous'}.\n\nMerci de préparer les documents et registres nécessaires.\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
         }
 
         // ── Statut change ──────────────────────────────────────────────
