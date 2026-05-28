@@ -1,5 +1,5 @@
 // lib/formationUtils.ts
-import { Formation, Competence, Inspecteur } from './store'
+import { Formation, Competence, Inspecteur, Surveillance } from './store'
 
 export const formationUtils = {
   /**
@@ -16,10 +16,9 @@ export const formationUtils = {
     inspecteur: Inspecteur,
     formations: Formation[],
     competences: Competence[]
-  ): Record<string, { niveau: string; date: string; source: string }> {
-    const matrice: Record<string, { niveau: string; date: string; source: string }> = {}
+  ): Record<string, { niveau: string | number; date: string; source: string }> {
+    const matrice: Record<string, { niveau: string | number; date: string; source: string }> = {}
 
-    // Compétences de base par domaine principal
     const niveauBase: Record<string, string> = {
       'exploitation': 'cadre_technique',
       'sli': 'cadre_technique',
@@ -68,16 +67,12 @@ export const formationUtils = {
   aCompetence(
     inspecteur: Inspecteur,
     domaine: string,
-    niveauRequis: string
+    niveauRequis: number = 3
   ): boolean {
     const competence = inspecteur.competences.find(c => c.domaine === domaine)
     if (!competence) return false
 
-    const niveaux = ['cadre_technique', 'inspecteur_titulaire', 'inspecteur_principal']
-    const indexRequis = niveaux.indexOf(niveauRequis)
-    const indexActuel = niveaux.indexOf(competence.niveau)
-
-    if (indexActuel < indexRequis) return false
+    if ((competence.niveau || 0) < niveauRequis) return false
 
     if (competence.expire_le && new Date(competence.expire_le) < new Date()) {
       return false
@@ -95,6 +90,52 @@ export const formationUtils = {
 
     const presents = Object.values(formation.presence || {}).filter(v => v === 'present').length
     return Math.round((presents / total) * 100)
+  },
+
+  /**
+   * Moteur de calcul automatique des compétences
+   */
+  GRADE_BASE: { cadre_technique: 1, inspecteur_stagiaire: 2, inspecteur_titulaire: 3, inspecteur_principal: 4 } as Record<string, number>,
+
+  calculerNiveauCompetence(
+    inspecteur: Inspecteur,
+    domaine: string,
+    context: { formations: Formation[]; surveillances: Surveillance[] }
+  ): number {
+    const grade = inspecteur.type || 'cadre_technique'
+    let niveau = this.GRADE_BASE[grade] || 1
+
+    // Bonus domaine principal
+    const correspondanceAGA: Record<string, string[]> = {
+      exploitation: ['SGS','COP','OPS'], sli: ['SLI','RA'], genie_civil: ['PHY','OLS'], genie_electrique: ['ELEC','MFP'],
+    }
+    if (correspondanceAGA[inspecteur.domaine_principal]?.includes(domaine)) niveau += 1
+
+    // Bonus formations terminées
+    const nbFormations = context.formations.filter(f =>
+      f.participants.includes(inspecteur.id) && f.statut === 'terminee' && f.domaines.includes(domaine)
+    ).length
+    niveau += Math.min(2, nbFormations * 0.5)
+
+    // Bonus missions
+    const nbMissions = context.surveillances.filter(s =>
+      (s.equipe_ids || []).includes(inspecteur.id) && s.statut !== 'planifiee'
+    ).length
+    niveau += Math.min(1, Math.floor(nbMissions / 5) * 0.5)
+
+    // Bonus ancienneté
+    const annees = (Date.now() - new Date(inspecteur.created_at).getTime()) / 31536000000
+    niveau += Math.min(1, Math.floor(annees / 3) * 0.5)
+
+    // Malus péremption
+    const derniereFormation = context.formations
+      .filter(f => f.participants.includes(inspecteur.id) && f.domaines.includes(domaine))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+    if (!derniereFormation || (Date.now() - new Date(derniereFormation.date).getTime()) / 31536000000 > 5) {
+      niveau -= 1
+    }
+
+    return Math.max(1, Math.min(5, Math.round(niveau)))
   },
 
   /**

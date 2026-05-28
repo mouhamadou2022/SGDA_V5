@@ -267,7 +267,23 @@ CREATE POLICY "api_keys_admin" ON api_keys
   FOR ALL USING (get_user_role() = 'admin');
 
 -- ============================================================
--- SECTION 5.D — COLONNES MESSAGES MANQUANTES
+-- SECTION 5.D — COLONNES HIÉRARCHIE ANACIM
+-- poste : fonction hiérarchique (inspecteur, chef_ssa, chef_sna, chef_dnsa)
+-- superieur_id : lien vers le supérieur direct
+-- ============================================================
+
+DO $$ BEGIN
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS poste        text;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS superieur_id text;
+  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS poste        text;
+  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS superieur_id text;
+  ALTER TABLE dossiers     ADD COLUMN IF NOT EXISTS extensions   jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE dossiers     ADD COLUMN IF NOT EXISTS date_limite_initiale timestamptz;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- ============================================================
+-- SECTION 5.E — COLONNES MESSAGES MANQUANTES
 -- cc_id : destinataires en copie (JSONB pour compatibilité multi)
 -- archived_by : utilisateurs ayant archivé le message
 -- ============================================================

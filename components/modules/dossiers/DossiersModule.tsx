@@ -154,6 +154,8 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   const user = useAppStore(s => s.user);
   const addDossier = useAppStore(s => s.addDossier);
   const updateDossier = useAppStore(s => s.updateDossier);
+  const extendreDossier = useAppStore(s => s.extendreDossier);
+  const addNotification = useAppStore(s => s.addNotification);
   const deleteDossier = useAppStore(s => s.deleteDossier);
   const archiverDossierAutomatique = useAppStore(s => s.archiverDossierAutomatique);
   const restaurerDossier = useAppStore(s => s.restaurerDossier);
@@ -172,6 +174,9 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showHistorique, setShowHistorique] = useState(false);
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [extMotif, setExtMotif] = useState('');
+  const [extJours, setExtJours] = useState<3 | 7 | 10>(7);
   const [viewMode, setViewMode] = useState<'liste' | 'grille'>('liste');
   const [mounted, setMounted] = useState(false);
 
@@ -655,10 +660,67 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
               {getLibelleStatut(selectedDossier?.statut || '')}
             </span>
           </div>
+          {selectedDossier?.statut === 'en_cours' && selectedDossier?.inspecteur_id === user?.id && (
+            <div className="col-span-2 pt-3 border-t border-border">
+              <button className="btn btn-sm gap-1.5" style={{ background: '#f59e0b', color: 'white' }}
+                onClick={() => setShowExtendModal(true)}>
+                <Clock className="w-3.5 h-3.5" />
+                Demander une extension de délai
+              </button>
+              {selectedDossier.extensions && selectedDossier.extensions.length > 0 && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  {selectedDossier.extensions.length} extension(s) déjà accordée(s)
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Extension historique */}
+        {selectedDossier?.extensions && selectedDossier.extensions.length > 0 && (
+          <div className="space-y-2 mt-2">
+            <p className="text-xs font-semibold text-role-primary uppercase">Extensions de délai</p>
+            {selectedDossier.extensions.map((ext, i) => (
+              <div key={i} className="flex items-center justify-between p-2 bg-warning/10 rounded-lg text-sm">
+                <span>+{ext.jours} jours — {ext.motif}</span>
+                <span className="text-xs text-muted-foreground">{new Date(ext.date).toLocaleDateString('fr-FR')}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </FormShell>
   );
+
+  const ExtendModal = () => {
+    const localFocus = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
+    const handleExtend = () => {
+      if (!selectedDossier || !extMotif.trim()) return
+      extendreDossier(selectedDossier.id, { date: new Date().toISOString(), jours: extJours, motif: extMotif }, user?.nom)
+      addNotification({ user_id: selectedDossier.inspecteur_id, type: 'success', title: 'Délai étendu', message: `Délai du dossier ${selectedDossier.reference} étendu de ${extJours} jours.`, canal: 'in_app' })
+      setShowExtendModal(false)
+      setExtMotif('')
+    }
+    return (
+      <FormShell open={showExtendModal} onClose={() => setShowExtendModal(false)} title="Extension de délai" icon={Clock} size="sm"
+        footer={<div className="flex gap-2"><button className="btn btn-secondary" onClick={() => setShowExtendModal(false)}>Annuler</button><button className="btn btn-primary" onClick={handleExtend} disabled={!extMotif.trim()}>Confirmer</button></div>}>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Date limite actuelle : {selectedDossier?.date_limite ? new Date(selectedDossier.date_limite).toLocaleDateString('fr-FR') : '-'}</p>
+          <div className="form-field">
+            <label className="filter-label">Jours supplémentaires</label>
+            <div className="flex gap-2">{[3, 7, 10].map(j => (
+              <button key={j} onClick={() => setExtJours(j as 3|7|10)}
+                className={`btn btn-sm flex-1 ${extJours === j ? 'btn-primary' : 'btn-secondary'}`}>{j} jours</button>
+            ))}</div>
+          </div>
+          <div className="form-field">
+            <label className="filter-label">Motif <span className="text-danger">*</span></label>
+            <textarea className={`form-textarea ${localFocus}`} rows={3} value={extMotif} onChange={e => setExtMotif(e.target.value)} placeholder="Raison de l'extension..." />
+          </div>
+        </div>
+      </FormShell>
+    )
+  }
 
   const HistoriqueModal = () => (
     <FormShell
@@ -1266,6 +1328,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
       {showForm && FormModal()}
       {showDetails && DetailsModal()}
       {showHistorique && HistoriqueModal()}
+      {showExtendModal && ExtendModal()}
     </div>
   );
 }

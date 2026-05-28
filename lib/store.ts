@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useRef } from 'react'
-import { AuthUser, buildIdentifiant } from './auth'
+import { AuthUser, buildIdentifiant, PosteANACIM } from './auth'
 import { notifyDeletionCascade, notifyAerodromeDeleted } from './notifications'
 import { toast } from './toast'
 import { risqueUtils } from './risque'
@@ -1107,24 +1107,34 @@ export interface Planning {
 
 export interface Utilisateur {
   id: string
-  email?: string
+  auth_id?: string
+  email: string
+  identifiant?: string
   nom: string
   prenom: string
   role: string
-  telephone?: string
+  statut: string
+  force_pwd_change?: boolean
   aerodrome_id?: string
-  auth_id?: string
-  inspecteur_id?: string
-  password_temporaire?: boolean
-  notifications_email: boolean
-  notifications_sms: boolean
-  matricule?: string
+  telephone?: string
+  poste?: string
+  superieur_id?: string
+  fonction?: string
   service?: string
-  statut?: 'actif' | 'inactif' | 'suspendu'
+  service_rattache?: string
+  competences?: any[]
+  matricule?: string
+  inspecteur_id?: string
   last_login?: string
-  competences?: { domaine: string; niveau: string }[]
+  password_temporaire?: boolean
+  notifications_email?: boolean
+  notifications_sms?: boolean
+  bio?: string
+  photo_url?: string
+  date_embauche?: string
   deleted_at?: string
-  deleted_by?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface EvenementSecurite {
@@ -1276,6 +1286,14 @@ export interface EntreeRegistre {
   created_by: string
 }
 
+export interface DossierExtension {
+  date: string
+  jours: 3 | 7 | 10
+  motif: string
+  superieur_approbation?: string
+  superieur_nom?: string
+}
+
 export interface Dossier {
   id: string
   aerodrome_id?: string
@@ -1292,6 +1310,7 @@ export interface Dossier {
   instructions?: string
   date_instruction: string
   date_limite: string
+  date_limite_initiale?: string  // vérouillée après imputation
   fichiers: {
     nom: string
     url: string
@@ -1302,6 +1321,7 @@ export interface Dossier {
   }[]
   progression: 0 | 25 | 50 | 75 | 100
   preuve_traitement?: string
+  extensions?: DossierExtension[]
   statut: 'en_cours' | 'en_attente' | 'termine' | 'archive'
   historique: {
     date: string
@@ -1349,10 +1369,10 @@ export interface Formation {
 export interface Competence {
   id: string
   inspecteur_id: string
-  domaine: 'exploitation' | 'sli' | 'genie_civil' | 'genie_electrique' | 'risque_animalier' | 'certification' | 'homologation'
-  niveau: 'cadre_technique' | 'inspecteur_titulaire' | 'inspecteur_principal'
+  domaine: string
+  niveau: number
   date_obtention: string
-  source: 'formation' | 'certification' | 'evaluation'
+  source: 'formation' | 'certification' | 'evaluation' | 'auto' | 'manuel'
   source_id?: string
   expire_le?: string
 }
@@ -1364,8 +1384,10 @@ export interface Inspecteur {
   nom: string
   email: string
   telephone?: string
-  type: 'cadre_technique' | 'inspecteur_titulaire' | 'inspecteur_principal'
+  type: 'cadre_technique' | 'inspecteur_stagiaire' | 'inspecteur_titulaire' | 'inspecteur_principal'
   service: 'normes_aerodromes' | 'securite_aerodromes'
+  poste?: PosteANACIM
+  superieur_id?: string
   domaine_principal: 'exploitation' | 'sli' | 'genie_civil' | 'genie_electrique'
   photo?: string
   statut: 'en_service' | 'en_conge' | 'en_mission' | 'absent'
@@ -1886,7 +1908,8 @@ interface DossierSlice {
   setDossiers: (dossiers: Dossier[]) => void
   setCurrentDossier: (dossier: Dossier | null) => void
   addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => void
-  updateDossier: (id: string, data: Partial<Dossier>) => void
+   updateDossier: (id: string, data: Partial<Dossier>) => void
+   extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => void
   deleteDossier: (id: string) => void
   getDossiersByInspecteur: (inspecteurId: string) => Dossier[]
   getDossiersUrgents: () => Dossier[]
@@ -2242,6 +2265,13 @@ export const useAppStore = create<AppStore>()(
       updateUtilisateur: async (id, data) => {
         set((state) => ({ utilisateurs: state.utilisateurs.map(u => u.id === id ? { ...u, ...data } : u) }))
         datastore.updateUtilisateur(id, data).then(r => { if (r.error) console.error('Erreur update utilisateur Supabase:', r.error) })
+        // Sync vers Inspecteur si poste ou superieur_id change
+        if (data.poste !== undefined || data.superieur_id !== undefined) {
+          const user = get().utilisateurs.find(u => u.id === id)
+          if (user?.inspecteur_id) {
+            get().updateInspecteur(user.inspecteur_id, { poste: data.poste as any, superieur_id: data.superieur_id })
+          }
+        }
       },
       deleteUtilisateur: async (id: string) => {
         const state = get()
@@ -4474,6 +4504,20 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       addDossier: (dossier) => set((state) => ({
         dossiers: [...state.dossiers, { ...dossier, id: crypto.randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), historique: [] } as Dossier]
       })),
+      extendreDossier: (id, extension, superieurNom) => set((state) => ({
+        dossiers: state.dossiers.map(d => {
+          if (d.id !== id) return d
+          const now = new Date().toISOString()
+          const newDateLimite = new Date(new Date(d.date_limite).getTime() + extension.jours * 86400000).toISOString()
+          return {
+            ...d,
+            date_limite: newDateLimite,
+            extensions: [...(d.extensions || []), { ...extension, superieur_approbation: superieurNom || 'chef', date: now }],
+            historique: [...d.historique, { date: now, action: `Extension de délai de ${extension.jours} jour(s) : ${extension.motif}`, utilisateur: state.user?.nom || 'Système' }],
+            updated_at: now,
+          }
+        })
+      })),
       updateDossier: (id, data) => set((state) => ({
         dossiers: state.dossiers.map(d => d.id === id ? { ...d, ...data, updated_at: new Date().toISOString() } : d)
       })),
@@ -4587,7 +4631,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       datastore.createCompetence({
         inspecteur_id: id,
         domaine: comp.domaine,
-        niveau: comp.niveau || inspecteur.type || 'inspecteur_titulaire',
+        niveau: comp.niveau || 3,
         date_obtention: comp.date_obtention || now.split('T')[0],
         source: comp.source || 'formation',
         source_id: comp.source_id,
@@ -4676,8 +4720,22 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
   })
 },
       updateInspecteur: async (id, data) => {
-        set((state) => ({ inspecteurs: state.inspecteurs.map(i => i.id === id ? { ...i, ...data } : i) }))
-        datastore.updateInspecteur(id, data).then(r => { if (r.error) console.error('Erreur update inspecteur Supabase:', r.error) })
+        set((state) => ({
+          inspecteurs: state.inspecteurs.map(i => i.id === id ? { ...i, ...data } : i)
+        }))
+        // Sync vers Utilisateur si poste ou superieur_id change
+        if (data.poste !== undefined || data.superieur_id !== undefined) {
+          const inspecteur = get().inspecteurs.find(i => i.id === id)
+          if (inspecteur?.user_id) {
+            get().updateUtilisateur(inspecteur.user_id, { poste: data.poste, superieur_id: data.superieur_id })
+          }
+        }
+        try {
+          const datastore = await import('./datastore')
+          await datastore.updateInspecteur(id, data)
+        } catch (err) {
+          console.error('[store] Erreur update inspecteur:', err)
+        }
       },
       deleteInspecteur: async (id: string) => {
         const state = get()
@@ -4778,8 +4836,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const newCompetences = (formation.domaines || []).map((domaine: string) => ({
           id: crypto.randomUUID(),
           inspecteur_id: inspecteurId,
-          domaine: domaine as Competence['domaine'],
-          niveau: 'inspecteur_titulaire' as const,
+          domaine: domaine,
+          niveau: 3,
           source: 'formation' as const,
           source_id: formationId,
           date_obtention: new Date().toISOString(),

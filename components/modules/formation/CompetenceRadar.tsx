@@ -1,78 +1,46 @@
 // components/modules/formation/CompetenceRadar.tsx
 'use client'
 
-import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  ResponsiveContainer,
-  Legend,
-  Tooltip,
-} from 'recharts'
+import { useMemo } from 'react'
+import { useAppStore } from '@/lib/store'
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer, Tooltip } from 'recharts'
 
-const DOMAINES = ['SGS', 'SLI', 'PHY', 'OPS', 'ANI', 'MET', 'AIS', 'COM']
-
-const COMPETENCES_PAR_INSPECTEUR: Record<string, number[]> = {
-  'insp-1': [100, 80, 60, 100, 80, 60, 40, 60],
-  'insp-2': [60, 100, 80, 60, 100, 40, 80, 60],
-  'insp-3': [80, 60, 100, 80, 60, 100, 60, 80],
-  'insp-4': [40, 80, 60, 100, 80, 60, 100, 40],
-  'insp-5': [100, 60, 80, 40, 100, 80, 60, 100],
-  'insp-6': [60, 40, 100, 80, 40, 100, 80, 60],
-  'insp-7': [80, 100, 40, 60, 80, 60, 100, 80],
-}
-
-const NIVEAU_REQUIS = 60
-
-function hashCompetences(id: string): number[] {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffffff
-  return DOMAINES.map((_, i) => 20 + (Math.abs(h + i * 37) % 81))
-}
-
-interface Props {
-  inspecteurId: string
-  userRole?: string
-}
+interface Props { inspecteurId: string; userRole?: string }
 
 export function CompetenceRadar({ inspecteurId, userRole = 'inspector' }: Props) {
-  const niveaux = COMPETENCES_PAR_INSPECTEUR[inspecteurId] ?? hashCompetences(inspecteurId)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
+  const inspecteur = inspecteurs.find(i => i.id === inspecteurId)
 
-  const data = DOMAINES.map((domaine, i) => ({
-    domaine,
-    Actuelles: niveaux[i],
-    Requises: NIVEAU_REQUIS,
-  }))
+  const data = useMemo(() => {
+    if (!inspecteur) return []
+    const competences = inspecteur.competences || []
+    const domaines = [...new Set(competences.map(c => c.domaine))]
+    return domaines.map(d => {
+      const c = competences.find(x => x.domaine === d)
+      const niveau = c ? (typeof c.niveau === 'number' ? c.niveau : parseInt(c.niveau as any) || 1) : 1
+      return { domaine: d, actuel: niveau * 20, requis: 60 }
+    })
+  }, [inspecteur])
+
+  if (!inspecteur || data.length === 0) {
+    return <div className="text-center py-8 text-muted-foreground text-sm">Aucune compétence pour cet inspecteur</div>
+  }
 
   return (
-    <div className="w-full h-80" data-role={userRole}>
-      <ResponsiveContainer width="100%" height={320}>
-        <RadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
-          <PolarGrid stroke="var(--border)" />
-          <PolarAngleAxis dataKey="domaine" tick={{ fontSize: 12, fill: 'var(--foreground)' }} />
-          <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
-          <Radar
-            name="Compétences actuelles"
-            dataKey="Actuelles"
-            stroke="var(--primary)"
-            fill="var(--primary)"
-            fillOpacity={0.6}
-          />
-          <Radar
-            name="Niveau requis"
-            dataKey="Requises"
-            stroke="var(--destructive)"
-            fill="var(--destructive)"
-            fillOpacity={0.2}
-            strokeDasharray="5 5"
-          />
-          <Legend wrapperStyle={{ color: 'var(--foreground)' }} />
-          <Tooltip 
-            formatter={(value, name) => [`${value}/100`, name as string]}
-            contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
-          />
+    <div className="space-y-4 animate-fade-up" data-role={userRole}>
+      <div className="p-3 bg-role-primary-soft rounded-xl">
+        <p className="text-sm font-medium">{inspecteur.prenom} {inspecteur.nom}</p>
+        <p className="text-xs text-muted-foreground">{inspecteur.service} — {inspecteur.type}</p>
+      </div>
+      <ResponsiveContainer width="100%" height={350}>
+        <RadarChart data={data}>
+          <PolarGrid stroke="hsl(var(--border))" />
+          <PolarAngleAxis dataKey="domaine" tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }} />
+          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
+          <Radar name="Actuel" dataKey="actuel" stroke="var(--role-primary)" fill="var(--role-primary)" fillOpacity={0.3} />
+          <Radar name="Requis" dataKey="requis" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} strokeDasharray="4 4" />
+          <Tooltip />
+          <Legend />
         </RadarChart>
       </ResponsiveContainer>
     </div>

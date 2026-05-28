@@ -813,6 +813,63 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
               </div>
             </div>
           )}
+
+          {/* Performance des inspecteurs (admin seulement) */}
+          {isAdminRole && (
+            <div className="card border-l-4 border-l-role-primary">
+              <div className="card-header">
+                <h3 className="card-title flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-role-primary" />
+                  Performance des inspecteurs
+                </h3>
+              </div>
+              <div className="card-content">
+                <div className="table-container">
+                  <table className="table table-compact">
+                    <thead>
+                      <tr>
+                        <th>Inspecteur</th>
+                        <th>Poste</th>
+                        <th>Surveillances</th>
+                        <th>Dossiers traités</th>
+                        <th>En retard</th>
+                        <th>Formations</th>
+                        <th>Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {utilisateurs.filter(u => ['inspector', 'admin'].includes(u.role) && u.statut === 'actif').map(ins => {
+                        const dossiersIns = (dossiers || []).filter(d => d.inspecteur_id === ins.id)
+                        const traites = dossiersIns.filter(d => d.statut === 'termine').length
+                        const enRetard = dossiersIns.filter(d => d.statut === 'en_cours' && new Date(d.date_limite) < new Date()).length
+                        const surveillancesIns = (surveillances || []).filter(s => (s.equipe_ids || []).includes(ins.id) && s.statut === 'transmise')
+                        const formationsIns = (formations || []).filter(f => (f.participants || []).includes(ins.id))
+                        const perfScore = dossiersIns.length > 0 ? Math.round((traites / (traites + enRetard || 1)) * 50 + Math.min(surveillancesIns.length * 10, 30) + Math.min(formationsIns.length * 5, 20)) : 50
+                        return (
+                          <tr key={ins.id}>
+                            <td className="font-medium">{ins.prenom} {ins.nom}</td>
+                            <td className="text-xs capitalize">{ins.poste || 'inspecteur'}</td>
+                            <td>{surveillancesIns.length}</td>
+                            <td>{traites}</td>
+                            <td><span className={enRetard > 0 ? 'badge danger' : 'badge success'}>{enRetard}</span></td>
+                            <td>{formationsIns.length}</td>
+                            <td>
+                              <div className="flex items-center gap-2">
+                                <div className="progress w-16 h-1.5">
+                                  <div className={`progress-bar ${perfScore >= 70 ? '' : perfScore >= 40 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${perfScore}%` }} />
+                                </div>
+                                <span className="text-xs">{perfScore}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

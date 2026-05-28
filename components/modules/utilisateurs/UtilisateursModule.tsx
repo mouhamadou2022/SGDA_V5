@@ -82,7 +82,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   const [selectedUtilisateur, setSelectedUtilisateur] = useState<Utilisateur | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [formTab, setFormTab] = useState<'informations' | 'securite'>('informations');
+
   const [activeTab, setActiveTab] = useState<'informations' | 'securite'>('informations');
 
 
@@ -534,17 +534,11 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
       {/* Modal Formulaire */}
       <FormShell
         open={showForm}
-        onClose={() => { setShowForm(false); setFormTab('informations'); }}
+        onClose={() => setShowForm(false)}
         title={selectedUtilisateur ? "Modifier l'utilisateur" : 'Nouvel utilisateur'}
         icon={UserPlus}
         size="3xl"
         dataRole={userRole}
-        tabs={[
-          { id: 'informations', label: 'Informations' },
-          { id: 'securite', label: 'Sécurité & Notifications' },
-        ]}
-        activeTab={formTab}
-        onTabChange={(id) => setFormTab(id as 'informations' | 'securite')}
       >
         <UtilisateurForm
           mode={selectedUtilisateur ? 'modification' : 'creation'}
@@ -552,8 +546,6 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
           onSuccess={() => { setShowForm(false); setSelectedUtilisateur(null); }}
           onCancel={() => { setShowForm(false); setSelectedUtilisateur(null); }}
           userRole={userRole}
-          activeTab={formTab}
-          onTabChange={(id) => setFormTab(id as 'informations' | 'securite')}
         />
       </FormShell>
 

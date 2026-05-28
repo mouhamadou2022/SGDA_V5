@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import { Role } from './config'
 
+export type PosteANACIM = 'chef_dnsa' | 'chef_ssa' | 'chef_sna' | 'inspecteur'
+
 export interface AuthUser {
   id: string
   email: string
@@ -10,6 +12,8 @@ export interface AuthUser {
   aerodrome_id?: string
   type_inspecteur?: string
   service_rattache?: string
+  poste?: PosteANACIM
+  superieur_id?: string
   domaine?: string
   must_change_password?: boolean
   last_login?: string

@@ -36,13 +36,20 @@ import {
   X,
   Upload,
   Mail,
+  Activity,
+  Sparkles,
+  List,
+  Grid3x3,
 } from 'lucide-react';
+import { CompetenceMatrix } from './CompetenceMatrix';
+import { EcheanceAlert } from './EcheanceAlert';
+import { FormationSuggestions } from './FormationSuggestions';
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Formation, Inspecteur, Competence } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { formationUtils } from '@/lib/formationUtils';
 import { formatDate } from '@/lib/utils';
-import { InspecteurFiche } from './InspecteurFiche';
+{/* InspecteurFiche import retiré */}
 
 interface FormationModuleProps {
   userRole: string;
@@ -79,6 +86,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const { startTransition } = useGlobalTransition();
   const formations = useOptimizedStore((s) => s.formations);
   const inspecteurs = useOptimizedStore((s) => s.inspecteurs);
+  const surveillances = useOptimizedStore((s) => s.surveillances);
   const utilisateurs = useOptimizedStore((s) => s.utilisateurs);
   const user = useOptimizedStore((s) => s.user);
   const addFormation = useAppStore((s) => s.addFormation);
@@ -87,7 +95,21 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const addInspecteur = useAppStore((s) => s.addInspecteur);
   const updateInspecteur = useAppStore((s) => s.updateInspecteur);
   const deleteInspecteur = useAppStore((s) => s.deleteInspecteur);
+  const setActiveModule = useAppStore((s) => s.setActiveModule);
 
+  // Recalculer les compétences automatiquement à l'ouverture du module
+  useEffect(() => {
+    const ctx = { formations: formations || [], surveillances: surveillances || [] }
+    inspecteurs.filter(i => !i.deleted_at).forEach(ins => {
+      const domaines = [...new Set((ins.competences || []).map(c => c.domaine))]
+      const nouvelles: Competence[] = domaines.map(d => {
+        const existante = ins.competences?.find(c => c.domaine === d)
+        if (existante?.source === 'manuel') return existante
+        return { ...(existante || {} as any), id: existante?.id || crypto.randomUUID(), inspecteur_id: ins.id, domaine: d, niveau: formationUtils.calculerNiveauCompetence(ins, d, ctx), source: 'auto' as Competence['source'], date_obtention: existante?.date_obtention || ins.created_at }
+      })
+      if (nouvelles.length > 0) updateInspecteur(ins.id, { competences: nouvelles as any })
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -103,7 +125,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const [selectedInspecteur, setSelectedInspecteur] = useState<string | null>(null);
   const [selectedFormation, setSelectedFormation] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [viewMode, setViewMode] = useState<'liste' | 'grille' | 'calendrier' | 'matrice'>('liste');
+  const [viewMode, setViewMode] = useState<'dashboard' | 'liste' | 'grille' | 'calendrier' | 'matrice' | 'echeances' | 'suggestions'>('dashboard');
   const [calendarPeriod, setCalendarPeriod] = useState<'mois' | 'six_mois' | 'annee'>('mois');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [expandedInspectors, setExpandedInspectors] = useState<Record<string, boolean>>({});
@@ -213,7 +235,12 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
           f.participants.includes(ins.id) &&
           f.statut === 'en_cours'
         )
-      ).length
+      ).length,
+      formationsCount: listeFormations.length,
+      tauxCompletion: listeFormations.length > 0
+        ? Math.round((listeFormations.filter(f => f.statut === 'terminee').length / listeFormations.length) * 100)
+        : 0,
+      budgetTotal: listeFormations.reduce((sum, f) => sum + (f.budget || 0), 0),
     };
   }, [listeFormations, listeInspecteurs]);
 
@@ -280,7 +307,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
   const getInspecteur = (id: string) => listeInspecteurs.find(i => i.id === id);
 
-  const getNiveauLabel = (niveau: string) => {
+  const getNiveauLabel = (niveau: string | number) => {
     const niveaux: Record<string, string> = {
       'cadre_technique': 'Cadre Technique',
       'inspecteur_titulaire': 'Inspecteur Titulaire',
@@ -894,7 +921,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     const expiree = estExpiree(f);
     return (
       <div className="flex gap-2">
-        <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Voir">
+        <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Voir" onClick={() => { setSelectedFormation(f.id); setShowDetails(true); }}>
           <Eye className="w-4 h-4" />
         </button>
         {f.statut === 'planifiee' && (
@@ -948,10 +975,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
         title="Formation & Compétences"
         description="Gestion des formations et matrice de compétences"
         actions={<div className="flex items-center gap-2">
-          <button onClick={() => startTransition(() => setShowInspecteurForm(true))} className="btn btn-secondary gap-2">
-            <Users className="w-4 h-4" />
-            Nouvel inspecteur
-          </button>
+          {/* Nouvel inspecteur géré via Utilisateurs */}
           <button onClick={() => startTransition(() => setShowForm(true))} className="btn btn-primary gap-2">
             <Plus className="w-4 h-4" />
             Nouvelle formation
@@ -1056,21 +1080,23 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
           </select>
 
           <div className="view-toggle">
-            <button className={viewMode === 'liste' ? 'active' : ''} onClick={() => setViewMode('liste')}>
-              <FileText className="w-4 h-4" />
-              Liste
+            <button className={viewMode === 'dashboard' ? 'active' : ''} onClick={() => setViewMode('dashboard')}>
+              <Activity className="w-4 h-4" /> Dashboard
             </button>
-            <button className={viewMode === 'grille' ? 'active' : ''} onClick={() => setViewMode('grille')}>
-              <GraduationCap className="w-4 h-4" />
-              Grille
+            <button className={viewMode === 'liste' ? 'active' : ''} onClick={() => setViewMode('liste')}>
+              <List className="w-4 h-4" /> Formations
             </button>
             <button className={viewMode === 'calendrier' ? 'active' : ''} onClick={() => setViewMode('calendrier')}>
-              <CalendarDays className="w-4 h-4" />
-              Calendrier
+              <Calendar className="w-4 h-4" /> Calendrier
             </button>
             <button className={viewMode === 'matrice' ? 'active' : ''} onClick={() => setViewMode('matrice')}>
-              <BarChart3 className="w-4 h-4" />
-              Matrice
+              <Grid3x3 className="w-4 h-4" /> Compétences
+            </button>
+            <button className={viewMode === 'echeances' ? 'active' : ''} onClick={() => setViewMode('echeances')}>
+              <Clock className="w-4 h-4" /> Échéances
+            </button>
+            <button className={viewMode === 'suggestions' ? 'active' : ''} onClick={() => setViewMode('suggestions')}>
+              <Sparkles className="w-4 h-4" /> Suggestions
             </button>
           </div>
         </div>
@@ -1298,7 +1324,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                     )}
                     <div className="flex gap-1 border-l border-border pl-3 ml-1">
                       <button className="action-button" onClick={(e) => { e.stopPropagation(); handleViewInspecteur(ins.id); }} title="Voir"><Eye className="w-4 h-4"/></button>
-                      {canManage && <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEditInspecteur(ins); }} title="Modifier"><PenSquare className="w-4 h-4"/></button>}
+                      {canManage && <button className="action-button" onClick={(e) => { e.stopPropagation(); setActiveModule('utilisateurs'); }} title="Modifier"><PenSquare className="w-4 h-4"/></button>}
                       {canManage && <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDeleteInspecteur(ins.id); }} title="Supprimer"><Trash2 className="w-4 h-4"/></button>}
                     </div>
                     {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
@@ -1478,7 +1504,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                     )}
                     <div className="flex gap-1 border-l border-border pl-3 ml-1">
                       <button className="action-button" onClick={(e) => { e.stopPropagation(); handleViewInspecteur(ins.id); }} title="Voir"><Eye className="w-4 h-4"/></button>
-                      {canManage && <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEditInspecteur(ins); }} title="Modifier"><PenSquare className="w-4 h-4"/></button>}
+                      {canManage && <button className="action-button" onClick={(e) => { e.stopPropagation(); setActiveModule('utilisateurs'); }} title="Modifier"><PenSquare className="w-4 h-4"/></button>}
                       {canManage && <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDeleteInspecteur(ins.id); }} title="Supprimer"><Trash2 className="w-4 h-4"/></button>}
                     </div>
                     {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
@@ -1543,20 +1569,73 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
         </div>
       )}
 
+      {viewMode === 'dashboard' && (
+        <div className="space-y-6 animate-fade-up">
+          <div className="kpi-grid">
+            <div className="kpi-card"><div className="kpi-icon"><Calendar className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.formationsCount}</div><div className="kpi-label">Formations</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon"><Clock className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-value">{stats.planifiees}</div><div className="kpi-label">Planifiées</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon"><PlayCircle className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-value">{stats.enCours}</div><div className="kpi-label">En cours</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon"><CheckCircle2 className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-value">{stats.terminees}</div><div className="kpi-label">Terminées</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon"><TrendingUp className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-value">{stats.tauxCompletion}%</div><div className="kpi-label">Taux complétion</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon"><BarChart3 className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.budgetTotal.toLocaleString()} F</div><div className="kpi-label">Budget</div></div></div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2"><CompetenceMatrix userRole={userRole} /></div>
+            <div className="lg:col-span-1"><div className="card"><div className="card-header"><h3 className="card-title">Inspecteurs</h3></div>
+              <div className="card-content space-y-2">{listeInspecteurs.slice(0, 6).map(ins => (
+                <button key={ins.id} className="w-full text-left p-2 rounded-lg hover:bg-role-primary-soft transition-colors" onClick={() => setActiveModule('utilisateurs')}>
+                  <span className="text-sm font-medium">{ins.prenom} {ins.nom}</span></button>
+              ))}</div></div></div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <button className="btn btn-secondary gap-2" onClick={() => {
+              const h = 'Référence;Titre;Type;Date;Durée;Lieu;Formateur;Statut;Participants\n'
+              const rows = listeFormations.map(f => `${f.reference};${f.titre};${f.type};${f.date};${f.duree_heures};${f.lieu||''};${f.formateur||''};${f.statut};${(f.participants||[]).join(',')}`).join('\n')
+              const b = new Blob(['\uFEFF' + h + rows], { type: 'text/csv;charset=utf-8' }); const u = URL.createObjectURL(b)
+              const a = document.createElement('a'); a.href = u; a.download = 'plan_formation.csv'; a.click(); URL.revokeObjectURL(u)
+            }}><Download className="w-4 h-4" /> Export CSV</button>
+          </div>
+        </div>
+      )}
+      {viewMode === 'echeances' && <EcheanceAlert userRole={userRole} />}
+      {viewMode === 'suggestions' && <FormationSuggestions userRole={userRole} />}
+      {showDetails && selectedFormation && (() => {
+        const f = listeFormations.find(x => x.id === selectedFormation); if (!f) return null
+        const participants = f.participants?.map(pid => getInspecteur(pid)).filter(Boolean) || []
+        const formateur = utilisateurs.find(u => u.id === f.formateur || u.nom === f.formateur)
+        return (<FormShell open={showDetails} onClose={() => { setShowDetails(false); setSelectedFormation(null) }} title={`${f.titre} — ${f.reference}`} icon={GraduationCap} size="3xl" dataRole={userRole} footer={<button className="btn btn-secondary" onClick={() => { setShowDetails(false); setSelectedFormation(null) }}>Fermer</button>}>
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Type</p><p className="font-medium capitalize">{f.type}</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Date</p><p className="font-medium">{new Date(f.date).toLocaleDateString('fr-FR')}</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Durée</p><p className="font-medium">{f.duree_heures}h</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Lieu</p><p className="font-medium">{f.lieu || '—'}</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Formateur</p><p className="font-medium">{formateur ? `${formateur.prenom} ${formateur.nom}` : f.formateur || '—'}</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl"><p className="text-xs text-muted-foreground">Budget</p><p className="font-medium">{f.budget ? `${f.budget.toLocaleString()} FCFA` : '—'}</p></div>
+              <div className="p-3 bg-role-primary-soft rounded-xl col-span-2"><p className="text-xs text-muted-foreground">Objectifs</p><p className="text-sm">{f.objectifs || 'Aucun objectif défini'}</p></div>
+            </div>
+            {participants.length > 0 && (
+              <div><p className="text-xs font-semibold text-role-primary uppercase mb-2">Participants</p>
+                <div className="space-y-2">{participants.map(p => p && <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft"><div><p className="text-sm font-medium">{p.prenom} {p.nom}</p><p className="text-xs text-muted-foreground">{p.service} • {p.poste || 'Inspecteur'}</p></div>{f.presence?.[p.id] && <span className={`badge ${f.presence[p.id] === 'present' ? 'success' : f.presence[p.id] === 'absent' ? 'danger' : 'warning'}`}>{f.presence[p.id]}</span>}</div>)}</div>
+              </div>
+            )}
+            {f.evaluation && Object.keys(f.evaluation).length > 0 && (
+              <div><p className="text-xs font-semibold text-role-primary uppercase mb-2">Évaluations</p>
+                <div className="grid grid-cols-2 gap-2">{Object.entries(f.evaluation).map(([k, v]) => <div key={k} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft"><span className="text-sm">{k}</span><span className="text-sm font-bold text-role-primary">{v}/5</span></div>)}</div>
+              </div>
+            )}
+            {f.documents && f.documents.length > 0 && (
+              <div><p className="text-xs font-semibold text-role-primary uppercase mb-2">Documents</p>
+                <div className="space-y-2">{f.documents.map((d, i) => <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft"><span className="text-sm flex items-center gap-2"><FileText className="w-4 h-4 text-role-primary" />{d.nom}</span><a href={d.url} target="_blank" rel="noreferrer" download><button className="btn btn-sm btn-primary gap-1.5"><Download className="w-3.5 h-3.5" />Télécharger</button></a></div>)}</div>
+              </div>
+            )}
+          </div>
+        </FormShell>)
+      })()}
       {/* Modales */}
       {showForm && FormationFormModal()}
-      {showInspecteurForm && InspecteurFormModal()}
-      {showInspecteurFiche && selectedInspecteur && (
-        <InspecteurFiche
-          inspecteurId={selectedInspecteur}
-          onClose={() => { setShowInspecteurFiche(false); setSelectedInspecteur(null); }}
-          onEdit={canManage ? () => {
-            const ins = getInspecteur(selectedInspecteur);
-            if (ins) handleEditInspecteur(ins);
-          } : undefined}
-          userRole={userRole}
-        />
-      )}
+      {/* showInspecteurForm retiré — inspecteurs gérés via Utilisateurs */}
+{/* InspecteurFiche retiré */}
 
       {/* Modal Exécuter */}
       <FormShell
