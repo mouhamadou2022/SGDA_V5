@@ -3974,9 +3974,14 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       currentCertification: null,
       setCertifications: (certifications) => set({ certifications }),
       setCurrentCertification: (certification) => set({ currentCertification: certification }),
-      addCertification: (certification) => set((state) => ({
-        certifications: [...state.certifications, certification],
-      })),
+      addCertification: (certification) => {
+        // Renouvellement : Phase 1 sautée (dossier déjà constitué)
+        const phase = certification.type_certification === 'renouvellement' && certification.phase_active === 1
+          ? 2 : certification.phase_active
+        set((state) => ({
+          certifications: [...state.certifications, { ...certification, phase_active: phase }],
+        }))
+      },
       updateCertification: (id, data) => {
         const oldCert = get().certifications.find(c => c.id === id)
         set((state) => ({
