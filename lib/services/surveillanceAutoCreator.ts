@@ -42,10 +42,10 @@ export function initSurveillanceAutoCreator() {
         }
       }
 
-      // ── Déclencheur 2 : SGS absent (maturite_sgs == 0) ──
+      // ── Déclencheur 2 : SGS absent (maturite_sgs == 0) — ignoré si non_applicable ──
       const maturiteSgsActuelle = aero.maturite_sgs ?? 0
-      const prevAero = prevProfils ? null : null // Pas besoin de comparer l'aéro précédent
-      if (maturiteSgsActuelle === 0 || maturiteSgsActuelle == null) {
+      const sgsNonApplicable = aero.statut_sgs === 'non_applicable'
+      if (!sgsNonApplicable && (maturiteSgsActuelle === 0 || maturiteSgsActuelle == null)) {
         const dejaSurveilleSGS = state.surveillances.some(s =>
           s.aerodrome_id === aero.id &&
           s.statut !== 'archivee' &&
@@ -59,8 +59,8 @@ export function initSurveillanceAutoCreator() {
         }
       }
 
-      // ── Déclencheur 3 : SGS insuffisant (N1-N3, score <= 50) ──
-      if (maturiteSgsActuelle > 0 && maturiteSgsActuelle <= 50) {
+      // ── Déclencheur 3 : SGS insuffisant (N1-N3) — ignoré si non_applicable ──
+      if (!sgsNonApplicable && maturiteSgsActuelle > 0 && maturiteSgsActuelle <= 50) {
         const dejaSurveilleSGSFaible = state.surveillances.some(s =>
           s.aerodrome_id === aero.id &&
           s.statut !== 'archivee' &&

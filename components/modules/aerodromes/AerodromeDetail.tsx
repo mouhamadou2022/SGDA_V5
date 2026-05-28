@@ -325,6 +325,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       <span className={`${SGS_CLASSES[getSgsNiveau(aerodrome.maturite_sgs)]}`}>
                         N{getSgsNiveau(aerodrome.maturite_sgs)} — {SGS_LABELS[getSgsNiveau(aerodrome.maturite_sgs)]}
                       </span>
+                      {aerodrome.statut_sgs === 'non_applicable' && (
+                        <span className="badge neutral text-[10px] ml-2">SGS non applicable</span>
+                      )}
+                      {aerodrome.statut_sgs === 'simplifie' && (
+                        <span className="badge warning text-[10px] ml-2">SGS simplifié</span>
+                      )}
                     </div>
                     <div>
                       <label className="text-role-primary text-xs uppercase font-semibold">Horaires</label>

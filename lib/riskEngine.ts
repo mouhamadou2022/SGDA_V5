@@ -272,12 +272,10 @@ export function determineTypeSurveillanceContinue(
   }
 
   // Cas 4 : SGS faible ou absent → maintien renforcé tous domaines
-  if (profil.c1 < 30 || statut_sgs === 'non_applicable') {
+  if (profil.c1 < 30) {
     return {
       type: 'maintien',
-      raison: profil.c1 < 30
-        ? `SGS critique (C1=${profil.c1}/100) — surveillance renforcée tous domaines`
-        : `SGS non applicable — surveillance renforcée tous domaines`,
+      raison: `SGS critique (C1=${profil.c1}/100) — surveillance renforcée tous domaines`,
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(30),
       domainesCibles: domainesApplicables(),

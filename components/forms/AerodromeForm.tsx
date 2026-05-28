@@ -784,6 +784,7 @@ const aerodromeSchema = z.object({
   horaires:             z.enum(['jour','h24']).optional(),
   aides_visuelles:      z.array(z.string()).optional(),
   maturite_sgs:         z.number().min(1).max(5),
+  statut_sgs:           z.enum(['complet','simplifie','non_applicable']).optional(),
   statut:               z.enum(['brouillon','actif','suspendu','ferme']),
   statut_certification: z.enum(['certifie','homologue','non_certifie','non_homologue']).optional(),
   certifie_le:          z.string().optional(),
@@ -856,7 +857,7 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
       piste_principale: aerodrome.piste_principale || undefined,
       helistation: (aerodrome as any).helistation || undefined,
       horaires: aerodrome.horaires, aides_visuelles: aerodrome.aides_visuelles || [],
-      maturite_sgs: aerodrome.maturite_sgs, statut: aerodrome.statut, contacts: aerodrome.contacts || [],
+      maturite_sgs: aerodrome.maturite_sgs, statut_sgs: aerodrome.statut_sgs || 'complet', statut: aerodrome.statut, contacts: aerodrome.contacts || [],
       statut_certification: aerodrome.statut_certification || undefined,
       certifie_le: aerodrome.certifie_le || '', numero_certificat: aerodrome.numero_certificat || '',
       homologue_le: aerodrome.homologue_le || '', numero_homologation: aerodrome.numero_homologation || '',
@@ -866,7 +867,7 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
       latitude:14.7168, longitude:-17.4675, altitude:0,
       piste_principale: undefined,
       helistation: undefined,
-      aides_visuelles:[], maturite_sgs:1, statut:'brouillon', contacts:[],
+      aides_visuelles:[], maturite_sgs:1, statut_sgs:'complet', statut:'brouillon', contacts:[],
       statut_certification:'non_certifie', certifie_le:'', numero_certificat:'',
       homologue_le:'', numero_homologation:'',
     },
@@ -888,6 +889,7 @@ const watchNom = useWatch({ control: form.control, name: 'nom' });
 const watchCodeOaci = useWatch({ control: form.control, name: 'code_oaci' });
 
   const watchMaturite = useWatch({ control: form.control, name: 'maturite_sgs' }) as number;
+const watchStatutSgs = useWatch({ control: form.control, name: 'statut_sgs' }) as string | undefined;
 const watchStatut = useWatch({ control: form.control, name: 'statut' }) as string;
 const watchStatutCertification = useWatch({ control: form.control, name: 'statut_certification' }) as string;
 
@@ -1127,7 +1129,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       }
 
       if (aerodrome) {
-        await updateAerodrome(aerodrome.id, { ...cleanData, type_entite:data.type_entite as TypeEntiteAerodrome, maturite_sgs:data.maturite_sgs as 1|2|3|4|5, lat:data.latitude, lon:data.longitude, updated_at:now } as any);
+        await updateAerodrome(aerodrome.id, { ...cleanData, type_entite:data.type_entite as TypeEntiteAerodrome, maturite_sgs:data.maturite_sgs as 1|2|3|4|5, statut_sgs:data.statut_sgs as 'complet'|'simplifie'|'non_applicable', lat:data.latitude, lon:data.longitude, updated_at:now } as any);
         addNotification({ user_id:user?.id||'', type:'success', title:'Mis à jour', message:`${data.code_oaci} — ${data.nom}`, canal:'in_app' });
       } else {
         const newId = crypto.randomUUID();
@@ -1515,6 +1517,17 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
                   </div>
                 )}
                 {form.formState.errors.maturite_sgs && <span className="field-error">{form.formState.errors.maturite_sgs.message}</span>}</div>
+              <div className="form-field"><Label icon={Shield}>Type de SGS</Label>
+                <select className={`form-select w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} style={selectStyle} {...form.register('statut_sgs')}>
+                  <option value="complet">SGS complet (personnel sur site)</option>
+                  <option value="simplifie">SGS simplifié</option>
+                  <option value="non_applicable">Non applicable (piste isolée, pas de personnel)</option>
+                </select>
+                <p className="field-description mt-1">
+                  {watchStatutSgs==='complet'&&'SGS standard OACI - évaluation PAOE complète'}
+                  {watchStatutSgs==='simplifie'&&'SGS allégé - évaluation réduite'}
+                  {watchStatutSgs==='non_applicable'&&'Pas d\'évaluation SGS requise (infrastructure sans personnel)'}
+                </p></div>
               <div className="form-field"><Label icon={Plane} required>État</Label>
                 <select className={`form-select w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} style={selectStyle} {...form.register('statut')}>
                   <option value="brouillon">Brouillon</option><option value="actif">En service</option>
