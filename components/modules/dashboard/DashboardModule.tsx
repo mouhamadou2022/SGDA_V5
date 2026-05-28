@@ -16,6 +16,10 @@ import {
   Flame,
   Gauge,
   Calendar,
+  Timer,
+  Grid3x3,
+  TrendingUp,
+  Zap,
 } from 'lucide-react';
 
 // Store
@@ -40,6 +44,8 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   const evenements = useAppStore(s => s.evenements);
   const certifications = useAppStore(s => s.certifications);
   const formations = useAppStore(s => s.formations);
+  const inspecteurs = useAppStore(s => s.inspecteurs);
+  const plannings = useAppStore(s => s.plannings);
   const storeUser = useAppStore(s => s.user);
   const userRole = userProp?.role ?? storeUser?.role ?? '';
   const [filterAlerte, setFilterAlerte] = useState<string>('all');
@@ -107,6 +113,70 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
       formationsPlanifiees,
     };
   }, [aerodromes, surveillances, ecarts, profilsRisque, evenements, certifications, formations]);
+
+  // KPI enrichi : délai moyen planification → surveillance (en jours)
+  const delaiMoyenPlanification = useMemo(() => {
+    const paires = plannings
+      .filter(p => p.statut === 'realisee')
+      .map(p => {
+        const surv = surveillances.find(s => s.planning_id === p.id && s.statut === 'transmise')
+        if (!surv) return null
+        const ecart = new Date(surv.date_debut).getTime() - new Date(p.date_debut).getTime()
+        return ecart / (1000 * 3600 * 24)
+      })
+      .filter((d): d is number => d !== null && d >= 0)
+    if (paires.length === 0) return 0
+    return Math.round(paires.reduce((a, b) => a + b, 0) / paires.length)
+  }, [plannings, surveillances])
+
+  // KPI enrichi : taux de couverture par domaine
+  const DOMAINES_SURVEILLANCE = ['SLI', 'Exploitation', 'Génie civil', 'Génie électrique', 'Environnement', 'Sûreté']
+  const couvertureDomaines = useMemo(() => {
+    const recentSurvs = surveillances.filter(s => {
+      const d = new Date(s.date_debut)
+      const sixMoisAgo = new Date()
+      sixMoisAgo.setMonth(sixMoisAgo.getMonth() - 6)
+      return d >= sixMoisAgo && !s.deleted_at
+    })
+    const domainesCouverts = new Set<string>()
+    recentSurvs.forEach(s => (s.portee || []).forEach(p => {
+      DOMAINES_SURVEILLANCE.forEach(d => {
+        if (p.toLowerCase().includes(d.toLowerCase().replace(/[éèê]/g, 'e'))) domainesCouverts.add(d)
+      })
+    }))
+    return DOMAINES_SURVEILLANCE.map(d => ({
+      domaine: d,
+      couvert: domainesCouverts.has(d),
+      count: recentSurvs.filter(s => (s.portee || []).some(p => p.toLowerCase().includes(d.toLowerCase().replace(/[éèê]/g, 'e')))).length
+    }))
+  }, [surveillances])
+
+  // Heatmap compétences manquantes
+  const heatmapCompetences = useMemo(() => {
+    const actifs = inspecteurs.filter(i => !i.deleted_at && i.statut !== 'absent')
+    return actifs.map(ins => {
+      const comps = DOMAINES_SURVEILLANCE.map(d => {
+        const c = ins.competences?.find(cp => cp.domaine === d)
+        return { domaine: d, niveau: c?.niveau ?? 0, source: c?.source }
+      })
+      const manquantes = comps.filter(c => c.niveau < 3).map(c => c.domaine)
+      return {
+        inspecteur: `${ins.prenom} ${ins.nom}`,
+        competences: comps,
+        manquantes,
+        score: Math.round(comps.reduce((s, c) => s + c.niveau, 0) / comps.length * 20) // 0-100
+      }
+    }).sort((a, b) => a.score - b.score) // Plus faibles en premier
+  }, [inspecteurs])
+
+  // Données graphique couverture
+  const pieCouvertureData = useMemo(() => {
+    const couvertes = couvertureDomaines.filter(d => d.couvert).length
+    return [
+      { label: 'Couverts', valeur: couvertes },
+      { label: 'Non couverts', valeur: DOMAINES_SURVEILLANCE.length - couvertes },
+    ]
+  }, [couvertureDomaines])
 
   // Données graphique surveillance — 6 derniers mois
   const chartData = useMemo(() => {
@@ -341,6 +411,38 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
         </div>
       </div>
 
+      {/* KPIs enrichis */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="kpi-card animate-fade-up" style={{ animationDelay: '0.05s' }}>
+          <div className="kpi-icon"><Timer className="h-5 w-5" /></div>
+          <div className="kpi-content">
+            <div className="kpi-label">Délai moyen planification</div>
+            <div className="kpi-value">{delaiMoyenPlanification}j</div>
+            <div className={`kpi-trend ${delaiMoyenPlanification <= 7 ? 'up' : 'down'}`}>
+              {delaiMoyenPlanification <= 7 ? 'Objectif ≤ 7j' : `${delaiMoyenPlanification - 7}j de retard`}
+            </div>
+          </div>
+        </div>
+
+        <div className="kpi-card animate-fade-up" style={{ animationDelay: '0.1s' }}>
+          <div className="kpi-icon"><Grid3x3 className="h-5 w-5" /></div>
+          <div className="kpi-content">
+            <div className="kpi-label">Couverture domaines</div>
+            <div className="kpi-value">{couvertureDomaines.filter(d => d.couvert).length}/{DOMAINES_SURVEILLANCE.length}</div>
+            <div className="progress mt-1"><div className="progress-bar" style={{ width: `${Math.round(couvertureDomaines.filter(d => d.couvert).length / DOMAINES_SURVEILLANCE.length * 100)}%` }} /></div>
+          </div>
+        </div>
+
+        <div className="kpi-card animate-fade-up" style={{ animationDelay: '0.15s' }}>
+          <div className="kpi-icon"><Zap className="h-5 w-5" /></div>
+          <div className="kpi-content">
+            <div className="kpi-label">Inspecteurs avec lacunes</div>
+            <div className="kpi-value">{heatmapCompetences.filter(h => h.manquantes.length > 0).length}/{inspecteurs.filter(i => !i.deleted_at).length}</div>
+            <div className="kpi-trend down">{'Compétences < 3'}</div>
+          </div>
+        </div>
+      </div>
+
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card animate-fade-up" style={{ animationDelay: '0.35s' }}>
@@ -505,6 +607,79 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
           </div>
         </div>
       )}
+
+      {/* Couverture par domaine */}
+      <div className="card animate-fade-up" style={{ animationDelay: '0.55s' }}>
+        <div className="card-header">
+          <div className="card-title flex items-center gap-2">
+            <Grid3x3 className="h-5 w-5 text-role-primary" />
+            Couverture par domaine (6 derniers mois)
+          </div>
+        </div>
+        <div className="card-content">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {couvertureDomaines.map(d => (
+              <div key={d.domaine} className={`p-3 rounded-xl text-center border ${d.couvert ? 'bg-success/10 border-success/30' : 'bg-muted/20 border-muted'}`}>
+                <div className={`text-lg font-bold ${d.couvert ? 'text-success' : 'text-muted'}`}>
+                  {d.count}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{d.domaine}</div>
+                <div className={`badge mt-2 ${d.couvert ? 'badge-success' : 'badge-outline'}`}>
+                  {d.couvert ? 'Couvert' : 'Non couvert'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Heatmap compétences manquantes */}
+      <div className="card animate-fade-up" style={{ animationDelay: '0.6s' }}>
+        <div className="card-header">
+          <div className="card-title flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-role-primary" />
+            Heatmap compétences
+          </div>
+        </div>
+        <div className="card-content overflow-x-auto">
+          <table className="table text-xs">
+            <thead>
+              <tr>
+                <th className="min-w-[140px]">Inspecteur</th>
+                {DOMAINES_SURVEILLANCE.map(d => (
+                  <th key={d} className="text-center px-2">{d.substring(0, 10)}</th>
+                ))}
+                <th className="text-center">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {heatmapCompetences.slice(0, 8).map(h => (
+                <tr key={h.inspecteur}>
+                  <td className="font-medium text-foreground whitespace-nowrap">{h.inspecteur}</td>
+                  {h.competences.map(c => (
+                    <td key={c.domaine} className="text-center px-1">
+                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded text-xs font-bold ${
+                        c.niveau >= 4 ? 'bg-success/20 text-success' :
+                        c.niveau >= 3 ? 'bg-warning/20 text-warning' :
+                        c.niveau >= 1 ? 'bg-danger/10 text-danger' :
+                        'bg-muted/10 text-muted'
+                      }`}>
+                        {c.niveau || '-'}
+                      </span>
+                    </td>
+                  ))}
+                  <td className="text-center">
+                    <div className="progress w-12 mx-auto"><div className={`progress-bar ${h.score >= 60 ? '' : h.score >= 30 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${h.score}%` }} /></div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {heatmapCompetences.length === 0 && (
+            <p className="text-center text-muted py-4 text-sm">Aucun inspecteur trouvé</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

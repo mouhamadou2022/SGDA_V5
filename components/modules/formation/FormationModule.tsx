@@ -1,7 +1,7 @@
 ﻿// components/modules/formation/FormationModule.tsx
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
@@ -97,8 +97,14 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const deleteInspecteur = useAppStore((s) => s.deleteInspecteur);
   const setActiveModule = useAppStore((s) => s.setActiveModule);
 
-  // Recalculer les compétences automatiquement à l'ouverture du module
+  const competencesVersion = useAppStore((s) => s.competencesVersion);
+  const lastRecalcVersion = useRef(0);
+
+  // Recalculer les compétences automatiquement uniquement si les données ont changé
   useEffect(() => {
+    if (competencesVersion <= lastRecalcVersion.current) return;
+    lastRecalcVersion.current = competencesVersion;
+
     const ctx = { formations: formations || [], surveillances: surveillances || [] }
     inspecteurs.filter(i => !i.deleted_at).forEach(ins => {
       const domaines = [...new Set((ins.competences || []).map(c => c.domaine))]
@@ -109,7 +115,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       })
       if (nouvelles.length > 0) updateInspecteur(ins.id, { competences: nouvelles as any })
     })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [competencesVersion, formations, surveillances, inspecteurs, updateInspecteur])
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -1192,7 +1198,14 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                     </div>
                     {/* Liste des formations du mois */}
                     {monthFormations.length > 0 && (
-                      <div className="mt-3 space-y-2 pt-2 border-t border-border">
+                      <div className="mt-3 space-y-2 pt-2 border-t border-border"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          const fid = e.dataTransfer.getData('formationId');
+                          if (fid) await updateFormation(fid, { date: `${key}-01` } as any)
+                        }}
+                      >
                         <p className="text-xs font-medium text-muted-foreground">Formations du mois :</p>
                         {monthFormations.map(f => {
                           const ins = f.participants.map((pId: string) => {
@@ -1200,7 +1213,11 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                             return i ? `${i.prenom} ${i.nom}` : pId;
                           }).join(', ');
                           return (
-                            <div key={f.id} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft">
+                             <div key={f.id} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+                               draggable
+                               onDragStart={(e) => { e.dataTransfer.setData('formationId', f.id); e.currentTarget.classList.add('opacity-50'); }}
+                               onDragEnd={(e) => e.currentTarget.classList.remove('opacity-50')}
+                             >
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium truncate">{f.titre}</p>
                                 <p className="text-[10px] text-muted-foreground truncate">{ins}</p>

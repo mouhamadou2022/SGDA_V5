@@ -1921,6 +1921,7 @@ interface FormationSlice {
   formations: Formation[]
   inspecteurs: Inspecteur[]
   competences: Competence[]
+  competencesVersion: number
   setFormations: (formations: Formation[]) => void
   setInspecteurs: (inspecteurs: Inspecteur[]) => void
   addFormation: (formation: Omit<Formation, 'id' | 'created_at'>) => Promise<void>
@@ -1932,6 +1933,7 @@ interface FormationSlice {
   getCompetencesByInspecteur: (inspecteurId: string) => Competence[]
   getFormationsByInspecteur: (inspecteurId: string) => Formation[]
   mettreAJourCompetences: (inspecteurId: string, formationId: string) => void
+  incrementerVersion: () => void
 }
 
 interface KitSlice {
@@ -2269,7 +2271,7 @@ export const useAppStore = create<AppStore>()(
         if (data.poste !== undefined || data.superieur_id !== undefined) {
           const user = get().utilisateurs.find(u => u.id === id)
           if (user?.inspecteur_id) {
-            get().updateInspecteur(user.inspecteur_id, { poste: data.poste as any, superieur_id: data.superieur_id })
+            get().updateInspecteur(user.inspecteur_id, { poste: data.poste as PosteANACIM, superieur_id: data.superieur_id })
           }
         }
       },
@@ -2511,9 +2513,10 @@ deleteAerodrome: async (id: string) => {
     user_id: userId,
     type: 'warning',
     message: `L'aérodrome ${aerodrome.code_oaci} - ${aerodrome.nom} a été supprimé avec cascade (codes révoqués, surveillances, certifications, homologations, écarts, plannings)`,
-    canal: 'in_app'
-  })
-},
+          canal: 'in_app'
+        })
+        get().incrementerVersion()
+      },
 
 getActiveAerodromes: () => {
   return get().aerodromes.filter(a => !a.deleted_at)
@@ -2557,6 +2560,7 @@ getActiveAerodromes: () => {
           link: `/surveillance/${savedSurveillance.id}`,
           canal: 'in_app'
         })
+        get().incrementerVersion()
         return savedSurveillance
       },
       updateSurveillance: async (id, data) => {
@@ -2570,7 +2574,7 @@ getActiveAerodromes: () => {
           surveillances: state.surveillances.map((s) => s.id === id ? { ...s, ...data, updated_at: new Date().toISOString() } : s),
           currentSurveillance: state.currentSurveillance?.id === id ? { ...state.currentSurveillance, ...data } : state.currentSurveillance,
         }))
-        const { sgs_evaluation_prepa, ...dataSansSGS } = data as any;
+        const { sgs_evaluation_prepa, ...dataSansSGS } = data;
         const result = await datastore.updateSurveillance(id, dataSansSGS)
         if (result.error) {
           console.error('Erreur update surveillance Supabase, rollback:', result.error)
@@ -2579,7 +2583,7 @@ getActiveAerodromes: () => {
           return
         }
 
-        if (!oldSurveillance || !(data as any).statut || (data as any).statut === oldSurveillance.statut) return
+        if (!oldSurveillance || !data.statut || data.statut === oldSurveillance.statut) return
         const _aerodrome = get().aerodromes.find(a => a.id === oldSurveillance.aerodrome_id)
         const _codeOaci = _aerodrome?.code_oaci ?? oldSurveillance.aerodrome_id
         const _typeLabel = (oldSurveillance.type as string)?.replace(/_/g, ' ') ?? 'surveillance'
@@ -2590,7 +2594,7 @@ getActiveAerodromes: () => {
           ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
         )
         const _link = `/surveillance/${id}`
-        const _newStatut = (data as any).statut as string
+        const _newStatut = data.statut as string
 
         switch (_newStatut) {
           case 'transmise':
@@ -2632,6 +2636,7 @@ getActiveAerodromes: () => {
             )
             break
         }
+        get().incrementerVersion()
       },
       deleteSurveillance: async (id: string) => {
         const state = get()
@@ -2673,6 +2678,7 @@ getActiveAerodromes: () => {
             canal: 'in_app'
           })
         })
+        get().incrementerVersion()
       },
       
       getActiveSurveillances: () => {
@@ -4024,7 +4030,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         const _codeOaci = _aerodrome?.code_oaci ?? oldPlanning.aerodrome_id
         const _typeLabel = (oldPlanning.type as string)?.replace(/_/g, ' ') ?? 'surveillance'
         const _addN = get().addNotification
-        const _equipeIds: string[] = ((data as any).equipe_ids ?? oldPlanning.equipe_ids) || []
+        const _equipeIds: string[] = (data.equipe_ids ?? oldPlanning.equipe_ids) || []
         const _exploitants = get().utilisateurs.filter(u =>
           u.aerodrome_id === oldPlanning.aerodrome_id &&
           ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
@@ -4036,8 +4042,8 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         }
 
         // ── Statut change ──────────────────────────────────────────────
-        if ((data as any).statut && (data as any).statut !== oldPlanning.statut) {
-          switch ((data as any).statut as string) {
+        if (data.statut && data.statut !== oldPlanning.statut) {
+          switch (data.statut as string) {
             case 'annulee':
               _notifyAll('danger', `❌ Surveillance annulée — ${_codeOaci}`, `La surveillance ${_typeLabel} prévue pour ${_codeOaci} a été annulée.`)
               break
@@ -4057,19 +4063,19 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
 
         // ── Date changes ───────────────────────────────────────────────
         const _dateChanged =
-          ((data as any).date_debut && (data as any).date_debut !== oldPlanning.date_debut) ||
-          ((data as any).date_fin   && (data as any).date_fin   !== oldPlanning.date_fin)
+          (data.date_debut && data.date_debut !== oldPlanning.date_debut) ||
+          (data.date_fin   && data.date_fin   !== oldPlanning.date_fin)
         if (_dateChanged) {
-          const _dateDebut = new Date((data as any).date_debut ?? oldPlanning.date_debut).toLocaleDateString('fr-FR')
-          const _dateFin   = new Date((data as any).date_fin   ?? oldPlanning.date_fin).toLocaleDateString('fr-FR')
+          const _dateDebut = new Date(data.date_debut ?? oldPlanning.date_debut).toLocaleDateString('fr-FR')
+          const _dateFin   = new Date(data.date_fin   ?? oldPlanning.date_fin).toLocaleDateString('fr-FR')
           _notifyAll('warning', `📅 Dates modifiées — ${_codeOaci}`, `La surveillance ${_typeLabel} de ${_codeOaci} a été reprogrammée du ${_dateDebut} au ${_dateFin}.`)
         }
 
         // ── Equipe changes ─────────────────────────────────────────────
-        if ((data as any).equipe_ids) {
+        if (data.equipe_ids) {
           const _ancienne = new Set<string>(oldPlanning.equipe_ids || [])
-          const _nouvelle = new Set<string>((data as any).equipe_ids)
-          ;(data as any).equipe_ids.filter((uid: string) => !_ancienne.has(uid)).forEach((uid: string) =>
+          const _nouvelle = new Set<string>(data.equipe_ids)
+          ;data.equipe_ids.filter((uid: string) => !_ancienne.has(uid)).forEach((uid: string) =>
             _addN({ user_id: uid, type: 'info', title: `📋 Nouvelle assignation — ${_codeOaci}`, message: `Vous avez été assigné à la surveillance ${_typeLabel} de ${_codeOaci}.`, canal: 'in_app' })
           )
           ;[..._ancienne].filter(uid => !_nouvelle.has(uid)).forEach(uid =>
@@ -4534,6 +4540,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       formations: [],
       inspecteurs: [],
       competences: [],
+      competencesVersion: 0,
       setFormations: (formations) => set({ formations }),
       setInspecteurs: (inspecteurs) => set({ inspecteurs }),
       addFormation: async (formation) => {
@@ -4547,6 +4554,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           return
         }
         set((state) => ({ formations: [...state.formations, result.data as Formation] }))
+        get().incrementerVersion()
       },
       updateFormation: async (id, data) => {
         const snapshot = get().formations
@@ -4557,12 +4565,13 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           set({ formations: snapshot })
           return
         }
-        if ((data as any).statut === 'terminee') {
+        if (data.statut === 'terminee') {
           const formation = get().formations.find(f => f.id === id)
           if (formation?.participants) {
             formation.participants.forEach(pid => get().mettreAJourCompetences(pid, id))
           }
         }
+        get().incrementerVersion()
       },
       deleteFormation: async (id) => {
         const snapshot = get().formations
@@ -4571,6 +4580,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         if (result.error) {
           console.error('Erreur delete formation Supabase, rollback:', result.error)
           set({ formations: snapshot })
+        } else {
+          get().incrementerVersion()
         }
       },
       addInspecteur: async (inspecteur) => {
@@ -4718,6 +4729,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
     message: `Inspecteur ${inspecteur.prenom} ${inspecteur.nom} créé`,
     canal: 'in_app'
   })
+  get().incrementerVersion()
 },
       updateInspecteur: async (id, data) => {
         set((state) => ({
@@ -4736,6 +4748,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         } catch (err) {
           console.error('[store] Erreur update inspecteur:', err)
         }
+        get().incrementerVersion()
       },
       deleteInspecteur: async (id: string) => {
         const state = get()
@@ -4845,6 +4858,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         } as Competence))
         set((state) => ({ competences: [...state.competences.filter(c => !(c.inspecteur_id === inspecteurId && newCompetences.some(n => n.domaine === c.domaine))), ...newCompetences] }))
       },
+
+      incrementerVersion: () => set((s) => ({ competencesVersion: s.competencesVersion + 1 })),
 
       // ============================================================
       // KIT SLICE
