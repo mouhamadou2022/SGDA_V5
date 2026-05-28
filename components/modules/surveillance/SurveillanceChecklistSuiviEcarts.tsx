@@ -550,15 +550,15 @@ export function SurveillanceChecklistSuiviEcarts({
   // Générer les items de vérification à partir des vrais écarts
   useEffect(() => {
     // Récupérer tous les écarts de l'aérodrome qui nécessitent un suivi
-    // États concernés : ouvert (pas encore de PAC), pac_attendu (PAC demandé mais non soumis), en_retard
+    // États concernés : 
+    // - ouvert (pas encore de PAC), pac_attendu (PAC demandé non soumis)
+    // - pac_soumis (PAC soumis mais pas encore évalué), pac_refuse (PAC refusé)
+    // - en_retard (délai dépassé)
+    // Ne PAS inclure pac_accepte, preuves_soumises, preuves_evaluees → ceux-là vont dans la checklist PAC
     const ecartsASuivre = ecarts.filter(e => {
       if (e.aerodrome_id !== aerodromeId) return false
       if (e.statut === 'cloture') return false
-      // Écarts sans PAC soumis : ouvert, pac_attendu, en_retard
-      if (['ouvert', 'pac_attendu', 'en_retard'].includes(e.statut)) return true
-      // Écarts avec PAC soumis mais sans preuves ou preuves partielles
-      if (e.pac && ['pac_soumis', 'pac_refuse'].includes(e.statut)) return true
-      return false
+      return ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut)
     })
 
     if (ecartsASuivre.length === 0) {

@@ -967,10 +967,15 @@ export function SurveillanceChecklistPAC({
     };
   }, []);
   
-  // Trouver l'écart associé (pour PAC)
-  const ecart = useMemo(() => {
-    return ecarts.find(e => e.surveillance_id === surveillanceId);
-  }, [ecarts, surveillanceId]);
+  // Trouver les écarts avec PAC accepté sans preuves validées (pas encore clôturé)
+  const ecartsPACAcceptes = useMemo(() => {
+    return ecarts.filter(e =>
+      e.aerodrome_id === aerodromeId &&
+      e.pac && e.pac.actions && e.pac.actions.length > 0 &&
+      // PAC accepté mais écart pas encore clôturé → preuves à vérifier
+      ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'].includes(e.statut)
+    )
+  }, [ecarts, aerodromeId])
   
   // Trouver les exemptions actives (pour mesures)
   const exemptionsActives = useMemo(() => {
@@ -986,27 +991,28 @@ export function SurveillanceChecklistPAC({
   // Initialisation des items
   useEffect(() => {
     const items: ItemVerification[] = [];
-    
-    // 1. Ajouter les actions PAC si écart avec PAC (filtrées par échéance : dans 30j ou dépassées)
-    if (ecart && ecart.pac && ecart.pac.actions) {
-      const dans30Jours = Date.now() + 30 * 24 * 60 * 60 * 1000
-      ecart.pac.actions.forEach((action: any, idx: number) => {
+    let itemCounter = 0
+
+    // 1. Ajouter les actions PAC pour tous les écarts avec PAC accepté (sans preuves validées)
+    for (const ec of ecartsPACAcceptes) {
+      if (!ec.pac?.actions) continue
+      ec.pac.actions.forEach((action: any, idx: number) => {
         const datePrevue = new Date(action.date_prevue)
-        const estApprocheOuDepasse = !isNaN(datePrevue.getTime()) && datePrevue.getTime() < dans30Jours
-        if (!estApprocheOuDepasse) return // ignorer les actions dont l'échéance est > 30 jours
+        const estApprocheOuDepasse = !isNaN(datePrevue.getTime()) && datePrevue.getTime() < Date.now() + 30 * 24 * 60 * 60 * 1000
+        if (!estApprocheOuDepasse) return
 
         items.push({
-          id: `pac-${Date.now()}-${idx}`,
+          id: `pac-${Date.now()}-${itemCounter}`,
           type: 'action_pac',
-          domaine: (ecart as any).domaine as DomaineCode | undefined,
+          domaine: (ec as any).domaine as DomaineCode | undefined,
           source_id: `action-${idx}`,
-          reference: ecart.reference,
+          reference: ec.reference,
           description: action.description,
           responsable: action.responsable,
           date_prevue: action.date_prevue,
           livrables: action.livrables || [],
           statut_origine: action.status || 'planifie',
-          ordre: idx,
+          ordre: itemCounter++,
           prediction: (() => { const d = new Date(action.date_prevue); return (!isNaN(d.getTime()) && d.getTime() < Date.now()) ? 'NS' : 'NV' })(),
           confiance: (() => { const d = new Date(action.date_prevue); return !isNaN(d.getTime()) ? 85 : 40 })(),
           justification: 'Basé sur l\'historique des vérifications précédentes',
@@ -1058,9 +1064,9 @@ export function SurveillanceChecklistPAC({
       progression,
       isSigned: false,
       exemptions_actives: exemptionsActives.map(e => ({ id: e.id, reference: e.reference })),
-      ecart_concerne: ecart ? { id: ecart.id, reference: ecart.reference, libelle: ecart.libelle, niveau: ecart.niveau_risque } : undefined,
+      ecart_concerne: ecartsPACAcceptes.length > 0 ? { id: ecartsPACAcceptes[0].id, reference: ecartsPACAcceptes[0].reference, libelle: ecartsPACAcceptes[0].libelle, niveau: ecartsPACAcceptes[0].niveau_risque } : undefined,
     });
-  }, [ecart, exemptionsActives, aerodromeId]);
+  }, [ecartsPACAcceptes, exemptionsActives, aerodromeId]);
   
   // Générer les suggestions
   useEffect(() => {
