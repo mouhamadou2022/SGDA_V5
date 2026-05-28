@@ -438,7 +438,9 @@ export interface EvaluationPAC {
   decision: 'accepte' | 'refuse'
   commentaire_refus?: string
   evalue_par: string
-  evalue_le: string
+  evalue_le?: string
+  niveau_risque_reevalue?: 'critique' | 'eleve' | 'moyen' | 'faible'
+  cellule_risque_oaci_reevaluee?: string
 }
 
 export interface SoumissionPreuves {
@@ -472,6 +474,8 @@ export interface ValidationPreuves {
     preuvesSuffisantes: boolean
   }
   reserves?: string[]
+  niveau_risque_reevalue?: 'critique' | 'eleve' | 'moyen' | 'faible'
+  cellule_risque_oaci_reevaluee?: string
 }
 
 export interface HistoriqueEcart {
@@ -2828,9 +2832,9 @@ getActiveAerodromes: () => {
         const nouveauStatut = evaluation.decision === 'accepte' ? 'pac_accepte' : 'pac_refuse'
         const now = new Date().toISOString()
         const dateSoumission = new Date(ecart.pac?.soumis_le || ecart.created_at)
-        const dateEvaluation = new Date(evaluation.evalue_le)
+        const dateEvaluation = new Date(evaluation.evalue_le || now)
         const delaiTraitement = Math.ceil((dateEvaluation.getTime() - dateSoumission.getTime()) / (1000 * 60 * 60 * 24))
-        const evaluationPac = {
+        const evaluationPac: any = {
           ...evaluation,
           note_globale: plansActionsUtils.calculerNoteGlobale(evaluation),
           delai_traitement: delaiTraitement
@@ -2849,9 +2853,22 @@ getActiveAerodromes: () => {
 
         // Supabase OK → store local
         set((state) => {
+          const updatedFields: any = { statut: nouveauStatut, evaluation_pac: evaluationPac, updated_at: now }
+          if (evaluation.niveau_risque_reevalue) {
+            updatedFields.niveau_risque = evaluation.niveau_risque_reevalue
+            updatedFields.evaluation_niveau_risque = {
+              note_globale: evaluation.note_globale,
+              niveau_suggere: evaluation.niveau_risque_reevalue,
+              evalue_par: evaluation.evalue_par,
+              evalue_le: evaluation.evalue_le || now,
+            }
+          }
+          if (evaluation.cellule_risque_oaci_reevaluee) {
+            updatedFields.cellule_risque_oaci = evaluation.cellule_risque_oaci_reevaluee
+          }
           const updatedEcarts = (state.ecarts.map(e =>
             e.id === ecartId
-              ? { ...e, statut: nouveauStatut, evaluation_pac: evaluationPac, updated_at: now }
+              ? { ...e, ...updatedFields }
               : e
           ) as Ecart[])
           const historiqueEntry: HistoriqueEcart = {
@@ -3017,15 +3034,21 @@ getActiveAerodromes: () => {
 
         // Supabase OK → store local
         set((state) => {
+          const updatedFields: any = {
+            statut: nouveauStatut,
+            validation_preuves: validation,
+            cloture_le: validation.decision === 'valide' ? now : undefined,
+            updated_at: now
+          }
+          if (validation.niveau_risque_reevalue) {
+            updatedFields.niveau_risque = validation.niveau_risque_reevalue
+          }
+          if (validation.cellule_risque_oaci_reevaluee) {
+            updatedFields.cellule_risque_oaci = validation.cellule_risque_oaci_reevaluee
+          }
           const updatedEcarts = (state.ecarts.map(e =>
             e.id === ecartId
-              ? {
-                  ...e,
-                  statut: nouveauStatut,
-                  validation_preuves: validation,
-                  cloture_le: validation.decision === 'valide' ? now : undefined,
-                  updated_at: now
-                }
+              ? { ...e, ...updatedFields }
               : e
           ) as Ecart[])
           const descriptionMap = {

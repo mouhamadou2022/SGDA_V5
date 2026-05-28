@@ -94,10 +94,12 @@ export function EcartCard({
   }
 
   const getCelluleBadgeStyle = (cellule: string): string => {
-    const niveau = (ecart.niveau_risque as string)
-    if (niveau === 'critique') return 'bg-red-600 text-white'
-    if (niveau === 'eleve') return 'bg-amber-500 text-white'
-    if (niveau === 'moyen') return 'bg-blue-500 text-white'
+    // Basé sur la probabilité (1er caractère de la cellule OACI)
+    const prob = parseInt(cellule.charAt(0)) || 3
+    // 5 = critique, 4 = eleve, 3 = moyen, 1-2 = faible
+    if (prob >= 5) return 'bg-red-600 text-white'
+    if (prob >= 4) return 'bg-amber-500 text-white'
+    if (prob >= 3) return 'bg-blue-500 text-white'
     return 'bg-green-500 text-white'
   }
 
