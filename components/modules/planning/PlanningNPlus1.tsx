@@ -277,12 +277,14 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                           {TYPE_ICONS[prop.type] || <Calendar className="w-3 h-3" />}
                           <span className="font-medium">{TYPE_LABELS[prop.type] || prop.type}</span>
                           {source && (
-                            <span className={SOURCE_COLORS[source.type] || 'badge-outline text-[10px]'}>
+                            <span className={SOURCE_COLORS[source.type] || 'badge-outline text-xs'}>
                               {source.type === 'profil_risque' ? 'Profil' : source.type === 'carryover_ecart' ? 'Écart' : source.type === 'carryover_pac' ? 'PAC' : source.type === 'certification_renouvellement' ? 'Certificat' : ''}
                             </span>
                           )}
-                          {prop.priorite === 'critique' && <span className="badge danger text-[10px]">Critique</span>}
-                          {conflict && <span className="badge warning text-[10px]">Conflit</span>}
+                          <span className={`badge text-xs ${prop.priorite === 'critique' ? 'danger' : prop.priorite === 'haute' ? 'warning' : prop.priorite === 'moyenne' ? 'primary' : 'success'}`}>
+                            {prop.priorite === 'critique' ? 'Critique' : prop.priorite === 'haute' ? 'Élevé' : prop.priorite === 'moyenne' ? 'Moyen' : 'Faible'}
+                          </span>
+                          {conflict && <span className="badge warning text-xs">Conflit</span>}
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                           <span>{prop.date_debut ? new Date(prop.date_debut).toLocaleDateString('fr-FR') : '?'} → {prop.date_fin ? new Date(prop.date_fin).toLocaleDateString('fr-FR') : '?'}</span>
