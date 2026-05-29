@@ -144,7 +144,7 @@ const selectStyle = {
   backgroundRepeat: 'no-repeat'
 };
 
-type ViewMode = 'list' | 'calendar' | 'gantt' | 'workload' | 'assignment' | 'nplus1';
+type ViewMode = 'list' | 'calendar' | 'gantt' | 'workload' | 'assignment';
 
 interface PlanningModuleProps {
   userRole: string;
@@ -1500,7 +1500,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
     { id: 'gantt', label: 'Gantt', icon: LayoutGrid },
     { id: 'workload', label: 'Charge', icon: Users },
     { id: 'assignment', label: 'Assignation', icon: Briefcase },
-    { id: 'nplus1', label: 'N+1', icon: TrendingUp },
   ];
 
   const hasExemptionsAnywhere = Array.from(exemptionsActivesParAerodrome.values()).some(arr => arr.length > 0);
@@ -2339,9 +2338,19 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                    <span>{view.label}</span>
                  </button>
                );
-             })}
-           </div>
-           
+              })}
+            </div>
+
+            {/* Bouton N+1 */}
+            <button
+              onClick={() => setShowNPlus1Modal(true)}
+              className="btn btn-secondary gap-2"
+              title="Générer le planning de l'année suivante"
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span>N+1</span>
+            </button>
+            
             {/* Bouton Suggestions IA — animé selon la sévérité des déclencheurs */}
             {(() => {
               const totalCritiques    = aerodromesRisque.reduce((sum, a) => sum + (a.nbTriggersCritiques || 0), 0);
@@ -3109,12 +3118,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
 
       {viewMode === 'workload' && <WorkloadView userRole={userRole} />}
       {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
-      {viewMode === 'nplus1' && (
-        <>
-          {setShowNPlus1Modal(true)}
-          {setViewMode('list')}
-        </>
-      )}
       {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
 
       {/* ── Modale Planning N+1 ── */}
