@@ -277,9 +277,23 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       // ── Utilise le moteur complet de surveillance continue ──
       const urgents = riskEngine.detectUrgentEcards(ecartsAerodrome, profil);
       const degradations = riskEngine.detectDomainDegradations(profil);
+      // HMM state — détection transition silencieuse via scores historiques
+      let hmmState: string | undefined
+      try {
+        const scoresHist = surveillances
+          .filter(s => s.aerodrome_id === aero.id && (s as any).score_global !== undefined)
+          .slice(-12)
+          .map(s => (s as any).score_global as number)
+        if (scoresHist.length >= 3) {
+          const { predictHMM } = require('@/lib/risque/hmm')
+          const hmmR = predictHMM(scoresHist)
+          hmmState = hmmR.isTransitioning ? 'degrading' : hmmR.currentStateName
+        }
+      } catch { /* HMM indisponible */ }
       const decision = riskEngine.determineTypeSurveillanceContinue(
         profil, urgents, degradations,
         ecartsAerodrome, undefined, undefined, undefined, aero.statut_sgs as 'complet' | 'simplifie' | 'non_applicable' | undefined,
+        hmmState,
       );
 
       const decisionSurveillance = {

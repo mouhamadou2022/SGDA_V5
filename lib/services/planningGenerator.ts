@@ -1,9 +1,15 @@
 // lib/services/planningGenerator.ts
-// Générateur centralisé de planning — consolide profil de risque + carry-over écarts/PAC + certification
-// Plan glissant 12 mois, par aérodrome, avec détails exploitant
+// Générateur centralisé de planning — consolide profil + carry-over + certification
+// Intégration des 6 modèles mathématiques : HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling
 
 import type { Planning, ProfilRisque, Ecart, Certification, Homologation } from '@/lib/store'
 import { computeFinalFrequency, suggestMissionType } from '@/lib/risque/frequency'
+import { predictHMM } from '@/lib/risque/hmm'
+import { predictSurvival } from '@/lib/risque/survival'
+import { predictEVT } from '@/lib/risque/extreme'
+import { predictNB } from '@/lib/risque/negativeBinomial'
+import { predictCopula } from '@/lib/risque/copulas'
+import { createThompsonSampling } from '@/lib/risque/thompsonSampling'
 
 export interface PlanningSource {
   type: 'profil_risque' | 'carryover_ecart' | 'carryover_pac' | 'certification_renouvellement' | 'injection'
@@ -13,7 +19,7 @@ export interface PlanningSource {
 
 export interface PlanningProposal extends Partial<Planning> {
   source: PlanningSource
-  sort_order: number // pour trier par priorité
+  sort_order: number
 }
 
 export interface PlanningGeneratorParams {
@@ -24,58 +30,157 @@ export interface PlanningGeneratorParams {
   certifications?: Certification[]
   homologations?: Homologation[]
   inspecteurs?: { id: string; prenom: string; nom: string; competences?: any[] }[]
-  historiqueSurveillances?: { type: string; date: string; domaines: string[] }[]
+  historiqueSurveillances?: { type: string; date: string; domaines: string[]; score?: number }[]
 }
 
-/**
- * Génère le planning glissant 12 mois pour un aérodrome.
- * Consolide 4 sources : profil de risque, carry-over écarts, carry-over PAC, certification.
- */
-export function genererPlanning(
-  params: PlanningGeneratorParams
-): PlanningProposal[] {
+export function genererPlanning(params: PlanningGeneratorParams): PlanningProposal[] {
   const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [] } = params
   const propositions: PlanningProposal[] = []
+
+  // ── Modèles mathématiques (calculés une fois, réutilisés) ──
+  const scoresHistoriques = historiqueSurveillances.filter(h => h.score !== undefined).map(h => h.score!)
+  const modelOverrides: {
+    hmm?: { currentStateName: string; isTransitioning: boolean; transitionRisk: number; daysToCritical: number }
+    survival?: { hazard90d: number; hazard180d: number; medianDays: number }
+    evt?: { tailRisk: number; isHeavyTailed: boolean; maxExpected12m: number }
+    nb?: { overdispersion: number; dispersionAdjustedMean: number }
+    copula?: { kendallTau: number; tailDependence: number; copulaType: string }
+    ts?: { recommendedAction: string; successProbability: number }
+    modelReason: string[]
+  } = { modelReason: [] }
+
+  if (scoresHistoriques.length >= 3 && profilRisque) {
+    // HMM
+    try {
+      const hmmR = predictHMM(scoresHistoriques)
+      modelOverrides.hmm = {
+        currentStateName: hmmR.currentStateName,
+        isTransitioning: hmmR.isTransitioning,
+        transitionRisk: hmmR.transitionRisk,
+        daysToCritical: hmmR.daysToCritical,
+      }
+      if (hmmR.isTransitioning) modelOverrides.modelReason.push(`HMM: transition silencieuse détectée (risque ${hmmR.transitionRisk}%, J-${hmmR.daysToCritical})`)
+    } catch { /* HMM indisponible */ }
+
+    // Survival (Cox PH)
+    try {
+      const survEvents = scoresHistoriques.map((s, i) => ({ time: i * 30 + 1, event: s < 30, score: s, covariates: [s, profilRisque.score_global] }))
+      const survR = predictSurvival(survEvents, [profilRisque.score_global, profilRisque.score_global])
+      modelOverrides.survival = { hazard90d: survR.hazard90days, hazard180d: survR.hazard180days, medianDays: survR.medianSurvivalDays || 999 }
+      if (survR.hazard90days > 0.5) modelOverrides.modelReason.push(`Survival: risque incident à 90j = ${Math.round(survR.hazard90days * 100)}%`)
+    } catch { /* Survival indisponible */ }
+
+    // EVT
+    try {
+      const evtR = predictEVT(scoresHistoriques.map(s => ({ value: 100 - s, date: '' })))
+      modelOverrides.evt = { tailRisk: evtR.probabilityExtreme, isHeavyTailed: evtR.isHeavyTailed, maxExpected12m: evtR.maxExpected12m }
+      if (evtR.isHeavyTailed || evtR.probabilityExtreme > 0.1) modelOverrides.modelReason.push(`EVT: distribution à queue lourde, risque extrême ${Math.round(evtR.probabilityExtreme * 100)}%`)
+    } catch { /* EVT indisponible */ }
+
+    // Negative Binomial
+    try {
+      const nbCounts = scoresHistoriques.map(s => Math.max(0, Math.round((100 - s) / 10)))
+      const nbR = predictNB(nbCounts)
+      modelOverrides.nb = { overdispersion: nbR.isOverdispersed ? 2 : 1, dispersionAdjustedMean: nbR.mean }
+      if (nbR.isOverdispersed) modelOverrides.modelReason.push(`NB: surdispersion détectée (variance/moyenne = ${(nbR.variance / nbR.mean).toFixed(1)})`)
+    } catch { /* NB indisponible */ }
+
+    // Copulas
+    try {
+      const copR = predictCopula([{
+        c1: profilRisque.c1, c2: profilRisque.c2, c3: profilRisque.c3, c4: profilRisque.c4, c5: profilRisque.c5,
+      }])
+      const maxTailDep = Math.max(...copR.tailDependence.lower.flat())
+      modelOverrides.copula = { kendallTau: maxTailDep, tailDependence: maxTailDep, copulaType: copR.clusters ? 'detected' : 'none' }
+      if (maxTailDep > 0.3) modelOverrides.modelReason.push(`Copulas: dépendance de queue ${maxTailDep.toFixed(2)}`)
+    } catch { /* Copulas indisponible */ }
+
+    // Thompson Sampling
+    try {
+      const actions = [
+        { id: 'audit_complet', name: 'Audit complet', alpha: 7, beta: 3 },
+        { id: 'maintien', name: 'Maintien', alpha: 6, beta: 4 },
+        { id: 'periodique', name: 'Périodique', alpha: 5, beta: 5 },
+      ]
+      const ts = createThompsonSampling(actions)
+      const recommended = ts.recommend(`${aerodromeId}_${annee}`)
+      modelOverrides.ts = { recommendedAction: recommended.id, successProbability: ts.bestProbability }
+      modelOverrides.modelReason.push(`TS: action recommandée = ${recommended.name} (${Math.round(ts.bestProbability * 100)}%)`)
+    } catch { /* TS indisponible */ }
+  }
 
   // ── SOURCE 1 : Profil de risque → maintien / périodique / audit ──
   if (profilRisque) {
     const nbEcartsCritiques = ecartsActifs.filter(e => e.niveau_risque === 'critique').length
     const hasPendingPac = ecartsActifs.some(e => e.pac && ['pac_attendu', 'pac_soumis'].includes(e.statut))
-    const typeAero = 'national'
+    const isCertPhase = historiqueSurveillances.some(h => h.type === 'certification')
 
-    // Fréquence basée sur le niveau de risque
     const riskLevel = profilRisque.niveau === 'critique' ? 'critique'
       : profilRisque.niveau === 'eleve' ? 'élevé'
       : profilRisque.niveau === 'moyen' ? 'moyen'
       : 'faible'
+
     const freqResult = computeFinalFrequency({ riskLevel: riskLevel as any })
-    const frequence = typeof freqResult === 'number' ? freqResult : (freqResult as any).frequencyPerYear || 2
+    let frequence = typeof freqResult === 'number' ? freqResult : (freqResult as any).frequencyPerYear || 2
     const freqLabel = typeof freqResult === 'object' ? (freqResult as any).label || '' : ''
 
-    const isCertPhase = historiqueSurveillances.some(h => h.type === 'certification')
-    const missionType = suggestMissionType({
+    // NB → ajustement fréquence si surdispersion
+    if (modelOverrides.nb && modelOverrides.nb.overdispersion > 1) {
+      frequence = Math.min(12, Math.round(frequence * modelOverrides.nb.overdispersion))
+    }
+
+    // Mission type — Thompson Sampling override si confiance > 70%
+    let missionType = suggestMissionType({
       riskLevel: (riskLevel as any),
       hasCriticalEcarts: nbEcartsCritiques > 0,
       hasPacInProgress: hasPendingPac,
       isCertificationPhase: isCertPhase,
     })
+    if (modelOverrides.ts && modelOverrides.ts.successProbability > 0.7) {
+      missionType = modelOverrides.ts.recommendedAction
+    }
 
-    // Domaines prioritaires basés sur C2/C3
-    const domainesPrioritaires: string[] = profilRisque.c3 < 50
-      ? ['PHY', 'OLS', 'ELEC', 'MFP']
-      : profilRisque.c2 < 50
-        ? ['SLI', 'RA', 'COP', 'OPS']
-        : ['SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS']
+    // Domaines — Copulas override (élargir si dépendance de queue)
+    let domainesPrioritaires: string[]
+    if (modelOverrides.copula && modelOverrides.copula.tailDependence > 0.3) {
+      // Forte dépendance → tous les domaines sont liés, inspecter large
+      domainesPrioritaires = ['SGS', 'SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS']
+    } else {
+      domainesPrioritaires = profilRisque.c3 < 50
+        ? ['PHY', 'OLS', 'ELEC', 'MFP']
+        : profilRisque.c2 < 50
+          ? ['SLI', 'RA', 'COP', 'OPS']
+          : ['SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS']
+    }
+
+    // Priorité — HMM + EVT override
+    let priorite: Planning['priorite']
+    if (modelOverrides.hmm?.isTransitioning || (modelOverrides.evt?.tailRisk ?? 0) > 0.15) {
+      priorite = 'critique'
+    } else {
+      priorite = profilRisque.score_global < 30 ? 'critique'
+        : profilRisque.score_global < 50 ? 'haute'
+        : profilRisque.score_global < 70 ? 'moyenne'
+        : 'basse'
+    }
+
+    // Dates — Survival override (placer plus tôt si risque élevé)
+    let startMonth = 0
+    if (modelOverrides.survival && modelOverrides.survival.hazard90d > 0.5) {
+      startMonth = 0 // janvier immédiat
+    } else if (modelOverrides.survival && modelOverrides.survival.hazard90d > 0.3) {
+      startMonth = 2 // mars
+    }
 
     const intervalle = Math.floor(12 / Math.max(frequence, 1))
 
     for (let i = 0; i < frequence; i++) {
-      const mois = i * intervalle
+      const mois = (startMonth + i * intervalle) % 12
       const debut = new Date(annee, mois, 1)
       const fin = new Date(annee, mois, 3)
-      const domaines = domainesPrioritaires.slice(0, Math.min(3 + i, 8))
+      const domaines = domainesPrioritaires.slice(0, Math.min(3 + i, 9))
 
-      const objectifs = buildObjectifsProfil(missionType, domaines, profilRisque, freqLabel, '')
+      const objectifs = buildObjectifsProfil(missionType, domaines, profilRisque, freqLabel, '', modelOverrides.modelReason)
 
       propositions.push({
         aerodrome_id: aerodromeId,
@@ -86,90 +191,55 @@ export function genererPlanning(
         equipe_ids: [],
         chef_id: '',
         statut: 'planifiee',
-        priorite: profilRisque.score_global < 30 ? 'critique' : profilRisque.score_global < 50 ? 'haute' : profilRisque.score_global < 70 ? 'moyenne' : 'basse',
+        priorite,
         objectifs,
         est_proposition: true,
         annee_cible: annee,
         source: {
           type: 'profil_risque',
-          raison: `Fréquence ${freqLabel || `${frequence}/an`} — Score ${profilRisque.score_global}/100 (${profilRisque.niveau})`,
-          details: domaines.map(d => `Domaine ${d} : C1=${profilRisque.c1} C2=${profilRisque.c2} C3=${profilRisque.c3} C5=${profilRisque.c5}`),
+          raison: `Fréquence ${freqLabel || `${frequence}/an`} — Score ${profilRisque.score_global}/100 (${profilRisque.niveau})${modelOverrides.modelReason.length > 0 ? ' + Modèles ML' : ''}`,
+          details: [...domaines.map(d => `Domaine ${d} : C1=${profilRisque.c1} C2=${profilRisque.c2} C3=${profilRisque.c3} C5=${profilRisque.c5}`), ...modelOverrides.modelReason],
         },
-        sort_order: 3, // priorité moyenne
+        sort_order: priorite === 'critique' ? 0 : priorite === 'haute' ? 1 : 3,
       })
     }
   }
 
   // ── SOURCE 2 : Carry-over écarts → suivi_ecarts ──
-  const ecartsASuivre = ecartsActifs.filter(e => {
-    if (e.statut === 'cloture') return false
-    return ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut)
-  })
-
+  const ecartsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut))
   if (ecartsASuivre.length > 0) {
     const debut = new Date(annee, 0, 15)
     const fin = new Date(annee, 0, 16)
-    const ecartsDetails = ecartsASuivre.map(e =>
-      `Écart ${e.reference} : ${e.libelle?.substring(0, 80) || 'sans libellé'} (${e.niveau_risque}, statut: ${e.statut}, délai: ${e.delai_regularisation || e.delai_pac || 'non défini'})`
-    )
-
+    const ecartsDetails = ecartsASuivre.map(e => `Écart ${e.reference} : ${e.libelle?.substring(0, 80) || 'sans libellé'} (${e.niveau_risque}, statut: ${e.statut})`)
     propositions.push({
-      aerodrome_id: aerodromeId,
-      type: 'suivi_ecarts',
-      date_debut: debut.toISOString(),
-      date_fin: fin.toISOString(),
+      aerodrome_id: aerodromeId, type: 'suivi_ecarts', date_debut: debut.toISOString(), date_fin: fin.toISOString(),
       portee: [...new Set(ecartsASuivre.map(e => e.domaine).filter(Boolean))] as string[],
-      equipe_ids: [],
-      chef_id: '',
-      statut: 'planifiee',
+      equipe_ids: [], chef_id: '', statut: 'planifiee',
       priorite: ecartsASuivre.some(e => e.niveau_risque === 'critique') ? 'critique' : 'haute',
-      objectifs: `[CARRY-OVER] Suivi de ${ecartsASuivre.length} écart(s) non clôturé(s) de l'année précédente.\n${ecartsDetails.join('\n')}`,
-      est_proposition: true,
-      annee_cible: annee,
-      source: {
-        type: 'carryover_ecart',
-        raison: `${ecartsASuivre.length} écart(s) nécessitent un suivi`,
-        details: ecartsASuivre.map(e => e.reference),
-      },
-      sort_order: 1, // priorité haute
+      objectifs: `[CARRY-OVER] Suivi de ${ecartsASuivre.length} écart(s).\n${ecartsDetails.join('\n')}`,
+      est_proposition: true, annee_cible: annee,
+      source: { type: 'carryover_ecart', raison: `${ecartsASuivre.length} écart(s) nécessitent un suivi`, details: ecartsASuivre.map(e => e.reference) },
+      sort_order: 1,
     })
   }
 
   // ── SOURCE 3 : Carry-over PAC → mise_oeuvre_pac ──
-  const pacsASuivre = ecartsActifs.filter(e => {
-    if (e.statut === 'cloture') return false
-    return e.pac && ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'].includes(e.statut)
-  })
-
+  const pacsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && e.pac && ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'].includes(e.statut))
   if (pacsASuivre.length > 0) {
     const debut = new Date(annee, 1, 1)
     const fin = new Date(annee, 1, 2)
     const pacDetails = pacsASuivre.map(e => {
-      const actions = (e.pac?.actions || []).map(a =>
-        `  → ${a.description?.substring(0, 60)} (resp: ${a.responsable}, prévu: ${a.date_prevue?.substring(0, 10) || '?'})`
-      ).join('\n')
+      const actions = (e.pac?.actions || []).map(a => `  → ${a.description?.substring(0, 60)} (resp: ${a.responsable})`).join('\n')
       return `Écart ${e.reference} — PAC v${e.pac?.version || '?'} :\n${actions}`
     })
-
     propositions.push({
-      aerodrome_id: aerodromeId,
-      type: 'mise_oeuvre_pac',
-      date_debut: debut.toISOString(),
-      date_fin: fin.toISOString(),
+      aerodrome_id: aerodromeId, type: 'mise_oeuvre_pac', date_debut: debut.toISOString(), date_fin: fin.toISOString(),
       portee: [...new Set(pacsASuivre.map(e => e.domaine).filter(Boolean))] as string[],
-      equipe_ids: [],
-      chef_id: '',
-      statut: 'planifiee',
-      priorite: 'haute',
-      objectifs: `[CARRY-OVER] Vérification de la mise en œuvre de ${pacsASuivre.length} PAC accepté(s).\n${pacDetails.join('\n\n')}`,
-      est_proposition: true,
-      annee_cible: annee,
-      source: {
-        type: 'carryover_pac',
-        raison: `${pacsASuivre.length} PAC accepté(s) sans preuves validées`,
-        details: pacsASuivre.map(e => e.reference),
-      },
-      sort_order: 2, // priorité moyennement haute
+      equipe_ids: [], chef_id: '', statut: 'planifiee', priorite: 'haute',
+      objectifs: `[CARRY-OVER] Vérification ${pacsASuivre.length} PAC.\n${pacDetails.join('\n\n')}`,
+      est_proposition: true, annee_cible: annee,
+      source: { type: 'carryover_pac', raison: `${pacsASuivre.length} PAC sans preuves validées`, details: pacsASuivre.map(e => e.reference) },
+      sort_order: 2,
     })
   }
 
@@ -177,40 +247,21 @@ export function genererPlanning(
   const certsExpirant = (certifications || []).filter(c => {
     if (!c.date_expiration || c.statut_global !== 'certifie') return false
     const expireAt = new Date(c.date_expiration)
-    const debutAnnee = new Date(annee, 0, 1)
-    const finAnnee = new Date(annee + 1, 0, 1)
-    return expireAt >= debutAnnee && expireAt < finAnnee
+    return expireAt >= new Date(annee, 0, 1) && expireAt < new Date(annee + 1, 0, 1)
   })
-
-  if (certsExpirant.length > 0) {
-    for (const cert of certsExpirant) {
-      const expireDate = new Date(cert.date_expiration!)
-      // Planifier 4 mois avant expiration
-      const debut = new Date(expireDate.getTime() - 120 * 24 * 60 * 60 * 1000)
-      const fin = new Date(debut.getTime() + 5 * 24 * 60 * 60 * 1000)
-
-      propositions.push({
-        aerodrome_id: aerodromeId,
-        type: 'certification',
-        date_debut: debut.toISOString(),
-        date_fin: fin.toISOString(),
-        portee: ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'],
-        equipe_ids: [],
-        chef_id: '',
-        statut: 'planifiee',
-        priorite: 'haute',
-        objectifs: `[RENOUVELLEMENT] Certification ${cert.numero_cert || cert.reference} expire le ${expireDate.toLocaleDateString('fr-FR')}.\nRenouvellement : Phase 1 sautée (dossier existant), début à la Phase 2.\nTous les domaines + SGS inclus.\nPréparez le dossier de renouvellement avant l'inspection.`,
-        est_proposition: true,
-        annee_cible: annee,
-        declencheur: 'renouvellement',
-        source: {
-          type: 'certification_renouvellement',
-          raison: `Certificat expire le ${expireDate.toLocaleDateString('fr-FR')}`,
-          details: [`Numéro: ${cert.numero_cert || 'N/A'}`, `Phase 1 sautée — renouvellement`],
-        },
-        sort_order: 1,
-      })
-    }
+  for (const cert of certsExpirant) {
+    const expireDate = new Date(cert.date_expiration!)
+    const debut = new Date(expireDate.getTime() - 120 * 24 * 60 * 60 * 1000)
+    const fin = new Date(debut.getTime() + 5 * 24 * 60 * 60 * 1000)
+    propositions.push({
+      aerodrome_id: aerodromeId, type: 'certification', date_debut: debut.toISOString(), date_fin: fin.toISOString(),
+      portee: ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'],
+      equipe_ids: [], chef_id: '', statut: 'planifiee', priorite: 'haute',
+      objectifs: `[RENOUVELLEMENT] Certification expire le ${expireDate.toLocaleDateString('fr-FR')}.\nPhase 1 sautée → Phase 2.\nTous domaines + SGS.`,
+      est_proposition: true, annee_cible: annee, declencheur: 'renouvellement',
+      source: { type: 'certification_renouvellement', raison: `Certificat expire le ${expireDate.toLocaleDateString('fr-FR')}`, details: [`Numéro: ${cert.numero_cert || 'N/A'}`] },
+      sort_order: 1,
+    })
   }
 
   return propositions.sort((a, b) => {
@@ -219,52 +270,26 @@ export function genererPlanning(
   })
 }
 
-function buildObjectifsProfil(
-  type: string,
-  domaines: string[],
-  profil: ProfilRisque,
-  freqJust: string,
-  typeJust: string
-): string {
+function buildObjectifsProfil(type: string, domaines: string[], profil: ProfilRisque, freqJust: string, typeJust: string, mlReasons: string[]): string {
   const details: string[] = []
-  details.push(`[PROFIL] Score global : ${profil.score_global}/100 (${profil.niveau})`)
-  details.push(`C1 (SGS) : ${profil.c1}/100 — C2 (PAC) : ${profil.c2}/100 — C3 (Conformité) : ${profil.c3}/100`)
-  details.push(`C4 (Charge) : ${profil.c4}/100 — C5 (Événements) : ${profil.c5}/100`)
-  details.push(`Domaines ciblés : ${domaines.join(', ')}`)
-  if (freqJust) details.push(`Fréquence : ${freqJust}`)
-  if (typeJust) details.push(`Type : ${type === 'maintien' ? 'Maintien (revérification items SA + nouveaux risques)' : type === 'audit_complet' ? 'Audit complet (tous domaines)' : 'Périodique standard'}`)
+  details.push(`[PROFIL] Score: ${profil.score_global}/100 (${profil.niveau})`)
+  details.push(`C1=${profil.c1} C2=${profil.c2} C3=${profil.c3} C4=${profil.c4} C5=${profil.c5}`)
+  details.push(`Domaines: ${domaines.join(', ')}`)
+  if (freqJust) details.push(`Fréquence: ${freqJust}`)
+  if (typeJust) details.push(`Type: ${type}`)
+  if (mlReasons.length > 0) details.push(`[ML] ${mlReasons.join(' | ')}`)
   return details.join('\n')
 }
 
-/**
- * Génère un résumé texte du planning pour l'exploitant (utilisé pour email IA et portail)
- */
-export function genererResumeExploitant(
-  propositions: PlanningProposal[],
-  aerodromeNom: string,
-  annee: number
-): string {
+export function genererResumeExploitant(propositions: PlanningProposal[], aerodromeNom: string, annee: number): string {
   if (propositions.length === 0) return `Aucune inspection planifiée pour ${aerodromeNom} en ${annee}.`
-
   const parType: Record<string, PlanningProposal[]> = {}
-  for (const p of propositions) {
-    const t = p.type || 'autre'
-    if (!parType[t]) parType[t] = []
-    parType[t].push(p)
-  }
-
+  for (const p of propositions) { const t = p.type || 'autre'; if (!parType[t]) parType[t] = []; parType[t].push(p) }
   const lignes: string[] = []
   lignes.push(`Plan de surveillance ${annee} — ${aerodromeNom}`)
   lignes.push(`Total : ${propositions.length} inspection(s)\n`)
-
   for (const [type, props] of Object.entries(parType)) {
-    const label = type === 'suivi_ecarts' ? 'Suivi des écarts'
-      : type === 'mise_oeuvre_pac' ? 'Mise en œuvre PAC'
-      : type === 'certification' ? 'Certification'
-      : type === 'maintien' ? 'Maintien'
-      : type === 'audit_complet' ? 'Audit complet'
-      : 'Périodique'
-
+    const label = type === 'suivi_ecarts' ? 'Suivi des écarts' : type === 'mise_oeuvre_pac' ? 'Mise en œuvre PAC' : type === 'certification' ? 'Certification' : type === 'maintien' ? 'Maintien' : type === 'audit_complet' ? 'Audit complet' : 'Périodique'
     lignes.push(`${label} (${props.length}) :`)
     for (const p of props) {
       const debut = p.date_debut ? new Date(p.date_debut).toLocaleDateString('fr-FR') : '?'
@@ -273,6 +298,5 @@ export function genererResumeExploitant(
     }
     lignes.push('')
   }
-
   return lignes.join('\n')
 }
