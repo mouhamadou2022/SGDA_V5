@@ -2782,11 +2782,27 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {showProactiveSuggestions && createPortal(
         <div className="modal-overlay" data-role={userRole} onClick={() => setShowProactiveSuggestions(false)}>
           <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
-            <div className="card border-primary mb-6 animate-fade-up">
+        <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary">
+      <div className="modal-header border-b border-border bg-role-primary-soft">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center text-white">
+            <Brain className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Suggestions IA</h2>
+            <p className="text-xs text-muted-foreground">Déclencheurs PAC, Écarts & Profil de risque</p>
+          </div>
+        </div>
+        <button onClick={() => setShowProactiveSuggestions(false)} className="btn btn-secondary gap-2">
+          <X className="h-4 w-4" />Fermer
+        </button>
+      </div>
+      <div className="p-6">
+          <div className="card border-primary mb-6 animate-fade-up">
           <div className="card-header bg-gradient-to-r from-primary/10 to-transparent">
             <div className="card-title flex items-center gap-2">
               <Brain className="w-5 h-5 text-primary" />
-              Suggestions IA — Déclencheurs PAC & Écarts
+              Suggestions IA – Déclencheurs PAC & Écarts
             </div>
             <button 
               onClick={() => setShowProactiveSuggestions(false)}
@@ -3035,6 +3051,8 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </div>
           </div>
         </div>
+      </div>
+    </div>
           </div>
         </div>,
         document.body
