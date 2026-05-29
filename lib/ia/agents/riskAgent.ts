@@ -45,6 +45,9 @@ export interface RiskAnalysisResult {
   systemStress?: ReturnType<typeof computeSystemStress>
   proactiveAlert?: ReturnType<typeof computeProactiveAlert>
   changePoints?: ReturnType<typeof detectChangePoints>
+  survival?: { medianDays: number; hazard90d: number; hazard180d: number }
+  extremeValue?: { returnLevel1y: number; isHeavyTailed: boolean; maxExpected12m: number; tailRisk: number }
+  hiddenMarkov?: { currentState: string; isTransitioning: boolean; transitionRisk: number; daysToCritical: number }
   blackSwans?: Array<{
     domaine: string
     priorProbability: number
@@ -128,6 +131,50 @@ export class RiskAgent {
 
     // Suggestions structurées (locale)
     if (request.includeSuggestions !== false && profil) result.suggestions = this.buildStructuredSuggestions(data)
+
+    // Nouveaux modèles avancés (survival, EVT, HMM)
+    if (result.predictions && historique.length >= 3) {
+      // HMM : détection de transition silencieuse
+      try {
+        const { predictHMM } = await import('@/lib/risque/hmm')
+        const hmmR = predictHMM(historique.map(h => h.score))
+        result.hiddenMarkov = {
+          currentState: hmmR.currentStateName,
+          isTransitioning: hmmR.isTransitioning,
+          transitionRisk: hmmR.transitionRisk,
+          daysToCritical: hmmR.daysToCritical,
+        }
+      } catch { /* HMM unavailable */ }
+
+      // Survival : prédiction temporelle
+      try {
+        const { predictSurvival } = await import('@/lib/risque/survival')
+        const survEvents = historique.map((h, i) => ({
+          time: i * 30 + 1,
+          event: h.score < 30,
+          score: h.score,
+          covariates: [h.score, profil?.score_global || 70],
+        }))
+        const survR = predictSurvival(survEvents, [result.predictions.score3m, profil?.score_global || 70])
+        result.survival = {
+          medianDays: survR.medianSurvivalDays || 90,
+          hazard90d: survR.hazard90days,
+          hazard180d: survR.hazard180days,
+        }
+      } catch { /* survival unavailable */ }
+
+      // EVT : risque extrême
+      try {
+        const { predictEVT } = await import('@/lib/risque/extreme')
+        const evtR = predictEVT(historique.map(h => ({ value: 100 - h.score, date: h.date || '' })))
+        result.extremeValue = {
+          returnLevel1y: evtR.returnLevel1y,
+          isHeavyTailed: evtR.isHeavyTailed,
+          maxExpected12m: evtR.maxExpected12m,
+          tailRisk: evtR.probabilityExtreme,
+        }
+      } catch { /* EVT unavailable */ }
+    }
 
     // Analyse IA narrative (asynchrone — appelée séparément si besoin de performance)
     result.confidence = this.computeGlobalConfidence(result)
@@ -329,6 +376,52 @@ ${JSON.stringify(contextData, null, 2)}`,
         }
       }
     } catch { /* fallback to volatility */ }
+
+    // ── Survival Analysis ──
+    let survival: any = null
+    try {
+      const { predictSurvival } = await import('@/lib/risque/survival')
+      const survEvents = historique.slice().reverse().map((h, i) => ({
+        time: i * 30 + 1,
+        event: h.score < 40,
+        score: h.score,
+        covariates: [h.score, profil?.score_global || 70],
+      }))
+      const survResult = predictSurvival(survEvents, [local3m, profil?.score_global || 70])
+      survival = {
+        medianDays: survResult.medianSurvivalDays,
+        hazard90d: survResult.hazard90days,
+        hazard180d: survResult.hazard180days,
+      }
+    } catch { /* survival unavailable */ }
+
+    // ── Extreme Value Theory ──
+    let evt: any = null
+    try {
+      const { predictEVT } = await import('@/lib/risque/extreme')
+      const evtEvents = historique.map(h => ({ value: 100 - h.score, date: h.date || '' }))
+      const evtResult = predictEVT(evtEvents)
+      evt = {
+        returnLevel1y: evtResult.returnLevel1y,
+        isHeavyTailed: evtResult.isHeavyTailed,
+        maxExpected12m: evtResult.maxExpected12m,
+        tailRisk: evtResult.probabilityExtreme,
+      }
+    } catch { /* EVT unavailable */ }
+
+    // ── Hidden Markov Model ──
+    let hmm: any = null
+    try {
+      const { predictHMM } = await import('@/lib/risque/hmm')
+      const obs = historique.map(h => h.score)
+      const hmmResult = predictHMM(obs)
+      hmm = {
+        currentState: hmmResult.currentStateName,
+        isTransitioning: hmmResult.isTransitioning,
+        transitionRisk: hmmResult.transitionRisk,
+        daysToCritical: hmmResult.daysToCritical,
+      }
+    } catch { /* HMM unavailable */ }
 
     return {
       score3m: Math.min(100, Math.max(0, local3m)),
