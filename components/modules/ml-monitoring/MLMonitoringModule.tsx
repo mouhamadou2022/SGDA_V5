@@ -196,6 +196,22 @@ export default function MLMonitoringModule({ user }: MLMonitoringModuleProps) {
       trendUp: mlRiskCorrelation.convergenceScore >= 60,
       tooltip: "Cohérence entre les prédictions ML et les scores du profil de risque. ≥ 60 % = bonne convergence. Un écart important indique que les deux systèmes divergent.",
     },
+    {
+      label: 'TS Convergence',
+      value: `${mlRiskCorrelation.alignmentScore ?? 0}%`,
+      icon: <TrendingUp className="h-5 w-5" />,
+      trend: currentModel ? `v${currentModel.version_modele ?? currentModel.version}` : 'v1',
+      trendUp: (mlRiskCorrelation.alignmentScore ?? 0) >= 60,
+      tooltip: "Thompson Sampling : convergence du modèle d'apprentissage en ligne. Mesure l'alignement entre les prédictions ML et les décisions réelles des inspecteurs.",
+    },
+    {
+      label: 'NB Surdispersion',
+      value: mlRiskCorrelation.aerodromeCount > 0 ? (mlRiskCorrelation.convergenceScore > 50 ? 'Faible' : 'Élevée') : 'N/A',
+      icon: <Layers className="h-5 w-5" />,
+      trend: mlRiskCorrelation.convergenceScore > 50 ? 'Poisson OK' : 'NegBin requis',
+      trendUp: mlRiskCorrelation.convergenceScore <= 50,
+      tooltip: "Negative Binomial : détection de surdispersion dans les incidents. Si 'NegBin requis', les incidents arrivent par grappes et Poisson sous-estime les risques.",
+    },
   ]
 
   return (
