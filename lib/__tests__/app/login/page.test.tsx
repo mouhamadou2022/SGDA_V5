@@ -3,46 +3,19 @@
  */
 // __tests__/app/login/page.test.tsx
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import LoginPage from '@/app/login/page';
 
-// Mock du router
+const mockReplace = jest.fn();
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: mockReplace }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
 describe('LoginPage', () => {
-  test('affiche le formulaire de connexion', () => {
+  test('redirige vers la page d\'accueil', () => {
     render(<LoginPage />);
-    
-    expect(screen.getByPlaceholderText(/prenom.nom@anacim.sn/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/••••••••/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ACCÉDER À LA PLATEFORME/ })).toBeInTheDocument();
-  });
-
-  test('affiche les statistiques', () => {
-    render(<LoginPage />);
-    
-    expect(screen.getByText(/AÉRODROMES À SURVEILLER/)).toBeInTheDocument();
-    expect(screen.getByText(/INSPECTEURS ACTIFS/)).toBeInTheDocument();
-    expect(screen.getByText(/CONFORMITÉ VISÉE/)).toBeInTheDocument();
-  });
-
-  test('gère la soumission du formulaire', async () => {
-    render(<LoginPage />);
-    
-    fireEvent.change(screen.getByPlaceholderText(/prenom.nom@anacim.sn/), {
-      target: { value: 'test@anacim.sn' },
-    });
-    fireEvent.change(screen.getByPlaceholderText(/••••••••/), {
-      target: { value: 'password' },
-    });
-    
-    fireEvent.click(screen.getByRole('button', { name: /ACCÉDER À LA PLATEFORME/ }));
-    
-    await waitFor(() => {
-      expect(screen.getByText(/CONNEXION EN COURS/)).toBeInTheDocument();
-    });
+    expect(screen.getByText(/Redirection vers l'accueil/)).toBeInTheDocument();
+    expect(mockReplace).toHaveBeenCalledWith('/');
   });
 });
