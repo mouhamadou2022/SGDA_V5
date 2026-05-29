@@ -169,7 +169,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           </div>
           <div>
             <h2 className="text-lg font-bold text-foreground">Planning N+1 — {anneeN1}</h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {propositionsN1.length > 0
                 ? `${propositionsN1.length} propositions en attente · ${stats.carryOver} carry-over · ${stats.certif} certif`
                 : 'Générez le planning pour l\'année suivante'}
@@ -205,7 +205,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
 
         {/* Stats bar */}
         {propositionsN1.length > 0 && (
-          <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground bg-role-primary-soft/20 p-2 rounded-lg">
+          <div className="flex items-center gap-3 flex-wrap text-sm text-muted-foreground bg-role-primary-soft/20 p-2 rounded-lg">
             <span className="font-semibold text-foreground">{propositionsN1.length} propositions</span>
             {stats.carryOver > 0 && <span className="badge danger text-[10px]">{stats.carryOver} carry-over</span>}
             {stats.certif > 0 && <span className="badge success text-[10px]">{stats.certif} certification</span>}
@@ -222,7 +222,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           <div className="text-center py-12 text-muted-foreground">
             <Calendar className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>Aucune proposition pour {anneeN1}</p>
-            <p className="text-xs mt-1">Cliquez sur "Générer" pour créer le planning automatiquement</p>
+            <p className="text-sm mt-1">Cliquez sur "Générer" pour créer le planning automatiquement</p>
           </div>
         )}
 
@@ -231,9 +231,9 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           <div key={g.aero.id} className="border border-border rounded-xl overflow-hidden">
             {/* Aérodrome header */}
             <div className="bg-role-primary-soft/30 px-4 py-2 flex items-center gap-3">
-              <span className="code-oaci-badge text-xs">{g.aero.code_oaci}</span>
+              <span className="code-oaci-badge text-sm">{g.aero.code_oaci}</span>
               <span className="font-semibold text-sm text-foreground">{g.aero.nom}</span>
-              <span className="text-xs text-muted-foreground ml-auto">
+              <span className="text-sm text-muted-foreground ml-auto">
                 {g.existants.length} planning(s) · {g.propositions.length} proposition(s)
               </span>
             </div>
@@ -241,12 +241,12 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
             <div className="grid grid-cols-2 divide-x divide-border">
               {/* Colonne gauche : Planning existant */}
               <div className="p-3 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase">Planning {anneeN1} existant</p>
+                <p className="text-sm font-semibold text-muted-foreground uppercase">Planning {anneeN1} existant</p>
                 {g.existants.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Aucun planning pour {anneeN1}</p>
+                  <p className="text-sm text-muted-foreground italic">Aucun planning pour {anneeN1}</p>
                 ) : (
                   g.existants.map(p => (
-                    <div key={p.id} className="p-2 rounded-lg bg-muted/20 text-xs">
+                    <div key={p.id} className="p-2 rounded-lg bg-muted/20 text-sm">
                       <div className="flex items-center gap-2">
                         {TYPE_ICONS[p.type] || <Calendar className="w-3 h-3" />}
                         <span className="font-medium">{TYPE_LABELS[p.type] || p.type}</span>
@@ -264,15 +264,15 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
 
               {/* Colonne droite : Propositions */}
               <div className="p-3 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase">Propositions N+1</p>
+                <p className="text-sm font-semibold text-muted-foreground uppercase">Propositions N+1</p>
                 {g.propositions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Aucune proposition</p>
+                  <p className="text-sm text-muted-foreground italic">Aucune proposition</p>
                 ) : (
                   g.propositions.map((prop, pi) => {
                     const conflict = hasConflict(prop, g.existants)
                     const source = (prop as any).source
                     return (
-                      <div key={prop.id || `prop-${pi}`} className={`p-2 rounded-lg border text-xs ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
+                      <div key={prop.id || `prop-${pi}`} className={`p-2 rounded-lg border text-sm ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
                         <div className="flex items-center gap-2 flex-wrap">
                           {TYPE_ICONS[prop.type] || <Calendar className="w-3 h-3" />}
                           <span className="font-medium">{TYPE_LABELS[prop.type] || prop.type}</span>
@@ -334,7 +334,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                   <button
                     key={m}
                     onClick={() => setRefusModal({ ...refusModal, motif: m })}
-                    className={`w-full text-left p-2 rounded-lg text-xs transition-colors ${refusModal.motif === m ? 'bg-role-primary-soft border border-role-primary/30' : 'hover:bg-role-primary-soft/20'}`}
+                    className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${refusModal.motif === m ? 'bg-role-primary-soft border border-role-primary/30' : 'hover:bg-role-primary-soft/20'}`}
                   >
                     {m}
                   </button>

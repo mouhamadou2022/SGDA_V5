@@ -2344,7 +2344,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             {/* Bouton N+1 */}
             <button
               onClick={() => setShowNPlus1Modal(true)}
-              className="btn btn-secondary gap-2 relative"
+              className="btn btn-secondary gap-2 relative overflow-visible"
               title="Générer le planning de l'année suivante"
             >
               <TrendingUp className="w-4 h-4" />
@@ -3117,7 +3117,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {/* ── Modale Planning N+1 ── */}
       {showNPlus1Modal && createPortal(
         <div className="modal-overlay" data-role={userRole} onClick={() => setShowNPlus1Modal(false)}>
-          <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+          <div className="modal-content max-w-7xl max-h-[92vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
             <PlanningNPlus1 onClose={() => setShowNPlus1Modal(false)} userRole={userRole} />
           </div>
         </div>,
