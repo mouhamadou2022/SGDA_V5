@@ -4162,7 +4162,12 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       setPlannings: (plannings) => set({ plannings }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
       addPlanning: async (planning) => {
-        const result = await datastore.createPlanning(planning)
+        // Nettoyer les champs vides qui violent les contraintes FK
+        const cleanPlanning = { ...planning }
+        if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '00000000-0000-0000-0000-000000000000') {
+          delete (cleanPlanning as any).chef_id
+        }
+        const result = await datastore.createPlanning(cleanPlanning)
         if (result.error) {
           console.error('Erreur création planning Supabase:', result.error)
           throw new Error(result.error)
