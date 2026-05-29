@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
-  const [submitted, setSubmitted] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace('/');
+  }, [router]);
 
   return (
-    <div>
-      <input placeholder="prenom.nom@anacim.sn" />
-      <input placeholder="••••••••" type="password" />
-      <button onClick={() => setSubmitted(true)}>ACCÉDER À LA PLATEFORME</button>
-      <div>AÉRODROMES À SURVEILLER</div>
-      <div>INSPECTEURS ACTIFS</div>
-      <div>CONFORMITÉ VISÉE</div>
-      {submitted && <div>CONNEXION EN COURS</div>}
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <p className="text-muted-foreground">Redirection vers l&apos;accueil...</p>
     </div>
   );
 }
