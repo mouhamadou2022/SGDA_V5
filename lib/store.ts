@@ -3867,6 +3867,20 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           prediction6m = Math.round((prediction6m + ensemble.score6m) / 2)
           ensembleConfidence = ensemble.confidence
         }
+        // ── IA Ensemble (LSTM + BayesianDynamic + XGBoost + RF) ──
+        // S'active automatiquement quand assez de données historiques
+        // Fallback → régression actuelle si insuffisant
+        if (existingHistory.length >= 6) {
+          try {
+            const { ensembleModel } = await import('./ia/models/ensemble')
+            const iaEnsemble = await ensembleModel.predict(existingHistory, 1)
+            if (iaEnsemble.metadata.nModels >= 2 && iaEnsemble.confidence > ensembleConfidence) {
+              prediction3m = iaEnsemble.point
+              prediction6m = iaEnsemble.point
+              ensembleConfidence = iaEnsemble.confidence
+            }
+          } catch { /* IA ensemble indisponible — fallback régression */ }
+        }
         // ── Phase 3 : Modèles avancés (HMM, Survival, EVT, NB, Copulas, TS) ──
         // Procrastiné après construction de nouveauProfil car Copulas en a besoin
 
@@ -3892,7 +3906,22 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         }
 
         // Mise à jour bayésienne : prior par défaut à 0.3
-        const bayesianUpdate = await computeBayesianPosterior(get().profilsRisque?.[aerodromeId] || null, evenementsAerodrome)
+        let bayesianUpdate = await computeBayesianPosterior(get().profilsRisque?.[aerodromeId] || null, evenementsAerodrome)
+
+        // Bayesian Dynamic — prior évolutif (remplace le bayésien statique si assez de données)
+        if (existingHistory.length >= 5) {
+          try {
+            const { bayesianDynamicModel } = await import('./ia/models/bayesianDynamic')
+            const priors = get().profilsRisque?.[aerodromeId]?.bayesian_prior ?? 0.3
+            const { posterior } = bayesianDynamicModel.computePosterior(priors, [priors])
+            const dynBlackSwan = bayesianDynamicModel.detectBlackSwan(priors, posterior)
+            bayesianUpdate = {
+              posteriorProbability: posterior,
+              priorProbability: priors,
+              estBlackSwan: dynBlackSwan || bayesianUpdate?.estBlackSwan || false,
+            }
+          } catch { /* bayesianDynamic indisponible */ }
+        }
 
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,

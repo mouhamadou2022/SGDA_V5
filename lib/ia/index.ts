@@ -23,17 +23,10 @@ export { LearningAgent, learningAgent } from './agents/learningAgent'
 // ============================================================
 // MODÈLES MATHÉMATIQUES AVANCÉS
 // ============================================================
-export { HawkesModel, hawkesModel } from './models/hawkes'
-export { CUSUMModel, cusumModel } from './models/cusum'
 export { BayesianDynamicModel, bayesianDynamicModel } from './models/bayesianDynamic'
-export { QuantileModel, quantileModel } from './models/quantile'
 export { LSTMModel, lstmModel } from './models/lstm'
 export { XGBoostModel, RiskLevelClassifier, PACEvaluator, riskClassifier, pacEvaluator } from './models/xgboost'
 export { RandomForestModel, ChecklistResultPredictor, AnomalyDetector, checklistPredictor, anomalyDetector } from './models/randomForest'
-export { BowTieModel, bowTieModel } from './models/bowtie'
-export { ConformalModel, conformalModel } from './models/conformal'
-export { TemporalModel, temporalModel } from './models/temporal'
-export { GARCHModel, garchModel } from './models/garch'
 export { EnsembleModel, ensembleModel } from './models/ensemble'
 
 // ============================================================

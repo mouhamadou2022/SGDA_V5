@@ -6,16 +6,10 @@
 'use client'
 
 import { ScoreHistoryPoint } from '@/lib/store'
-import { hawkesModel, hawkesMultivariateModel } from './hawkes'
-import { cusumModel } from './cusum'
 import { bayesianDynamicModel } from './bayesianDynamic'
-import { quantileModel } from './quantile'
 import { lstmModel } from './lstm'
 import { riskClassifier } from './xgboost'
 import { checklistPredictor } from './randomForest'
-import { conformalModel } from './conformal'
-import { temporalModel } from './temporal'
-import { garchModel } from './garch'
 
 // ============================================================
 // TYPES
@@ -74,7 +68,7 @@ const DEFAULT_CONFIG: EnsembleConfig = {
   fallbackToMedian: true
 }
 
-const MODEL_NAMES = ['hawkes', 'lstm', 'quantile', 'bayesian', 'temporal', 'garch', 'xgboost']
+const MODEL_NAMES = ['lstm', 'bayesian', 'xgboost', 'randomForest']
 
 // ============================================================
 // MODÈLE ENSEMBLE
@@ -117,82 +111,48 @@ export class EnsembleModel {
     options?: { useAllModels?: boolean; customWeights?: Record<string, number> }
   ): Promise<EnsemblePrediction> {
     const predictions: { name: string; prediction: number; confidence?: number }[] = []
-    
-    // 1. Hawkes (contagion) — utilise calibrate + intensité de base
-    try {
-      const ecartsProxy = historique.map(h => ({ createdAt: h.date }))
-      const calibrated = hawkesModel.calibrate({ ecarts: ecartsProxy })
-      // Intensité basale comme proxy de risque Hawkes normalisé (0–100)
-      const hawkesPred = Math.min(100, Math.max(0, Math.round((calibrated.mu / 0.5) * 50)))
-      predictions.push({ name: 'hawkes', prediction: hawkesPred || 50, confidence: 70 })
-    } catch (e) {
-      predictions.push({ name: 'hawkes', prediction: 50, confidence: 30 })
+
+    // 1. LSTM (deep learning — nécessite ≥30 points pour être fiable)
+    if (historique.length >= 30) {
+      try {
+        await lstmModel.train(historique, { epochs: 10, verbose: false })
+        const lstmPred = lstmModel.predict(historique, horizon)
+        predictions.push({ name: 'lstm', prediction: lstmPred.predictions[0], confidence: Math.min(80, lstmPred.confidence ? lstmPred.confidence[0] : 50) })
+      } catch { predictions.push({ name: 'lstm', prediction: 50, confidence: 30 }) }
     }
-    
-    // 2. LSTM (deep learning)
-    try {
-      await lstmModel.train(historique, { epochs: 10, verbose: false })
-      const lstmPred = lstmModel.predict(historique, horizon)
-      predictions.push({ name: 'lstm', prediction: lstmPred.predictions[0], confidence: lstmPred.confidence[0] })
-    } catch (e) {
-      predictions.push({ name: 'lstm', prediction: 50, confidence: 30 })
-    }
-    
-    // 3. Quantile regression
-    try {
-      const scores = historique.map(h => h.score)
-      const quantiles = quantileModel.predictQuantiles(scores, horizon)
-      predictions.push({ name: 'quantile', prediction: quantiles.q50, confidence: 75 })
-    } catch (e) {
-      predictions.push({ name: 'quantile', prediction: 50, confidence: 30 })
-    }
-    
-    // 4. Bayesian dynamique
+
+    // 2. Bayesian dynamique (toujours dispo, s'améliore avec les données)
     try {
       const lastScores = historique.slice(-6).map(h => h.score)
       const mean = lastScores.reduce((a, b) => a + b, 0) / lastScores.length
       const prior = mean / 100
-      const likelihoods = [0.5]
-      const { posterior } = bayesianDynamicModel.computePosterior(prior, likelihoods)
-      const bayesianPred = posterior * 100
-      predictions.push({ name: 'bayesian', prediction: bayesianPred, confidence: 65 })
-    } catch (e) {
-      predictions.push({ name: 'bayesian', prediction: 50, confidence: 30 })
-    }
-    
-    // 5. Temporal (saisonnalité)
+      const { posterior } = bayesianDynamicModel.computePosterior(prior, [0.5])
+      predictions.push({ name: 'bayesian', prediction: posterior * 100, confidence: 65 })
+    } catch { predictions.push({ name: 'bayesian', prediction: 50, confidence: 30 }) }
+
+    // 3. XGBoost (nécessite ≥50 échantillons labellisés)
     try {
-      const forecast = temporalModel.forecast(historique, horizon, true)
-      predictions.push({ name: 'temporal', prediction: forecast[0]?.value || 50, confidence: 70 })
-    } catch (e) {
-      predictions.push({ name: 'temporal', prediction: 50, confidence: 30 })
-    }
-    
-    // 6. GARCH (volatilité)
-    try {
-      const scores = historique.map(h => h.score)
-      const returns = this.scoresToReturns(scores)
-      const garchResult = garchModel.fit(returns)
-      const lastVol = garchResult.volatility[garchResult.volatility.length - 1]
-      const garchPred = Math.max(0, Math.min(100, 50 + (lastVol - 10) * 2))
-      predictions.push({ name: 'garch', prediction: garchPred, confidence: 65 })
-    } catch (e) {
-      predictions.push({ name: 'garch', prediction: 50, confidence: 30 })
-    }
-    
-    // 7. XGBoost
-    try {
-      const scores = historique.map(h => h.score)
       const features = this.extractFeatures(historique)
-      const result = riskClassifier.predict(features)
-      const xgboostPred = typeof result.prediction === 'number' 
-        ? result.prediction 
-        : this.classToScore(result.prediction as string)
-      predictions.push({ name: 'xgboost', prediction: xgboostPred, confidence: result.confidence })
-    } catch (e) {
-      predictions.push({ name: 'xgboost', prediction: 50, confidence: 30 })
+      if (historique.length >= 20) {
+        const result = riskClassifier.predict(features)
+        const xgboostPred = typeof result.prediction === 'number' ? result.prediction : this.classToScore(result.prediction as string)
+        predictions.push({ name: 'xgboost', prediction: xgboostPred, confidence: result.confidence })
+      }
+    } catch { /* XGBoost indisponible */ }
+
+    // 4. Random Forest (checklist predictions — utilisé ailleurs)
+    // Le RF est utilisé séparément via checklistPredictor, pas dans l'ensemble de score
+
+    if (predictions.length < 2) {
+      // Fallback : pas assez de modèles disponibles
+      const avg = historique.length > 0 ? historique.reduce((s, h) => s + h.score, 0) / historique.length : 50
+      return {
+        point: avg, confidence: 30,
+        interval: { lower: Math.max(0, avg - 15), upper: Math.min(100, avg + 15) },
+        modelContributions: [{ name: 'fallback', weight: 1, prediction: avg }],
+        metadata: { nModels: 0, consensus: 'faible', variance: 0 }
+      }
     }
-    
     // Calcul des poids
     const weights = this.getWeights(predictions, options?.customWeights)
     

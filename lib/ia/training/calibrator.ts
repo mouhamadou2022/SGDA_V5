@@ -6,18 +6,11 @@
 'use client'
 
 import { useAppStore, ScoreHistoryPoint, Ecart, ChecklistItem } from '@/lib/store'
-import { hawkesModel } from '../models/hawkes'
-import { cusumModel } from '../models/cusum'
 import { bayesianDynamicModel } from '../models/bayesianDynamic'
-import { quantileModel } from '../models/quantile'
 import { lstmModel } from '../models/lstm'
 import { riskClassifier, pacEvaluator } from '../models/xgboost'
 import { checklistPredictor, anomalyDetector } from '../models/randomForest'
-import { conformalModel } from '../models/conformal'
-import { temporalModel } from '../models/temporal'
-import { garchModel } from '../models/garch'
 import { ensembleModel } from '../models/ensemble'
-import { bowTieModel } from '../models/bowtie'
 
 // ============================================================
 // TYPES
@@ -130,39 +123,7 @@ export class ModelCalibrator {
       console.log('[Calibrator] Début de la calibration des modèles...')
     }
 
-    // 1. Calibration du modèle Hawkes
-    try {
-      const beforePerf = this.getModelPerformance('hawkes')
-      await this.calibrateHawkes(ecarts, options?.verbose)
-      const afterPerf = this.getModelPerformance('hawkes')
-      modelsCalibrated.push('hawkes')
-      improvements.push({
-        model: 'hawkes',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`Hawkes: ${error}`)
-    }
-
-    // 2. Calibration du modèle CUSUM
-    try {
-      const beforePerf = this.getModelPerformance('cusum')
-      await this.calibrateCUSUM(profilsRisque, options?.verbose)
-      const afterPerf = this.getModelPerformance('cusum')
-      modelsCalibrated.push('cusum')
-      improvements.push({
-        model: 'cusum',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`CUSUM: ${error}`)
-    }
-
-    // 3. Calibration du modèle Bayésien
+// 3. Calibration du modèle Bayésien
     try {
       const beforePerf = this.getModelPerformance('bayesian')
       await this.calibrateBayesian(aerodromes, profilsRisque, options?.verbose)
@@ -178,23 +139,7 @@ export class ModelCalibrator {
       errors.push(`Bayesian: ${error}`)
     }
 
-    // 4. Calibration du modèle Quantile
-    try {
-      const beforePerf = this.getModelPerformance('quantile')
-      await this.calibrateQuantile(profilsRisque, options?.verbose)
-      const afterPerf = this.getModelPerformance('quantile')
-      modelsCalibrated.push('quantile')
-      improvements.push({
-        model: 'quantile',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`Quantile: ${error}`)
-    }
-
-    // 5. Calibration du modèle LSTM
+// 5. Calibration du modèle LSTM
     try {
       const beforePerf = this.getModelPerformance('lstm')
       await this.calibrateLSTM(profilsRisque, options?.verbose)
@@ -242,55 +187,7 @@ export class ModelCalibrator {
       errors.push(`RandomForest: ${error}`)
     }
 
-    // 8. Calibration du modèle Conformal
-    try {
-      const beforePerf = this.getModelPerformance('conformal')
-      await this.calibrateConformal(profilsRisque, options?.verbose)
-      const afterPerf = this.getModelPerformance('conformal')
-      modelsCalibrated.push('conformal')
-      improvements.push({
-        model: 'conformal',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`Conformal: ${error}`)
-    }
-
-    // 9. Calibration du modèle Temporal
-    try {
-      const beforePerf = this.getModelPerformance('temporal')
-      await this.calibrateTemporal(profilsRisque, options?.verbose)
-      const afterPerf = this.getModelPerformance('temporal')
-      modelsCalibrated.push('temporal')
-      improvements.push({
-        model: 'temporal',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`Temporal: ${error}`)
-    }
-
-    // 10. Calibration du modèle GARCH
-    try {
-      const beforePerf = this.getModelPerformance('garch')
-      await this.calibrateGARCH(profilsRisque, options?.verbose)
-      const afterPerf = this.getModelPerformance('garch')
-      modelsCalibrated.push('garch')
-      improvements.push({
-        model: 'garch',
-        before: beforePerf,
-        after: afterPerf,
-        delta: afterPerf - beforePerf
-      })
-    } catch (error) {
-      errors.push(`GARCH: ${error}`)
-    }
-
-    // 11. Calibration du modèle Ensemble
+// 11. Calibration du modèle Ensemble
     try {
       const beforePerf = this.getModelPerformance('ensemble')
       await this.calibrateEnsemble(profilsRisque, options?.verbose)
@@ -343,33 +240,9 @@ export class ModelCalibrator {
   // CALIBRATION SPÉCIFIQUE PAR MODÈLE
   // ============================================================
 
-  private async calibrateHawkes(ecarts: Ecart[], verbose?: boolean): Promise<void> {
-    const ecartsData = ecarts.map(e => ({
-      createdAt: e.created_at,
-      niveau: e.niveau_risque,
-      domaine: e.domaine
-    }))
-    
-    hawkesModel.calibrate({
-      ecarts: ecartsData,
-      windowDays: 90,
-      minEvents: 20
-    })
-    
-    if (verbose) console.log('[Calibrator] Hawkes calibré')
-  }
 
-  private async calibrateCUSUM(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
-    // Extraire les scores pour calibration
-    const scores = Object.values(profilsRisque).map(p => p.score_global)
-    const historicalThresholds = scores.slice(-100)
-    
-    cusumModel.updateConfig({
-      seuil: Math.max(5, historicalThresholds.reduce((a, b) => a + b, 0) / historicalThresholds.length / 10)
-    })
-    
-    if (verbose) console.log('[Calibrator] CUSUM calibré')
-  }
+
+
 
   private async calibrateBayesian(aerodromes: any[], profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
     // Mettre à jour les priors basés sur les données
@@ -384,15 +257,7 @@ export class ModelCalibrator {
     if (verbose) console.log('[Calibrator] Bayesian calibré')
   }
 
-  private async calibrateQuantile(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
-    const scores = Object.values(profilsRisque).map(p => p.score_global)
-    const predictions = scores.slice(0, -10)
-    const actuals = scores.slice(10)
-    
-    quantileModel.calibrate(predictions, actuals)
-    
-    if (verbose) console.log('[Calibrator] Quantile calibré')
-  }
+
 
   private async calibrateLSTM(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
     const aerodromeIds = Object.keys(profilsRisque)
@@ -433,37 +298,11 @@ export class ModelCalibrator {
     if (verbose) console.log('[Calibrator] Random Forest calibré')
   }
 
-  private async calibrateConformal(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
-    const scores = Object.values(profilsRisque).map(p => p.score_global)
-    const predictions = scores.slice(0, -10)
-    const actuals = scores.slice(10)
-    
-    conformalModel.calibrate(predictions, actuals)
-    
-    if (verbose) console.log('[Calibrator] Conformal calibré')
-  }
 
-  private async calibrateTemporal(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
-    const firstId = Object.keys(profilsRisque)[0]
-    const historique = profilsRisque[firstId]?.historical_scores || []
-    
-    if (historique.length >= 30) {
-      temporalModel.detectSeasonality(historique)
-    }
-    
-    if (verbose) console.log('[Calibrator] Temporal calibré')
-  }
 
-  private async calibrateGARCH(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
-    const scores = Object.values(profilsRisque).map(p => p.score_global)
-    const returns = this.scoresToReturns(scores)
-    
-    if (returns.length >= 20) {
-      garchModel.fit(returns)
-    }
-    
-    if (verbose) console.log('[Calibrator] GARCH calibré')
-  }
+
+
+
 
   private async calibrateEnsemble(profilsRisque: Record<string, any>, verbose?: boolean): Promise<void> {
     // Ensemble utilise les autres modèles, pas de calibration directe
