@@ -87,6 +87,7 @@ import { TrendAnalysis } from './TrendAnalysis'
 import { EscalationAlert } from './EscalationAlert'
 import { FeedbackModal } from './FeedbackModal'
 import { ModelCalibrationDashboard } from './ModelCalibrationDashboard'
+import AdvancedModelsDashboard from './AdvancedModelsDashboard'
 import { ProfilRisque } from '@/lib/store'
 
 // ─────────────────────────────────────────────────────────────
@@ -105,6 +106,7 @@ type OngletId =
   | 'scenarios' 
   | 'recommandations' 
   | 'analyses'
+  | 'modeles'
 
 interface Onglet {
   id: OngletId
@@ -125,6 +127,7 @@ const ONGLETS: Onglet[] = [
   { id: 'scenarios', label: 'Scénarios', icon: Sparkles, description: 'Simulations what-if' },
   { id: 'recommandations', label: 'Recommandations', icon: CheckCircle2, description: 'Actions prioritaires' },
   { id: 'analyses', label: 'Analyses', icon: BarChart3, description: 'Benchmark, export' },
+  { id: 'modeles', label: 'Modèles', icon: Brain, description: 'Survival, EVT, HMM, Copulas, TS' },
 ]
 
 const CRITERES = [
@@ -421,6 +424,10 @@ function IASuggestions({ aerodromeId, profil, onClose }: IASuggestionsProps) {
       })
     } finally {
       setIsAsking(false)
+      case 'modeles':
+        return (
+          <AdvancedModelsDashboard aerodromeId={aerodrome.id} userRole={userRole} />
+        )
     }
   }
 
