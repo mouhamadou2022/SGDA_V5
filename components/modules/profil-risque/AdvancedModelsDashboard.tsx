@@ -26,12 +26,7 @@ export default function AdvancedModelsDashboard({ aerodromeId, userRole = 'inspe
 
   // Le dashboard reçoit les données déjà calculées par riskAgent — pas de useEffect nécessaire
 
-  const surv = results.survival
-  const evt = results.evt
-  const hmm = results.hmm
-  const nb = results.nb
-  const copula = results.copula
-  const ts = results.ts
+  // ...
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="advanced-models">
