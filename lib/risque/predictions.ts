@@ -83,6 +83,46 @@ export function computeSaisonStats(evenements: { date: string; gravite?: string;
 }
 
 /**
+ * Génère les risques contextuels pour un mois donné
+ * Priorité 1 : données réelles (types d'événements observés)
+ * Priorité 2 : connaissance métier (calendrier saisonnier Sénégal)
+ */
+function genererRisquesContextuels(
+  mois: number,
+  parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[],
+  typeDominant?: string
+): string[] {
+  const risques: string[] = []
+  const memeMois = parMois.find(m => m.mois === mois)
+
+  if (memeMois && memeMois.tot > 0) {
+    const typesTries = Object.entries(memeMois.types).sort((a, b) => b[1] - a[1]).slice(0, 2)
+    for (const [type, count] of typesTries) {
+      const label = type.replace(/_/g, ' ')
+      if (count >= 3) risques.push(`Risque élevé ${label} — ${count} incidents ${getMoisLabel(mois)} dernier`)
+      else if (count >= 1) risques.push(`Risque modéré ${label} — ${count} incident(s) ${getMoisLabel(mois)} dernier`)
+    }
+    if (memeMois.critiques >= 2) risques.push(`${memeMois.critiques} critiques ${getMoisLabel(mois)} dernier — vigilance`)
+  }
+
+  if (typeDominant && (!memeMois || !memeMois.types[typeDominant])) {
+    risques.push(`Type ${typeDominant.replace(/_/g, ' ')} dominant cette année — anticiper`)
+  }
+
+  const connaissances = RISQUES_SAISONNIERS[mois] || []
+  for (const c of connaissances) {
+    if (!risques.some(r => r.toLowerCase().includes(c.toLowerCase().substring(0, 20)))) risques.push(c)
+  }
+
+  return risques.slice(0, 4)
+}
+
+function getMoisLabel(mois: number): string {
+  const labels = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']
+  return labels[mois] || ''
+}
+
+/**
  * Calcule les prédictions d'incidents pour les 3, 6 et 12 prochains mois
  * Basé sur l'historique saisonnier et la tendance récente
  */
@@ -130,7 +170,7 @@ export function computeIncidentPredictions(
       tendance: tendanceLabel,
       saisons,
       typeDominant: topType?.[0] || 'inconnu',
-      risquesContextuels: RISQUES_SAISONNIERS[moisCible] || [],
+      risquesContextuels: genererRisquesContextuels(moisCible, parMois, topType?.[0]),
     }
   }
 
