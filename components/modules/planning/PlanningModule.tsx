@@ -2772,7 +2772,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {/* Suggestions IA & Profil - Panneau de déclenchement */}
       {showProactiveSuggestions && createPortal(
         <div className="modal-overlay" data-role={userRole} onClick={() => setShowProactiveSuggestions(false)}>
-          <div className="modal-content max-w-7xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+          <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
             <div className="card border-primary mb-6 animate-fade-up">
           <div className="card-header bg-gradient-to-r from-primary/10 to-transparent">
             <div className="card-title flex items-center gap-2">
@@ -3120,7 +3120,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {/* ── Modale Planning N+1 ── */}
       {showNPlus1Modal && createPortal(
         <div className="modal-overlay" data-role={userRole} onClick={() => setShowNPlus1Modal(false)}>
-          <div className="modal-content max-w-7xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+          <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
             <PlanningNPlus1 onClose={() => setShowNPlus1Modal(false)} userRole={userRole} />
           </div>
         </div>,

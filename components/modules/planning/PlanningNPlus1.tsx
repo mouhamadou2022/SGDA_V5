@@ -854,8 +854,8 @@ text-danger ml-1" />
 
           <div className="flex justify-end gap-3">
             {onClose && (
-              <button onClick={onClose} className="btn btn-secondary">
-                Fermer
+              <button onClick={onClose} className="btn btn-secondary gap-2">
+                <X className="h-4 w-4" />Fermer
               </button>
             )}
             <button
