@@ -4372,7 +4372,9 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       validerPropositionN1: async (id) => {
         const prop = get().propositionsN1.find(p => p.id === id)
         if (!prop) return
-        const planning = { ...prop, est_proposition: false, updated_at: new Date().toISOString() } as any
+        // Strip extra fields du PlanningProposal qui n'existent pas dans la DB
+        const { sort_order, source, ...cleanProp } = prop as any
+        const planning = { ...cleanProp, est_proposition: false, updated_at: new Date().toISOString() } as any
         await get().addPlanning(planning)
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
       },
