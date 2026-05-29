@@ -2544,24 +2544,25 @@ getActiveAerodromes: () => {
       setCurrentSurveillance: (surveillance) => set({ currentSurveillance: surveillance }),
       addSurveillance: async (surveillanceData) => {
         const now = new Date().toISOString()
+        // Chef par défaut si vide
+        const defautChefId = surveillanceData.chef_id && surveillanceData.chef_id !== '00000000-0000-0000-0000-000000000000'
+          ? surveillanceData.chef_id
+          : (() => {
+              const inspecteurs = get().inspecteurs || []
+              const defaut = inspecteurs.find(i => i.type === 'inspecteur_principal' && i.statut === 'en_service' && !i.deleted_at)
+                || inspecteurs.find(i => i.type === 'inspecteur_titulaire' && i.statut === 'en_service' && !i.deleted_at)
+                || inspecteurs.find(i => !i.deleted_at)
+              if (defaut?.user_id) return defaut.user_id
+              const utilisateurs = get().utilisateurs || []
+              const userDefaut = get().user
+                || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
+                || utilisateurs.find(u => u.statut === 'actif')
+              return userDefaut?.id || crypto.randomUUID()
+            })()
         const newSurveillance: Surveillance = {
           id: crypto.randomUUID(),
           ...surveillanceData,
-          // Chef par défaut si vide : inspecteur principal > titulaire > user actif
-          chef_id: surveillanceData.chef_id && surveillanceData.chef_id !== '00000000-0000-0000-0000-000000000000'
-            ? surveillanceData.chef_id
-            : (() => {
-                const inspecteurs = get().inspecteurs || []
-                const defaut = inspecteurs.find(i => i.type === 'inspecteur_principal' && i.statut === 'en_service' && !i.deleted_at)
-                  || inspecteurs.find(i => i.type === 'inspecteur_titulaire' && i.statut === 'en_service' && !i.deleted_at)
-                  || inspecteurs.find(i => !i.deleted_at)
-                if (defaut?.user_id) return defaut.user_id
-                const utilisateurs = get().utilisateurs || []
-                const userDefaut = get().user
-                  || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
-                  || utilisateurs.find(u => u.statut === 'actif')
-                return userDefaut?.id || crypto.randomUUID()
-              })(),
+          chef_id: defautChefId,
           statut: surveillanceData.statut || 'planifiee',
           progression: 0,
           signatures_checklist: [],
@@ -2569,10 +2570,10 @@ getActiveAerodromes: () => {
           signatures_rapport: [],
           created_at: now,
           updated_at: now,
-          created_by: get().user?.id || newSurveillance.chef_id,
-          updated_by: get().user?.id || newSurveillance.chef_id,
+          created_by: get().user?.id || defautChefId,
+          updated_by: get().user?.id || defautChefId,
         }
-        const result = await datastore.createSurveillance({ ...surveillanceData, chef_id: newSurveillance.chef_id, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any)
+        const result = await datastore.createSurveillance({ ...surveillanceData, chef_id: defautChefId, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any)
         if (result.error) {
           console.error('Erreur création surveillance Supabase:', result.error)
           toast('error', 'Erreur création surveillance', result.error)
