@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppStore, type Planning, type Utilisateur, type Formation, type Exemption, type ProfilRisque } from '@/lib/store';
 import type { ResultatChecklist } from '@/types/surveillance';
 import { formatDate } from '@/lib/utils';
@@ -15,24 +15,17 @@ import { computeCompetenceScore } from '@/lib/competences';
 import { learningEngine } from '@/lib/learningEngine';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import {
-  Users,
   CheckCircle2,
   AlertCircle,
   UserCheck,
   Briefcase,
-  Star,
   ChevronDown,
   ChevronRight,
-  X,
-  TrendingUp,
-  TrendingDown,
   Shield,
   Target,
   AlertTriangle,
-  Eye,
   Brain,
   Loader2,
-  Sparkles,
 } from 'lucide-react';
 
 interface InspecteurSuggeré {
@@ -262,6 +255,13 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
   const [iaSuggestion, setIaSuggestion] = useState<string | null>(null);
   const [isIaLoading, setIsIaLoading] = useState(false);
   const [showIaTip, setShowIaTip] = useState(true);
+  const iaTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (iaTimeoutRef.current) clearTimeout(iaTimeoutRef.current);
+    };
+  }, []);
 
   // Enrichir les plannings avec les infos d'exemptions
   const planningsEnrichis = useMemo(() => {
@@ -302,11 +302,9 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
     return utilisateurs.filter((u) => u.role === 'inspector' && u.statut !== 'inactif');
   }, [utilisateurs]);
 
-  // ✅ Fonction de feedback pour l'apprentissage
   const enregistrerFeedbackAssignation = useCallback((
     planningId: string,
-    inspecteurId: string,
-    suggestionAcceptee: boolean
+    inspecteurId: string
   ) => {
     const planning = plannings.find(p => p.id === planningId);
     if (!planning) return;
@@ -316,10 +314,10 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
       'assignment',
       planning.type,
       planningId,
-      (suggestionAcceptee ? 'accepte' : 'refuse') as unknown as ResultatChecklist,
+      'SA',
       70,
-      (suggestionAcceptee ? 'accepte' : 'refuse') as unknown as ResultatChecklist,
-      `Assignation ${suggestionAcceptee ? 'acceptée' : 'refusée'} pour inspecteur ${inspecteurId}`
+      'SA',
+      `Assignation acceptée pour inspecteur ${inspecteurId}`
     );
   }, [plannings]);
 
@@ -336,7 +334,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
         userRole: userRole
       });
       setIaSuggestion(result.message);
-      setTimeout(() => setIaSuggestion(null), 8000);
+      iaTimeoutRef.current = setTimeout(() => setIaSuggestion(null), 8000);
     } catch (error) {
       console.error('[IA] Erreur:', error);
     } finally {
@@ -362,7 +360,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
     if (!inspecteurId) return;
     
     // ✅ Enregistrer le feedback
-    enregistrerFeedbackAssignation(planningId, inspecteurId, true);
+    enregistrerFeedbackAssignation(planningId, inspecteurId);
     
     const planning = planningsEnrichis.find(p => p.id === planningId);
     const inspecteur = inspecteurs.find(i => i.id === inspecteurId);

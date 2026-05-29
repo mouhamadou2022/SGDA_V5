@@ -2,7 +2,7 @@
 // Suivi des compétences et habilitations des inspecteurs.
 // ✅ R3 : 0 fetch direct — utilise les données passées en paramètre depuis le store.
 
-import type { Utilisateur, Surveillance, Formation } from './store'
+import type { Utilisateur, Surveillance, Planning, Formation } from './store'
 import { DOMAINES_SURVEILLANCE } from './domaines'
 
 // ─────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ const DOMAINES_CONNUS = DOMAINES_SURVEILLANCE.map(d => d.code).filter(c => c !==
 
 export function computeCompetenceScore(
   user: Utilisateur,
-  surveillances: Surveillance[],
+  surveillances: (Surveillance | Planning)[],
   formations: Formation[],
 ): CompetenceScore {
   const userSurveillances = surveillances.filter(

@@ -1,6 +1,6 @@
 ﻿// components/modules/planning/PlanningNPlus1.tsx
-// Deux colonnes : planning existant (gauche) | propositions (droite)
-// Validation avec feedback, badge N+1 pulsé, header AerodromeDetail
+// N+1 : génération automatique des propositions pour l'année prochaine
+// Flux : Revue individuelle (valider/refuser) → Consolidation → Validation finale
 'use client'
 
 import React, { useState, useMemo } from 'react'
@@ -40,20 +40,26 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const propositionsN1 = useAppStore(s => s.propositionsN1)
   const setPropositionsN1 = useAppStore(s => s.setPropositionsN1)
   const genererPlanningN1 = useAppStore(s => s.genererPlanningN1)
-  const validerPropositionN1 = useAppStore(s => s.validerPropositionN1)
   const refuserPropositionN1 = useAppStore(s => s.refuserPropositionN1)
+  const consoliderPropositionsN1 = useAppStore(s => s.consoliderPropositionsN1)
   const user = useAppStore(s => s.user)
 
   const anneeN1 = new Date().getFullYear() + 1
   const [generating, setGenerating] = useState(false)
   const [selectedAero, setSelectedAero] = useState('')
   const [refusModal, setRefusModal] = useState<{ id: string; motif: string } | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [validatedIds, setValidatedIds] = useState<Set<string>>(new Set())
+  const [consolidating, setConsolidating] = useState(false)
+  const [showConsolidation, setShowConsolidation] = useState(false)
 
   const planningsN1 = useMemo(() =>
     plannings.filter(p => p.annee_cible === anneeN1 && !p.deleted_at),
     [plannings, anneeN1]
   )
+
+  const overlap = (a: Planning, b: Planning) => a.aerodrome_id === b.aerodrome_id
+    && new Date(a.date_debut).getTime() < new Date(b.date_fin).getTime()
+    && new Date(b.date_debut).getTime() < new Date(a.date_fin).getTime()
 
   const grouped = useMemo(() => {
     const map = new Map<string, { aero: any; existants: Planning[]; propositions: Planning[] }>()
@@ -67,10 +73,6 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
     return Array.from(map.values()).filter(g => selectedAero === '' || g.aero.id === selectedAero)
   }, [aerodromes, planningsN1, propositionsN1, selectedAero])
 
-  const overlap = (a: Planning, b: Planning) => a.aerodrome_id === b.aerodrome_id
-    && new Date(a.date_debut).getTime() < new Date(b.date_fin).getTime()
-    && new Date(b.date_debut).getTime() < new Date(a.date_fin).getTime()
-
   const stats = useMemo(() => ({
     total: propositionsN1.length,
     carryOver: propositionsN1.filter(p => (p as any).source?.type?.startsWith('carryover')).length,
@@ -80,6 +82,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
 
   const handleGenerer = async () => {
     setGenerating(true)
+    setValidatedIds(new Set()) // reset validations on regenerate
     try {
       const toutes: Planning[] = []
       for (const g of grouped) { const props = genererPlanningN1(g.aero.id, anneeN1); if (props?.length) toutes.push(...props) }
@@ -87,11 +90,30 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
     } catch (e) { console.error('[N+1] Erreur:', e) } finally { setGenerating(false) }
   }
 
-  const handleValider = async (id: string) => { setIsLoading(true); try { await validerPropositionN1(id) } catch {} finally { setIsLoading(false) } }
+  const handleValider = (id: string) => setValidatedIds(prev => new Set(prev).add(id))
+  const handleUnvalider = (id: string) => setValidatedIds(prev => { const n = new Set(prev); n.delete(id); return n })
   const handleRefuser = (id: string) => setRefusModal({ id, motif: '' })
-  const confirmRefus = () => { if (refusModal) { refuserPropositionN1(refusModal.id, refusModal.motif || MOTIFS_REFUS[0]); setRefusModal(null) } }
+  const confirmRefus = () => {
+    if (!refusModal) return
+    refuserPropositionN1(refusModal.id, refusModal.motif || MOTIFS_REFUS[0])
+    setValidatedIds(prev => { const n = new Set(prev); n.delete(refusModal.id); return n })
+    setRefusModal(null)
+  }
+
+  const handleConsolider = async () => {
+    setConsolidating(true)
+    try {
+      const ids = Array.from(validatedIds)
+      await consoliderPropositionsN1(ids)
+      setValidatedIds(new Set())
+      setShowConsolidation(false)
+    } catch (e) { console.error('[N+1] Erreur consolidation:', e) } finally { setConsolidating(false) }
+  }
 
   const role = userRole || user?.role || ''
+
+  const validatedProps = propositionsN1.filter(p => validatedIds.has(p.id!))
+  const unvalidatedProps = propositionsN1.filter(p => !validatedIds.has(p.id!))
 
   return (
     <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={role}>
@@ -100,7 +122,11 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center text-white"><TrendingUp className="w-5 h-5" /></div>
           <div>
             <h2 className="text-lg font-bold text-foreground">Planning N+1 — {anneeN1}</h2>
-            <p className="text-sm text-muted-foreground">{propositionsN1.length > 0 ? `${propositionsN1.length} propositions · ${stats.carryOver} carry-over · ${stats.certif} certif` : 'Générez le planning'}</p>
+            <p className="text-sm text-muted-foreground">
+              {propositionsN1.length > 0
+                ? `${propositionsN1.length} propositions · ${validatedIds.size} validée(s) · ${stats.carryOver} carry-over · ${stats.certif} certif`
+                : 'Générez le planning pour l\'année suivante puis validez chaque proposition avant consolidation'}
+            </p>
           </div>
         </div>
         {onClose && <button onClick={onClose} className="btn btn-secondary gap-2"><X className="h-4 w-4" />Fermer</button>}
@@ -111,6 +137,11 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           <button onClick={handleGenerer} disabled={generating} className="btn btn-primary gap-2">
             <Zap className="w-4 h-4" />{generating ? 'Génération...' : propositionsN1.length > 0 ? `Régénérer ${anneeN1}` : `Générer ${anneeN1}`}
           </button>
+          {validatedIds.size > 0 && (
+            <button onClick={() => setShowConsolidation(true)} className="btn btn-success gap-2 animate-fade-up">
+              <CheckCircle2 className="w-4 h-4" />Générer le planning N+1 ({validatedIds.size})
+            </button>
+          )}
           <div className="flex-1" />
           <select value={selectedAero} onChange={e => setSelectedAero(e.target.value)} className="form-select py-2 w-64">
             <option value="">Tous les aérodromes</option>
@@ -124,6 +155,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
             {stats.carryOver > 0 && <span className="badge danger text-xs">{stats.carryOver} carry-over</span>}
             {stats.certif > 0 && <span className="badge success text-xs">{stats.certif} certif</span>}
             {stats.conflits > 0 && <span className="badge warning text-xs">{stats.conflits} conflit(s)</span>}
+            {validatedIds.size > 0 && <span className="badge success text-xs">{validatedIds.size} validée(s)</span>}
           </div>
         )}
 
@@ -155,15 +187,19 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
               <div className="p-4 space-y-2">
                 <p className="text-sm font-semibold text-muted-foreground uppercase">Propositions N+1</p>
                 {g.propositions.length === 0 ? <p className="text-sm text-muted-foreground italic">Aucune</p> : g.propositions.map((prop, pi) => {
+                  const isValide = validatedIds.has(prop.id!)
                   const conflict = g.existants.some(e => overlap(prop, e))
                   const source = (prop as any).source
                   return (
-                    <div key={prop.id || `prop-${pi}`} className={`p-3 rounded-lg border text-sm ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
+                    <div key={prop.id || `prop-${pi}`} className={`p-3 rounded-lg border text-sm transition-colors ${
+                      isValide ? 'border-success/50 bg-success/5' : conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'
+                    }`}>
                       <div className="flex items-center gap-2 flex-wrap">
                         {TYPE_ICONS[prop.type] || <Calendar className="w-4 h-4" />}
                         <span className="font-medium">{TYPE_LABELS[prop.type] || prop.type}</span>
                         {source && <span className={`${SOURCE_CLS[source.type] || 'badge-outline'} text-xs`}>{SOURCE_LABEL[source.type] || ''}</span>}
                         <span className={`badge text-xs ${PRIORITE_BADGE[prop.priorite] || 'badge neutral'}`}>{PRIORITE_LABEL[prop.priorite] || prop.priorite}</span>
+                        {isValide && <span className="badge success text-xs">Validée</span>}
                         {conflict && <span className="badge warning text-xs">Conflit</span>}
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1.5">
@@ -172,8 +208,12 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                       </div>
                       {source?.raison && <p className="text-sm text-muted-foreground mt-1.5 italic">{source.raison}</p>}
                       <div className="flex items-center gap-2 mt-2">
-                        <button onClick={() => handleValider(prop.id!)} disabled={isLoading} className="btn btn-sm btn-success gap-1 text-xs"><CheckCircle2 className="w-3.5 h-3.5" />Valider</button>
-                        <button onClick={() => handleRefuser(prop.id!)} disabled={isLoading} className="btn btn-sm btn-secondary gap-1 text-xs"><XCircle className="w-3.5 h-3.5" />Refuser</button>
+                        {isValide ? (
+                          <button onClick={() => handleUnvalider(prop.id!)} className="btn btn-sm btn-secondary gap-1 text-xs"><X className="w-3.5 h-3.5" />Annuler</button>
+                        ) : (
+                          <button onClick={() => handleValider(prop.id!)} className="btn btn-sm btn-success gap-1 text-xs"><CheckCircle2 className="w-3.5 h-3.5" />Valider</button>
+                        )}
+                        <button onClick={() => handleRefuser(prop.id!)} className="btn btn-sm btn-secondary gap-1 text-xs"><XCircle className="w-3.5 h-3.5" />Refuser</button>
                       </div>
                     </div>
                   )
@@ -184,6 +224,64 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
         ))}
       </div>
 
+      {/* Consolidation modal */}
+      {showConsolidation && createPortal(
+        <div className="modal-overlay" data-role={role} onClick={() => setShowConsolidation(false)}>
+          <div className="modal-content max-w-4xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-success">
+              <div className="modal-header border-b border-border bg-gradient-to-r from-success/10 to-transparent">
+                <div className="modal-title flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-success" />
+                  Consolidation Planning N+1 — {anneeN1}
+                </div>
+                <button onClick={() => setShowConsolidation(false)} className="modal-close"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="alert alert-info">
+                  <div className="alert-content"><div className="alert-title">{validatedProps.length} proposition(s) validée(s) prête(s) à être intégrée(s) au planning {anneeN1}</div><div className="alert-description">Ces surveillances seront ajoutées au planning officiel. Cette action est irréversible.</div></div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {validatedProps.map(prop => {
+                    const aero = aerodromes.find(a => a.id === prop.aerodrome_id)
+                    const source = (prop as any).source
+                    return (
+                      <div key={prop.id} className="card border-success/30 bg-success/5">
+                        <div className="card-content p-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="code-oaci-badge text-sm">{aero?.code_oaci || '?'}</span>
+                            <span className="font-medium text-sm">{aero?.nom || prop.aerodrome_id}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            {TYPE_ICONS[prop.type] || <Calendar className="w-3.5 h-3.5" />}
+                            <span>{TYPE_LABELS[prop.type] || prop.type}</span>
+                            <span className={`badge ${PRIORITE_BADGE[prop.priorite] || 'badge neutral'}`}>{PRIORITE_LABEL[prop.priorite] || prop.priorite}</span>
+                            {source && <span className={`${SOURCE_CLS[source.type] || 'badge-outline'}`}>{SOURCE_LABEL[source.type] || ''}</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {prop.date_debut ? new Date(prop.date_debut).toLocaleDateString('fr-FR') : '?'} → {prop.date_fin ? new Date(prop.date_fin).toLocaleDateString('fr-FR') : '?'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Domaines : {prop.portee?.join(', ') || 'tous'}</p>
+                          {prop.objectifs && <p className="text-xs text-muted-foreground italic">{prop.objectifs}</p>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                  <button onClick={() => setShowConsolidation(false)} className="btn btn-secondary">Annuler</button>
+                  <button onClick={handleConsolider} disabled={consolidating} className="btn btn-success gap-2">
+                    <CheckCircle2 className="w-4 h-4" />{consolidating ? 'Ajout en cours...' : `Confirmer et ajouter ${validatedProps.length} planning(s)`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>, document.body
+      )}
+
+      {/* Refus modal */}
       {refusModal && createPortal(
         <div className="modal-overlay" data-role={role} onClick={() => setRefusModal(null)}>
           <div className="modal-content max-w-sm" onClick={e => e.stopPropagation()}>

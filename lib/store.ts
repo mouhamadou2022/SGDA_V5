@@ -1846,6 +1846,7 @@ interface PlanningSlice {
   genererPlanningN1: (aerodromeId: string, annee: number) => Planning[]
   validerPropositionN1: (id: string) => Promise<void>
   refuserPropositionN1: (id: string, motif: string) => void
+  consoliderPropositionsN1: (ids: string[]) => Promise<void>
 }
 
 interface SurveillanceSlice {
@@ -4381,6 +4382,18 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
 
       refuserPropositionN1: (id, motif) => {
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
+      },
+
+      consoliderPropositionsN1: async (ids) => {
+        const state = get()
+        for (const id of ids) {
+          const prop = state.propositionsN1.find(p => p.id === id)
+          if (!prop) continue
+          const { sort_order, source, ...cleanProp } = prop as any
+          const planning = { ...cleanProp, est_proposition: false, updated_at: new Date().toISOString() } as any
+          await get().addPlanning(planning)
+        }
+        set((s) => ({ propositionsN1: s.propositionsN1.filter(p => !ids.includes(p.id)) }))
       },
 
       // ============================================================

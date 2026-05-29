@@ -16,9 +16,9 @@ const localizer = momentLocalizer(moment);
 const getBorderClass = (statut: string): string => {
   const m: Record<string, string> = {
     'planifiee': 'border-l-role-primary',
+    'realisee': 'border-l-info',
     'en_cours': 'border-l-warning',
-    'transmise': 'border-l-success',
-    'archivee': 'border-l-muted',
+    'annulee': 'border-l-muted',
     'en_retard': 'border-l-danger animate-pulse',
   };
   return m[statut] || 'border-l-role-primary';
@@ -32,19 +32,19 @@ const getPrioriteBadge = (priorite: string) => {
 
 const getStatutBadge = (statut: string) => {
   const labels: Record<string, string> = {
-    'planifiee': 'Planifié', 'en_cours': 'En cours', 'transmise': 'Exécuté',
-    'archivee': 'Archivée', 'en_retard': 'En retard',
+    'planifiee': 'Planifié', 'en_cours': 'En cours', 'realisee': 'Réalisé',
+    'annulee': 'Annulée', 'en_retard': 'En retard',
   };
   const classes: Record<string, string> = {
     'planifiee': 'badge primary', 'en_cours': 'badge warning',
-    'transmise': 'badge success', 'archivee': 'badge neutral',
+    'realisee': 'badge info', 'annulee': 'badge neutral',
     'en_retard': 'badge danger animate-pulse',
   };
   return { label: labels[statut] || statut, cls: classes[statut] || 'badge neutral' };
 };
 
 interface CalendarViewProps {
-  plannings: Planning[];
+  plannings: (Planning & { surveillanceId?: string })[];
   aerodromes: Aerodrome[];
   onSelectEvent?: (event: Planning) => void;
   onEdit?: (planning: Planning) => void;
@@ -193,16 +193,28 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
 
   const events = useMemo(() => plannings.map(p => {
     const aero = aerodromes.find(a => a.id === p.aerodrome_id);
-    return { id: p.id, title: `${aero?.code_oaci} - ${getStatutBadge(p.statut).label}`, start: new Date(p.date_debut), end: new Date(p.date_fin), resource: p, aerodrome: aero, statut: p.statut, priorite: p.priorite, type: p.type };
+    return { id: p.id, start: new Date(p.date_debut), end: new Date(p.date_fin), resource: p, aerodrome: aero, statut: p.statut, priorite: p.priorite, type: p.type };
   }), [plannings, aerodromes]);
 
   const eventStyleGetter = useCallback((event: any) => {
-    const bg = event.statut === 'en_retard' ? 'bg-danger' : event.statut === 'transmise' ? 'bg-success' : event.statut === 'en_cours' ? 'bg-warning' : 'bg-role-primary';
+    const bgMap: Record<string, string> = {
+      'realisee': 'bg-info',
+      'en_cours': 'bg-warning',
+      'annulee': 'bg-muted',
+      'en_retard': 'bg-danger',
+    };
+    const bg = bgMap[event.statut] || 'bg-role-primary';
     return { className: `${bg} text-white rounded-lg border-none text-xs font-medium px-2 py-1 shadow-sm`, style: {} };
   }, []);
 
   const EventComponent = useCallback(({ event }: any) => {
-    const dot = event.statut === 'transmise' ? 'bg-success' : event.statut === 'en_retard' ? 'bg-danger' : event.statut === 'en_cours' ? 'bg-warning' : 'bg-role-primary';
+    const dotMap: Record<string, string> = {
+      'realisee': 'bg-info',
+      'en_cours': 'bg-warning',
+      'annulee': 'bg-muted',
+      'en_retard': 'bg-danger',
+    };
+    const dot = dotMap[event.statut] || 'bg-role-primary';
     return (
       <div className="flex items-center gap-1 h-full overflow-hidden text-[10px] px-1">
         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />

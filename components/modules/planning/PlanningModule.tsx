@@ -23,7 +23,6 @@ import {
   List,
   LayoutGrid,
   Plus,
-  Calendar,
   CheckCircle2,
   Clock,
   AlertCircle,
@@ -35,22 +34,15 @@ import {
   TrendingUp,
   Search,
   AlertTriangle,
-  TrendingDown,
   Shield,
   Target,
   Info,
   PlayCircle,
-  FileText,
   MapPin,
   Brain,
   Loader2,
   Send,
-  HistoryIcon,
-  ClipboardList,
-  Save,
-  UserCheck,
   XCircle,
-  ChevronRight,
 } from 'lucide-react';
 
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
@@ -186,7 +178,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       });
     } catch (_) {}
     return map;
-  }, [aerodromesActifs]);
+  }, [aerodromesActifs, surveillances]);
 
   const suggestionFeedbacks = useOptimizedStore(s => s.suggestionFeedbacks || []);
   const planningsStore = useAppStore(s => s.plannings || []);
@@ -353,7 +345,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         suggestionsMaintien,
       };
     }).filter(a => a !== null && (a.niveauAlerte !== null || (a as any).ecartTriggers?.length > 0)) as AerodromeRisque[];
-  }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts]);
+  }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts, suggestionFeedbacks]);
 
   // Plannings avec enrichissement risque et lien vers surveillance
   const planningsEnrichis = useMemo(() => {
@@ -1584,7 +1576,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                             <div className="progress-bar" style={{ width: `${pr.progression}%` }} />
                           </div>
                           <button className="action-button text-xs text-role-primary hover:underline" onClick={() => setActiveModule?.(pr.processus_type)}>
-                            Voir le processus →
+                            <span>Voir le processus →</span>
                           </button>
                         </div>
                       ) : null
@@ -1969,7 +1961,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {/* Vues modales */}
       {viewMode === 'calendar' && (
         <PlanningCalendarView
-          plannings={filteredPlannings}
+          plannings={planningsEnrichis}
           aerodromes={aerodromes}
           onSelectEvent={handleView}
           onEdit={handleEdit}
