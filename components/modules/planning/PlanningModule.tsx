@@ -2770,8 +2770,10 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       )}
 
       {/* Suggestions IA & Profil - Panneau de déclenchement */}
-      {showProactiveSuggestions && (
-        <div className="card border-primary mb-6 animate-fade-up">
+      {showProactiveSuggestions && createPortal(
+        <div className="modal-overlay" data-role={userRole} onClick={() => setShowProactiveSuggestions(false)}>
+          <div className="modal-content max-w-7xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+            <div className="card border-primary mb-6 animate-fade-up">
           <div className="card-header bg-gradient-to-r from-primary/10 to-transparent">
             <div className="card-title flex items-center gap-2">
               <Brain className="w-5 h-5 text-primary" />
@@ -3024,6 +3026,9 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </div>
           </div>
         </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal Feedback Suggestion IA */}
