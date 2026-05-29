@@ -4162,10 +4162,24 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       setPlannings: (plannings) => set({ plannings }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
       addPlanning: async (planning) => {
-        // Nettoyer les champs vides — remplacer par l'utilisateur courant si chef_id vide
+        // Nettoyer les champs vides — assigner un chef par défaut si vide
         const cleanPlanning = { ...planning }
         if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '00000000-0000-0000-0000-000000000000') {
-          cleanPlanning.chef_id = get().user?.id || crypto.randomUUID()
+          // 1) Inspecteur principal ou titulaire
+          const inspecteurs = get().inspecteurs || []
+          const chefDefaut = inspecteurs.find(i => i.type === 'inspecteur_principal' && i.statut === 'en_service' && !i.deleted_at)
+            || inspecteurs.find(i => i.type === 'inspecteur_titulaire' && i.statut === 'en_service' && !i.deleted_at)
+            || inspecteurs.find(i => !i.deleted_at)
+          if (chefDefaut?.user_id) {
+            cleanPlanning.chef_id = chefDefaut.user_id
+          } else {
+            // 2) Utilisateur actif ou admin
+            const utilisateurs = get().utilisateurs || []
+            const userDefaut = get().user
+              || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
+              || utilisateurs.find(u => u.statut === 'actif')
+            cleanPlanning.chef_id = userDefaut?.id || crypto.randomUUID()
+          }
         }
         const result = await datastore.createPlanning(cleanPlanning)
         if (result.error) {
