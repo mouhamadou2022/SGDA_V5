@@ -293,16 +293,52 @@ ${JSON.stringify(contextData, null, 2)}`,
     const score12m = Math.round(regrScore12m * 0.3 + ewma12m * 0.7)
     const scores = historique.map(h => h.score)
     const volatility = computeHistoricalVolatility(scores)
+    let local3m = score3m, local6m = score6m
     const confidence = Math.min(95, Math.max(40, 100 - volatility * 2))
+    // Conformal prediction + Transfer learning
+    let confIntervals = {
+      score3m: [score3m - volatility * 1.5, score3m + volatility * 1.5] as [number, number],
+      score6m: [score6m - volatility * 2, score6m + volatility * 2] as [number, number],
+      score12m: [score12m - volatility * 3, score12m + volatility * 3] as [number, number],
+    }
+    let transferAdjusted = false
+    try {
+      const { computeConformalInterval, findSimilarAerodromes, bandit } = await import('@/lib/risque')
+      // Conformal
+      const actuals = historique.slice(-6).map(h => h.score)
+      const preds = historique.slice(0, -6).map(h => h.score)
+      if (actuals.length >= 3 && preds.length >= 3) {
+        const ci3 = computeConformalInterval(preds, actuals, score3m) as any
+        const ci6 = computeConformalInterval(preds, actuals, score6m) as any
+        const ci12 = computeConformalInterval(preds, actuals, score12m) as any
+        confIntervals = {
+          score3m: [ci3.lower ?? ci3[0] ?? score3m - volatility, ci3.upper ?? ci3[1] ?? score3m + volatility],
+          score6m: [ci6.lower ?? ci6[0] ?? score6m - volatility * 2, ci6.upper ?? ci6[1] ?? score6m + volatility * 2],
+          score12m: [ci12.lower ?? ci12[0] ?? score12m - volatility * 3, ci12.upper ?? ci12[1] ?? score12m + volatility * 3],
+        }
+      }
+      // Transfer learning : enrich with similar aerodromes
+      if (data.aerodromeId) {
+        const store = (await import('@/lib/store')).useAppStore.getState()
+        const similar = findSimilarAerodromes(data.aerodromeId, store.aerodromes || [], store.profilsRisque || {})
+        if (similar.length > 0) {
+          const avg = similar.reduce((s: number, a: any) => s + (a.score || 70), 0) / similar.length
+          transferAdjusted = true
+          local3m = Math.round(local3m * 0.85 + avg * 0.15)
+          local6m = Math.round(local6m * 0.85 + avg * 0.15)
+        }
+      }
+    } catch { /* fallback to volatility */ }
+
     return {
-      score3m: Math.min(100, Math.max(0, score3m)),
-      score6m: Math.min(100, Math.max(0, score6m)),
+      score3m: Math.min(100, Math.max(0, local3m)),
+      score6m: Math.min(100, Math.max(0, local6m)),
       score12m: Math.min(100, Math.max(0, score12m)),
       confidence,
       intervals: {
-        score3m: [Math.min(100, Math.max(0, score3m - volatility * 1.5)), Math.min(100, Math.max(0, score3m + volatility * 1.5))],
-        score6m: [Math.min(100, Math.max(0, score6m - volatility * 2)), Math.min(100, Math.max(0, score6m + volatility * 2))],
-        score12m: [Math.min(100, Math.max(0, score12m - volatility * 3)), Math.min(100, Math.max(0, score12m + volatility * 3))],
+        score3m: [Math.min(100, Math.max(0, confIntervals.score3m[0])), Math.min(100, Math.max(0, confIntervals.score3m[1]))],
+        score6m: [Math.min(100, Math.max(0, confIntervals.score6m[0])), Math.min(100, Math.max(0, confIntervals.score6m[1]))],
+        score12m: [Math.min(100, Math.max(0, confIntervals.score12m[0])), Math.min(100, Math.max(0, confIntervals.score12m[1]))],
       },
     }
   }

@@ -99,6 +99,7 @@ const RACCOURCIS: Record<string, { action: string; shortcut?: string }> = {
 // ============================================================
 
 export class AssistantAgent {
+  private responseCache = new Map<string, { timestamp: number; response: ChatResponse }>()
   private initialized: boolean = false
   private conversationHistory: Map<string, ChatMessage[]> = new Map()
   private llmAvailable: boolean | null = null // null = non testé encore
@@ -203,7 +204,13 @@ export class AssistantAgent {
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-    // 3. Appel API
+    // 3. Appel API avec cache 5 minutes
+    const cacheKey = request.message.substring(0, 100)
+    const cached = this.responseCache?.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < 300_000) {
+      return cached.response
+    }
+
     try {
       const apiResponse = await fetch('/api/ia/chat', {
         method: 'POST',
@@ -242,12 +249,14 @@ export class AssistantAgent {
       if (apiResponse.ok) {
         this.llmAvailable = true
         const data = await apiResponse.json()
-        return this.wrapLLMResponse(data.message, request.message, {
+        const result = this.wrapLLMResponse(data.message, request.message, {
           aerodromeId: contexte.aerodromeId,
           surveillanceId: contexte.surveillanceId,
           hasCriticalEcarts: ecartsCtx.some((e) => e.niveau_risque === 'critique'),
           profilScore: profilCtx?.score_global,
         })
+        this.responseCache.set(cacheKey, { timestamp: Date.now(), response: result })
+        return result
       }
 
       if (apiResponse.status === 503) {
