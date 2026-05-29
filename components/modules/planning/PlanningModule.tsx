@@ -20,6 +20,7 @@ import { useAppStore, Planning, Aerodrome, ProfilRisque, Surveillance, Utilisate
 import { getProcessusActifs } from '@/lib/processus';
 import {
   CalendarDays,
+  Calendar,
   List,
   LayoutGrid,
   LayoutList,
@@ -40,6 +41,7 @@ import {
   Info,
   PlayCircle,
   Edit2,
+  Trash2,
   MapPin,
   Brain,
   Loader2,
@@ -1964,73 +1966,70 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       {/* Vue Tableau */}
       {viewMode === 'table' && (
         <div className="card border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/30 border-b border-border">
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Aérodrome</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Type</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Période</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Domaines</th>
-                  <th className="text-center p-3 font-semibold text-muted-foreground">Statut</th>
-                  <th className="text-center p-3 font-semibold text-muted-foreground">Priorité</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPlannings.length === 0 ? (
-                  <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Aucun planning</td></tr>
-                ) : filteredPlannings.map(planning => {
-                  const aero = aerodromes.find(a => a.id === planning.aerodrome_id)
-                  const statutMap: Record<string, { cls: string; label: string }> = {
-                    planifiee: { cls: 'badge primary', label: 'Planifiée' },
-                    en_cours: { cls: 'badge warning', label: 'En cours' },
-                    realisee: { cls: 'badge success', label: 'Réalisée' },
-                    annulee: { cls: 'badge neutral', label: 'Annulée' },
-                    en_retard: { cls: 'badge danger', label: 'En retard' },
-                  }
-                  const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
-                  return (
-                    <tr key={planning.id} className="border-b border-border hover:bg-role-primary-soft/10 transition-colors">
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <span className="code-oaci-badge text-xs">{aero?.code_oaci || '?'}</span>
-                          <span className="font-medium truncate max-w-[140px]">{aero?.nom || planning.aerodrome_id?.slice(0, 8)}</span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <span className="capitalize">{planning.type?.replace(/_/g, ' ') || '—'}</span>
-                      </td>
-                      <td className="p-3 text-xs text-muted-foreground">
-                        {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-0.5">
-                          {planning.portee?.slice(0, 3).map(d => <span key={d} className="text-xs bg-muted/30 px-1 rounded">{d}</span>)}
-                          {(!planning.portee || planning.portee.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
-                        </div>
-                      </td>
-                      <td className="p-3 text-center"><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
-                      <td className="p-3 text-center">
-                        {planning.priorite && (() => {
-                          const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
-                          const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
-                          return <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>
-                        })()}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => handleView(planning)} className="action-button" title="Voir"><Info className="w-4 h-4" /></button>
-                          <button onClick={() => handlePrepare(planning)} className="action-button" title="Préparer"><PlayCircle className="w-4 h-4" /></button>
-                          <button onClick={() => handleEdit(planning)} className="action-button" title="Modifier"><Edit2 className="w-4 h-4" /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Code OACI</th>
+                <th>Type</th>
+                <th>Période</th>
+                <th>Domaines</th>
+                <th>Statut</th>
+                <th>Priorité</th>
+                <th>Équipe</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPlannings.length === 0 ? (
+                <tr><td colSpan={8} className="text-center py-12 text-muted-foreground"><Calendar className="w-8 h-8 mx-auto mb-2 opacity-20" />Aucun planning</td></tr>
+              ) : filteredPlannings.map(planning => {
+                const aero = aerodromes.find(a => a.id === planning.aerodrome_id)
+                const statutMap: Record<string, { cls: string; label: string }> = {
+                  planifiee: { cls: 'badge primary', label: 'Planifiée' },
+                  en_cours: { cls: 'badge warning', label: 'En cours' },
+                  realisee: { cls: 'badge success', label: 'Réalisée' },
+                  annulee: { cls: 'badge neutral', label: 'Annulée' },
+                  en_retard: { cls: 'badge danger', label: 'En retard' },
+                }
+                const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
+                const nomsEquipe = (planning.equipe_ids || []).map(id => {
+                  const u = utilisateurs.find(x => x.id === id)
+                  return u ? `${u.prenom} ${u.nom}`.split(' ').map(w => w[0]).join('') : '?'
+                })
+                return (
+                  <tr key={planning.id} className="hover:bg-role-primary-soft transition-colors cursor-pointer"
+                    onClick={() => handleView(planning)}>
+                    <td><span className="code-oaci-badge">{aero?.code_oaci || '?'}</span></td>
+                    <td><span className="capitalize text-sm">{planning.type?.replace(/_/g, ' ') || '—'}</span></td>
+                    <td className="text-xs text-muted-foreground">
+                      {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
+                    </td>
+                    <td>
+                      {planning.portee?.length ? planning.portee.slice(0, 3).join(', ') : '—'}
+                    </td>
+                    <td><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
+                    <td>
+                      {planning.priorite && (() => {
+                        const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+                        const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
+                        return <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>
+                      })()}
+                    </td>
+                    <td className="text-xs text-muted-foreground">{nomsEquipe.length > 0 ? nomsEquipe.join(', ') : '—'}</td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" /></button>
+                        <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" /></button>
+                        <button className="action-button" onClick={e => { e.stopPropagation(); handleView(planning); }} title="Voir"><Info className="w-4 h-4" /></button>
+                        <button className="action-button" onClick={e => { e.stopPropagation(); handleEdit(planning); }} title="Modifier"><Edit2 className="w-4 h-4" /></button>
+                        <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(planning); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

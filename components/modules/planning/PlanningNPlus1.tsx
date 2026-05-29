@@ -49,6 +49,8 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const addNotification = useAppStore(s => s.addNotification)
 
   const anneeN1 = new Date().getFullYear() + 1
+  const moisActuel = new Date().getMonth() + 1 // 1-12
+  const isNovemberOrLater = moisActuel >= 11
   const [generating, setGenerating] = useState(false)
   const [selectedAero, setSelectedAero] = useState('')
   const [refusModal, setRefusModal] = useState<{ id: string; motif: string } | null>(null)
@@ -59,19 +61,25 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const [editForm, setEditForm] = useState<Partial<Planning> & { observations?: string }>({})
   const [notified, setNotified] = useState(false)
 
-  // Notification novembre
+  // Notification + auto-génération si novembre ou plus
   useEffect(() => {
     if (!notified && user?.id) {
       addNotification({
         user_id: user.id,
         type: 'info',
         title: `Planning N+1 ${anneeN1}`,
-        message: `Le planning de surveillance pour l'année ${anneeN1} sera disponible dès novembre ${new Date().getFullYear()}. Les propositions sont générées automatiquement via le profil de risque, les écarts, les PAC et les certifications.`,
+        message: isNovemberOrLater
+          ? `Le planning de surveillance pour ${anneeN1} est disponible. Les propositions sont générées automatiquement.`
+          : `Le planning de surveillance pour ${anneeN1} sera disponible dès novembre ${new Date().getFullYear()}.`,
         canal: 'in_app',
       })
       setNotified(true)
     }
-  }, [notified, user?.id, anneeN1, addNotification])
+    // Auto-génération si novembre+
+    if (isNovemberOrLater && propositionsN1.length === 0 && !generating) {
+      handleGenerer()
+    }
+  }, [notified, user?.id, anneeN1, isNovemberOrLater])
 
   const planningsN1 = useMemo(() =>
     plannings.filter(p => p.annee_cible === anneeN1 && !p.deleted_at),
@@ -181,9 +189,11 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           <div>
             <h2 className="text-lg font-bold text-foreground">Planning N+1 — {anneeN1}</h2>
             <p className="text-sm text-muted-foreground">
-              {propositionsN1.length > 0
-                ? `${propositionsN1.length} propositions · ${validatedIds.size} validée(s) · ${stats.carryOver} carry-over · ${stats.certif} certif`
-                : `Disponible dès novembre ${new Date().getFullYear()} — générez puis ajustez chaque proposition avant consolidation`}
+              {!isNovemberOrLater
+                ? `Disponible dès novembre ${new Date().getFullYear()} — génération automatique via profil, écarts, PAC et certifications`
+                : propositionsN1.length > 0
+                  ? `${propositionsN1.length} propositions · ${validatedIds.size} validée(s) · ${stats.carryOver} carry-over · ${stats.certif} certif`
+                  : 'Génération automatique en cours...'}
             </p>
           </div>
         </div>
@@ -191,10 +201,23 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
       </div>
 
       <div className="p-6 space-y-4">
+        {/* Avant novembre : accès verrouillé */}
+        {!isNovemberOrLater && (
+          <div className="text-center py-16">
+            <div className="w-16 h-16 rounded-2xl bg-role-primary-soft mx-auto flex items-center justify-center mb-4">
+              <Calendar className="w-8 h-8 text-role-primary" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground mb-2">Planning N+1 — Disponible en novembre {new Date().getFullYear()}</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Les propositions pour l'année {anneeN1} seront générées automatiquement à partir de novembre {new Date().getFullYear()}.
+              Elles prendront en compte le profil de risque, les écarts actifs, les PAC et les certifications de chaque aérodrome.
+            </p>
+            <p className="text-xs text-muted-foreground mt-4">Mois actuel : {new Date().toLocaleDateString('fr-FR', { month: 'long' })} — revenez en novembre</p>
+          </div>
+        )}
+
+        {isNovemberOrLater && (<>
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={handleGenerer} disabled={generating} className="btn btn-primary gap-2">
-            <Zap className="w-4 h-4" />{generating ? 'Génération...' : propositionsN1.length > 0 ? `Régénérer ${anneeN1}` : `Générer ${anneeN1}`}
-          </button>
           {validatedIds.size > 0 && (
             <button onClick={() => setShowConsolidation(true)} className="btn btn-success gap-2 animate-fade-up">
               <CheckCircle2 className="w-4 h-4" />Consolider le planning N+1 ({validatedIds.size})
@@ -333,9 +356,11 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
             </div>
           </div>
         ))}
+        </>)}
       </div>
 
-      {/* Consolidation modal — style AerodromeDetail */}
+      {/* Consolidation + Refus — seulement si novembre+ */}
+      {isNovemberOrLater && (<>
       {showConsolidation && createPortal(
         <div className="modal-overlay" data-role={role} onClick={() => setShowConsolidation(false)}>
           <div className="modal-content max-w-5xl max-h-[92vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
@@ -452,6 +477,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
           </div>
         </div>, document.body
       )}
+      </>)}
     </div>
   )
 }
