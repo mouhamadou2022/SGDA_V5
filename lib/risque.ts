@@ -1504,123 +1504,46 @@ function computeOptimalFrequency(
   aggravators?: FacteurAggravant[]
 ): { frequency: number; label: string; justification: string[] } {
   const justification: string[] = []
-  
-  let baseFrequency = 2
-  if (profilRisque.score_global < 30) {
-    baseFrequency = 12
-    justification.push(`Score critique (${profilRisque.score_global}/100) → base mensuelle`)
-  } else if (profilRisque.score_global < 50) {
-    baseFrequency = 6
-    justification.push(`Score faible (${profilRisque.score_global}/100) → base bimestrielle`)
-  } else if (profilRisque.score_global < 70) {
-    baseFrequency = 3
-    justification.push(`Score modéré (${profilRisque.score_global}/100) → base trimestrielle`)
-  } else {
-    baseFrequency = 1
-    justification.push(`Score bon (${profilRisque.score_global}/100) → base annuelle`)
-  }
-  
-  let trendFactor = 1
-  if (profilRisque.tendance === 'baisse') {
-    trendFactor = 1.3
-    justification.push(`Tendance à la baisse → facteur ×1.3`)
-  } else if (profilRisque.tendance === 'hausse') {
-    trendFactor = 0.8
-    justification.push(`Tendance à la hausse → facteur ×0.8`)
-  } else {
-    justification.push(`Tendance stable → facteur ×1.0`)
-  }
-  
-  let c4Factor = 1
-  if (profilRisque.c4 < 30) {
-    c4Factor = 1.5
-    justification.push(`Charge critique élevée (C4=${profilRisque.c4}/100) → facteur ×1.5`)
-  } else if (profilRisque.c4 < 50) {
-    c4Factor = 1.2
-    justification.push(`Charge critique modérée (C4=${profilRisque.c4}/100) → facteur ×1.2`)
-  } else {
-    justification.push(`Charge critique normale (C4=${profilRisque.c4}/100) → facteur ×1.0`)
-  }
-  
-  let typeFactor = 1
-  if (aerodromeType === 'international') {
-    typeFactor = 1.2
-    justification.push(`Aéroport international → facteur ×1.2`)
-  } else {
-    justification.push(`Aéroport national → facteur ×1.0`)
-  }
-  
-  let velocityFactor = 1
+
+  // Déléguer le calcul de base à frequency.ts (source unique)
+  const riskLevel = profilRisque.score_global < 30 ? 'critique' as const
+    : profilRisque.score_global < 50 ? 'eleve' as const
+    : profilRisque.score_global < 70 ? 'moyen' as const
+    : 'faible' as const
+
+  const { frequencyPerYear, recommendations } = computeFinalFrequencyObj({
+    riskLevel,
+    typeAeroport: aerodromeType,
+    hasCriticalEcarts: nbEcartsCritiquesActifs > 0,
+    tendance: profilRisque.tendance === 'baisse' ? 'baisse' : profilRisque.tendance === 'hausse' ? 'hausse' : 'stable',
+    hasTriggers: (triggers?.length || 0) > 0,
+    hasAggravators: (aggravators?.length || 0) > 0,
+  })
+  justification.push(...recommendations)
+  let finalFreq = frequencyPerYear
+
+  // Ajustement complémentaire : velocity metrics (non couvert par frequency.ts)
   if (profilRisque.velocity_metrics) {
     const vitesse = profilRisque.velocity_metrics.vitesse
     if (vitesse < -2) {
-      velocityFactor = 1.5
-      justification.push(`Dégradation rapide (${Math.abs(vitesse).toFixed(1)} pts/mois) → facteur ×1.5`)
+      finalFreq = Math.round(finalFreq * 1.5)
+      justification.push(`Dégradation rapide (${Math.abs(vitesse).toFixed(1)} pts/mois) → ×1.5`)
     } else if (vitesse < -1) {
-      velocityFactor = 1.2
-      justification.push(`Dégradation modérée (${Math.abs(vitesse).toFixed(1)} pts/mois) → facteur ×1.2`)
-    } else if (vitesse > 1) {
-      velocityFactor = 0.8
-      justification.push(`Amélioration (${vitesse.toFixed(1)} pts/mois) → facteur ×0.8`)
-    } else {
-      justification.push(`Stabilité → facteur ×1.0`)
+      finalFreq = Math.round(finalFreq * 1.2)
+      justification.push(`Dégradation modérée (${Math.abs(vitesse).toFixed(1)} pts/mois) → ×1.2`)
     }
   }
-  
-  let ecartsFactor = 1
-  if (nbEcartsCritiquesActifs > 2) {
-    ecartsFactor = 1.5
-    justification.push(`${nbEcartsCritiquesActifs} écarts critiques actifs → facteur ×1.5`)
-  } else if (nbEcartsCritiquesActifs > 0) {
-    ecartsFactor = 1.2
-    justification.push(`${nbEcartsCritiquesActifs} écart(s) critique(s) actif(s) → facteur ×1.2`)
-  }
-  
-  let incidentsFactor = 1
-  if (hasActiveIncidents) {
-    incidentsFactor = 1.3
-    justification.push(`Incident(s) récent(s) → facteur ×1.3`)
-  }
-  
-  let predictionFactor = 1
-  if (profilRisque.prediction_3m && profilRisque.prediction_3m < 40) {
-    predictionFactor = 1.2
-    justification.push(`Prédiction N+1 défavorable (${profilRisque.prediction_3m}/100) → facteur ×1.2`)
-  }
-  if (profilRisque.prediction_6m && profilRisque.prediction_6m < 35) {
-    predictionFactor = 1.1
-    justification.push(`Prédiction N+2 défavorable (${profilRisque.prediction_6m}/100) → facteur ×1.1`)
-  }
-  
-  let triggersFactor = 1
-  if (triggers) {
-    const triggerImpact = computeTriggersImpact(triggers)
-    triggersFactor = triggerImpact
-    if (triggerImpact > 1) {
-      justification.push(`Présence de facteurs déclencheurs (${triggers.filter(t => t.actif).length} actif(s)) → facteur ×${triggersFactor.toFixed(1)}`)
-    }
-  }
-  
-  let aggravatorsFactor = 1
-  if (aggravators) {
-    const aggMultiplier = computeAggravatorsMultiplier(aggravators)
-    aggravatorsFactor = aggMultiplier
-    if (aggMultiplier > 1) {
-      justification.push(`Présence de facteurs aggravants (${aggravators.filter(a => a.actif).length} actif(s)) → facteur ×${aggravatorsFactor.toFixed(1)}`)
-    }
-  }
-  
-  let finalFrequency = baseFrequency * trendFactor * c4Factor * typeFactor * velocityFactor * ecartsFactor * incidentsFactor * predictionFactor * triggersFactor * aggravatorsFactor
-  finalFrequency = Math.min(12, Math.max(1, Math.round(finalFrequency)))
+
+  finalFreq = Math.min(12, Math.max(1, Math.round(finalFreq)))
   
   let label = ''
-  if (finalFrequency >= 12) label = 'Mensuelle (×12/an)'
-  else if (finalFrequency >= 6) label = 'Bimensuelle (×6/an)'
-  else if (finalFrequency >= 4) label = 'Trimestrielle (×4/an)'
-  else if (finalFrequency >= 2) label = 'Semestrielle (×2/an)'
+  if (finalFreq >= 12) label = 'Mensuelle (×12/an)'
+  else if (finalFreq >= 6) label = 'Bimensuelle (×6/an)'
+  else if (finalFreq >= 4) label = 'Trimestrielle (×4/an)'
+  else if (finalFreq >= 2) label = 'Semestrielle (×2/an)'
   else label = 'Annuelle (×1/an)'
   
-  return { frequency: finalFrequency, label, justification }
+  return { frequency: finalFreq, label, justification }
 }
 
 function computeOptimalMissionType(
