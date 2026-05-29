@@ -2350,8 +2350,8 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
               <TrendingUp className="w-4 h-4" />
               <span>N+1</span>
               {propositionsCount > 0 && (
-                <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white ${propositionsCount > 5 ? 'bg-danger animate-pulse' : 'bg-warning'}`}>
-                  {propositionsCount}
+                <span className={`badge ${propositionsCount > 5 ? 'danger pulse' : 'warning'} absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1 flex items-center justify-center text-[10px] font-bold`}>
+                  {propositionsCount > 99 ? '99+' : propositionsCount}
                 </span>
               )}
             </button>
