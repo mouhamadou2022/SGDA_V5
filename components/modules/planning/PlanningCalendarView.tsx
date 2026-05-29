@@ -15,17 +15,34 @@ const localizer = momentLocalizer(moment);
 
 const getStatusColorClass = (statut: string): string => {
   const colors: Record<string, string> = {
-    'planifiee': 'bg-role-primary/20 text-role-primary',
-    'en_cours': 'bg-role-primary text-white',
-    'checklist_signee': 'bg-info text-white',
-    'ecarts_signes': 'bg-warning text-white',
-    'rapport_signe': 'bg-success text-white',
-    'lettre_signee': 'bg-success/80 text-white',
-    'transmise': 'bg-success text-white',
-    'archivee': 'bg-muted text-muted-foreground',
-    'en_retard': 'bg-gradient-to-r from-danger to-danger/70 text-white',
+    'planifiee': 'border-l-role-primary',
+    'en_cours': 'border-l-warning',
+    'checklist_signee': 'border-l-info',
+    'ecarts_signes': 'border-l-warning',
+    'rapport_signe': 'border-l-success',
+    'lettre_signee': 'border-l-success',
+    'transmise': 'border-l-success',
+    'archivee': 'border-l-muted',
+    'en_retard': 'border-l-danger',
   };
-  return colors[statut] || 'bg-muted text-muted-foreground';
+  return colors[statut] || 'border-l-role-primary';
+};
+
+const getSurveillanceStatutBadge = (statut: string) => {
+  const labels: Record<string, string> = {
+    'planifiee': 'Planifié', 'en_cours': 'En cours', 'checklist_signee': 'Checklist signée',
+    'ecarts_signes': 'Écarts signés', 'rapport_signe': 'Rapport signé',
+    'lettre_signee': 'Lettre signée', 'transmise': 'Exécuté', 'archivee': 'Archivée',
+    'en_retard': 'En retard'
+  };
+  const classes: Record<string, string> = {
+    'planifiee': 'badge primary', 'en_cours': 'badge warning',
+    'checklist_signee': 'badge primary', 'ecarts_signes': 'badge warning',
+    'rapport_signe': 'badge success', 'lettre_signee': 'badge success',
+    'transmise': 'badge success', 'archivee': 'badge neutral',
+    'en_retard': 'badge danger animate-pulse'
+  };
+  return { label: labels[statut] || statut, cls: classes[statut] || 'badge neutral' };
 };
 
 const getPrioriteBadge = (priorite: string) => {
@@ -104,18 +121,20 @@ const SixMonthsView = (props: any) => {
                 ) : (
                   <>
                     {monthEvents.slice(0, 8).map((event: any) => {
-                      const statusCls = getStatusColorClass(event.statut).split(' ');
-                      const bgCls = statusCls[0];
-                      const textCls = statusCls[1] || 'text-white';
+                      const borderCls = getStatusColorClass(event.statut);
+                      const statutBadge = getSurveillanceStatutBadge(event.statut);
                       return (
                         <div
                           key={event.id}
-                          className={`p-1.5 rounded-md cursor-pointer hover:brightness-110 transition-all text-xs ${bgCls} ${textCls}`}
+                          className={`p-2 rounded-lg cursor-pointer bg-background border border-border border-l-4 ${borderCls} hover:scale-[1.02] hover:shadow-md hover:border-role-primary/30 transition-all duration-200 text-xs`}
                           onClick={() => onSelectEvent?.(event)}
                         >
-                          <div className="flex items-center gap-1">
-                            <span className="font-mono font-bold">{event.aerodrome?.code_oaci}</span>
-                            <span className="ml-auto truncate">{getSurveillanceStatutBadge(event.statut).label}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="code-oaci-badge text-[10px]">{event.aerodrome?.code_oaci}</span>
+                            <span className="text-[10px] text-foreground font-medium truncate">
+                              {event.aerodrome?.nom?.substring(0, 20)}
+                            </span>
+                            <span className={`${statutBadge.cls} text-[9px] ml-auto`}>{statutBadge.label}</span>
                           </div>
                         </div>
                       );
@@ -164,33 +183,24 @@ const YearView = (props: any) => {
                   <p className="text-xs text-muted-foreground text-center py-4">Aucun planning</p>
                 ) : (
                   monthEvents.slice(0, 5).map((event: any) => {
-                    const statusCls = getStatusColorClass(event.statut).split(' ');
-                    const bgCls = statusCls[0];
-                    const textCls = statusCls[1] || 'text-white';
+                    const borderCls = getStatusColorClass(event.statut);
+                    const statutBadge = getSurveillanceStatutBadge(event.statut);
                     return (
                     <div
                       key={event.id}
-                      className={`p-1.5 rounded-md cursor-pointer hover:brightness-110 transition-all text-xs ${bgCls} ${textCls}`}
+                      className={`p-2 rounded-lg cursor-pointer bg-background border border-border border-l-4 ${borderCls} hover:scale-[1.02] hover:shadow-md hover:border-role-primary/30 transition-all duration-200 text-xs`}
                       onClick={() => onSelectEvent?.(event)}
                     >
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono font-bold">{event.aerodrome?.code_oaci}</span>
-                        <span className="ml-auto truncate">{getSurveillanceStatutBadge(event.statut).label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="code-oaci-badge text-[10px]">{event.aerodrome?.code_oaci}</span>
+                        <span className="text-[10px] text-foreground font-medium truncate">
+                          {event.aerodrome?.nom?.substring(0, 20)}
+                        </span>
+                        <span className={`${statutBadge.cls} text-[9px] ml-auto`}>{statutBadge.label}</span>
                       </div>
-                      </div>
+                    </div>
                     );
-                  })
-                )}
-                {monthEvents.length > 5 && (
-                  <p className="text-xs text-muted-foreground text-center pt-1">
-                    +{monthEvents.length - 5} autre(s)
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+                  })}
     </div>
   );
 };
@@ -306,12 +316,14 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
   }, []);
 
   const EventComponent = useCallback(({ event }: any) => {
+    const dotCls = event.statut === 'en_retard' ? 'bg-danger' : event.statut === 'transmise' ? 'bg-success' : event.statut === 'en_cours' ? 'bg-warning' : 'bg-role-primary'
     return (
-      <div className="flex items-center gap-1 h-full overflow-hidden text-[10px]">
-        <span className="font-mono font-bold text-white/90">
+      <div className="flex items-center gap-1 h-full overflow-hidden text-[10px] px-1">
+        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotCls}`} />
+        <span className="code-oaci-badge text-[9px] px-1 py-0">
           {event.aerodrome?.code_oaci}
         </span>
-        <span className="truncate ml-auto">
+        <span className="truncate ml-auto text-white/80">
           {getSurveillanceStatutBadge(event.statut).label}
         </span>
       </div>
