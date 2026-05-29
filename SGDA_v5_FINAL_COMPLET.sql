@@ -1,6 +1,9 @@
 -- ============================================================
 -- SGDA v5 — SCHÉMA COMPLET FINAL (PRODUCTION-SAFE)
--- Généré le : 2026-05-17 | Mis à jour : 2026-05-21
+-- Généré le : 2026-05-17 | Mis à jour : 2026-05-29
+-- Dernières modifications :
+--   - Planning : colonnes rappels_envoyes, confirme_le, confirme_par, date_confirmee, motif_report
+--   - Aerodromes : statut_sgs (complet/simplifie/non_applicable)
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
@@ -1641,6 +1644,12 @@ DO $$ BEGIN
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS created_at               timestamptz DEFAULT now();
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS updated_at               timestamptz DEFAULT now();
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS deleted_by               uuid;
+  -- Colonnes ajoutées par planningGenerator (2026-05-29)
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS rappels_envoyes         jsonb DEFAULT '{}'::jsonb;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS confirme_le             timestamptz;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS confirme_par            text;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS date_confirmee          timestamptz;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS motif_report            text;
 END $$;
 
 -- 13.D AERODROMES — colonnes manquantes
