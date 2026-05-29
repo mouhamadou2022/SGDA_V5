@@ -1395,7 +1395,7 @@ function AerodromeDetailView({ aerodrome, profil, userRole, onBack, onRecalculer
         )
 
       case 'modeles':
-        return <AdvancedModelsDashboard aerodromeId={aerodrome.id} userRole={userRole} />
+        return <AdvancedModelsDashboard aerodromeId={aerodrome.id} userRole={userRole} riskAnalysis={riskResult} />
 
       default:
         return null

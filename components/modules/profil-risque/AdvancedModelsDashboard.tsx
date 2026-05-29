@@ -1,78 +1,30 @@
 // components/modules/profil-risque/AdvancedModelsDashboard.tsx
 // Dashboard consolidé des modèles mathématiques avancés
-// Survival, EVT, HMM, Negative Binomial, Copulas, Thompson Sampling
+// Reçoit les résultats de riskAgent.analyzeRisk() — pas de recomputation
 
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useMemo } from 'react'
 import {
-  Brain, Activity, TrendingUp, Shield, AlertTriangle,
-  Clock, Target, Zap, BarChart3, Layers, TrendingDown,
-  CheckCircle2, Info, ArrowRight, Calendar
+  Brain, Activity, TrendingUp, Clock, Zap, Layers, Target,
+  AlertTriangle, CheckCircle2
 } from 'lucide-react'
 
 interface Props {
   aerodromeId: string
   userRole?: string
+  riskAnalysis?: any  // résultat de riskAgent.analyzeRisk()
 }
 
-export default function AdvancedModelsDashboard({ aerodromeId, userRole = 'inspector' }: Props) {
-  const profil = useAppStore(s => s.profilsRisque?.[aerodromeId])
-  const allHistorique = useAppStore(s => s.historiqueScores)
-  const allEvenements = useAppStore(s => s.evenements)
-  const historique = useMemo(() => allHistorique?.[aerodromeId] || [], [allHistorique, aerodromeId])
-  const evenements = useMemo(() => allEvenements?.filter(e => e.aerodrome_id === aerodromeId) || [], [allEvenements, aerodromeId])
-  const [results, setResults] = useState<any>({})
+export default function AdvancedModelsDashboard({ aerodromeId, userRole = 'inspector', riskAnalysis }: Props) {
+  const surv = riskAnalysis?.survival
+  const evt = riskAnalysis?.extremeValue
+  const hmm = riskAnalysis?.hiddenMarkov
+  const nb = riskAnalysis?.negativeBinomial
+  const copula = riskAnalysis?.copulas
+  const ts = riskAnalysis?.thompsonSampling
 
-  useEffect(() => {
-    (async () => {
-      const r: any = {}
-      try {
-        const { predictSurvival } = await import('@/lib/risque/survival')
-        const survEvents = historique.map((h: any, i: number) => ({
-          time: i * 30 + 1,
-          event: h.score < 30,
-          covariates: [h.score, profil?.score_global || 70],
-        }))
-        r.survival = predictSurvival(survEvents)
-      } catch { /* */ }
-
-      try {
-        const { predictEVT } = await import('@/lib/risque/extreme')
-        r.evt = predictEVT(historique.map((h: any) => ({ value: 100 - h.score, date: h.date || '' })))
-      } catch { /* */ }
-
-      try {
-        const { predictHMM } = await import('@/lib/risque/hmm')
-        r.hmm = predictHMM(historique.map((h: any) => h.score))
-      } catch { /* */ }
-
-      try {
-        const { predictNB } = await import('@/lib/risque/negativeBinomial')
-        r.nb = predictNB(evenements.length ? [evenements.length] : [0])
-      } catch { /* */ }
-
-      try {
-        const { predictCopula } = await import('@/lib/risque/copulas')
-        const copHist = historique.map((h: any) => ({
-          c1: profil?.c1 ?? 50, c2: profil?.c2 ?? 50, c3: profil?.c3 ?? 50, c4: profil?.c4 ?? 50, c5: profil?.c5 ?? 50,
-        }))
-        r.copula = predictCopula(copHist)
-      } catch { /* */ }
-
-      try {
-        const { createThompsonSampling } = await import('@/lib/risque/thompsonSampling')
-        r.ts = createThompsonSampling([
-          { id: 'maintien', name: 'Maintien' },
-          { id: 'periodique', name: 'Périodique' },
-          { id: 'renforcee', name: 'Renforcée' },
-        ])
-      } catch { /* */ }
-
-      setResults(r)
-    })()
-  }, [aerodromeId])
+  // Le dashboard reçoit les données déjà calculées par riskAgent — pas de useEffect nécessaire
 
   const surv = results.survival
   const evt = results.evt
