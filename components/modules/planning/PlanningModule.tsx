@@ -69,7 +69,7 @@ import PlanningGanttView from './PlanningGanttView';
 import PlanningForm from '@/components/forms/PlanningForm';
 import { WorkloadView } from './WorkloadView';
 import { SmartAssignment } from './SmartAssignment';
-import { PlanningNPlus1 } from './PlanningNPlus1';
+import PlanningNPlus1 from './PlanningNPlus1';
 import { PlanningCard } from '@/components/cards/PlanningCard';
 import { learningEngine } from '@/lib/learningEngine';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
