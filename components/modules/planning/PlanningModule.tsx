@@ -700,6 +700,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const [selectedStatut, setSelectedStatut] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [showNPlus1Modal, setShowNPlus1Modal] = useState(false);
   const [preparationOpen, setPreparationOpen] = useState(false);
   const [preparationPlanning, setPreparationPlanning] = useState<Planning | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -2701,7 +2702,12 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                   </div>
                 )}
                 
-                {aeroPlannings.map((planning: any) => (
+                {aeroPlannings.filter((p: any) => {
+                  if (visibilityFilter === 'all') return true
+                  if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
+                  if (visibilityFilter === 'retards') return p.statut === 'en_retard' || (p.statut === 'planifiee' && p.date_debut && new Date(p.date_debut) < new Date())
+                  return true
+                }).map((planning: any) => (
                   <div key={planning.id} className="space-y-1">
                     {showProcessus && (() => {
                       const pr = processusActifs.find(p => p.aerodrome_id === planning.aerodrome_id && p.processus_type === planning.type);
@@ -2735,16 +2741,16 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                      surveillanceId={planning.surveillanceId}
                      userRole={userRole}
                      profilScore={planning.profilScore}
-                     onSuggestionIA={(p) => {
-                       // Ouvrir le formulaire avec suggestions IA
-                       setEditingPlanning(p);
-                       setFormOpen(true);
-                        // Déclencher la suggestion après ouverture
-                        if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-                        suggestionsTimerRef.current = setTimeout(() => {
-                          handleAppliquerSuggestionsGlobal(p);
-                        }, 500);
-                     }}
+                      onSuggestionIA={(p) => {
+                        // Ouvrir le formulaire avec suggestions IA
+                        setEditingPlanning(p);
+                        setFormOpen(true);
+                         // Déclencher la suggestion après ouverture
+                         if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
+                         suggestionsTimerRef.current = setTimeout(() => {
+                           handleAppliquerSuggestionsGlobal(p);
+                         }, 500);
+                      }}
                     />
                   </div>
                 ))}
@@ -3098,7 +3104,23 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
 
       {viewMode === 'workload' && <WorkloadView userRole={userRole} />}
       {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
-      {viewMode === 'nplus1' && <PlanningNPlus1 onClose={() => setViewMode('list')} userRole={userRole} />}
+      {viewMode === 'nplus1' && (
+        <>
+          {setShowNPlus1Modal(true)}
+          {setViewMode('list')}
+        </>
+      )}
+      {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
+
+      {/* ── Modale Planning N+1 ── */}
+      {showNPlus1Modal && createPortal(
+        <div className="modal-overlay" data-role={userRole} onClick={() => setShowNPlus1Modal(false)}>
+          <div className="modal-content max-w-7xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+            <PlanningNPlus1 onClose={() => setShowNPlus1Modal(false)} userRole={userRole} />
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Modales */}
       <FormModal />
