@@ -31,7 +31,7 @@ export function middleware(request: NextRequest) {
   if (process.env.NEXT_PUBLIC_IS_PRODUCTION === 'true') {
     const supabaseSession = request.cookies.get('sb-access-token')?.value
     if (!supabaseSession) {
-      const loginUrl = new URL('/login', request.url)
+      const loginUrl = new URL('/', request.url)
       loginUrl.searchParams.set('redirect', pathname)
       return NextResponse.redirect(loginUrl)
     }
