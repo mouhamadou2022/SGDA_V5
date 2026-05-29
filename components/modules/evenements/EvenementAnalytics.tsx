@@ -245,6 +245,11 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{p.tendance}</p>
+                {p.risquesContextuels?.slice(0, 2).map((r, ri) => (
+                  <p key={ri} className="text-[10px] text-warning italic flex items-center gap-1">
+                    <AlertTriangle className="w-2.5 h-2.5" />{r}
+                  </p>
+                ))}
                 {p.saisons?.map((s, si) => (
                   <p key={si} className="text-[10px] text-muted-foreground italic">{s}</p>
                 ))}

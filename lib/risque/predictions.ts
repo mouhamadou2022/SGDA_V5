@@ -3,9 +3,44 @@
 // Utilisées par : Profil de Risque (C5) + EvenementAnalytics
 
 export interface SaisonStats {
-  parMois: { mois: number; tot: number; critiques: number }[]
+  parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[]
   moyenneCritiques: number
   ecartType: number
+}
+
+export interface PredictionMois {
+  mois: string
+  moisIndex: number
+  critiques: number
+  probabilite: number
+  tendance: string
+  saisons: string[]
+  typeDominant: string
+  risquesContextuels: string[]
+}
+
+export interface IncidentPredictions {
+  prediction3m: number
+  prediction6m: number
+  prediction12m: number
+  details: PredictionMois[]
+  saisonStats: SaisonStats
+}
+
+// Connaissance métier : risques saisonniers par mois au Sénégal
+const RISQUES_SAISONNIERS: Record<number, string[]> = {
+  0:  ['Début saison sèche — poussière et FOD sur piste', 'Visibilité réduite par harmattan (Jan-Fév)'],
+  1:  ['Pic harmattan — visibilité réduite', 'FOD accru par vents secs'],
+  2:  ['Fin harmattan — amélioration visibilité', 'Début des vents de sable'],
+  3:  ['Transition saisonnière — orages isolés', 'Risque birdstrike modéré'],
+  4:  ['Début ventilation naturelle — FOD modéré'],
+  5:  ['Début saison des pluies — risque FOD élevé (herbes, débris)', 'Piste glissante par eau stagnante'],
+  6:  ['Pic saison des pluies — contamination piste', 'Risque FOD très élevé (végétation, terre)', 'Orages fréquents — risque foudre'],
+  7:  ['Saison des pluies — inondations localisées', 'Contamination piste (boue, débris)', 'Début migration oiseaux — birdstrike accru'],
+  8:  ['Fin saison des pluies — herbes hautes', 'Migration oiseaux — pic birdstrike (Sept-Oct)', 'Risque animalier accru'],
+  9:  ['Post-saison — vérification drainage', 'Birdstrike en baisse', 'Vents de sable début octobre'],
+  10: ['Saison sèche — FOD poussière/sable', 'Visibilité réduite par brume sèche'],
+  11: ['Saison sèche — conditions stables', 'Risque modéré tous domaines'],
 }
 
 export interface PredictionMois {
@@ -29,16 +64,18 @@ export interface IncidentPredictions {
 /**
  * Calcule les statistiques saisonnières sur 12 mois glissants
  */
-export function computeSaisonStats(evenements: { date: string; gravite?: string }[]): SaisonStats {
+export function computeSaisonStats(evenements: { date: string; gravite?: string; type?: string }[]): SaisonStats {
   const now = new Date()
-  const parMois: { mois: number; tot: number; critiques: number }[] = []
+  const parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[] = []
   for (let m = 0; m < 12; m++) {
     const d = new Date(now.getFullYear(), now.getMonth() - m, 1)
     const evts = evenements.filter(e => {
       const ed = new Date(e.date)
       return ed.getMonth() === d.getMonth() && ed.getFullYear() === d.getFullYear()
     })
-    parMois.push({ mois: d.getMonth(), tot: evts.length, critiques: evts.filter(e => e.gravite === 'CRITIQUE').length })
+    const types: Record<string, number> = {}
+    evts.forEach(e => { const t = e.type || 'autre'; types[t] = (types[t] || 0) + 1 })
+    parMois.push({ mois: d.getMonth(), tot: evts.length, critiques: evts.filter(e => e.gravite === 'CRITIQUE').length, types })
   }
   const moyenne = parMois.reduce((s, m) => s + m.critiques, 0) / 12
   const ecart = Math.sqrt(parMois.reduce((s, m) => Math.pow(m.critiques - moyenne, 2) + s, 0) / 12)
@@ -93,6 +130,7 @@ export function computeIncidentPredictions(
       tendance: tendanceLabel,
       saisons,
       typeDominant: topType?.[0] || 'inconnu',
+      risquesContextuels: RISQUES_SAISONNIERS[moisCible] || [],
     }
   }
 
