@@ -22,6 +22,7 @@ import {
   CalendarDays,
   List,
   LayoutGrid,
+  LayoutList,
   Plus,
   CheckCircle2,
   Clock,
@@ -38,6 +39,7 @@ import {
   Target,
   Info,
   PlayCircle,
+  Edit2,
   MapPin,
   Brain,
   Loader2,
@@ -133,7 +135,7 @@ const selectStyle = {
   backgroundRepeat: 'no-repeat'
 };
 
-type ViewMode = 'list' | 'calendar' | 'gantt' | 'workload' | 'assignment';
+type ViewMode = 'list' | 'calendar' | 'gantt' | 'workload' | 'assignment' | 'table';
 
 interface PlanningModuleProps {
   userRole: string;
@@ -989,6 +991,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
 
   const viewButtons = [
     { id: 'list', label: 'Liste', icon: List },
+    { id: 'table', label: 'Tableau', icon: LayoutList },
     { id: 'calendar', label: 'Calendrier', icon: CalendarDays },
     { id: 'gantt', label: 'Gantt', icon: LayoutGrid },
     { id: 'workload', label: 'Charge', icon: Users },
@@ -1956,6 +1959,79 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           </div>
         </div>,
         document.body
+      )}
+
+      {/* Vue Tableau */}
+      {viewMode === 'table' && (
+        <div className="card border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border">
+                  <th className="text-left p-3 font-semibold text-muted-foreground">Aérodrome</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground">Type</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground">Période</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground">Domaines</th>
+                  <th className="text-center p-3 font-semibold text-muted-foreground">Statut</th>
+                  <th className="text-center p-3 font-semibold text-muted-foreground">Priorité</th>
+                  <th className="text-right p-3 font-semibold text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPlannings.length === 0 ? (
+                  <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Aucun planning</td></tr>
+                ) : filteredPlannings.map(planning => {
+                  const aero = aerodromes.find(a => a.id === planning.aerodrome_id)
+                  const statutMap: Record<string, { cls: string; label: string }> = {
+                    planifiee: { cls: 'badge primary', label: 'Planifiée' },
+                    en_cours: { cls: 'badge warning', label: 'En cours' },
+                    realisee: { cls: 'badge success', label: 'Réalisée' },
+                    annulee: { cls: 'badge neutral', label: 'Annulée' },
+                    en_retard: { cls: 'badge danger', label: 'En retard' },
+                  }
+                  const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
+                  return (
+                    <tr key={planning.id} className="border-b border-border hover:bg-role-primary-soft/10 transition-colors">
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="code-oaci-badge text-xs">{aero?.code_oaci || '?'}</span>
+                          <span className="font-medium truncate max-w-[140px]">{aero?.nom || planning.aerodrome_id?.slice(0, 8)}</span>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span className="capitalize">{planning.type?.replace(/_/g, ' ') || '—'}</span>
+                      </td>
+                      <td className="p-3 text-xs text-muted-foreground">
+                        {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-0.5">
+                          {planning.portee?.slice(0, 3).map(d => <span key={d} className="text-xs bg-muted/30 px-1 rounded">{d}</span>)}
+                          {(!planning.portee || planning.portee.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
+                        </div>
+                      </td>
+                      <td className="p-3 text-center"><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
+                      <td className="p-3 text-center">
+                        {planning.priorite && (() => {
+                          const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+                          const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
+                          return <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>
+                        })()}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => handleView(planning)} className="action-button" title="Voir"><Info className="w-4 h-4" /></button>
+                          <button onClick={() => handlePrepare(planning)} className="action-button" title="Préparer"><PlayCircle className="w-4 h-4" /></button>
+                          <button onClick={() => handleEdit(planning)} className="action-button" title="Modifier"><Edit2 className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* Vues modales */}
