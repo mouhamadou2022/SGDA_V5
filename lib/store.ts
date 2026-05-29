@@ -2569,10 +2569,10 @@ getActiveAerodromes: () => {
           signatures_rapport: [],
           created_at: now,
           updated_at: now,
-          created_by: get().user?.id || '',
-          updated_by: get().user?.id || '',
+          created_by: get().user?.id || newSurveillance.chef_id,
+          updated_by: get().user?.id || newSurveillance.chef_id,
         }
-        const result = await datastore.createSurveillance({ ...surveillanceData, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any)
+        const result = await datastore.createSurveillance({ ...surveillanceData, chef_id: newSurveillance.chef_id, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any)
         if (result.error) {
           console.error('Erreur création surveillance Supabase:', result.error)
           toast('error', 'Erreur création surveillance', result.error)
