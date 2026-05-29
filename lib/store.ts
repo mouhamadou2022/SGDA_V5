@@ -5307,17 +5307,54 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         return newCode
       },
       revoquerCode: async (id) => {
+        const code = get().codesAcces.find(c => c.id === id)
         set((state) => ({ codesAcces: state.codesAcces.map(c => c.id === id ? { ...c, statut: 'revogue' as const } : c) }))
         datastore.revokeCodeAcces(id).then(r => { if (r.error) console.error('Erreur révocation code acces Supabase:', r.error) })
+        // Supprimer les utilisateurs liés à ce code d'accès
+        if (code?.aerodrome_id) {
+          const linkedUsers = get().utilisateurs.filter(u =>
+            u.aerodrome_id === code.aerodrome_id &&
+            ['dg_operator', 'focal_operator', 'staff_operator'].includes(u.role ?? '') &&
+            u.password_temporaire === true
+          )
+          for (const user of linkedUsers) {
+            try {
+              await get().deleteUtilisateur(user.id)
+            } catch {
+              // Marquer comme inactif si la suppression échoue
+              get().updateUtilisateur(user.id, { statut: 'inactif' } as any)
+            }
+          }
+        }
       },
       deleteCodeAcces: async (id) => {
+        const code = get().codesAcces.find(c => c.id === id)
         set((state) => ({ codesAcces: state.codesAcces.filter(c => c.id !== id) }))
         datastore.deleteCodeAcces(id).then(r => { if (r.error) console.error('Erreur suppression code acces Supabase:', r.error) })
+        // Supprimer les utilisateurs liés
+        if (code?.aerodrome_id) {
+          const linkedUsers = get().utilisateurs.filter(u =>
+            u.aerodrome_id === code.aerodrome_id &&
+            ['dg_operator', 'focal_operator', 'staff_operator'].includes(u.role ?? '') &&
+            u.password_temporaire === true
+          )
+          for (const user of linkedUsers) {
+            try {
+              await get().deleteUtilisateur(user.id)
+            } catch {
+              get().updateUtilisateur(user.id, { statut: 'inactif' } as any)
+            }
+          }
+        }
       },
       verifierCode: (code) => {
         const found = get().codesAcces.find(c => c.code === code && c.statut === 'actif')
         if (!found) return { valide: false }
-        if (found.expires_at && new Date(found.expires_at) < new Date()) return { valide: false }
+        if (found.expires_at && new Date(found.expires_at) < new Date()) {
+          // Auto-révoquer le code expiré + supprimer les utilisateurs liés
+          get().revoquerCode(found.id)
+          return { valide: false }
+        }
         return { valide: true, aerodromeId: found.aerodrome_id }
       },
       getCodesByAerodrome: (aerodromeId) => get().codesAcces.filter(c => c.aerodrome_id === aerodromeId),
