@@ -27,16 +27,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Vérifier la session — uniquement en production
-  if (process.env.NEXT_PUBLIC_IS_PRODUCTION === 'true') {
-    const supabaseSession = request.cookies.get('sb-access-token')?.value
-    if (!supabaseSession) {
-      const loginUrl = new URL('/', request.url)
-      loginUrl.searchParams.set('redirect', pathname)
-      return NextResponse.redirect(loginUrl)
-    }
-  }
-
+  // Auth gérée côté client (app/page.tsx) — middleware laisse tout passer
   return NextResponse.next()
 }
 
