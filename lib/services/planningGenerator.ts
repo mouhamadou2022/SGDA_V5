@@ -4,12 +4,7 @@
 
 import type { Planning, ProfilRisque, Ecart, Certification, Homologation } from '@/lib/store'
 import { computeFinalFrequency, suggestMissionType } from '@/lib/risque/frequency'
-import { predictHMM } from '@/lib/risque/hmm'
-import { predictSurvival } from '@/lib/risque/survival'
-import { predictEVT } from '@/lib/risque/extreme'
-import { predictNB } from '@/lib/risque/negativeBinomial'
-import { predictCopula } from '@/lib/risque/copulas'
-import { createThompsonSampling } from '@/lib/risque/thompsonSampling'
+import { modelCache } from '@/lib/risque/modelCache'
 
 export interface PlanningSource {
   type: 'profil_risque' | 'carryover_ecart' | 'carryover_pac' | 'certification_renouvellement' | 'injection'
@@ -50,63 +45,47 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
   } = { modelReason: [] }
 
   if (scoresHistoriques.length >= 3 && profilRisque) {
-    // HMM
+    // Utilise le ModelCache partagé (1 seul calcul pour riskAgent + planningGen)
     try {
-      const hmmR = predictHMM(scoresHistoriques)
-      modelOverrides.hmm = {
-        currentStateName: hmmR.currentStateName,
-        isTransitioning: hmmR.isTransitioning,
-        transitionRisk: hmmR.transitionRisk,
-        daysToCritical: hmmR.daysToCritical,
+      const cached = modelCache.computeAll(aerodromeId, scoresHistoriques, profilRisque)
+
+      if (cached.hmm) {
+        modelOverrides.hmm = {
+          currentStateName: cached.hmm.currentStateName,
+          isTransitioning: cached.hmm.isTransitioning,
+          transitionRisk: cached.hmm.transitionRisk,
+          daysToCritical: cached.hmm.daysToCritical,
+        }
+        if (cached.hmm.isTransitioning) modelOverrides.modelReason.push(`HMM: transition silencieuse détectée (risque ${cached.hmm.transitionRisk}%, J-${cached.hmm.daysToCritical})`)
       }
-      if (hmmR.isTransitioning) modelOverrides.modelReason.push(`HMM: transition silencieuse détectée (risque ${hmmR.transitionRisk}%, J-${hmmR.daysToCritical})`)
-    } catch { /* HMM indisponible */ }
 
-    // Survival (Cox PH)
-    try {
-      const survEvents = scoresHistoriques.map((s, i) => ({ time: i * 30 + 1, event: s < 30, score: s, covariates: [s, profilRisque.score_global] }))
-      const survR = predictSurvival(survEvents, [profilRisque.score_global, profilRisque.score_global])
-      modelOverrides.survival = { hazard90d: survR.hazard90days, hazard180d: survR.hazard180days, medianDays: survR.medianSurvivalDays || 999 }
-      if (survR.hazard90days > 0.5) modelOverrides.modelReason.push(`Survival: risque incident à 90j = ${Math.round(survR.hazard90days * 100)}%`)
-    } catch { /* Survival indisponible */ }
+      if (cached.survival) {
+        modelOverrides.survival = { hazard90d: cached.survival.hazard90days, hazard180d: cached.survival.hazard180days, medianDays: cached.survival.medianSurvivalDays || 999 }
+        if (cached.survival.hazard90days > 0.5) modelOverrides.modelReason.push(`Survival: risque incident à 90j = ${Math.round(cached.survival.hazard90days * 100)}%`)
+      }
 
-    // EVT
-    try {
-      const evtR = predictEVT(scoresHistoriques.map(s => ({ value: 100 - s, date: '' })))
-      modelOverrides.evt = { tailRisk: evtR.probabilityExtreme, isHeavyTailed: evtR.isHeavyTailed, maxExpected12m: evtR.maxExpected12m }
-      if (evtR.isHeavyTailed || evtR.probabilityExtreme > 0.1) modelOverrides.modelReason.push(`EVT: distribution à queue lourde, risque extrême ${Math.round(evtR.probabilityExtreme * 100)}%`)
-    } catch { /* EVT indisponible */ }
+      if (cached.evt) {
+        modelOverrides.evt = { tailRisk: cached.evt.probabilityExtreme, isHeavyTailed: cached.evt.isHeavyTailed, maxExpected12m: cached.evt.maxExpected12m }
+        if (cached.evt.isHeavyTailed || cached.evt.probabilityExtreme > 0.1) modelOverrides.modelReason.push(`EVT: distribution à queue lourde, risque extrême ${Math.round(cached.evt.probabilityExtreme * 100)}%`)
+      }
 
-    // Negative Binomial
-    try {
-      const nbCounts = scoresHistoriques.map(s => Math.max(0, Math.round((100 - s) / 10)))
-      const nbR = predictNB(nbCounts)
-      modelOverrides.nb = { overdispersion: nbR.isOverdispersed ? 2 : 1, dispersionAdjustedMean: nbR.mean }
-      if (nbR.isOverdispersed) modelOverrides.modelReason.push(`NB: surdispersion détectée (variance/moyenne = ${(nbR.variance / nbR.mean).toFixed(1)})`)
-    } catch { /* NB indisponible */ }
+      if (cached.nb) {
+        modelOverrides.nb = { overdispersion: cached.nb.isOverdispersed ? 2 : 1, dispersionAdjustedMean: cached.nb.mean }
+        if (cached.nb.isOverdispersed) modelOverrides.modelReason.push(`NB: surdispersion détectée (variance/moyenne = ${(cached.nb.variance / cached.nb.mean).toFixed(1)})`)
+      }
 
-    // Copulas
-    try {
-      const copR = predictCopula([{
-        c1: profilRisque.c1, c2: profilRisque.c2, c3: profilRisque.c3, c4: profilRisque.c4, c5: profilRisque.c5,
-      }])
-      const maxTailDep = Math.max(...copR.tailDependence.lower.flat())
-      modelOverrides.copula = { kendallTau: maxTailDep, tailDependence: maxTailDep, copulaType: copR.clusters ? 'detected' : 'none' }
-      if (maxTailDep > 0.3) modelOverrides.modelReason.push(`Copulas: dépendance de queue ${maxTailDep.toFixed(2)}`)
-    } catch { /* Copulas indisponible */ }
+      if (cached.copula) {
+        const maxTail = Math.max(...cached.copula.tailDependence.lower.flat())
+        modelOverrides.copula = { kendallTau: maxTail, tailDependence: maxTail, copulaType: 'detected' }
+        if (maxTail > 0.3) modelOverrides.modelReason.push(`Copulas: dépendance de queue ${maxTail.toFixed(2)}`)
+      }
 
-    // Thompson Sampling
-    try {
-      const actions = [
-        { id: 'audit_complet', name: 'Audit complet', alpha: 7, beta: 3 },
-        { id: 'maintien', name: 'Maintien', alpha: 6, beta: 4 },
-        { id: 'periodique', name: 'Périodique', alpha: 5, beta: 5 },
-      ]
-      const ts = createThompsonSampling(actions)
-      const recommended = ts.recommend(`${aerodromeId}_${annee}`)
-      modelOverrides.ts = { recommendedAction: recommended.id, successProbability: ts.bestProbability }
-      modelOverrides.modelReason.push(`TS: action recommandée = ${recommended.name} (${Math.round(ts.bestProbability * 100)}%)`)
-    } catch { /* TS indisponible */ }
+      if (cached.ts) {
+        const recommended = cached.ts.recommend(`${aerodromeId}_${annee}`)
+        modelOverrides.ts = { recommendedAction: recommended.id, successProbability: cached.ts.bestProbability }
+        modelOverrides.modelReason.push(`TS: action recommandée = ${recommended.name} (${Math.round(cached.ts.bestProbability * 100)}%)`)
+      }
+    } catch { /* Modèles indisponibles */ }
   }
 
   // ── SOURCE 1 : Profil de risque → maintien / périodique / audit ──

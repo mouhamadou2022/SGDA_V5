@@ -135,94 +135,50 @@ export class RiskAgent {
     // Suggestions structurées (locale)
     if (request.includeSuggestions !== false && profil) result.suggestions = this.buildStructuredSuggestions(data)
 
-    // Nouveaux modèles avancés (survival, EVT, HMM)
-    if (result.predictions && historique.length >= 3) {
-      // HMM : détection de transition silencieuse
+    // Nouveaux modèles avancés — via ModelCache partagé (1 seul calcul pour tous)
+    if (result.predictions && historique.length >= 3 && profil) {
       try {
-        const { predictHMM } = await import('@/lib/risque/hmm')
-        const hmmR = predictHMM(historique.map(h => h.score))
-        result.hiddenMarkov = {
-          currentState: hmmR.currentStateName,
-          isTransitioning: hmmR.isTransitioning,
-          transitionRisk: hmmR.transitionRisk,
-          daysToCritical: hmmR.daysToCritical,
-        }
-      } catch { /* HMM unavailable */ }
+        const { modelCache } = await import('@/lib/risque/modelCache')
+        const scoresHist = historique.map(h => h.score)
+        const cached = modelCache.computeAll(request.aerodromeId, scoresHist, profil)
 
-      // Survival : prédiction temporelle
-      try {
-        const { predictSurvival } = await import('@/lib/risque/survival')
-        const survEvents = historique.map((h, i) => ({
-          time: i * 30 + 1,
-          event: h.score < 30,
-          score: h.score,
-          covariates: [h.score, profil?.score_global || 70],
-        }))
-        const survR = predictSurvival(survEvents, [result.predictions.score3m, profil?.score_global || 70])
-        result.survival = {
-          medianDays: survR.medianSurvivalDays || 90,
-          hazard90d: survR.hazard90days,
-          hazard180d: survR.hazard180days,
+        if (cached.hmm) result.hiddenMarkov = {
+          currentState: cached.hmm.currentStateName,
+          isTransitioning: cached.hmm.isTransitioning,
+          transitionRisk: cached.hmm.transitionRisk,
+          daysToCritical: cached.hmm.daysToCritical,
         }
-      } catch { /* survival unavailable */ }
-
-      // EVT : risque extrême
-      try {
-        const { predictEVT } = await import('@/lib/risque/extreme')
-        const evtR = predictEVT(historique.map(h => ({ value: 100 - h.score, date: h.date || '' })))
-        result.extremeValue = {
-          returnLevel1y: evtR.returnLevel1y,
-          isHeavyTailed: evtR.isHeavyTailed,
-          maxExpected12m: evtR.maxExpected12m,
-          tailRisk: evtR.probabilityExtreme,
+        if (cached.survival) result.survival = {
+          medianDays: cached.survival.medianSurvivalDays || 90,
+          hazard90d: cached.survival.hazard90days,
+          hazard180d: cached.survival.hazard180days,
         }
-      } catch { /* EVT unavailable */ }
-
-      // Negative Binomial
-      try {
-        const { predictNB } = await import('@/lib/risque/negativeBinomial')
-        const nbCounts = historique.map(h => Math.max(0, Math.round((100 - h.score) / 10)))
-        const nbR = predictNB(nbCounts)
-        result.negativeBinomial = {
-          mean: nbR.mean,
-          isOverdispersed: nbR.isOverdispersed,
-          expectedMax: nbR.expectedMax,
-          recommendedDistribution: nbR.recommendedDistribution,
+        if (cached.evt) result.extremeValue = {
+          returnLevel1y: cached.evt.returnLevel1y,
+          isHeavyTailed: cached.evt.isHeavyTailed,
+          maxExpected12m: cached.evt.maxExpected12m,
+          tailRisk: cached.evt.probabilityExtreme,
         }
-      } catch { /* NB unavailable */ }
-
-      // Copulas
-      try {
-        const { predictCopula } = await import('@/lib/risque/copulas')
-        const copulaData = historique.map(h => ({
-          c1: profil?.c1 ?? 50, c2: profil?.c2 ?? 50, c3: profil?.c3 ?? 50, c4: profil?.c4 ?? 50, c5: profil?.c5 ?? 50,
-        }))
-        const copR = predictCopula(copulaData)
-        result.copulas = {
-          correlationMatrix: copR.correlationMatrix,
-          worstCaseProbability: copR.worstCaseScenario.probability,
-          worstCaseDescription: copR.worstCaseScenario.description,
+        if (cached.nb) result.negativeBinomial = {
+          mean: cached.nb.mean,
+          isOverdispersed: cached.nb.isOverdispersed,
+          expectedMax: cached.nb.expectedMax,
+          recommendedDistribution: cached.nb.recommendedDistribution,
         }
-      } catch { /* Copula unavailable */ }
+        if (cached.copula) result.copulas = {
+          correlationMatrix: [],
+          worstCaseProbability: cached.copula.worstCaseScenario.probability,
+          worstCaseDescription: cached.copula.worstCaseScenario.description,
+        }
+        if (cached.ts) result.thompsonSampling = {
+          bestAction: cached.ts.recommend(`${request.aerodromeId}_diagnostic`).name,
+          bestProbability: cached.ts.bestProbability,
+          expectedRewards: {},
+        }
+      } catch { /* Modèles indisponibles */ }
     }
 
-    // Thompson Sampling (indépendant de l'historique)
-    try {
-      const { createThompsonSampling } = await import('@/lib/risque/thompsonSampling')
-      const ts = createThompsonSampling([
-        { id: 'maintien', name: 'Surveillance de maintien' },
-        { id: 'periodique', name: 'Surveillance périodique' },
-        { id: 'renforcee', name: 'Surveillance renforcée' },
-      ])
-      const rec = ts.recommend('default')
-      result.thompsonSampling = {
-        bestAction: rec.name,
-        bestProbability: ts.bestProbability,
-        expectedRewards: ts.expectedRewards,
-      }
-    } catch { /* TS unavailable */ }
-
-    // Analyse IA narrative (asynchrone — appelée séparément si besoin de performance)
+    // Analyse IA narrative
     result.confidence = this.computeGlobalConfidence(result)
 
     this.lastAnalysisCache.set(cacheKey, result)

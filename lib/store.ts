@@ -578,6 +578,13 @@ export interface ProfilRisque {
   bayesian_black_swan?: boolean
   scenarios?: Array<{ nom: string; description: string; probabilite: number; scoreProjecte: number; intervalleConfiance: [number, number]; actionsRecommandees: string[] }>
   ensemble_confidence?: number
+  // MODÈLES AVANCÉS Phase 3 — persistés dans le profil
+  hmm_state?: { currentStateName: string; isTransitioning: boolean; transitionRisk: number; daysToCritical: number }
+  survival_metrics?: { hazard90d: number; hazard180d: number; medianDays: number }
+  extreme_risk?: { tailRisk: number; isHeavyTailed: boolean; maxExpected12m: number }
+  negbin_metrics?: { isOverdispersed: boolean; dispersion: number; mean: number; variance: number }
+  copula_metrics?: { maxTailDependence: number; worstCaseProbability: number; worstCaseDescription: string }
+  ts_metrics?: { recommendedAction: string; bestProbability: number }
   // SNAPSHOT INFRASTRUCTURE (au moment du calcul)
   // Permet aux décisions (type surveillance, filtrage checklist) de refléter
   // les caractéristiques réelles de l'entité sans re-calculer le score numérique.
@@ -3860,6 +3867,8 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           prediction6m = Math.round((prediction6m + ensemble.score6m) / 2)
           ensembleConfidence = ensemble.confidence
         }
+        // ── Phase 3 : Modèles avancés (HMM, Survival, EVT, NB, Copulas, TS) ──
+        // Procrastiné après construction de nouveauProfil car Copulas en a besoin
 
         // Prédiction d'incidents et tendance événements
         const { computeIncidentPrediction, computeEventTrendAnalysis, computeBayesianPosterior } = await import('./risque')
@@ -3917,6 +3926,40 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
             type: aerodrome.type,
           } : undefined,
         }
+        // ── Phase 3 : computation et stockage modèles avancés ──
+        if (existingHistory.length >= 3) {
+          const scoresHist = existingHistory.map(h => h.score)
+          try {
+            const { modelCache } = await import('./risque/modelCache')
+            const cached = modelCache.computeAll(aerodromeId, scoresHist, nouveauProfil)
+            if (cached.hmm) nouveauProfil.hmm_state = {
+              currentStateName: cached.hmm.currentStateName, isTransitioning: cached.hmm.isTransitioning,
+              transitionRisk: cached.hmm.transitionRisk, daysToCritical: cached.hmm.daysToCritical,
+            }
+            if (cached.survival) nouveauProfil.survival_metrics = {
+              hazard90d: cached.survival.hazard90days, hazard180d: cached.survival.hazard180days,
+              medianDays: cached.survival.medianSurvivalDays || 999,
+            }
+            if (cached.evt) nouveauProfil.extreme_risk = {
+              tailRisk: cached.evt.probabilityExtreme, isHeavyTailed: cached.evt.isHeavyTailed,
+              maxExpected12m: cached.evt.maxExpected12m,
+            }
+            if (cached.nb) nouveauProfil.negbin_metrics = {
+              isOverdispersed: cached.nb.isOverdispersed, dispersion: cached.nb.dispersion,
+              mean: cached.nb.mean, variance: cached.nb.variance,
+            }
+            if (cached.copula) nouveauProfil.copula_metrics = {
+              maxTailDependence: Math.max(...cached.copula.tailDependence.lower.flat()),
+              worstCaseProbability: cached.copula.worstCaseScenario.probability,
+              worstCaseDescription: cached.copula.worstCaseScenario.description,
+            }
+            if (cached.ts) nouveauProfil.ts_metrics = {
+              recommendedAction: cached.ts.recommend(`${aerodromeId}_${new Date().getFullYear()}`).id,
+              bestProbability: cached.ts.bestProbability,
+            }
+          } catch { /* Modèles avancés indisponibles */ }
+        }
+        // ── Fin Phase 3 ──
         const now = new Date().toISOString()
         addScoreHistoryPoint(aerodromeId, {
           date: now,
