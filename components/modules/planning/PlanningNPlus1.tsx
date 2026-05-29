@@ -67,6 +67,10 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
     return Array.from(map.values()).filter(g => selectedAero === '' || g.aero.id === selectedAero)
   }, [aerodromes, planningsN1, propositionsN1, selectedAero])
 
+  const overlap = (a: Planning, b: Planning) => a.aerodrome_id === b.aerodrome_id
+    && new Date(a.date_debut).getTime() < new Date(b.date_fin).getTime()
+    && new Date(b.date_debut).getTime() < new Date(a.date_fin).getTime()
+
   const stats = useMemo(() => ({
     total: propositionsN1.length,
     carryOver: propositionsN1.filter(p => (p as any).source?.type?.startsWith('carryover')).length,
@@ -88,10 +92,6 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const confirmRefus = () => { if (refusModal) { refuserPropositionN1(refusModal.id, refusModal.motif || MOTIFS_REFUS[0]); setRefusModal(null) } }
 
   const role = userRole || user?.role || ''
-
-  const overlap = (a: Planning, b: Planning) => a.aerodrome_id === b.aerodrome_id
-    && new Date(a.date_debut).getTime() < new Date(b.date_fin).getTime()
-    && new Date(b.date_debut).getTime() < new Date(a.date_fin).getTime()
 
   return (
     <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={role}>
