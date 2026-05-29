@@ -29,6 +29,7 @@ import {
   MapPin,
   CalendarDays,
   TrendingDown,
+  TrendingUp,
   Shield,
   Eye,
   Brain,
@@ -358,7 +359,26 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
   const nbPropositionsAvecMesuresEnRetard = propositions.filter((p) => p._aDesMesuresEnRetard).length;
 
   return (
-    <div className="space-y-6 animate-fade-up" data-role={userRole}>
+    <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={userRole}>
+      {/* En-tête */}
+      <div className="modal-header border-b border-border bg-role-primary-soft">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center text-white">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Planning N+1 — {anneeN1}</h2>
+            <p className="text-xs text-muted-foreground">Génération du planning de surveillance pour l'année suivante</p>
+          </div>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="btn btn-secondary gap-2">
+            <X className="h-4 w-4" />Fermer
+          </button>
+        )}
+      </div>
+
+      <div className="p-6 space-y-6">
       
       {/* Bandeau d'alerte sur les mesures en retard */}
       {generated && nbPropositionsAvecMesuresEnRetard > 0 && (
@@ -853,11 +873,6 @@ text-danger ml-1" />
            </div>
 
           <div className="flex justify-end gap-3">
-            {onClose && (
-              <button onClick={onClose} className="btn btn-secondary gap-2">
-                <X className="h-4 w-4" />Fermer
-              </button>
-            )}
             <button
               onClick={handleValider}
               disabled={selected.size === 0 || validating || validated}
@@ -868,6 +883,8 @@ text-danger ml-1" />
           </div>
         </div>
       )}
+
+      </div>
     </div>
   );
 }
