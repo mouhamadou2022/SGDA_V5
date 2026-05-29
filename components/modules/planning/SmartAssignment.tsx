@@ -640,7 +640,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
                           <select
                             value={assignations[planning.id] ?? ''}
                             onChange={(e) => setAssignations((prev) => ({ ...prev, [planning.id]: e.target.value }))}
-                            className={`form-select w-64 h-10 text-sm ${focusClass}`}
+                            className={`form-select w-64 py-3 text-sm ${focusClass}`}
                             style={selectStyle}
                           >
                             <option value="">Choisir un inspecteur</option>
