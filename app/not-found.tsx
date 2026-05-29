@@ -4,11 +4,13 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Plane, Compass, Radar, MapPin, Home, Navigation, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export default function NotFound() {
+  const router = useRouter()
   const [isHovered, setIsHovered] = useState(false)
   const [seconds, setSeconds] = useState(5)
 
@@ -18,14 +20,14 @@ export default function NotFound() {
       setSeconds((prev) => {
         if (prev <= 1) {
           clearInterval(timer)
-          window.location.href = '/'
+          router.push('/')
           return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [router])
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
