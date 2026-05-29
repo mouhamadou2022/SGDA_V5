@@ -2342,19 +2342,21 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </div>
 
             {/* Bouton N+1 */}
-            <button
-              onClick={() => setShowNPlus1Modal(true)}
-              className="btn btn-secondary gap-2 relative overflow-visible"
-              title="Générer le planning de l'année suivante"
-            >
-              <TrendingUp className="w-4 h-4" />
-              <span>N+1</span>
+            <div className="relative inline-flex">
+              <button
+                onClick={() => setShowNPlus1Modal(true)}
+                className="btn btn-secondary gap-2"
+                title="Générer le planning de l'année suivante"
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span>N+1</span>
+              </button>
               {propositionsCount > 0 && (
                 <span className={`badge ${propositionsCount > 5 ? 'danger pulse' : 'warning'} absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1 flex items-center justify-center text-[10px] font-bold`}>
                   {propositionsCount > 99 ? '99+' : propositionsCount}
                 </span>
               )}
-            </button>
+            </div>
             
             {/* Bouton Suggestions IA — animé selon la sévérité des déclencheurs */}
             {(() => {
