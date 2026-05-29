@@ -1976,69 +1976,86 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         document.body
       )}
 
-      {/* Vue Tableau */}
+      {/* Vue Tableau — groupé par aérodrome */}
       {viewMode === 'table' && (
         <div className="card border-border overflow-hidden">
           <table className="table">
             <thead>
               <tr>
-                <th>Code OACI</th>
+                <th>Aérodrome</th>
                 <th>Type</th>
                 <th>Période</th>
                 <th>Domaines</th>
                 <th>Statut</th>
                 <th>Priorité</th>
-                <th>Équipe</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredPlannings.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-muted-foreground"><Calendar className="w-8 h-8 mx-auto mb-2 opacity-20" />Aucun planning</td></tr>
-              ) : filteredPlannings.map(planning => {
-                const aero = aerodromes.find(a => a.id === planning.aerodrome_id)
-                const statutMap: Record<string, { cls: string; label: string }> = {
-                  planifiee: { cls: 'badge primary', label: 'Planifiée' },
-                  en_cours: { cls: 'badge warning', label: 'En cours' },
-                  realisee: { cls: 'badge success', label: 'Réalisée' },
-                  annulee: { cls: 'badge neutral', label: 'Annulée' },
-                  en_retard: { cls: 'badge danger', label: 'En retard' },
-                }
-                const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
-                const nomsEquipe = (planning.equipe_ids || []).map(id => {
-                  const u = utilisateurs.find(x => x.id === id)
-                  return u ? `${u.prenom} ${u.nom}`.split(' ').map(w => w[0]).join('') : '?'
-                })
+              {planningsByAerodrome.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-12 text-muted-foreground"><Calendar className="w-8 h-8 mx-auto mb-2 opacity-20" />Aucun planning</td></tr>
+              ) : planningsByAerodrome.map(group => {
+                const profil = profilsRisque[group.aerodrome.id]
+                const scoreCls = !profil ? 'neutral' : profil.score_global < 30 ? 'danger' : profil.score_global < 60 ? 'warning' : 'success'
                 return (
-                  <tr key={planning.id} className="hover:bg-role-primary-soft transition-colors cursor-pointer"
-                    onClick={() => handleView(planning)}>
-                    <td><span className="code-oaci-badge">{aero?.code_oaci || '?'}</span></td>
-                    <td><span className="capitalize text-sm">{planning.type?.replace(/_/g, ' ') || '—'}</span></td>
-                    <td className="text-xs text-muted-foreground">
-                      {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
-                    </td>
-                    <td>
-                      {planning.portee?.length ? planning.portee.slice(0, 3).join(', ') : '—'}
-                    </td>
-                    <td><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
-                    <td>
-                      {planning.priorite && (() => {
-                        const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
-                        const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
-                        return <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>
-                      })()}
-                    </td>
-                    <td className="text-xs text-muted-foreground">{nomsEquipe.length > 0 ? nomsEquipe.join(', ') : '—'}</td>
-                    <td className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" /></button>
-                        <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" /></button>
-                        <button className="action-button" onClick={e => { e.stopPropagation(); handleView(planning); }} title="Voir"><Info className="w-4 h-4" /></button>
-                        <button className="action-button" onClick={e => { e.stopPropagation(); handleEdit(planning); }} title="Modifier"><Edit2 className="w-4 h-4" /></button>
-                        <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(planning); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
+                  <React.Fragment key={group.aerodrome.id}>
+                    {/* Header groupe aérodrome */}
+                    <tr className="bg-muted/20 border-b-2 border-border">
+                      <td colSpan={7} className="py-2 px-3">
+                        <div className="flex items-center gap-3">
+                          <span className="code-oaci-badge">{group.aerodrome.code_oaci}</span>
+                          <span className="font-semibold text-sm text-foreground">{group.aerodrome.nom}</span>
+                          {profil && (
+                            <span className={`badge text-xs ${scoreCls}`}>
+                              Score {profil.score_global}/100
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground ml-auto">{group.plannings.length} planning(s)</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {/* Lignes plannings */}
+                    {group.plannings.map((planning: Planning) => {
+                      const statutMap: Record<string, { cls: string; label: string }> = {
+                        planifiee: { cls: 'badge primary', label: 'Planifiée' },
+                        en_cours: { cls: 'badge warning', label: 'En cours' },
+                        realisee: { cls: 'badge success', label: 'Réalisée' },
+                        annulee: { cls: 'badge neutral', label: 'Annulée' },
+                        en_retard: { cls: 'badge danger', label: 'En retard' },
+                      }
+                      const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
+                      const nomsEquipe = (planning.equipe_ids || []).map(id => {
+                        const u = utilisateurs.find(x => x.id === id)
+                        return u ? `${u.prenom} ${u.nom}`.split(' ').map(w => w[0]).join('') : '?'
+                      })
+                      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+                      const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
+                      return (
+                        <tr key={planning.id} className="hover:bg-role-primary-soft transition-colors cursor-pointer"
+                          onClick={() => handleView(planning)}>
+                          <td className="pl-6 text-xs text-muted-foreground">{nomsEquipe.length > 0 ? nomsEquipe.join(', ') : '—'}</td>
+                          <td><span className="capitalize text-sm">{planning.type?.replace(/_/g, ' ') || '—'}</span></td>
+                          <td className="text-xs text-muted-foreground">
+                            {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
+                          </td>
+                          <td className="text-xs">{planning.portee?.length ? planning.portee.slice(0, 4).join(', ') : '—'}</td>
+                          <td><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
+                          <td>
+                            {planning.priorite && <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>}
+                          </td>
+                          <td className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" /></button>
+                              <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" /></button>
+                              <button className="action-button" onClick={e => { e.stopPropagation(); handleView(planning); }} title="Voir"><Info className="w-4 h-4" /></button>
+                              <button className="action-button" onClick={e => { e.stopPropagation(); handleEdit(planning); }} title="Modifier"><Edit2 className="w-4 h-4" /></button>
+                              <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(planning); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </React.Fragment>
                 )
               })}
             </tbody>
