@@ -268,11 +268,11 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                 {g.propositions.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">Aucune proposition</p>
                 ) : (
-                  g.propositions.map(prop => {
+                  g.propositions.map((prop, pi) => {
                     const conflict = hasConflict(prop, g.existants)
                     const source = (prop as any).source
                     return (
-                      <div key={prop.id} className={`p-2 rounded-lg border text-xs ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
+                      <div key={prop.id || `prop-${pi}`} className={`p-2 rounded-lg border text-xs ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
                         <div className="flex items-center gap-2 flex-wrap">
                           {TYPE_ICONS[prop.type] || <Calendar className="w-3 h-3" />}
                           <span className="font-medium">{TYPE_LABELS[prop.type] || prop.type}</span>
