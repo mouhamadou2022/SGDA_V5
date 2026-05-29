@@ -2547,6 +2547,21 @@ getActiveAerodromes: () => {
         const newSurveillance: Surveillance = {
           id: crypto.randomUUID(),
           ...surveillanceData,
+          // Chef par défaut si vide : inspecteur principal > titulaire > user actif
+          chef_id: surveillanceData.chef_id && surveillanceData.chef_id !== '00000000-0000-0000-0000-000000000000'
+            ? surveillanceData.chef_id
+            : (() => {
+                const inspecteurs = get().inspecteurs || []
+                const defaut = inspecteurs.find(i => i.type === 'inspecteur_principal' && i.statut === 'en_service' && !i.deleted_at)
+                  || inspecteurs.find(i => i.type === 'inspecteur_titulaire' && i.statut === 'en_service' && !i.deleted_at)
+                  || inspecteurs.find(i => !i.deleted_at)
+                if (defaut?.user_id) return defaut.user_id
+                const utilisateurs = get().utilisateurs || []
+                const userDefaut = get().user
+                  || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
+                  || utilisateurs.find(u => u.statut === 'actif')
+                return userDefaut?.id || crypto.randomUUID()
+              })(),
           statut: surveillanceData.statut || 'planifiee',
           progression: 0,
           signatures_checklist: [],
