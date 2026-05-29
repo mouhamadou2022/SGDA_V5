@@ -184,8 +184,10 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
 
   function handleGenerer() {
     const toutes: PropositionPlanning[] = [];
+    let erreurs = 0
 
     aerodromes.forEach((aero) => {
+      try {
       const profil = profilsRisque[aero.id];
       if (!profil) return;
 
@@ -199,6 +201,7 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
 
       // Nouveau générateur centralisé (profil + carry-over écarts/PAC + certification)
       const props = genererPlanningN1(aero.id, anneeN1)
+      if (!props || props.length === 0) return
       
       const velocityMetrics = profil.velocity_metrics;
       const velocityAlert = velocityMetrics && velocityMetrics.vitesse < -1.5;
@@ -246,7 +249,21 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
       }));
       
       toutes.push(...propsEnrichies);
+      } catch (err) {
+        erreurs++
+        console.error(`[PlanningNPlus1] Erreur génération pour ${aero.code_oaci || aero.id}:`, err)
+      }
     });
+
+    if (erreurs > 0) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'warning',
+        title: 'Génération partielle',
+        message: `${erreurs} aérodrome(s) ont rencontré une erreur lors de la génération. Vérifiez les profils de risque.`,
+        canal: 'in_app',
+      })
+    }
 
     const avecConflits: PropositionPlanning[] = toutes.map((prop, idx) => {
       const conflits: string[] = [];

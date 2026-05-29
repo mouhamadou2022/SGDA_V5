@@ -1004,7 +1004,7 @@ export function PlanningCard({
                     key={id}
                     className="flex items-center gap-1 bg-background px-2 py-1 rounded-full border border-border text-xs"
                   >
-                    <span className="w-5 h-5 rounded-full bg-role-primary-soft !text-white text-[10px] flex items-center justify-center font-bold">
+                    <span className="w-5 h-5 rounded-full bg-role-gradient text-white text-[10px] flex items-center justify-center font-bold">
                       {getInitiales(insp.prenom, insp.nom)}
                     </span>
                     <span>
