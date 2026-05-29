@@ -572,7 +572,7 @@ function PreparationModal({ planning, open, onClose, userRole }: PreparationModa
                         </div>
                         <div className="flex items-center gap-2">
                           <select
-                            className="form-select text-sm py-1 h-8"
+                            className="form-select text-sm py-2 h-10"
                             value={delegations[code] || ''}
                             onChange={e => setDelegations(prev => ({ ...prev, [code]: e.target.value }))}
                           >
@@ -1995,7 +1995,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                           </div>
                           <div className="flex items-center gap-2">
                             <select
-                              className="form-select text-sm py-1 h-8"
+                              className="form-select text-sm py-2 h-10"
                               value={delegations[code] || ''}
                               onChange={(e) => setDelegations(prev => ({ ...prev, [code]: e.target.value }))}
                             >

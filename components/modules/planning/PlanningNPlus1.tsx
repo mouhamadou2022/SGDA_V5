@@ -115,10 +115,13 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const surveillances = useAppStore(s => s.surveillances)
   const plannings = useAppStore(s => s.plannings)
+  const ecarts = useAppStore(s => s.ecarts)
+  const certifications = useAppStore(s => s.certifications)
   const addPlanning = useAppStore(s => s.addPlanning)
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user);
+  const genererPlanningN1 = useAppStore(s => s.genererPlanningN1);
 
   const getExemptionsActives = (useAppStore as any).getExemptionsActives?.bind(useAppStore) || (() => []);
 
@@ -194,8 +197,8 @@ export function PlanningNPlus1({ onClose, userRole = 'admin' }: PlanningNPlus1Pr
           domaines: s.portee || [],
         }));
 
-      const inspecteursDisponibles = utilisateurs.filter(u => u.role === 'inspector' && u.statut !== 'inactif' && u.statut !== 'suspendu')
-      const props = genererPlanningN1(aero.id, anneeN1, profil, historique, undefined, undefined, undefined, undefined, undefined, inspecteursDisponibles);
+      // Nouveau générateur centralisé (profil + carry-over écarts/PAC + certification)
+      const props = genererPlanningN1(aero.id, anneeN1)
       
       const velocityMetrics = profil.velocity_metrics;
       const velocityAlert = velocityMetrics && velocityMetrics.vitesse < -1.5;
