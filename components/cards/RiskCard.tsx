@@ -3,7 +3,7 @@
 
 import {
   TrendingUp, TrendingDown, Minus, Activity,
-  Eye, BarChart2
+  Eye, BarChart2, Brain, Clock
 } from 'lucide-react'
 
 interface RiskCardProps {
@@ -23,6 +23,11 @@ interface RiskCardProps {
       c4_historique?: number
       c5_contexte?: number
     }
+    // Enrichissement modèles avancés
+    hmmState?: string
+    hmmTransitioning?: boolean
+    hazard90d?: number
+    medianSurvival?: number
   }
   onViewDetails: () => void
   onSimulate?: () => void
@@ -146,6 +151,13 @@ export function RiskCard({
           <span className="text-xs text-muted-foreground">
             MAJ: {new Date(profil.last_updated).toLocaleDateString('fr-FR')}
           </span>
+          {profil.hmmState && (
+            <span className={`text-[10px] font-medium flex items-center gap-1 ${profil.hmmState === 'critical' ? 'text-danger' : profil.hmmState === 'degrading' ? 'text-warning' : 'text-success'}`}>
+              <Brain className="w-3 h-3" />
+              {profil.hmmState}
+              {profil.hmmTransitioning && <span className="badge warning text-[9px] animate-pulse">!</span>}
+            </span>
+          )}
           <div className="flex gap-1">
             <button 
               className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" 
