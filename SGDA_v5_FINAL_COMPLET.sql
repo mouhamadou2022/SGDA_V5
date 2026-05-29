@@ -1650,6 +1650,8 @@ DO $$ BEGIN
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS confirme_par            text;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS date_confirmee          timestamptz;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS motif_report            text;
+  -- Permettre chef_id NULL pour les surveillances auto-créées
+  ALTER TABLE plannings ALTER COLUMN chef_id DROP NOT NULL;
 END $$;
 
 -- 13.D AERODROMES — colonnes manquantes

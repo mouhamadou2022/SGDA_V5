@@ -4162,10 +4162,10 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       setPlannings: (plannings) => set({ plannings }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
       addPlanning: async (planning) => {
-        // Nettoyer les champs vides qui violent les contraintes FK
+        // Nettoyer les champs vides — remplacer par l'utilisateur courant si chef_id vide
         const cleanPlanning = { ...planning }
         if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '00000000-0000-0000-0000-000000000000') {
-          delete (cleanPlanning as any).chef_id
+          cleanPlanning.chef_id = get().user?.id || crypto.randomUUID()
         }
         const result = await datastore.createPlanning(cleanPlanning)
         if (result.error) {
