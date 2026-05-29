@@ -155,7 +155,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
               <div className="p-4 space-y-2">
                 <p className="text-sm font-semibold text-muted-foreground uppercase">Propositions N+1</p>
                 {g.propositions.length === 0 ? <p className="text-sm text-muted-foreground italic">Aucune</p> : g.propositions.map((prop, pi) => {
-                  const conflict = overlap(prop, g.existants.find(e => e.aerodrome_id === prop.aerodrome_id) ? [g.existants.find(e => e.aerodrome_id === prop.aerodrome_id)!] : [])
+                  const conflict = g.existants.some(e => overlap(prop, e))
                   const source = (prop as any).source
                   return (
                     <div key={prop.id || `prop-${pi}`} className={`p-3 rounded-lg border text-sm ${conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'}`}>
