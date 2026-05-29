@@ -121,7 +121,7 @@ export default function EcartsPage() {
             <AlertTriangle className="w-10 h-10 text-danger" />
           </div>
           <p className="text-lg font-medium text-foreground mb-2">Surveillance non trouvée</p>
-          <button onClick={() => router.push('/surveillance')} className="btn btn-primary">
+          <button onClick={() => router.push('/')} className="btn btn-primary">
             Retour à la liste
           </button>
         </div>

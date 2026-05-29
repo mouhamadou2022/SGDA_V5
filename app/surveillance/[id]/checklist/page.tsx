@@ -692,7 +692,7 @@ export default function ChecklistPage() {
           </div>
           <p className="text-lg font-medium text-foreground mb-2">Surveillance non trouvée</p>
           <p className="text-sm text-muted-foreground mb-6">La surveillance que vous cherchez n'existe pas ou a été supprimée.</p>
-          <button onClick={() => router.push('/surveillance')} className="btn btn-primary">
+          <button onClick={() => router.push('/')} className="btn btn-primary">
             Retour à la liste
           </button>
         </div>

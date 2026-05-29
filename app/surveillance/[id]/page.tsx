@@ -135,7 +135,7 @@ export default function SurveillanceDetailPage() {
             <AlertTriangle className="w-10 h-10 text-danger" />
           </div>
           <p className="text-lg font-medium text-foreground mb-2">Surveillance non trouvée</p>
-          <button onClick={() => router.push('/surveillance')} className="btn btn-primary">
+          <button onClick={() => router.push('/')} className="btn btn-primary">
             Retour à la liste
           </button>
         </div>
@@ -239,7 +239,7 @@ export default function SurveillanceDetailPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => router.push('/surveillance')}
+                onClick={() => router.push('/')}
                 className="btn btn-secondary btn-sm gap-2"
               >
                 <ArrowLeft className="w-4 h-4" />

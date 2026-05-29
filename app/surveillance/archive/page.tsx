@@ -398,7 +398,7 @@ export default function ArchivePage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => router.push('/surveillance')}
+                onClick={() => router.push('/')}
                 className="btn btn-secondary btn-sm gap-2"
               >
                 ← Retour
