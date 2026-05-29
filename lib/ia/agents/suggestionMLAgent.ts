@@ -9,7 +9,9 @@ import { Ecart, ProfilRisque, SuggestionFeedback } from '@/lib/store';
 // TYPES
 // ============================================================
 
-export type SurveillanceType = 'mise_oeuvre_pac' | 'suivi_ecarts' | 'audit_complet' | 'programmee';
+export type SurveillanceType = 'mise_oeuvre_pac' | 'suivi_ecarts' | 'audit_complet' | 'programmee' | 'incident_critique' | 'incident_majeur';
+
+export type IncidentType = 'incident_critique' | 'incident_majeur' | 'aucun_incident';
 
 export interface MLFeatures {
   scoreGlobal: number;
@@ -297,12 +299,14 @@ export function updateModelWithFeedback(
   const isCorrect = predictedType === actualType || feedback.etait_pertinent;
 
   if (!isCorrect) {
-    const targetScores: Record<string, number> = {
-      suivi_ecarts: 0,
-      mise_oeuvre_pac: 0,
-      audit_complet: 0,
-      programmee: 0,
-    };
+      const targetScores: Record<string, number> = {
+        suivi_ecarts: 0,
+        mise_oeuvre_pac: 0,
+        audit_complet: 0,
+        programmee: 0,
+        incident_critique: 0,
+        incident_majeur: 0,
+      };
     targetScores[actualType as keyof typeof targetScores] = 1;
 
     for (const [key, weight] of Object.entries(m.weights)) {
@@ -312,6 +316,15 @@ export function updateModelWithFeedback(
                        scores.audit_complet - targetScores.audit_complet +
                        scores.programmee - targetScores.programmee) * featureValue;
       m.weights[key] = Math.max(-1, Math.min(1, weight - lr * gradient - WEIGHT_DECAY * weight));
+    }
+
+    // Ajustement adaptatif des seuils de décision
+    if (m.accuracy_history && m.accuracy_history.length >= 10) {
+      const recentAccuracy = m.accuracy_history.slice(-10).reduce((a, b) => a + b, 0) / 10
+      // Si précision < 60%: augmenter le learning rate pour accélérer l'apprentissage
+      if (recentAccuracy < 0.60) m.learning_rate = Math.min(0.15, lr * 1.2)
+      // Si précision > 85%: réduire le learning rate pour stabiliser
+      else if (recentAccuracy > 0.85) m.learning_rate = Math.max(0.01, lr * 0.9)
     }
 
     for (const [key, bias] of Object.entries(m.biases)) {
@@ -485,6 +498,8 @@ export function ensemblePredict(
     suivi_ecarts: 0,
     audit_complet: 0,
     programmee: 0,
+    incident_critique: 0,
+    incident_majeur: 0,
   };
 
   scores[ml.type] = (scores[ml.type] || 0) + mlWeight;

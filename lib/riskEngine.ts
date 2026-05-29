@@ -848,6 +848,24 @@ export function getEcartTriggers(
         justification += `\n🤖 ML: ${mlEnsemble.recommandation}`;
       }
 
+      // Détection d'anomalies (RF Isolation Forest)
+      try {
+        const { anomalyDetector } = require('@/lib/ia/models/randomForest')
+        if (anomalyDetector && ecart.cellule_risque_oaci) {
+          const features = [
+            ecart.niveau_risque === 'critique' ? 4 : ecart.niveau_risque === 'eleve' ? 3 : ecart.niveau_risque === 'moyen' ? 2 : 1,
+            parseInt(ecart.cellule_risque_oaci?.charAt(0) || '3'),
+            profil?.score_global || 50,
+            profil?.c2 || 50,
+          ]
+          const anomalyScore = anomalyDetector.predictAnomaly(features)
+          if (anomalyScore > 0.7) {
+            justification += `\n🔍 Anomalie détectée (score: ${Math.round(anomalyScore * 100)}%) — pattern suspect identifié par le modèle d'isolation`
+            if (predictionConfiance < 70) predictionConfiance = Math.max(predictionConfiance, 70)
+          }
+        }
+      } catch { /* anomaly detector unavailable */ }
+
       return {
         ecart,
         urgence,

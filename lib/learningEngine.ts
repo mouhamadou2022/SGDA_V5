@@ -25,6 +25,8 @@ export interface LearningFeedback {
 export interface ModelCalibration {
   version: number;
   date_calibration: string;
+  dernier_recalibrage: string;
+  version_modele: number;
   performances: {
     precision_globale: number;
     precision_par_domaine: Record<string, number>;
@@ -63,6 +65,8 @@ let recalibrationAlerts: RecalibrationAlert[] = [];
 let currentModel: ModelCalibration = {
   version: 1,
   date_calibration: new Date().toISOString(),
+  dernier_recalibrage: new Date().toISOString(),
+  version_modele: 1,
   performances: {
     precision_globale: 85,
     precision_par_domaine: {},
@@ -135,6 +139,22 @@ export function recordLearningFeedback(
   
   // Vérifier si une alerte est nécessaire
   checkForAlerts();
+
+  // Réentraînement périodique du Random Forest (tous les 50 feedbacks)
+  if (feedbacksStore.length % 50 === 0) {
+    try {
+      const { checklistPredictor } = require('@/lib/ia/models/randomForest')
+      if (checklistPredictor) {
+        const samples = feedbacksStore.map(f => ({
+          features: [f.confiance_avant, f.impact_confiance || 0],
+          label: f.correction,
+        }))
+        checklistPredictor.train(samples).catch(() => {})
+        currentModel.dernier_recalibrage = new Date().toISOString()
+        currentModel.version_modele += 1
+      }
+    } catch { /* RF unavailable */ }
+  }
   
   return feedback;
 }
@@ -335,6 +355,8 @@ export function recalibrateModel(
   currentModel = {
     version: currentModel.version + 1,
     date_calibration: new Date().toISOString(),
+    dernier_recalibrage: new Date().toISOString(),
+    version_modele: currentModel.version_modele,
     performances: {
       precision_globale: performances.precision_globale,
       precision_par_domaine: performances.precision_par_domaine,
@@ -442,6 +464,8 @@ export function resetLearningData(): void {
   currentModel = {
     version: 1,
     date_calibration: new Date().toISOString(),
+    dernier_recalibrage: new Date().toISOString(),
+    version_modele: 1,
     performances: {
       precision_globale: 85,
       precision_par_domaine: {},
