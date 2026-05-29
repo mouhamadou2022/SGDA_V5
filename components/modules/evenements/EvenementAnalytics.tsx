@@ -13,7 +13,6 @@ import {
 import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
 import { computeIncidentPredictions } from '@/lib/risque/predictions'
-
 interface Props {
   aerodromeId?: string
   userRole?: string
@@ -108,6 +107,14 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
 
   const predictions = predictionsData.details
   const saisonStats = predictionsData.saisonStats
+
+  // EVT analysis
+  const evtData = useMemo(() => {
+    try {
+      const { predictEVT } = require('@/lib/risque/extreme')
+      return predictEVT(filtered.map(e => ({ value: e.gravite === 'CRITIQUE' ? 4 : e.gravite === 'ORANGE' ? 3 : e.gravite === 'JAUNE' ? 2 : 1, date: e.date || e.created_at })))
+    } catch { return null }
+  }, [filtered])
 
   // ── Top événements récents ──
   const recents = useMemo(() =>

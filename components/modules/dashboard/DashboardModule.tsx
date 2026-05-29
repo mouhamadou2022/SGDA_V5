@@ -533,6 +533,7 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
                     <th>Aérodrome</th>
                     <th>Score risque</th>
                     <th>Niveau</th>
+                    <th>État</th>
                     <th>Écarts critiques</th>
                     <th>Dernière surveillance</th>
                     <th className="text-right">Actions</th>
@@ -569,6 +570,17 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
                           <span className={getRiskBadgeClass(riskLevel.niveau)}>
                             {riskLevel.label}
                           </span>
+                        </td>
+                        <td>
+                          {(() => {
+                            const v = aero.profil
+                            const vx = v?.velocity_metrics?.vitesse ?? 0
+                            const tend = v?.tendance
+                            if (tend === 'baisse' && vx < -1.5) return <span className="badge danger text-[10px]">Critique</span>
+                            if (tend === 'baisse') return <span className="badge warning text-[10px]">Dégradé</span>
+                            if (tend === 'hausse') return <span className="badge success text-[10px]">Stable</span>
+                            return <span className="badge primary text-[10px]">Stable</span>
+                          })()}
                         </td>
                         <td>
                           {ecartsCritiquesAero > 0 ? (

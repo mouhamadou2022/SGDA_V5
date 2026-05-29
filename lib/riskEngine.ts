@@ -180,6 +180,7 @@ export function determineTypeSurveillanceContinue(
   domainesDerniereInspection?: Record<string, string>,
   alertesLanceurs?: Array<{ domaine: string; description: string }>,
   statut_sgs?: 'complet' | 'simplifie' | 'non_applicable',
+  hmmState?: string,  // 'stable' | 'degrading' | 'critical' — override la priorité si dégradé
 ): DecisionSurveillanceContinue {
   const infra = profil.infrastructure
   const isHelistation = infra?.type_entite === 'helistation'
@@ -311,11 +312,26 @@ export function determineTypeSurveillanceContinue(
   }
 
   // Cas par défaut : périodique de routine
+  // Default case — application de l'override HMM
+  let finalPriorite = 'moyenne' as 'basse' | 'moyenne' | 'haute' | 'critique'
+  let finalDelai = ajusterDelai(90)
+  let finalRaison = 'Surveillance périodique de routine'
+
+  if (hmmState === 'critical') {
+    finalPriorite = 'critique'
+    finalDelai = ajusterDelai(7)
+    finalRaison = '[HMM] État critique détecté — ' + finalRaison
+  } else if (hmmState === 'degrading') {
+    finalPriorite = 'haute'
+    finalDelai = ajusterDelai(30)
+    finalRaison = '[HMM] Transition détectée — ' + finalRaison
+  }
+
   return {
     type: 'periodique',
-    raison: 'Surveillance périodique de routine',
-    priorite: 'moyenne',
-    delaiRecommandation: ajusterDelai(90),
+    raison: finalRaison,
+    priorite: finalPriorite,
+    delaiRecommandation: finalDelai,
     domainesCibles: domainesApplicables(),
     typesChecklist: ajusterChecklists(['standard']),
     suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
