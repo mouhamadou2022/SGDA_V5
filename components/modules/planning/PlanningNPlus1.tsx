@@ -191,16 +191,16 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
             {generating ? 'Génération...' : propositionsN1.length > 0 ? 'Régénérer le planning' : `Générer le planning ${anneeN1}`}
           </button>
           <div className="flex-1" />
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Filtrer par aérodrome..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="form-input pl-9 py-2 text-sm w-64"
-            />
-          </div>
+          <select
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="form-select py-2 w-64"
+          >
+            <option value="">Tous les aérodromes</option>
+            {aerodromes?.filter(a => !a.deleted_at).map(a => (
+              <option key={a.id} value={a.code_oaci || a.nom}>{a.code_oaci} — {a.nom}</option>
+            ))}
+          </select>
         </div>
 
         {/* Stats bar */}
@@ -248,9 +248,9 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                   g.existants.map(p => (
                     <div key={p.id} className="p-2 rounded-lg bg-muted/20 text-sm">
                       <div className="flex items-center gap-2">
-                        {TYPE_ICONS[p.type] || <Calendar className="w-3 h-3" />}
-                        <span className="font-medium">{TYPE_LABELS[p.type] || p.type}</span>
-                        <span className="text-muted-foreground">
+                        {TYPE_ICONS[p.type] || <Calendar className="w-4 h-4" />}
+                        <span className="font-medium text-sm">{TYPE_LABELS[p.type] || p.type}</span>
+                        <span className="text-muted-foreground text-sm">
                           {p.date_debut ? new Date(p.date_debut).toLocaleDateString('fr-FR') : '?'}
                         </span>
                       </div>
@@ -284,9 +284,9 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                           {prop.priorite === 'critique' && <span className="badge danger text-[10px]">Critique</span>}
                           {conflict && <span className="badge warning text-[10px]">Conflit</span>}
                         </div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-1">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                           <span>{prop.date_debut ? new Date(prop.date_debut).toLocaleDateString('fr-FR') : '?'} → {prop.date_fin ? new Date(prop.date_fin).toLocaleDateString('fr-FR') : '?'}</span>
-                          {prop.portee?.length > 0 && <span>{prop.portee.slice(0, 3).join(', ')}</span>}
+                          {prop.portee?.length > 0 && <span className="font-medium text-foreground">{prop.portee.slice(0, 3).join(', ')}</span>}
                         </div>
                         {source?.raison && (
                           <p className="text-[10px] text-muted-foreground mt-0.5 italic">{source.raison}</p>
