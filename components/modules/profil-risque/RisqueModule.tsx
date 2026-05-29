@@ -107,6 +107,7 @@ type OngletId =
   | 'recommandations' 
   | 'analyses'
   | 'modeles'
+  | 'modeles'
 
 interface Onglet {
   id: OngletId
@@ -424,10 +425,6 @@ function IASuggestions({ aerodromeId, profil, onClose }: IASuggestionsProps) {
       })
     } finally {
       setIsAsking(false)
-      case 'modeles':
-        return (
-          <AdvancedModelsDashboard aerodromeId={aerodrome.id} userRole={userRole} />
-        )
     }
   }
 
@@ -1396,6 +1393,9 @@ function AerodromeDetailView({ aerodrome, profil, userRole, onBack, onRecalculer
             <RiskReportExport aerodromeId={aerodrome.id} />
           </div>
         )
+
+      case 'modeles':
+        return <AdvancedModelsDashboard aerodromeId={aerodrome.id} userRole={userRole} />
 
       default:
         return null
