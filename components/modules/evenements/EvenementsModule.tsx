@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import EvenementAnalytics from './EvenementAnalytics'
 import { createPortal } from 'react-dom'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
@@ -14,7 +15,7 @@ import {
   Calendar, MapPin, Plane, Users, FileText,
   Clock, User, CheckCircle2, XCircle, Send,
   Eye, PenSquare, Trash2, Download, Plus,
-  Search, Filter,
+  Search, Filter, List, BarChart,
   Phone, Mail, MessageSquare, Flame, Activity, X
 } from 'lucide-react'
 import EvenementWorkflow from './EvenementWorkflow'
@@ -57,6 +58,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
   const [showRapport, setShowRapport] = useState(false)
   const [selectedEvenement, setSelectedEvenement] = useState<EvenementSecurite | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [viewMode, setViewMode] = useState<'liste' | 'analytics'>('liste')
 
 
   useEffect(() => {
@@ -361,6 +363,19 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
         </div>
       </div>
 
+      {/* View Toggle */}
+      <div className="view-toggle">
+        <button onClick={() => setViewMode('liste')} className={viewMode === 'liste' ? 'active' : ''}>
+          <List className="w-4 h-4" /> Liste
+        </button>
+        <button onClick={() => setViewMode('analytics')} className={viewMode === 'analytics' ? 'active' : ''}>
+          <BarChart className="w-4 h-4" /> Analyse
+        </button>
+      </div>
+
+      {viewMode === 'liste' && (
+        <>
+
       {/* Barre d'outils - Une seule ligne */}
       <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
         <div className="flex flex-wrap items-center gap-3">
@@ -489,6 +504,13 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
           </div>
         )}
       </AccordionGroup>
+
+        </>
+      )}
+
+      {viewMode === 'analytics' && (
+        <EvenementAnalytics aerodromeId={aerodromeId} userRole={userRole} />
+      )}
 
       {/* Modales */}
       {showForm && FormModal()}
