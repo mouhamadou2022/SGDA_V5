@@ -1216,16 +1216,29 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
               <button
                 onClick={() => setShowNPlus1Modal(true)}
                 className="btn btn-secondary gap-2"
-                title="Générer le planning de l'année suivante"
+                title={(() => {
+                  const mois = new Date().getMonth() + 1
+                  return mois >= 11 ? 'Planning N+1 disponible' : 'Planning N+1 — disponible en novembre'
+                })()}
               >
                 <TrendingUp className="w-4 h-4" />
                 <span>N+1</span>
               </button>
-              {propositionsCount > 0 && (
-                <span className={`badge ${propositionsCount > 5 ? 'danger pulse' : 'warning'} absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1 flex items-center justify-center text-xs font-bold`}>
-                  {propositionsCount > 99 ? '99+' : propositionsCount}
-                </span>
-              )}
+              {(() => {
+                const mois = new Date().getMonth() + 1
+                const isNovOrLater = mois >= 11
+                if (!isNovOrLater) {
+                  return <span className="badge neutral absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1.5 flex items-center justify-center text-xs font-bold">Bientôt</span>
+                }
+                if (propositionsCount === 0) {
+                  return <span className="badge success absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1.5 flex items-center justify-center text-xs font-bold">Dispo.</span>
+                }
+                return (
+                  <span className={`badge ${propositionsCount > 5 ? 'danger pulse' : 'warning'} absolute -top-2 -right-2 h-5 min-w-[1.25rem] px-1 flex items-center justify-center text-xs font-bold`}>
+                    {propositionsCount > 99 ? '99+' : propositionsCount}
+                  </span>
+                )
+              })()}
             </div>
             
             {/* Bouton Suggestions IA — animé selon la sévérité des déclencheurs */}
