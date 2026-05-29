@@ -64,7 +64,7 @@ const getSurveillanceStatutBadge = (statut: string) => {
   const classes: Record<string, string> = {
     'planifiee': 'outline', 'en_cours': 'warning', 'checklist_signee': 'primary',
     'ecarts_signes': 'primary', 'rapport_signe': 'success', 'lettre_signee': 'success',
-    'transmise': 'success', 'archivee': 'neutral'
+    'transmise': 'success', 'archivee': 'neutral', 'en_retard': 'danger animate-pulse'
   };
   return { label: labels[statut] || statut, cls: classes[statut] || 'neutral' };
 };
