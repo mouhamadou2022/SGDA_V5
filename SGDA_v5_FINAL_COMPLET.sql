@@ -1,9 +1,5 @@
--- ============================================================
--- SGDA v5 — SCHÉMA COMPLET FINAL (PRODUCTION-SAFE)
--- Généré le : 2026-05-17 | Mis à jour : 2026-05-29
--- Dernières modifications :
---   - Planning : colonnes rappels_envoyes, confirme_le, confirme_par, date_confirmee, motif_report
---   - Aerodromes : statut_sgs (complet/simplifie/non_applicable)
+-- SGDA v5 — SCHÉMA PRODUCTION
+-- Généré le 2026-05-17 | Mis à jour le 2026-05-29
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
