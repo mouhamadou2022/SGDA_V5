@@ -1836,12 +1836,16 @@ interface UISlice {
 interface PlanningSlice {
   plannings: Planning[]
   currentPlanning: Planning | null
+  propositionsN1: Planning[]
   setPlannings: (plannings: Planning[]) => void
   setCurrentPlanning: (planning: Planning | null) => void
+  setPropositionsN1: (proposals: Planning[]) => void
   addPlanning: (planning: Planning) => Promise<void>
   updatePlanning: (id: string, data: Partial<Planning>) => Promise<void>
   deletePlanning: (id: string) => Promise<void>
   genererPlanningN1: (aerodromeId: string, annee: number) => Planning[]
+  validerPropositionN1: (id: string) => Promise<void>
+  refuserPropositionN1: (id: string, motif: string) => void
 }
 
 interface SurveillanceSlice {
@@ -4175,8 +4179,10 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       // ============================================================
       plannings: [],
       currentPlanning: null,
+      propositionsN1: [],
       setPlannings: (plannings) => set({ plannings }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
+      setPropositionsN1: (proposals) => set({ propositionsN1: proposals }),
       addPlanning: async (planning) => {
         // Nettoyer les champs vides — assigner un chef par défaut si vide
         const cleanPlanning = { ...planning }
@@ -4361,6 +4367,18 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           historiqueSurveillances: historique,
         })
         return proposals as unknown as Planning[]
+      },
+
+      validerPropositionN1: async (id) => {
+        const prop = get().propositionsN1.find(p => p.id === id)
+        if (!prop) return
+        const planning = { ...prop, est_proposition: false, updated_at: new Date().toISOString() } as any
+        await get().addPlanning(planning)
+        set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
+      },
+
+      refuserPropositionN1: (id, motif) => {
+        set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
       },
 
       // ============================================================
@@ -6172,6 +6190,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         homologations: state.homologations,
         exemptions: state.exemptions,
         plannings: state.plannings,
+        propositionsN1: state.propositionsN1,
         dossiers: state.dossiers,
         formations: state.formations,
         inspecteurs: state.inspecteurs,

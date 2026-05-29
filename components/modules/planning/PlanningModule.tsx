@@ -701,6 +701,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [showNPlus1Modal, setShowNPlus1Modal] = useState(false);
+  const propositionsCount = useAppStore(s => s.propositionsN1?.length || 0);
   const [preparationOpen, setPreparationOpen] = useState(false);
   const [preparationPlanning, setPreparationPlanning] = useState<Planning | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -2344,11 +2345,16 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             {/* Bouton N+1 */}
             <button
               onClick={() => setShowNPlus1Modal(true)}
-              className="btn btn-secondary gap-2"
+              className="btn btn-secondary gap-2 relative"
               title="Générer le planning de l'année suivante"
             >
               <TrendingUp className="w-4 h-4" />
               <span>N+1</span>
+              {propositionsCount > 0 && (
+                <span className={`absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white ${propositionsCount > 5 ? 'bg-danger animate-pulse' : 'bg-warning'}`}>
+                  {propositionsCount}
+                </span>
+              )}
             </button>
             
             {/* Bouton Suggestions IA — animé selon la sévérité des déclencheurs */}
