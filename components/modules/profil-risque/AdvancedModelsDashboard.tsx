@@ -19,8 +19,10 @@ interface Props {
 
 export default function AdvancedModelsDashboard({ aerodromeId, userRole = 'inspector' }: Props) {
   const profil = useAppStore(s => s.profilsRisque?.[aerodromeId])
-  const historique = useAppStore(s => s.historiqueScores?.[aerodromeId] || [])
-  const evenements = useAppStore(s => s.evenements?.filter(e => e.aerodrome_id === aerodromeId) || [])
+  const allHistorique = useAppStore(s => s.historiqueScores)
+  const allEvenements = useAppStore(s => s.evenements)
+  const historique = useMemo(() => allHistorique?.[aerodromeId] || [], [allHistorique, aerodromeId])
+  const evenements = useMemo(() => allEvenements?.filter(e => e.aerodrome_id === aerodromeId) || [], [allEvenements, aerodromeId])
   const [results, setResults] = useState<any>({})
 
   useEffect(() => {
