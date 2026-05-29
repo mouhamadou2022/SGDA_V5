@@ -574,10 +574,18 @@ export function computeIncidentPrediction(
   const dataPoints = recent12m.length
   const confidence = Math.min(95, Math.max(20, 40 + dataPoints * 5))
 
+  // Analyse saisonnière (nouvelle fonction partagée)
+  let seasonalBoost = 1.0
+  try {
+    const { computeIncidentPredictions } = require('./risque/predictions')
+    const seasonal = computeIncidentPredictions(evenements)
+    if (seasonal.prediction3m > prob3m) seasonalBoost = Math.min(seasonal.prediction3m / Math.max(prob3m, 0.01), 1.5)
+  } catch { /* predictions indisponible */ }
+
   return {
-    probability3m: Math.round(prob3m * 100),
-    probability6m: Math.round(prob6m * 100),
-    probability12m: Math.round(prob12m * 100),
+    probability3m: Math.round(prob3m * seasonalBoost * 100),
+    probability6m: Math.round(prob6m * seasonalBoost * 100),
+    probability12m: Math.round(prob12m * seasonalBoost * 100),
     expectedEventsPerMonth: Math.round(intensity * 100) / 100,
     severityTrend,
     daysSinceLastIncident,

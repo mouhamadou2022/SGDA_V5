@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
+import { computeIncidentPredictions } from '@/lib/risque/predictions'
 
 interface Props {
   aerodromeId?: string
@@ -99,56 +100,14 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
       .map(([label, valeur]) => ({ label, valeur }))
   }, [filtered, aerodromes])
 
-  // ── Stats saisonnières pour prédictions ──
-  const saisonStats = useMemo(() => {
-    const parMois: { mois: number; tot: number; critiques: number }[] = []
-    for (let m = 0; m < 12; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - m, 1)
-      const evts = filtered.filter(e => {
-        const ed = new Date(e.date)
-        return ed.getMonth() === d.getMonth() && ed.getFullYear() === d.getFullYear()
-      })
-      parMois.push({ mois: d.getMonth(), tot: evts.length, critiques: evts.filter(e => e.gravite === 'CRITIQUE').length })
-    }
-    const moyenne = parMois.reduce((s, m) => s + m.critiques, 0) / 12
-    const ecart = Math.sqrt(parMois.reduce((s, m) => Math.pow(m.critiques - moyenne, 2) + s, 0) / 12)
-    return { parMois, moyenneCritiques: Math.round(moyenne * 10) / 10, ecartType: Math.round(ecart * 10) / 10 }
-  }, [filtered, now])
+  // ── Prédictions (fonction partagée avec le profil de risque) ──
+  const predictionsData = useMemo(() => {
+    const evts = filtered.map(e => ({ date: e.date || e.created_at, gravite: e.gravite, type: e.type }))
+    return computeIncidentPredictions(evts, aerodromeId ? profilsRisque?.[aerodromeId]?.c5 : undefined)
+  }, [filtered, aerodromeId, profilsRisque])
 
-  // ── Prédictions 3 mois avec analyse saisonnière ──
-  const predictions = useMemo(() => {
-    const moisProchain = (now.getMonth() + 1) % 12
-    const { parMois, moyenneCritiques, ecartType } = saisonStats
-
-    // Détecter le type le plus fréquent
-    const typeFrequency: Record<string, number> = {}
-    filtered.forEach(e => { const t = e.type || 'autre'; typeFrequency[t] = (typeFrequency[t] || 0) + 1 })
-    const topType = Object.entries(typeFrequency).sort((a, b) => b[1] - a[1])[0]
-
-    const getSaisonPrediction = (moisCible: number) => {
-      const memeMoisAnneePassee = parMois.find(m => m.mois === moisCible)
-      const historique = memeMoisAnneePassee?.critiques || 0
-      const tendance = parMois.slice(0, 3).reduce((s, m) => s + m.critiques, 0) / 3
-      const projetee = Math.round(historique * 0.6 + tendance * 0.4)
-
-      const saisons: string[] = []
-      if (historique > moyenneCritiques + ecartType) saisons.push(`📈 Pic saisonnier détecté (${historique} l'an dernier vs ${Math.round(moyenneCritiques)} en moyenne)`)
-      if (topType && projetee > 0) saisons.push(`📋 Type dominant : ${topType[0]?.replace(/_/g, ' ') || 'inconnu'} (${topType[1]} occ.)`)
-
-      let risqueLabel = '→ Stable'
-      if (projetee > moyenneCritiques + ecartType * 1.5) risqueLabel = '⚠️ Hausse significative probable'
-      else if (projetee > moyenneCritiques + ecartType) risqueLabel = '⬆ Légère hausse'
-      else if (projetee < moyenneCritiques - ecartType) risqueLabel = '⬇ En baisse'
-
-      return { critique: Math.max(projetee, 0), tendance: risqueLabel, saisons }
-    }
-
-    return [
-      { mois: MOIS_COMPLET[moisProchain], ...getSaisonPrediction(moisProchain) },
-      { mois: MOIS_COMPLET[(moisProchain + 1) % 12], ...getSaisonPrediction((moisProchain + 1) % 12) },
-      { mois: MOIS_COMPLET[(moisProchain + 2) % 12], ...getSaisonPrediction((moisProchain + 2) % 12) },
-    ]
-  }, [filtered, now, saisonStats])
+  const predictions = predictionsData.details
+  const saisonStats = predictionsData.saisonStats
 
   // ── Top événements récents ──
   const recents = useMemo(() =>
