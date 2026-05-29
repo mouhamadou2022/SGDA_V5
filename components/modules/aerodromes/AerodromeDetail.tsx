@@ -6,7 +6,7 @@ import {
   Plane, MapPin, Ruler, FileText, History, AlertTriangle, CheckCircle, XCircle,
   Download, Eye, Edit3, X, Globe, Phone, Mail, User, Shield, Gauge, TrendingUp, TrendingDown, Minus,
   Sparkles, AlertOctagon, Clock, Target, Zap,
-  Radio, Fuel, Weight, Waves, Navigation, CalendarDays, Flame, Building2, Compass,
+  Radio, Fuel, Weight, Waves, Navigation, CalendarDays, Flame, Building2, Compass, Brain,
 } from 'lucide-react';
 import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
@@ -216,6 +216,9 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
   const proactiveAlert = iaAnalysis?.proactiveAlert;
   const velocityMetrics = iaAnalysis?.velocityMetrics;
   const blackSwans = iaAnalysis?.blackSwans || [];
+  const survival = iaAnalysis?.survival;
+  const extremeValue = iaAnalysis?.extremeValue;
+  const hiddenMarkov = iaAnalysis?.hiddenMarkov;
 
   return (
     <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={userRole}>
@@ -593,6 +596,44 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     </div>
                   </div>
                 </div>
+
+                {/* Modèles avancés (survival, HMM, EVT) */}
+                {(survival || hiddenMarkov || extremeValue) && (
+                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
+                    <div className="card-header border-b border-border bg-role-primary-soft">
+                      <div className="card-title text-sm flex items-center gap-2">
+                        <Brain className="w-4 h-4 text-role-primary" />
+                        Modèles avancés
+                      </div>
+                    </div>
+                    <div className="card-content p-3 space-y-2">
+                      {hiddenMarkov && (
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${hiddenMarkov.currentState === 'critical' ? 'bg-danger animate-pulse' : hiddenMarkov.currentState === 'degrading' ? 'bg-warning' : 'bg-success'}`} />
+                          <span className="text-xs text-foreground font-medium capitalize">{hiddenMarkov.currentState}</span>
+                          {hiddenMarkov.isTransitioning && <span className="badge warning text-[9px] animate-pulse">Transition</span>}
+                          {hiddenMarkov.daysToCritical < 999 && (
+                            <span className="text-[10px] text-muted-foreground">~{hiddenMarkov.daysToCritical}j avant critique</span>
+                          )}
+                        </div>
+                      )}
+                      {survival && (
+                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                          <span>Hazard 90j: <strong className="text-danger">{survival.hazard90d}%</strong></span>
+                          <span>Hazard 180j: <strong className="text-warning">{survival.hazard180d}%</strong></span>
+                          <span>Médiane survie: <strong>{survival.medianDays}j</strong></span>
+                        </div>
+                      )}
+                      {extremeValue && (
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <span>Retour 1 an: <strong>{extremeValue.returnLevel1y}</strong></span>
+                          {extremeValue.isHeavyTailed && <span className="badge danger text-[9px]">Queue lourde</span>}
+                          <span>Risque extrême: <strong className="text-danger">{extremeValue.tailRisk}%</strong></span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Métriques Hawkes (contagion) */}
                 {iaAnalysis?.hawkesRisk && (
