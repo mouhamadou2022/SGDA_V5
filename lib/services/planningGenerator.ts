@@ -48,7 +48,7 @@ export function genererPlanning(
       : profilRisque.niveau === 'eleve' ? 'élevé'
       : profilRisque.niveau === 'moyen' ? 'moyen'
       : 'faible'
-    const freqResult = computeFinalFrequency(riskLevel as any)
+    const freqResult = computeFinalFrequency({ riskLevel: riskLevel as any })
     const frequence = typeof freqResult === 'number' ? freqResult : (freqResult as any).frequencyPerYear || 2
     const freqLabel = typeof freqResult === 'object' ? (freqResult as any).label || '' : ''
 
