@@ -47,14 +47,14 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
   const stats = useMemo(() => {
     const cetteAnneeEvts = filtered.filter(e => new Date(e.date).getFullYear() === cetteAnnee)
     const anneePasseeEvts = filtered.filter(e => new Date(e.date).getFullYear() === anneePassee)
-    const critiques = cetteAnneeEvts.filter(e => e.gravite === 'CRITIQUE').length
+    const critiquess = cetteAnneeEvts.filter(e => e.gravite === 'CRITIQUE').length
     const clotures = cetteAnneeEvts.filter(e => e.statut === 'cloture').length
     const total = cetteAnneeEvts.length
     const totalPassee = anneePasseeEvts.length
     const variation = totalPassee > 0 ? Math.round(((total - totalPassee) / totalPassee) * 100) : 0
     const tauxCloture = total > 0 ? Math.round((clotures / total) * 100) : 0
 
-    return { total, critiques, clotures, variation, tauxCloture, totalPassee }
+    return { total, critiquess, clotures, variation, tauxCloture, totalPassee }
   }, [filtered, cetteAnnee, anneePassee])
 
   // ── Courbe tendance 12 mois ──
@@ -136,8 +136,8 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
           <div className="kpi-icon bg-danger-soft"><AlertTriangle className="w-5 h-5 text-danger" /></div>
           <div className="kpi-content">
             <div className="kpi-label">Critiques</div>
-            <div className="kpi-value">{stats.critiques}</div>
-            <div className="kpi-trend down">{stats.total > 0 ? Math.round((stats.critiques / stats.total) * 100) : 0}% du total</div>
+            <div className="kpi-value">{stats.critiquess}</div>
+            <div className="kpi-trend down">{stats.total > 0 ? Math.round((stats.critiquess / stats.total) * 100) : 0}% du total</div>
           </div>
         </div>
         <div className="kpi-card">
@@ -237,11 +237,11 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
           </div>
           <div className="card-content space-y-2">
             {predictions.map((p, i) => (
-              <div key={i} className={`p-3 rounded-lg border ${p.critique > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'border-danger/30 bg-danger/5' : 'border-border'}`}>
+              <div key={i} className={`p-3 rounded-lg border ${p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'border-danger/30 bg-danger/5' : 'border-border'}`}>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-foreground">{p.mois}</span>
-                  <span className={`badge ${p.critique > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'danger' : 'warning'} text-[10px]`}>
-                    ~{p.critique} critique(s) prévu(s)
+                  <span className={`badge ${p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'danger' : 'warning'} text-[10px]`}>
+                    ~{p.critiques} critiques(s) prévu(s)
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{p.tendance}</p>
@@ -257,13 +257,13 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
         </div>
       </div>
 
-      {/* Événements critiques récents */}
+      {/* Événements critiquess récents */}
       {recents.length > 0 && (
         <div className="card">
           <div className="card-header">
             <div className="card-title flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-danger" />
-              Événements critiques récents
+              Événements critiquess récents
             </div>
           </div>
           <div className="card-content">
