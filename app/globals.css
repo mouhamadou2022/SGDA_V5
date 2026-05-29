@@ -2523,7 +2523,7 @@ input:checked + .form-toggle-slider:before {
 }
 
 .action-button:hover {
-  color: white;
+  color: white !important;
   transform: scale(1.1) translateY(-2px);
   box-shadow: var(--role-glow);
 }
@@ -2532,9 +2532,14 @@ input:checked + .form-toggle-slider:before {
   opacity: 1;
 }
 
-.action-button svg {
+.action-button svg,
+.action-button span,
+.action-button img {
   position: relative;
   z-index: 1;
+}
+
+.action-button svg {
   width: 1.25rem;
   height: 1.25rem;
 }
