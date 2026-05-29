@@ -717,7 +717,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const [isAskingIa, setIsAskingIa] = useState(false);
   const [iaQuestion, setIaQuestion] = useState('');
   const [iaAnswer, setIaAnswer] = useState('');
-  const [showPropositions, setShowPropositions] = useState(false);
   const [showProactiveSuggestions, setShowProactiveSuggestions] = useState(false);
   const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'all' | 'retards'>('active');
   const [showProcessus, setShowProcessus] = useState(false);
@@ -2531,21 +2530,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </button>
           </div>
 
-          <div className="view-toggle">
-            <button
-              onClick={() => setShowPropositions(false)}
-              className={!showPropositions ? 'active' : ''}
-            >
-              N
-            </button>
-            <button
-              onClick={() => setShowPropositions(true)}
-              className={showPropositions ? 'active' : ''}
-            >
-              N+1
-            </button>
-          </div>
-
           <button onClick={resetFilters} className="action-button" title="Réinitialiser les filtres">
             <X className="w-4 h-4" />
           </button>
@@ -2596,19 +2580,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           )}
         </div>
       </div>
-
-      {/* Indicateur N/N+1 */}
-      {showPropositions && (
-        <div className="alert alert-warning">
-          <AlertCircle className="alert-icon" />
-          <div className="alert-content">
-            <div className="alert-description">
-              Mode proposition N+1 - Les plannings proposés sont en attente de validation
-            </div>
-          </div>
-          <span className="badge warning animate-pulse">{selectedYear + 1}</span>
-        </div>
-      )}
 
       {/* Vue Liste */}
       {viewMode === 'list' && (
@@ -3141,7 +3112,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       )}
 
       {viewMode === 'workload' && <WorkloadView userRole={userRole} />}
-      {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
       {viewMode === 'assignment' && <SmartAssignment userRole={userRole} />}
 
       {/* ── Modale Planning N+1 ── */}
