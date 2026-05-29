@@ -48,6 +48,9 @@ export interface RiskAnalysisResult {
   survival?: { medianDays: number; hazard90d: number; hazard180d: number }
   extremeValue?: { returnLevel1y: number; isHeavyTailed: boolean; maxExpected12m: number; tailRisk: number }
   hiddenMarkov?: { currentState: string; isTransitioning: boolean; transitionRisk: number; daysToCritical: number }
+  negativeBinomial?: { mean: number; isOverdispersed: boolean; expectedMax: number; recommendedDistribution: string }
+  copulas?: { correlationMatrix: number[][]; worstCaseProbability: number; worstCaseDescription: string }
+  thompsonSampling?: { bestAction: string; bestProbability: number; expectedRewards: Record<string, number> }
   blackSwans?: Array<{
     domaine: string
     priorProbability: number
@@ -174,7 +177,50 @@ export class RiskAgent {
           tailRisk: evtR.probabilityExtreme,
         }
       } catch { /* EVT unavailable */ }
+
+      // Negative Binomial
+      try {
+        const { predictNB } = await import('@/lib/risque/negativeBinomial')
+        const nbCounts = historique.map(h => Math.max(0, Math.round((100 - h.score) / 10)))
+        const nbR = predictNB(nbCounts)
+        result.negativeBinomial = {
+          mean: nbR.mean,
+          isOverdispersed: nbR.isOverdispersed,
+          expectedMax: nbR.expectedMax,
+          recommendedDistribution: nbR.recommendedDistribution,
+        }
+      } catch { /* NB unavailable */ }
+
+      // Copulas
+      try {
+        const { predictCopula } = await import('@/lib/risque/copulas')
+        const copulaData = historique.map(h => ({
+          c1: profil?.c1 ?? 50, c2: profil?.c2 ?? 50, c3: profil?.c3 ?? 50, c4: profil?.c4 ?? 50, c5: profil?.c5 ?? 50,
+        }))
+        const copR = predictCopula(copulaData)
+        result.copulas = {
+          correlationMatrix: copR.correlationMatrix,
+          worstCaseProbability: copR.worstCaseScenario.probability,
+          worstCaseDescription: copR.worstCaseScenario.description,
+        }
+      } catch { /* Copula unavailable */ }
     }
+
+    // Thompson Sampling (indépendant de l'historique)
+    try {
+      const { createThompsonSampling } = await import('@/lib/risque/thompsonSampling')
+      const ts = createThompsonSampling([
+        { id: 'maintien', name: 'Surveillance de maintien' },
+        { id: 'periodique', name: 'Surveillance périodique' },
+        { id: 'renforcee', name: 'Surveillance renforcée' },
+      ])
+      const rec = ts.recommend('default')
+      result.thompsonSampling = {
+        bestAction: rec.name,
+        bestProbability: ts.bestProbability,
+        expectedRewards: ts.expectedRewards,
+      }
+    } catch { /* TS unavailable */ }
 
     // Analyse IA narrative (asynchrone — appelée séparément si besoin de performance)
     result.confidence = this.computeGlobalConfidence(result)
