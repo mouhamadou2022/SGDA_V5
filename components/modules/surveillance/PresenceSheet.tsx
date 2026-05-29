@@ -1,12 +1,13 @@
 // components/modules/surveillance/PresenceSheet.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, UserPlus, Trash2, CheckCircle2, Download, Printer,
-  Signature, Brain, Loader2, Paintbrush, PenLine, RotateCcw, Check, X, Keyboard, PenTool, Type,
+  Signature, Brain, Loader2, X,
 } from 'lucide-react';
-import SignaturePad from 'signature_pad';
+import { createPortal } from 'react-dom';
+import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
@@ -37,164 +38,6 @@ export interface PresenceSheetProps {
   userRole?: string;
 }
 
-const COLORS = [
-  { name: 'Noir', value: '#000000' },
-  { name: 'Bleu', value: '#2563eb' },
-  { name: 'Rouge', value: '#dc2626' },
-  { name: 'Vert', value: '#16a34a' },
-  { name: 'Orange', value: '#ea580c' },
-  { name: 'Violet', value: '#9333ea' },
-];
-
-const DEFAULT_ENTRIES: Partial<PresenceEntry>[] = [
-  { structure: 'ANACIM', fonction: 'Chef d\'équipe', ordre: 1 },
-  { structure: 'ANACIM', fonction: 'Inspecteur', ordre: 2 },
-  { structure: 'ANACIM', fonction: 'Inspecteur', ordre: 3 },
-  { structure: 'EXPLOITANT', fonction: 'Directeur d\'exploitation', ordre: 4 },
-  { structure: 'EXPLOITANT', fonction: 'Responsable Sécurité', ordre: 5 },
-];
-
-export interface SignatureCanvasHandle {
-  clear: () => void;
-  isEmpty: () => boolean;
-  getDataUrl: () => string | null;
-}
-
-const SignatureCanvas = forwardRef<SignatureCanvasHandle, {
-  color: string;
-  penSize: number;
-  signataireNom: string;
-  width: number;
-  height: number;
-}>(({ color, penSize, signataireNom, width, height }, ref) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const padRef = useRef<SignaturePad | null>(null);
-
-  useImperativeHandle(ref, () => ({
-    clear: () => {
-      padRef.current?.clear();
-      const ctx = canvasRef.current?.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(10, height - 15);
-        ctx.lineTo(width - 10, height - 15);
-        ctx.stroke();
-      }
-    },
-    isEmpty: () => padRef.current?.isEmpty() ?? true,
-    getDataUrl: () => canvasRef.current?.toDataURL('image/png') ?? null,
-  }));
-
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.scale(ratio, ratio);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(10, height - 15);
-      ctx.lineTo(width - 10, height - 15);
-      ctx.stroke();
-      ctx.font = '10px Inter, sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText(signataireNom, 10, 14);
-    }
-    const pad = new SignaturePad(canvas, {
-      penColor: color,
-      backgroundColor: '#ffffff',
-      minWidth: 1,
-      maxWidth: penSize,
-      throttle: 16,
-    });
-    padRef.current = pad;
-    return () => { pad.off(); };
-  }, []);
-
-  useEffect(() => { if (padRef.current) padRef.current.penColor = color; }, [color]);
-  useEffect(() => { if (padRef.current) { padRef.current.minWidth = 1; padRef.current.maxWidth = penSize; } }, [penSize]);
-
-  return (
-    <div className="border-2 border-gray-200 rounded-md bg-white" style={{ width, height }}>
-      <canvas ref={canvasRef} className="touch-none rounded w-full h-full" />
-    </div>
-  );
-});
-SignatureCanvas.displayName = 'SignatureCanvas';
-
-function PresenceRow({
-  entry,
-  isSigning,
-  penColor,
-  penSize,
-  onUpdate,
-  onDelete,
-  onStartSign,
-  canvasRef,
-}: {
-  entry: PresenceEntry;
-  isSigning: boolean;
-  penColor: string;
-  penSize: number;
-  onUpdate: (entry: PresenceEntry) => void;
-  onDelete: (id: string) => void;
-  onStartSign: (entry: PresenceEntry) => void;
-  canvasRef: React.RefObject<SignatureCanvasHandle | null>;
-}) {
-  const handleChange = (field: keyof PresenceEntry, value: string) => {
-    onUpdate({ ...entry, [field]: value });
-  };
-
-  const inputClass = "form-input text-sm w-full bg-transparent border-0 border-b border-border focus:border-primary px-1 py-0.5 rounded-none";
-
-  return (
-    <tr className="border-b border-border hover:bg-muted/30 transition-colors">
-      <td className="p-2 border-r border-border">
-        <input type="text" value={entry.prenom_nom} onChange={e => handleChange('prenom_nom', e.target.value)} placeholder="Nom et prénom" className={inputClass} />
-      </td>
-      <td className="p-2 border-r border-border">
-        <input type="text" value={entry.structure} onChange={e => handleChange('structure', e.target.value)} placeholder="ANACIM, Exploitant, …" className={inputClass} />
-      </td>
-      <td className="p-2 border-r border-border">
-        <input type="text" value={entry.fonction} onChange={e => handleChange('fonction', e.target.value)} placeholder="Fonction" className={inputClass} />
-      </td>
-      <td className="p-2 border-r border-border">
-        <input type="tel" value={entry.telephone} onChange={e => handleChange('telephone', e.target.value)} placeholder="Téléphone" className={inputClass} />
-      </td>
-      <td className="p-2 border-r border-border">
-        <input type="email" value={entry.email} onChange={e => handleChange('email', e.target.value)} placeholder="Email" className={inputClass} />
-      </td>
-      <td className="p-2 border-r border-border">
-        {entry.signature_url ? (
-          <div className="flex items-center gap-1">
-            <span className="badge success text-xs flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Signé</span>
-            <button onClick={() => onUpdate({ ...entry, signature_url: '', signature_date: '' })} className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Re-signer"><Signature className="w-3.5 h-3.5" /></button>
-          </div>
-        ) : isSigning ? (
-          <SignatureCanvas ref={canvasRef} color={penColor} penSize={penSize} signataireNom={entry.prenom_nom} width={170} height={52} />
-        ) : (
-          <button onClick={() => onStartSign(entry)} className="btn btn-secondary btn-sm gap-1"><Signature className="w-3 h-3" /> Signer</button>
-        )}
-      </td>
-      <td className="p-2 text-center whitespace-nowrap">
-        <button onClick={() => onDelete(entry.id)} className="action-button hover:text-danger hover:bg-danger/10 transition-all duration-200" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-      </td>
-    </tr>
-  );
-}
-
 export function PresenceSheet({
   surveillanceId,
   entries: externalEntries,
@@ -209,32 +52,14 @@ export function PresenceSheet({
 
   const [entries, setEntries] = useState<PresenceEntry[]>([]);
   const [signingId, setSigningId] = useState<string | null>(null);
-  const [penColor, setPenColor] = useState('#000000');
-  const [penSize, setPenSize] = useState(2);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showSizePicker, setShowSizePicker] = useState(false);
-  const [saisieMode, setSaisieMode] = useState<'clavier' | 'stylet' | 'mixte'>('mixte');
   const [iaSuggestion, setIaSuggestion] = useState<string | null>(null);
   const [isIaLoading, setIsIaLoading] = useState(false);
-
-  const activeCanvasRef = useRef<SignatureCanvasHandle | null>(null);
 
   useEffect(() => {
     if (externalEntries && externalEntries.length > 0) {
       setEntries(externalEntries);
     } else {
-      const defaultEntries: PresenceEntry[] = DEFAULT_ENTRIES.map((def, idx) => ({
-        id: `pres-${Date.now()}-${idx}`,
-        surveillanceId,
-        prenom_nom: '',
-        structure: def.structure || 'ANACIM',
-        fonction: def.fonction || '',
-        telephone: '',
-        email: '',
-        signature_url: '',
-        signature_date: '',
-        ordre: def.ordre || idx + 1,
-      }));
+      const defaultEntries: PresenceEntry[] = []
       setEntries(defaultEntries);
     }
   }, [externalEntries, surveillanceId]);
@@ -275,23 +100,6 @@ export function PresenceSheet({
     }
   };
 
-  const handleStartSign = (entry: PresenceEntry) => setSigningId(entry.id);
-
-  const handleSignSave = useCallback(() => {
-    if (!signingId) return;
-    const url = activeCanvasRef.current?.getDataUrl();
-    if (!url) return;
-    if (activeCanvasRef.current?.isEmpty()) { alert('Veuillez tracer votre signature'); return; }
-    const updatedEntries = entries.map(e => e.id === signingId ? { ...e, signature_url: url, signature_date: new Date().toISOString() } : e);
-    setEntries(updatedEntries);
-    onEntriesChange?.(updatedEntries);
-    onSignatureSave?.(signingId, url);
-    setSigningId(null);
-  }, [signingId, entries, onEntriesChange, onSignatureSave]);
-
-  const handleSignClear = useCallback(() => activeCanvasRef.current?.clear(), []);
-  const handleSignCancel = useCallback(() => setSigningId(null), []);
-
   const handleExportPDF = () => addNotification({ user_id: user?.id || '', type: 'info' as const, title: 'Export PDF', message: 'Génération du PDF…', canal: 'in_app' as const });
   const handlePrint = () => window.print();
 
@@ -330,14 +138,6 @@ export function PresenceSheet({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Mode saisie:</span>
-          <div className="flex gap-1.5">
-            <button onClick={() => setSaisieMode('clavier')} className={`checklist-header-obs-btn ${saisieMode === 'clavier' ? 'active' : ''}`}><Keyboard className="w-3.5 h-3.5" />Clavier</button>
-            <button onClick={() => setSaisieMode('stylet')} className={`checklist-header-obs-btn ${saisieMode === 'stylet' ? 'active' : ''}`}><PenTool className="w-3.5 h-3.5" />Stylet</button>
-            <button onClick={() => setSaisieMode('mixte')} className={`checklist-header-obs-btn ${saisieMode === 'mixte' ? 'active' : ''}`}><Type className="w-3.5 h-3.5" />Mixte</button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
           <button onClick={getIaSuggestion} disabled={isIaLoading} className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Suggestion IA">
             {isIaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
           </button>
@@ -365,45 +165,35 @@ export function PresenceSheet({
                 <th className="p-2 border-r font-semibold text-left whitespace-nowrap" style={{ borderColor: '#3b5b9f' }}>Fonction</th>
                 <th className="p-2 border-r font-semibold text-left whitespace-nowrap" style={{ borderColor: '#3b5b9f' }}>Téléphone</th>
                 <th className="p-2 border-r font-semibold text-left whitespace-nowrap" style={{ borderColor: '#3b5b9f' }}>Email</th>
-                <th className="p-2 border-r font-semibold text-center whitespace-nowrap" style={{ borderColor: '#3b5b9f' }}>
-                  <div className="flex items-center justify-center gap-1">
-                    <span>Signature</span>
-                    <div className="flex items-center gap-0.5">
-                      <div className="relative">
-                        <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={() => { setShowColorPicker(!showColorPicker); setShowSizePicker(false); }} title="Couleur"><Paintbrush className="w-3 h-3" /></button>
-                        {showColorPicker && (
-                          <div className="dropdown-menu absolute top-full left-0 mt-1 w-44">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Couleur</p>
-                            <div className="grid grid-cols-3 gap-2">
-                              {COLORS.map(c => (
-                                <button key={c.value} className={`h-6 rounded-md border-2 ${penColor === c.value ? 'border-primary' : 'border-border'}`} style={{ backgroundColor: c.value }} onClick={() => { setPenColor(c.value); setShowColorPicker(false); }} title={c.name} />
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={() => { setShowSizePicker(!showSizePicker); setShowColorPicker(false); }} title="Taille"><PenLine className="w-3 h-3" /></button>
-                        {showSizePicker && (
-                          <div className="dropdown-menu absolute top-full left-0 mt-1 w-44">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Épaisseur</p>
-                            <input type="range" min="1" max="5" step="0.5" value={penSize} onChange={e => setPenSize(parseFloat(e.target.value))} className="w-full" />
-                          </div>
-                        )}
-                      </div>
-                      <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={handleSignClear} title="Effacer"><RotateCcw className="w-3 h-3" /></button>
-                      <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={handleSignSave} title="Valider"><Check className="w-3 h-3" /></button>
-                      <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={handleSignCancel} title="Annuler"><X className="w-3 h-3" /></button>
-                    </div>
-                  </div>
-                </th>
+                <th className="p-2 border-r font-semibold text-center whitespace-nowrap" style={{ borderColor: '#3b5b9f' }}>Signature</th>
                 <th className="p-2 font-semibold text-center whitespace-nowrap" style={{ color: '#ffffff' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {entries.sort((a, b) => a.ordre - b.ordre).map(entry => (
-                <PresenceRow key={entry.id} entry={entry} isSigning={signingId === entry.id} penColor={penColor} penSize={penSize} onUpdate={handleUpdateEntry} onDelete={handleDeleteEntry} onStartSign={handleStartSign} canvasRef={signingId === entry.id ? activeCanvasRef : { current: null }} />
-              ))}
+              {entries.sort((a, b) => a.ordre - b.ordre).map(entry => {
+    const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
+    const inputClass = readOnly ? `bg-muted-soft p-2 w-full rounded text-sm border border-border ${focusClass}` : `form-input p-2 w-full text-sm ${focusClass}`;
+    return (
+    <tr key={entry.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+      <td className="p-2 border-r border-border"><input type="text" value={entry.prenom_nom} onChange={e => handleUpdateEntry({ ...entry, prenom_nom: e.target.value })} placeholder="Nom et prénom" className={inputClass} disabled={readOnly} /></td>
+      <td className="p-2 border-r border-border"><input type="text" value={entry.structure} onChange={e => handleUpdateEntry({ ...entry, structure: e.target.value })} placeholder="ANACIM, Exploitant, …" className={inputClass} disabled={readOnly} /></td>
+      <td className="p-2 border-r border-border"><input type="text" value={entry.fonction} onChange={e => handleUpdateEntry({ ...entry, fonction: e.target.value })} placeholder="Fonction" className={inputClass} disabled={readOnly} /></td>
+      <td className="p-2 border-r border-border"><input type="tel" value={entry.telephone} onChange={e => handleUpdateEntry({ ...entry, telephone: e.target.value })} placeholder="Téléphone" className={inputClass} disabled={readOnly} /></td>
+      <td className="p-2 border-r border-border"><input type="email" value={entry.email} onChange={e => handleUpdateEntry({ ...entry, email: e.target.value })} placeholder="Email" className={inputClass} disabled={readOnly} /></td>
+      <td className="p-2 border-r border-border text-center">
+        {entry.signature_url ? (
+          <div className="flex items-center justify-center gap-1">
+            <span className="badge success text-xs flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Signé</span>
+            {!readOnly && <button onClick={() => setSigningId(entry.id)} className="action-button hover:text-role-primary hover:bg-role-primary/10" title="Re-signer"><Signature className="w-3.5 h-3.5" /></button>}
+          </div>
+        ) : !readOnly ? (
+          <button onClick={() => setSigningId(entry.id)} className="btn btn-secondary btn-sm gap-1"><Signature className="w-3 h-3" /> Signer</button>
+        ) : null}
+      </td>
+      <td className="p-2 text-center whitespace-nowrap">{!readOnly && <button onClick={() => handleDeleteEntry(entry.id)} className="action-button hover:text-danger hover:bg-danger/10" title="Supprimer"><Trash2 className="w-4 h-4" /></button>}</td>
+    </tr>
+    );
+  })}
               {!readOnly && (
                 <tr>
                   <td colSpan={7} className="p-2 text-center">
@@ -422,6 +212,30 @@ export function PresenceSheet({
           <p className="text-sm">Aucun participant</p>
           {!readOnly && <button onClick={handleAddRow} className="btn btn-secondary btn-sm mt-2">Ajouter un participant</button>}
         </div>
+      )}
+
+      {/* Modal Signature */}
+      {signingId && createPortal(
+        <div className="modal-overlay" data-role={userRole} onClick={() => setSigningId(null)}>
+          <div className="modal-content max-w-xl" onClick={e => e.stopPropagation()}>
+            <SignaturePadWithColor
+              onSave={(url) => {
+                const entry = entries.find(e => e.id === signingId)
+                if (entry) {
+                  const updated = { ...entry, signature_url: url, signature_date: new Date().toISOString() }
+                  const newEntries = entries.map(e => e.id === updated.id ? updated : e)
+                  setEntries(newEntries)
+                  onEntriesChange?.(newEntries)
+                  onSignatureSave?.(entry.id, url)
+                }
+                setSigningId(null)
+              }}
+              onCancel={() => setSigningId(null)}
+              signataireNom={entries.find(e => e.id === signingId)?.prenom_nom || 'Signataire'}
+            />
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
