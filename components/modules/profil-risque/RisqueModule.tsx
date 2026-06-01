@@ -155,6 +155,59 @@ export function RisqueModule({ userRole }: Props) {
         </div>
       )}
 
+      {/* Analyse comparative — tableau de benchmarking */}
+      {!selectedAerodromeId && aerodromesAvecProfil.filter(e => e.profil).length >= 2 && (
+        <div className="card border-border">
+          <div className="card-header border-b border-border">
+            <div className="card-title text-sm font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-role-primary" />Analyse comparative</div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table w-full text-sm">
+              <thead>
+                <tr>
+                  <th>Rang</th>
+                  <th>Code OACI</th>
+                  <th>Nom</th>
+                  <th>Score</th>
+                  <th>Tendance</th>
+                  <th>C1 (SGS)</th>
+                  <th>C2 (PAC)</th>
+                  <th>C3</th>
+                  <th>C4</th>
+                  <th>C5</th>
+                  <th>Préd. 3m</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aerodromesAvecProfil
+                  .filter(e => e.profil)
+                  .sort((a, b) => (b.profil!.score_global) - (a.profil!.score_global))
+                  .slice(0, 15)
+                  .map(({ aerodrome, profil }, idx) => {
+                    if (!profil) return null
+                    const rank = idx + 1
+                    return (
+                      <tr key={aerodrome.id} className="cursor-pointer hover:bg-role-primary-soft/20 transition-colors" onClick={() => handleSelectAerodrome(aerodrome.id)}>
+                        <td className="font-bold text-xs">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}</td>
+                        <td><span className="code-oaci-badge text-xs">{aerodrome.code_oaci}</span></td>
+                        <td className="font-medium truncate max-w-[140px]">{aerodrome.nom}</td>
+                        <td className={`font-bold ${profil.score_global >= 80 ? 'text-success' : profil.score_global >= 60 ? 'text-primary' : profil.score_global >= 30 ? 'text-warning' : 'text-danger'}`}>{profil.score_global}/100</td>
+                        <td>{profil.tendance === 'hausse' ? '📈' : profil.tendance === 'baisse' ? '📉' : '➡️'}</td>
+                        <td className="text-xs">{profil.c1}</td>
+                        <td className="text-xs">{profil.c2}</td>
+                        <td className="text-xs">{profil.c3}</td>
+                        <td className="text-xs">{profil.c4}</td>
+                        <td className="text-xs">{profil.c5}</td>
+                        <td className={`text-xs font-semibold ${profil.prediction_3m >= 80 ? 'text-success' : profil.prediction_3m >= 60 ? 'text-primary' : profil.prediction_3m >= 30 ? 'text-warning' : 'text-danger'}`}>{profil.prediction_3m}/100</td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Grille de cartes d'aérodromes */}
       {!selectedAerodromeId && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
