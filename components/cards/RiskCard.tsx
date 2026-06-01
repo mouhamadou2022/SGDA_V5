@@ -45,11 +45,11 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
   ]
 
   function getMaturiteLevel(score: number): string {
-    if (score >= 80) return 'N5 Optimisé'
-    if (score >= 60) return 'N4 Géré'
-    if (score >= 40) return 'N3 Défini'
-    if (score >= 20) return 'N2 Répété'
-    return 'N1 Initial'
+    if (score >= 80) return 'N5 Efficace'
+    if (score >= 60) return 'N4 Opérationnel'
+    if (score >= 40) return 'N3 Approprié'
+    if (score >= 20) return 'N2 Présent'
+    return 'N1 Absent'
   }
 
   if (compact) return (
