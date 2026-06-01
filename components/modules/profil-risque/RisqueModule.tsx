@@ -180,26 +180,36 @@ export function RisqueModule({ userRole }: Props) {
                 </div>
                 <div className="card-content p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className={`text-2xl font-bold ${config.color}`}>{profil.score_global}/100</span>
-                    <span className="flex items-center gap-1 text-xs">
-                      {profil.tendance === 'hausse' ? <><TrendingUp className="w-3.5 h-3.5 text-success" /><span className="text-success">En hausse</span></>
-                        : profil.tendance === 'baisse' ? <><TrendingDown className="w-3.5 h-3.5 text-danger" /><span className="text-danger">En baisse</span></>
-                        : <><Minus className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Stable</span></>}
-                    </span>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Score global</p>
+                      <span className={`text-2xl font-bold ${config.color}`}>{profil.score_global}/100</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Tendance</p>
+                      <span className="flex items-center gap-1 text-xs">
+                        {profil.tendance === 'hausse' ? <><TrendingUp className="w-3.5 h-3.5 text-success" /><span className="text-success">Amélioration</span></>
+                          : profil.tendance === 'baisse' ? <><TrendingDown className="w-3.5 h-3.5 text-danger" /><span className="text-danger">Dégradation</span></>
+                          : <><Minus className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Stable</span></>}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Mini radar C1-C5 */}
-                  <div className="grid grid-cols-5 gap-1">
-                    {[{ k: 'c1', l: 'C1' }, { k: 'c2', l: 'C2' }, { k: 'c3', l: 'C3' }, { k: 'c4', l: 'C4' }, { k: 'c5', l: 'C5' }].map(({ k, l }) => {
-                      const v = (profil as any)[k] as number
-                      const cls = v < 40 ? 'bg-danger' : v < 60 ? 'bg-warning' : 'bg-success'
-                      return (
-                        <div key={k} className="text-center">
-                          <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5"><div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} /></div>
-                          <span className={`text-[9px] font-bold ${v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'}`}>{v}</span>
-                        </div>
-                      )
-                    })}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1.5">Critères C1-C5</p>
+                    <div className="grid grid-cols-5 gap-1">
+                      {[{ k: 'c1', l: 'C1', label: 'SGS' }, { k: 'c2', l: 'C2', label: 'PAC' }, { k: 'c3', l: 'C3', label: 'Conform.' }, { k: 'c4', l: 'C4', label: 'Charge' }, { k: 'c5', l: 'C5', label: 'Résil.' }].map(({ k, l, label }) => {
+                        const v = (profil as any)[k] as number
+                        const cls = v < 40 ? 'bg-danger' : v < 60 ? 'bg-warning' : 'bg-success'
+                        return (
+                          <div key={k} className="text-center">
+                            <span className="text-[9px] text-muted-foreground block mb-0.5">{label}</span>
+                            <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5"><div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} /></div>
+                            <span className={`text-[9px] font-bold ${v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'}`}>{v}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   {/* Indicateurs rapides */}
