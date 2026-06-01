@@ -5,6 +5,7 @@
 
 import { ProfilRisque } from '@/lib/store'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Shield, Zap, Clock, Brain } from 'lucide-react'
+import { TendanceTable } from './TendanceTable'
 
 interface SyntheseTabProps {
   profil: ProfilRisque
@@ -511,60 +512,7 @@ export function SyntheseTab({
       </div>
 
       {/* Tableau de synthèse multicritère */}
-      <div className="card border-border">
-        <div className="card-header border-b border-border"><div className="card-title text-sm font-semibold">Synthèse multicritère</div></div>
-        <div className="card-content">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Critère</th>
-                <th className="text-center">Poids</th>
-                <th className="text-center">Score actuel</th>
-                <th className="text-center">Tendance</th>
-                <th className="text-center">Prédiction 3m</th>
-                <th className="text-center">Prédiction 6m</th>
-                <th className="text-center">Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { k: 'c1' as const, label: 'C1 — Maturité SGS', poids: 20 },
-                { k: 'c2' as const, label: 'C2 — Efficacité PAC', poids: 20 },
-                { k: 'c3' as const, label: 'C3 — Conformité technique', poids: 20 },
-                { k: 'c4' as const, label: 'C4 — Charge critique', poids: 15 },
-                { k: 'c5' as const, label: 'C5 — Résilience', poids: 25 },
-              ].map(({ k, label, poids }) => {
-                const v = profil[k]
-                const cls = v >= 80 ? 'text-success' : v >= 60 ? 'text-primary' : v >= 30 ? 'text-warning' : 'text-danger'
-                const badgeCls = v >= 80 ? 'badge success' : v >= 60 ? 'badge primary' : v >= 30 ? 'badge warning' : 'badge danger'
-                const statut = v >= 80 ? 'Excellent' : v >= 60 ? 'Bon' : v >= 30 ? 'Modéré' : 'Critique'
-                return (
-                  <tr key={k}>
-                    <td className="font-medium text-sm">{label}</td>
-                    <td className="text-center text-muted-foreground">{poids}%</td>
-                    <td className="text-center">
-                      <span className={`font-bold ${cls}`}>{v}</span>
-                      <span className="text-muted-foreground">/100</span>
-                    </td>
-                    <td className="text-center">
-                      {profil.tendance === 'hausse' ? <TrendingUp className="w-4 h-4 text-success inline" /> : profil.tendance === 'baisse' ? <TrendingDown className="w-4 h-4 text-danger inline" /> : <Minus className="w-4 h-4 text-muted-foreground inline" />}
-                    </td>
-                    <td className="text-center">
-                      <span className="font-semibold">{profil.prediction_3m}</span>
-                      <span className="text-muted-foreground text-xs">/100</span>
-                    </td>
-                    <td className="text-center">
-                      <span className="font-semibold">{profil.prediction_6m}</span>
-                      <span className="text-muted-foreground text-xs">/100</span>
-                    </td>
-                    <td className="text-center"><span className={`badge text-xs ${badgeCls}`}>{statut}</span></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <TendanceTable profil={profil} />
     </div>
   )
 }
