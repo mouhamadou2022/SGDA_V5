@@ -3,6 +3,8 @@
 import { ProfilRisque, Ecart } from '@/lib/store'
 import { AlertTriangle, Shield, Activity, Zap, BarChart3 } from 'lucide-react'
 import BowTieAnalyzer from './BowTieAnalyzer'
+import { OACIMatrixSection } from './OACIMatrixSection'
+import { CorrelationSection } from './CorrelationSection'
 
 type Niveau = 'critique' | 'eleve' | 'moyen' | 'faible'
 
@@ -333,6 +335,12 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount }
 
       {/* Bow-Tie — Analyse complète data-driven */}
       <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} />
+
+      {/* Matrice OACI 5×5 */}
+      <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} />
+
+      {/* Corrélations C1-C5 + Copulas */}
+      <CorrelationSection profil={profil} />
     </div>
   )
 }

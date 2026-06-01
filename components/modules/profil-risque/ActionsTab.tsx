@@ -18,7 +18,9 @@ import {
   Target,
   Activity,
   Gauge,
+  ThumbsUp,
 } from 'lucide-react'
+import { FeedbackSection } from './FeedbackSection'
 
 interface ActionsTabProps {
   profil: ProfilRisque
@@ -423,6 +425,11 @@ export function ActionsTab({
 
       {/* Barre d'actions */}
       <div className="flex items-center gap-3 flex-wrap pt-2">
+
+      {/* Feedback inspecteur sur les prédictions */}
+      <div className="mt-4">
+        <FeedbackSection aerodromeId={profil.aerodrome_id} userRole={userRole} />
+      </div>
         <button
           onClick={handleRecalculate}
           disabled={loading}

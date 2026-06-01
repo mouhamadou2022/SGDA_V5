@@ -7,6 +7,7 @@ import { useMemo } from 'react'
 import { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
 import { TrendingUp, TrendingDown, Minus, Clock, AlertTriangle, Zap, Brain, Activity, Target } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
+import { TrendSection } from './TrendSection'
 
 interface AnticipationTabProps {
   profil: ProfilRisque
@@ -484,6 +485,8 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
           </div>
         </div>
       )}
+
+      <TrendSection historicalScores={historicalScores} />
     </div>
   )
 }
