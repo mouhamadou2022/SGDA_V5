@@ -6,6 +6,7 @@
 import { useMemo } from 'react'
 import { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
 import { TrendingUp, TrendingDown, Minus, Clock, AlertTriangle, Zap, Brain, Activity, Target } from 'lucide-react'
+import ScenarioSimulator from './ScenarioSimulator'
 
 interface AnticipationTabProps {
   profil: ProfilRisque
@@ -358,22 +359,131 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
         </div>
       </div>
 
-      {/* ── Scenario Simulator (placeholder) ── */}
+      {/* ── Contextual incident predictions ── */}
       <div className="card">
-        <div className="card-content">
-          <button
-            type="button"
-            className="btn btn-secondary w-full flex items-center justify-center gap-2"
-            onClick={() => {
-              const el = document.querySelector('[data-module="scenario-simulator"]')
-              el?.scrollIntoView({ behavior: 'smooth' })
-            }}
-          >
-            <Target className="w-4 h-4" />
-            <span>Simuler un scénario →</span>
-          </button>
+        <div className="card-header">
+          <div className="card-title flex items-center gap-2">
+            <Brain className="w-4 h-4 text-role-primary" />
+            Prédictions contextuelles (IA)
+          </div>
+        </div>
+        <div className="card-content p-4 space-y-3">
+          {(() => {
+            const typeCounts: Record<string, number> = {}
+            evenements.forEach(e => {
+              const t = (e.type || 'autre').toLowerCase()
+              typeCounts[t] = (typeCounts[t] || 0) + 1
+            })
+            const totalEvents = Object.values(typeCounts).reduce((a, b) => a + b, 0) || 1
+            const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
+
+            const hasBirdstrike = Object.keys(typeCounts).some(k =>
+              k.includes('bird') || k.includes('volatil') || k.includes('oiseau') || k.includes('péril') && k.includes('animal')
+            )
+            const hasFod = Object.keys(typeCounts).some(k =>
+              k.includes('fod') || k.includes('debris') || k.includes('débris') || k.includes('objet') && !k.includes('oiseau')
+            )
+
+            const recurrenceFromModel = profil.incident_prediction_6m !== undefined
+              ? Math.round(profil.incident_prediction_6m)
+              : Math.round((evenements.length / Math.max(1, 6)) * 100 / 10)
+
+            return (
+              <>
+                {hasBirdstrike && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-danger/5">
+                    <span className="text-xs font-medium">Risque de birdstrike</span>
+                    <span className="text-xs font-bold text-danger">{recurrenceFromModel}% dans les 6 prochains mois</span>
+                  </div>
+                )}
+                {hasFod && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-warning/5">
+                    <span className="text-xs font-medium">Risque FOD</span>
+                    <span className="text-xs font-bold text-warning">{recurrenceFromModel}% dans les 6 prochains mois</span>
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Top 3 types d&apos;incidents — probabilité de récurrence</p>
+                  {sortedTypes.map(([type, count]) => (
+                    <div key={type} className="flex items-center justify-between py-1 border-b border-border last:border-0">
+                      <span className="text-xs capitalize">{type}</span>
+                      <span className="text-xs font-bold">{Math.round((count / totalEvents) * 100)}% ({count})</span>
+                    </div>
+                  ))}
+                  {sortedTypes.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Aucun événement récent</p>
+                  )}
+                </div>
+
+                {profil.negbin_metrics?.isOverdispersed && (
+                  <p className="text-xs text-muted-foreground italic">
+                    Tendance au clustering — les incidents surviennent par grappes (surdispersion = {profil.negbin_metrics.dispersion.toFixed(1)})
+                  </p>
+                )}
+                {profil.extreme_risk?.tailRisk !== undefined && (
+                  <p className="text-xs text-muted-foreground">
+                    Scénario pire cas : probabilité de queue = {Math.round(profil.extreme_risk.tailRisk * 100)}%
+                  </p>
+                )}
+              </>
+            )
+          })()}
         </div>
       </div>
+
+      <ScenarioSimulator profil={profil} aerodromeName={profil.aerodrome_id} userRole="admin" />
+
+      {/* Prédictions contextuelles par type d'incident */}
+      {evenements && evenements.length > 0 && (
+        <div className="card border-border">
+          <div className="card-header border-b border-border"><div className="card-title text-sm font-semibold flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Prédictions contextuelles (IA)</div></div>
+          <div className="card-content p-4">
+            <div className="space-y-3">
+              {(() => {
+                // Dériver les types d'incidents des événements réels
+                const eventTypes = new Map<string, number>()
+                for (const evt of evenements) {
+                  const t = (evt as any).type_incident || (evt as any).type || (evt as any).gravite || 'incident'
+                  eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
+                }
+                const sorted = Array.from(eventTypes.entries())
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 4)
+
+                const incidentProb = profil.incident_prediction_6m ?? 0
+                const tailRisk = profil.extreme_risk?.tailRisk ?? 0
+                const isOverdispersed = profil.negbin_metrics?.isOverdispersed ?? false
+
+                return sorted.map(([type, count], i) => {
+                  const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * (incidentProb > 0 ? incidentProb * 100 : 50)))
+                  return (
+                    <div key={type} className={`flex items-center justify-between gap-3 p-3 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-2 h-2 rounded-full ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />
+                        <div>
+                          <p className="text-sm font-medium capitalize">{type.toLowerCase().replace(/_/g, ' ')}</p>
+                          <p className="text-xs text-muted-foreground">{count} occurrence(s) historiques</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-lg font-bold ${prob > 50 ? 'text-danger' : prob > 30 ? 'text-warning' : 'text-primary'}`}>{prob}%</p>
+                        <p className="text-xs text-muted-foreground">prob. 6 mois</p>
+                      </div>
+                    </div>
+                  )
+                }).concat([
+                  <div key="meta" className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-border">
+                    {isOverdispersed && <span className="badge warning text-xs">Incidents groupés (surdispersion)</span>}
+                    {tailRisk > 0.1 && <span className="badge danger text-xs">Risque extrême {(tailRisk * 100).toFixed(0)}%</span>}
+                    {profil.survival_metrics && profil.survival_metrics.hazard90d > 0.5 && <span className="badge danger text-xs">Hazard 90j: {Math.round(profil.survival_metrics.hazard90d * 100)}%</span>}
+                  </div>
+                ])
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

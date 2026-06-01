@@ -15,6 +15,8 @@ import {
   Brain,
   TrendingUp,
   Clock,
+  Target,
+  Activity,
   Gauge,
 } from 'lucide-react'
 
@@ -131,6 +133,53 @@ function buildRecommandations(profil: ProfilRisque): RecommandationItem[] {
       description: `Incidents frequents — Score C5 ${profil.c5}/100. Renforcer les mesures de resilience operationnelle.`,
       urgence: profil.c5 < 30 ? 'critique' : 'haute',
       icon: Shield,
+    })
+  }
+
+  // ML-driven recommendations
+  if (profil.hmm_state?.isTransitioning) {
+    recs.push({
+      id: 'hmm-transition',
+      titre: 'Transition silencieuse detectee (HMM)',
+      description: `L'aerodrome glisse vers un etat critique — agir avant J-${profil.hmm_state.daysToCritical}. Risque de transition: ${profil.hmm_state.transitionRisk}%.`,
+      urgence: 'critique',
+      icon: AlertTriangle,
+    })
+  }
+  if (profil.survival_metrics?.hazard90d && profil.survival_metrics.hazard90d > 0.5) {
+    recs.push({
+      id: 'survival-hazard',
+      titre: 'Inspection urgente recommandee (Survival)',
+      description: `Risque d'incident a 90 jours: ${Math.round(profil.survival_metrics.hazard90d * 100)}%. Mediane de survie: ${profil.survival_metrics.medianDays}j. Programmer une inspection.`,
+      urgence: 'critique',
+      icon: Clock,
+    })
+  }
+  if (profil.extreme_risk?.isHeavyTailed) {
+    recs.push({
+      id: 'evt-extreme',
+      titre: 'Plan urgence recommande (EVT)',
+      description: `Distribution a queue lourde detectee — risque extreme ${Math.round(profil.extreme_risk.tailRisk * 100)}%. Max attendu 12m: ${profil.extreme_risk.maxExpected12m} incidents.`,
+      urgence: 'haute',
+      icon: Zap,
+    })
+  }
+  if (profil.copula_metrics?.maxTailDependence && profil.copula_metrics.maxTailDependence > 0.3) {
+    recs.push({
+      id: 'copula-domaines',
+      titre: 'Domaines fortement lies (Copulas)',
+      description: `Dependance de queue ${profil.copula_metrics.maxTailDependence.toFixed(2)} — une defaillance entraine les autres. Inspecter large, tous domaines.`,
+      urgence: profil.copula_metrics.maxTailDependence > 0.6 ? 'haute' : 'moyenne',
+      icon: Target,
+    })
+  }
+  if (profil.negbin_metrics?.isOverdispersed) {
+    recs.push({
+      id: 'nb-groupes',
+      titre: 'Incidents par grappes (NB)',
+      description: `Surdispersion detectee — les incidents arrivent en grappes. Augmenter la frequence de surveillance.`,
+      urgence: 'moyenne',
+      icon: Activity,
     })
   }
 
