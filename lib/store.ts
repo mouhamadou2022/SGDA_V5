@@ -585,6 +585,8 @@ export interface ProfilRisque {
   negbin_metrics?: { isOverdispersed: boolean; dispersion: number; mean: number; variance: number }
   copula_metrics?: { maxTailDependence: number; worstCaseProbability: number; worstCaseDescription: string }
   ts_metrics?: { recommendedAction: string; bestProbability: number }
+  // Bow-Tie — efficacité des barrières par domaine
+  bowtie_metrics?: { domaine: string; effectiveness: number; nsCount: number; ecartsCount: number }[]
   // SNAPSHOT INFRASTRUCTURE (au moment du calcul)
   // Permet aux décisions (type surveillance, filtrage checklist) de refléter
   // les caractéristiques réelles de l'entité sans re-calculer le score numérique.
@@ -3923,6 +3925,27 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           } catch { /* bayesianDynamic indisponible */ }
         }
 
+        // Bow-Tie — efficacité des barrières par domaine
+        const DOMAINES = ['SGS', 'PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
+        let bowtieMetrics: ProfilRisque['bowtie_metrics'] = []
+        if (surveillancesAerodrome.length > 0 || ecartsAerodrome.length > 0) {
+          try {
+            const { assessBarrierEffectiveness } = await import('./risque')
+            bowtieMetrics = DOMAINES.map(domaine => {
+              const ecartsDom = ecartsAerodrome.filter((e: Ecart) => e.domaine === domaine)
+              const surveillancesDom = surveillancesAerodrome.filter((s: any) => (s.portee || []).includes(domaine))
+              const dernierScore = surveillancesDom.length > 0 ? surveillancesDom.reduce((max: number, s: any) => Math.max(max, s.score_global || 0), 0) : 70
+              const effectiveness = assessBarrierEffectiveness(`${aerodromeId}_${domaine}`, {
+                nsCount: 0,
+                ecartsCount: ecartsDom.length,
+                inspectionsPassed: surveillancesDom.some((s: any) => s.statut === 'realisee' || s.statut === 'rapport_signe'),
+                lastAuditScore: dernierScore,
+              })
+              return { domaine, effectiveness, nsCount: 0, ecartsCount: ecartsDom.length }
+            }).filter(b => b.ecartsCount > 0 || b.effectiveness < 80)
+          } catch { /* Bow-tie indisponible */ }
+        }
+
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,
           score_global: scoreGlobal,
@@ -3944,6 +3967,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           bayesian_prior: bayesianUpdate?.priorProbability,
           bayesian_black_swan: bayesianUpdate?.estBlackSwan,
           scenarios,
+          bowtie_metrics: bowtieMetrics?.length ? bowtieMetrics : undefined,
           ensemble_confidence: ensembleConfidence,
           infrastructure: aerodrome ? {
             type_entite: aerodrome.type_entite,

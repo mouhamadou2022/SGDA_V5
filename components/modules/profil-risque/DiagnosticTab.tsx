@@ -328,6 +328,38 @@ export function DiagnosticTab({ profil, surveillances, evenementsCount }: Diagno
           </p>
         </div>
       )}
+
+      {/* Bow-Tie — Barrières par domaine */}
+      {profil.bowtie_metrics && profil.bowtie_metrics.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="w-4 h-4 text-gray-500" />
+            <span className="text-sm font-semibold text-gray-700">Bow-Tie — Efficacité des barrières</span>
+          </div>
+          <div className="space-y-2">
+            {profil.bowtie_metrics.map(b => (
+              <div key={b.domaine} className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold w-10">{b.domaine}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                  <div
+                    className={`h-2.5 rounded-full transition-all ${b.effectiveness < 40 ? 'bg-red-500' : b.effectiveness < 70 ? 'bg-orange-500' : 'bg-green-500'}`}
+                    style={{ width: `${b.effectiveness}%` }}
+                  />
+                </div>
+                <span className={`text-xs font-bold w-10 text-right ${b.effectiveness < 40 ? 'text-red-600' : b.effectiveness < 70 ? 'text-orange-600' : 'text-green-600'}`}>
+                  {b.effectiveness}%
+                </span>
+                {b.ecartsCount > 0 && (
+                  <span className="badge danger text-xs">{b.ecartsCount} écart(s)</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+            Efficacité estimée des barrières de défense par domaine. Une barrière faible (&lt;40%) indique un risque de défaillance — renforcer les mesures d'atténuation dans ces domaines.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
