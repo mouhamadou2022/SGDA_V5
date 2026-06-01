@@ -137,7 +137,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances }: Props)
                 { label: 'Danger', value: current.danger, icon: AlertTriangle, cls: 'border-danger/30 bg-danger-soft' },
                 { label: 'Défaillance', value: current.defaillance, icon: Target, cls: 'border-warning/30 bg-warning-soft' },
                 { label: 'Scénario', value: current.scenario, icon: Zap, cls: 'border-primary/30 bg-primary-soft' },
-                { label: 'Conséquence', value: current.consequence, icon: Shield, cls: 'border-purple-300 bg-purple-50' },
+                { label: 'Conséquence', value: current.consequence, icon: Shield, cls: 'border-role-primary/30 bg-role-primary-soft' },
               ].map(({ label, value, icon: Icon, cls }) => (
                 <div key={label} className={`rounded-xl p-3 border text-center ${cls}`}>
                   <div className="flex items-center justify-center gap-1 mb-1"><Icon className="w-4 h-4" /><span className="text-xs font-semibold">{label}</span></div>

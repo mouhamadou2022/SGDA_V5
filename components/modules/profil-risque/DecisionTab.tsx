@@ -20,10 +20,10 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
   const isDG = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
 
   const getNiveauConfig = (score: number) => {
-    if (score >= 80) return { label: 'Faible', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200', badge: 'badge success' }
-    if (score >= 60) return { label: 'Moyen', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', badge: 'badge primary' }
-    if (score >= 30) return { label: 'Élevé', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', badge: 'badge warning' }
-    return { label: 'Critique', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', badge: 'badge danger' }
+    if (score >= 80) return { label: 'Faible', color: 'text-success', bg: 'bg-success-soft', border: 'border-success/30', badge: 'badge success' }
+    if (score >= 60) return { label: 'Moyen', color: 'text-primary', bg: 'bg-primary-soft', border: 'border-primary/30', badge: 'badge primary' }
+    if (score >= 30) return { label: 'Élevé', color: 'text-warning', bg: 'bg-warning-soft', border: 'border-warning/30', badge: 'badge warning' }
+    return { label: 'Critique', color: 'text-danger', bg: 'bg-danger-soft', border: 'border-danger/30', badge: 'badge danger' }
   }
 
   const config = getNiveauConfig(profil.score_global)
@@ -53,17 +53,17 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="code-oaci-badge text-sm">{aerodromeCode}</span>
-              <span className="text-sm text-gray-500">{aerodromeName}</span>
+              <span className="text-sm text-muted-foreground">{aerodromeName}</span>
             </div>
             <h1 className={`text-4xl font-bold ${config.color}`}>{profil.score_global}/100</h1>
             <span className={`badge ${config.badge} mt-1`}>Niveau {config.label}</span>
           </div>
           <div className="text-right text-sm">
             <div className="flex items-center gap-1.5 justify-end mb-1">
-              <span className="text-gray-500">Tendance :</span>
-              {profil.tendance === 'hausse' ? <><TrendingUp className="w-4 h-4 text-green-500" /><span className="text-green-600">En amélioration</span></>
-                : profil.tendance === 'baisse' ? <><TrendingDown className="w-4 h-4 text-red-500" /><span className="text-red-600 font-semibold">En dégradation</span></>
-                : <><Minus className="w-4 h-4 text-gray-400" /><span className="text-gray-500">Stable</span></>}
+              <span className="text-muted-foreground">Tendance :</span>
+              {profil.tendance === 'hausse' ? <><TrendingUp className="w-4 h-4 text-success" /><span className="text-success">En amélioration</span></>
+                : profil.tendance === 'baisse' ? <><TrendingDown className="w-4 h-4 text-danger" /><span className="text-danger font-semibold">En dégradation</span></>
+                : <><Minus className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Stable</span></>}
             </div>
             {profil.bayesian_black_swan && (
               <span className="badge danger animate-pulse text-xs">Black Swan détecté</span>
@@ -81,12 +81,12 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
             { label: 'Résilience', value: profil.c5 },
           ].map(c => (
             <div key={c.label} className="text-center">
-              <div className="text-xs text-gray-500 mb-1">{c.label}</div>
-              <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
-                <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-red-500' : c.value < 60 ? 'bg-orange-500' : 'bg-green-500'}`}
+              <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
+              <div className="w-full bg-muted rounded-full h-2 mb-1">
+                <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-danger' : c.value < 60 ? 'bg-warning' : 'bg-success'}`}
                   style={{ width: `${c.value}%` }} />
               </div>
-              <span className={`text-xs font-bold ${c.value < 40 ? 'text-red-600' : c.value < 60 ? 'text-orange-600' : 'text-green-600'}`}>{c.value}</span>
+              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}</span>
             </div>
           ))}
         </div>
@@ -94,17 +94,17 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Alertes immédiates */}
       {topRisks.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <h3 className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
+        <div className="rounded-xl border border-danger/30 bg-danger-soft p-4">
+          <h3 className="text-sm font-bold text-danger mb-3 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />Actions prioritaires
           </h3>
           <div className="space-y-2">
             {topRisks.map(r => (
-              <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg bg-white/70">
-                <r.icon className={`w-4 h-4 mt-0.5 shrink-0 ${r.priorite === 'critique' ? 'text-red-500' : 'text-orange-500'}`} />
+              <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg bg-background/70">
+                <r.icon className={`w-4 h-4 mt-0.5 shrink-0 ${r.priorite === 'critique' ? 'text-danger' : 'text-warning'}`} />
                 <div>
-                  <p className="text-sm font-semibold text-gray-800">{r.label}</p>
-                  <p className="text-xs text-gray-500">{r.action}</p>
+                  <p className="text-sm font-semibold text-foreground">{r.label}</p>
+                  <p className="text-xs text-muted-foreground">{r.action}</p>
                 </div>
               </div>
             ))}
@@ -114,17 +114,17 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Autres recommandations */}
       {otherRisks.length > 0 && (
-        <div className="rounded-xl border border-border bg-white p-4">
-          <h3 className="text-sm font-semibold text-gray-600 mb-3 flex items-center gap-2">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4" />Points de vigilance
           </h3>
           <div className="space-y-2">
             {otherRisks.map(r => (
-              <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                <r.icon className="w-4 h-4 mt-0.5 shrink-0 text-blue-400" />
+              <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/30 transition-colors">
+                <r.icon className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
                 <div>
-                  <p className="text-sm text-gray-700">{r.label}</p>
-                  <p className="text-xs text-gray-400">{r.action}</p>
+                  <p className="text-sm text-foreground">{r.label}</p>
+                  <p className="text-xs text-muted-foreground">{r.action}</p>
                 </div>
               </div>
             ))}
@@ -134,32 +134,32 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Prédictions simplifiées */}
       <div className="card border-border">
-        <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-gray-500" />Projection du risque</div></div>
+        <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" />Projection du risque</div></div>
         <div className="card-content p-4">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
-              <p className="text-xs text-gray-500">3 mois</p>
-              <p className={`text-lg font-bold ${profil.prediction_3m < 30 ? 'text-red-600' : profil.prediction_3m < 60 ? 'text-orange-600' : 'text-green-600'}`}>
+              <p className="text-xs text-muted-foreground">3 mois</p>
+              <p className={`text-lg font-bold ${profil.prediction_3m < 30 ? 'text-danger' : profil.prediction_3m < 60 ? 'text-warning' : 'text-success'}`}>
                 {profil.prediction_3m}/100
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">6 mois</p>
-              <p className={`text-lg font-bold ${profil.prediction_6m < 30 ? 'text-red-600' : profil.prediction_6m < 60 ? 'text-orange-600' : 'text-green-600'}`}>
+              <p className="text-xs text-muted-foreground">6 mois</p>
+              <p className={`text-lg font-bold ${profil.prediction_6m < 30 ? 'text-danger' : profil.prediction_6m < 60 ? 'text-warning' : 'text-success'}`}>
                 {profil.prediction_6m}/100
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Scénario pire cas</p>
-              <p className={`text-lg font-bold ${(profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global) < 30 ? 'text-red-600' : 'text-orange-600'}`}>
+              <p className="text-xs text-muted-foreground">Scénario pire cas</p>
+              <p className={`text-lg font-bold ${(profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global) < 30 ? 'text-danger' : 'text-warning'}`}>
                 {profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global}/100
               </p>
             </div>
           </div>
           {profil.survival_metrics && (
-            <div className="mt-3 pt-3 border-t border-border text-xs text-gray-500 text-center">
+            <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground text-center">
               Risque d'incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
-              {profil.survival_metrics.hazard90d > 0.5 && <span className="text-red-500 font-semibold ml-1">— Inspection recommandée</span>}
+              {profil.survival_metrics.hazard90d > 0.5 && <span className="text-danger font-semibold ml-1">— Inspection recommandée</span>}
             </div>
           )}
         </div>

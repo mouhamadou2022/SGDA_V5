@@ -20,7 +20,7 @@ function getScoreColor(score: number): string {
 
 function getRankMedal(rank: number): { icon: React.ElementType; color: string } {
   if (rank === 1) return { icon: Crown, color: 'text-yellow-500' }
-  if (rank === 2) return { icon: Medal, color: 'text-gray-400' }
+  if (rank === 2) return { icon: Medal, color: 'text-muted-foreground' }
   if (rank === 3) return { icon: Medal, color: 'text-amber-600' }
   return { icon: Target, color: 'text-muted-foreground' }
 }

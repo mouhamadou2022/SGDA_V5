@@ -144,10 +144,10 @@ export function SyntheseTab({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-semibold text-foreground">
             Synthèse du profil de risque
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             {aerodromeCode}
           </p>
         </div>
@@ -172,9 +172,8 @@ export function SyntheseTab({
                   cy={65}
                   r={52}
                   fill="none"
-                  stroke="#e5e7eb"
+                  stroke="var(--color-muted)"
                   strokeWidth={10}
-                  className="dark:stroke-gray-700"
                 />
                 {/* Score ring */}
                 <circle
@@ -194,7 +193,7 @@ export function SyntheseTab({
                   x={65}
                   y={60}
                   textAnchor="middle"
-                  className="fill-gray-900 dark:fill-white text-2xl font-bold"
+                  className="fill-foreground"
                   fontSize="28"
                   fontWeight="bold"
                 >
@@ -204,7 +203,7 @@ export function SyntheseTab({
                   x={65}
                   y={80}
                   textAnchor="middle"
-                  className="fill-gray-400"
+                  className="fill-muted-foreground"
                   fontSize="12"
                 >
                   / 100
@@ -219,7 +218,7 @@ export function SyntheseTab({
 
                 {/* Prédiction 3m */}
                 {profil.prediction_3m !== undefined && (
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Activity className="w-3.5 h-3.5" />
                     Prévision 3m: <span className={getScoreTextColor(profil.prediction_3m)}>{Math.round(profil.prediction_3m)}</span>
                   </div>
@@ -227,7 +226,7 @@ export function SyntheseTab({
 
                 {/* Prédiction 6m */}
                 {profil.prediction_6m !== undefined && (
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Activity className="w-3.5 h-3.5" />
                     Prévision 6m: <span className={getScoreTextColor(profil.prediction_6m)}>{Math.round(profil.prediction_6m)}</span>
                   </div>
@@ -251,9 +250,8 @@ export function SyntheseTab({
                     key={`ring-${i}`}
                     points={d}
                     fill="none"
-                    stroke="#e5e7eb"
+                    stroke="var(--color-muted)"
                     strokeWidth={0.5}
-                    className="dark:stroke-gray-600"
                   />
                 ))}
                 {/* Axis lines */}
@@ -264,9 +262,8 @@ export function SyntheseTab({
                     y1={radarCenterY}
                     x2={radarCenterX + radarRadius * Math.cos(radarAngles[i])}
                     y2={radarCenterY + radarRadius * Math.sin(radarAngles[i])}
-                    stroke="#e5e7eb"
+                    stroke="var(--color-muted)"
                     strokeWidth={0.5}
-                    className="dark:stroke-gray-600"
                   />
                 ))}
                 {/* Data polygon */}
@@ -290,7 +287,7 @@ export function SyntheseTab({
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize="9"
-                    className="fill-gray-500 dark:fill-gray-400"
+                    className="fill-muted-foreground"
                   >
                     {c.label}
                   </text>
@@ -298,14 +295,14 @@ export function SyntheseTab({
               </svg>
 
               {/* Legend */}
-              <div className="flex flex-col justify-center gap-1.5 ml-3 text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex flex-col justify-center gap-1.5 ml-3 text-xs text-muted-foreground">
                 {RADAR_CRITERES.map((c) => (
                   <div key={c.key} className="flex items-center justify-between gap-2">
                     <span className="w-8">{c.label}</span>
-                    <span className="font-mono font-medium text-gray-700 dark:text-gray-300">
+                    <span className="font-mono font-medium text-foreground">
                       {profil[c.key] ?? '-'}
                     </span>
-                    <span className="text-gray-400 dark:text-gray-500">
+                    <span className="text-muted-foreground">
                       / {c.poids}
                     </span>
                   </div>
@@ -319,11 +316,11 @@ export function SyntheseTab({
           <div className={`rounded-xl border p-4 flex items-center gap-3 ${getTendanceBgClass(profil.tendance)}`}>
             {getTendanceIcon(profil.tendance)}
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <p className="text-sm font-medium text-foreground">
                 Tendance {getTendanceLabel(profil.tendance).toLowerCase()}
               </p>
               {profil.last_change_point && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Dernier changement: {new Date(profil.last_change_point).toLocaleDateString()}
                 </p>
               )}
@@ -338,7 +335,7 @@ export function SyntheseTab({
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  <AlertTriangle className="w-4 h-4 text-warning" />
                   Alertes actives
                 </h3>
               </div>
@@ -388,7 +385,7 @@ export function SyntheseTab({
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-purple-500" />
+                  <Brain className="w-4 h-4 text-role-primary" />
                   Modèle HMM
                 </h3>
               </div>
@@ -401,13 +398,13 @@ export function SyntheseTab({
                     Transition silencieuse détectée
                   </span>
                 ) : (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-muted-foreground">
                     Risque transition: {(profil.hmm_state.transitionRisk * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
               {profil.hmm_state.daysToCritical > 0 && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 flex items-center gap-1">
+                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   Jours avant critique: {profil.hmm_state.daysToCritical}j
                 </p>
@@ -421,20 +418,20 @@ export function SyntheseTab({
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-blue-500" />
+                  <Clock className="w-4 h-4 text-primary" />
                   Analyse de survie
                 </h3>
               </div>
               <div className="card-content">
               <div className="grid grid-cols-2 gap-3">
                 <div className="text-center p-2 rounded-lg bg-primary-soft">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Risque incident 90j</p>
+                  <p className="text-xs text-muted-foreground">Risque incident 90j</p>
                   <p className="text-lg font-bold text-primary">
                     {(profil.survival_metrics.hazard90d * 100).toFixed(1)}%
                   </p>
                 </div>
                 <div className="text-center p-2 rounded-lg bg-success-soft">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Médiane survie</p>
+                  <p className="text-xs text-muted-foreground">Médiane survie</p>
                   <p className="text-lg font-bold text-success">
                     {profil.survival_metrics.medianDays}j
                   </p>
@@ -448,7 +445,7 @@ export function SyntheseTab({
           <div className="card">
             <div className="card-header">
               <h3 className="card-title flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-500" />
+                <AlertTriangle className="w-4 h-4 text-danger" />
                 Écarts critiques
               </h3>
             </div>
@@ -459,14 +456,14 @@ export function SyntheseTab({
                   <span className="text-3xl font-bold text-danger">
                     {nbEcartsCritiques}
                   </span>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="text-sm text-muted-foreground">
                     écart{nbEcartsCritiques > 1 ? 's' : ''} critique{nbEcartsCritiques > 1 ? 's' : ''} en attente
                   </span>
                 </>
               ) : (
                 <>
                   <span className="badge success">0</span>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="text-sm text-muted-foreground">
                     Aucun écart critique
                   </span>
                 </>
@@ -480,27 +477,27 @@ export function SyntheseTab({
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-gray-500" />
+                  <Shield className="w-4 h-4 text-muted-foreground" />
                   Infrastructure
                 </h3>
               </div>
               <div className="card-content">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 <div>
-                  <span className="text-gray-400 dark:text-gray-500">Type</span>
-                  <p className="font-medium text-gray-700 dark:text-gray-300 capitalize">
+                  <span className="text-muted-foreground">Type</span>
+                  <p className="font-medium text-foreground capitalize">
                     {profil.infrastructure.type_entite.replace('_', ' ')}
                   </p>
                 </div>
                 <div>
-                  <span className="text-gray-400 dark:text-gray-500">Horaires</span>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
+                  <span className="text-muted-foreground">Horaires</span>
+                  <p className="font-medium text-foreground">
                     {profil.infrastructure.horaires || 'N/A'}
                   </p>
                 </div>
                 <div className="col-span-2">
-                  <span className="text-gray-400 dark:text-gray-500">Catégorie SSLIA</span>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
+                  <span className="text-muted-foreground">Catégorie SSLIA</span>
+                  <p className="font-medium text-foreground">
                     {profil.infrastructure.categorie_sslia}
                   </p>
                 </div>

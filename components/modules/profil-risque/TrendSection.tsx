@@ -129,14 +129,14 @@ export function TrendSection({ historicalScores }: TrendSectionProps) {
                 <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: 'var(--color-muted-foreground, #6b7280)' }}
+                    tick={{ fontSize: 10, fill: 'var(--color-muted-foreground)' }}
                     axisLine={false}
                     tickLine={false}
                     interval="preserveStartEnd"
                   />
                   <YAxis
                     domain={[0, 100]}
-                    tick={{ fontSize: 10, fill: 'var(--color-muted-foreground, #6b7280)' }}
+                    tick={{ fontSize: 10, fill: 'var(--color-muted-foreground)' }}
                     axisLine={false}
                     tickLine={false}
                     width={32}
@@ -146,7 +146,7 @@ export function TrendSection({ historicalScores }: TrendSectionProps) {
                       fontSize: 12,
                       border: 'none',
                       borderRadius: 8,
-                      background: 'var(--color-card, #fff)',
+                      background: 'var(--color-card)',
                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}
                   />
