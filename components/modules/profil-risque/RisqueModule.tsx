@@ -16,6 +16,7 @@ import { DiagnosticTab } from './DiagnosticTab'
 import AnticipationTab from './AnticipationTab'
 import { ActionsTab } from './ActionsTab'
 import DecisionTab from './DecisionTab'
+import { RiskCard } from '@/components/cards/RiskCard'
 
 interface Props { userRole: string }
 type OngletId = 'synthese' | 'diagnostic' | 'anticipation' | 'actions'
@@ -167,60 +168,15 @@ export function RisqueModule({ userRole }: Props) {
                 <div className="card-content p-4 text-center"><p className="text-sm text-muted-foreground">Profil non calculé</p><p className="text-xs text-muted-foreground mt-1">Cliquez pour lancer le calcul</p></div>
               </div>
             )
-            const config = { border: getBorderCls(profil.score_global), badge: getNiveauBadgeCls(profil.score_global), color: getScoreColor(profil.score_global) }
             return (
-              <div key={aerodrome.id} className={`card border-border border-l-4 ${config.border} cursor-pointer hover:shadow-md transition-shadow`}
-                onClick={() => handleSelectAerodrome(aerodrome.id)}>
-                <div className="card-header border-b border-border">
-                  <div className="card-title flex items-center gap-2 flex-wrap">
-                    <span className="code-oaci-badge text-xs">{aerodrome.code_oaci}</span>
-                    <span className="font-semibold text-sm truncate max-w-[160px]">{aerodrome.nom}</span>
-                    <span className={`badge text-xs ${config.badge} ml-auto`}>{profil.niveau}</span>
-                  </div>
-                </div>
-                <div className="card-content p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Score global</p>
-                      <span className={`text-2xl font-bold ${config.color}`}>{profil.score_global}/100</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Tendance</p>
-                      <span className="flex items-center gap-1 text-xs">
-                        {profil.tendance === 'hausse' ? <><TrendingUp className="w-3.5 h-3.5 text-success" /><span className="text-success">Amélioration</span></>
-                          : profil.tendance === 'baisse' ? <><TrendingDown className="w-3.5 h-3.5 text-danger" /><span className="text-danger">Dégradation</span></>
-                          : <><Minus className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Stable</span></>}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Mini radar C1-C5 */}
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1.5">Critères C1-C5</p>
-                    <div className="grid grid-cols-5 gap-1">
-                      {[{ k: 'c1', l: 'C1', label: 'SGS' }, { k: 'c2', l: 'C2', label: 'PAC' }, { k: 'c3', l: 'C3', label: 'Conform.' }, { k: 'c4', l: 'C4', label: 'Charge' }, { k: 'c5', l: 'C5', label: 'Résil.' }].map(({ k, l, label }) => {
-                        const v = (profil as any)[k] as number
-                        const cls = v < 40 ? 'bg-danger' : v < 60 ? 'bg-warning' : 'bg-success'
-                        return (
-                          <div key={k} className="text-center">
-                            <span className="text-[9px] text-muted-foreground block mb-0.5">{label}</span>
-                            <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5"><div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} /></div>
-                            <span className={`text-[9px] font-bold ${v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'}`}>{v}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Indicateurs rapides */}
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    {profil.hmm_state?.isTransitioning && <span className="badge danger animate-pulse">Transition HMM</span>}
-                    {profil.bayesian_black_swan && <span className="badge danger">Black Swan</span>}
-                    {profil.survival_metrics && profil.survival_metrics.hazard90d > 0.5 && <span className="badge warning">Risque 90j élevé</span>}
-                    {nbEcartsCritiques > 0 && <span className="badge danger">{nbEcartsCritiques} écart(s) critique(s)</span>}
-                  </div>
-                </div>
-              </div>
+              <RiskCard
+                key={aerodrome.id}
+                profil={profil}
+                aerodromeCode={aerodrome.code_oaci}
+                aerodromeName={aerodrome.nom}
+                nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+                onView={() => handleSelectAerodrome(aerodrome.id)}
+              />
             )
           })}
         </div>
