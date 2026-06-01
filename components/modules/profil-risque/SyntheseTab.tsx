@@ -24,11 +24,11 @@ const RADAR_CRITERES = [
 
 function getNiveauColor(niveau: string): string {
   switch (niveau) {
-    case 'critique': return '#dc2626'
-    case 'eleve': return '#ea580c'
-    case 'moyen': return '#2563eb'
-    case 'faible': return '#16a34a'
-    default: return '#6b7280'
+    case 'critique': return 'var(--color-danger)'
+    case 'eleve': return 'var(--color-warning)'
+    case 'moyen': return 'var(--color-primary)'
+    case 'faible': return 'var(--color-success)'
+    default: return 'var(--color-neutral)'
   }
 }
 
@@ -43,24 +43,24 @@ function getNiveauBgClass(niveau: string): string {
 }
 
 function getScoreTextColor(score: number): string {
-  if (score >= 80) return 'text-green-600 dark:text-green-400'
-  if (score >= 60) return 'text-blue-600 dark:text-blue-400'
-  if (score >= 30) return 'text-orange-600 dark:text-orange-400'
-  return 'text-red-600 dark:text-red-400'
+  if (score >= 80) return 'text-success'
+  if (score >= 60) return 'text-primary'
+  if (score >= 30) return 'text-warning'
+  return 'text-danger'
 }
 
 function getScoreRingColor(score: number): string {
-  if (score >= 80) return '#16a34a'
-  if (score >= 60) return '#2563eb'
-  if (score >= 30) return '#ea580c'
-  return '#dc2626'
+  if (score >= 80) return 'var(--color-success)'
+  if (score >= 60) return 'var(--color-primary)'
+  if (score >= 30) return 'var(--color-warning)'
+  return 'var(--color-danger)'
 }
 
 function getTendanceIcon(tendance: string) {
   switch (tendance) {
-    case 'hausse': return <TrendingUp className="w-5 h-5 text-red-500" />
-    case 'baisse': return <TrendingDown className="w-5 h-5 text-green-500" />
-    default: return <Minus className="w-5 h-5 text-gray-400" />
+    case 'hausse': return <TrendingUp className="w-5 h-5 text-success" />
+    case 'baisse': return <TrendingDown className="w-5 h-5 text-danger" />
+    default: return <Minus className="w-5 h-5 text-neutral" />
   }
 }
 
@@ -74,9 +74,9 @@ function getTendanceLabel(tendance: string): string {
 
 function getTendanceBgClass(tendance: string): string {
   switch (tendance) {
-    case 'hausse': return 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
-    case 'baisse': return 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800'
-    default: return 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+    case 'hausse': return 'bg-success-soft border-success/30'
+    case 'baisse': return 'bg-danger-soft border-danger/30'
+    default: return 'bg-muted/20 border-muted/30'
   }
 }
 
@@ -157,10 +157,11 @@ export function SyntheseTab({
         {/* ========== LEFT COLUMN ========== */}
         <div className="space-y-4">
           {/* Risk Gauge */}
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
-              Score de risque global
-            </h3>
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Score de risque global</h3>
+            </div>
+            <div className="card-content">
             <div className="flex items-center justify-center gap-6">
               {/* Circular gauge */}
               <svg width="130" height="130" viewBox="0 0 130 130" className="shrink-0">
@@ -233,12 +234,14 @@ export function SyntheseTab({
               </div>
             </div>
           </div>
+          </div>
 
           {/* Radar chart */}
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
-              Profil par critère
-            </h3>
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Profil par critère</h3>
+            </div>
+            <div className="card-content">
             <div className="flex justify-center">
               <svg width="220" height="130" viewBox="0 0 110 110">
                 {/* Grid rings */}
@@ -309,6 +312,7 @@ export function SyntheseTab({
               </div>
             </div>
           </div>
+          </div>
 
           {/* Tendance */}
           <div className={`rounded-xl border p-4 flex items-center gap-3 ${getTendanceBgClass(profil.tendance)}`}>
@@ -330,11 +334,14 @@ export function SyntheseTab({
         <div className="space-y-4">
           {/* Alertes */}
           {showAlertes && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                Alertes actives
-              </h3>
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  Alertes actives
+                </h3>
+              </div>
+              <div className="card-content">
               <div className="space-y-2">
                 {hasProactiveAlert && profil.proactive_alert && (
                   <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
@@ -350,37 +357,41 @@ export function SyntheseTab({
                   </div>
                 )}
                 {hasSystemStress && profil.system_stress && (
-                  <div className="flex items-start gap-2 p-2 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
-                    <Activity className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-warning-soft border border-warning/30">
+                    <Activity className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                      <p className="text-sm font-medium text-warning">
                         Stress système: {Math.round(profil.system_stress.score)} — {profil.system_stress.niveau_stress}
                       </p>
-                      <p className="text-xs text-orange-600 dark:text-orange-400">
+                      <p className="text-xs text-warning">
                         {profil.system_stress.recommandation}
                       </p>
                     </div>
                   </div>
                 )}
                 {hasHawkes && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
-                    <Zap className="w-4 h-4 text-red-600 shrink-0" />
-                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-danger-soft border border-danger/30">
+                    <Zap className="w-4 h-4 text-danger shrink-0" />
+                    <p className="text-sm font-medium text-danger">
                       Hawkes intensity: {profil.hawkes_intensity!.toFixed(2)} (élevée)
                     </p>
                   </div>
                 )}
               </div>
             </div>
+            </div>
           )}
 
           {/* HMM — Hidden Markov Model */}
           {hasHMM && profil.hmm_state && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-                <Brain className="w-4 h-4 text-purple-500" />
-                Modèle HMM
-              </h3>
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-purple-500" />
+                  Modèle HMM
+                </h3>
+              </div>
+              <div className="card-content">
               <div className="flex items-center gap-3">
                 <span className="badge primary">{profil.hmm_state.currentStateName}</span>
                 {profil.hmm_state.isTransitioning ? (
@@ -401,42 +412,50 @@ export function SyntheseTab({
                 </p>
               )}
             </div>
+            </div>
           )}
 
           {/* Survival metrics */}
           {hasSurvival && profil.survival_metrics && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-500" />
-                Analyse de survie
-              </h3>
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-blue-500" />
+                  Analyse de survie
+                </h3>
+              </div>
+              <div className="card-content">
               <div className="grid grid-cols-2 gap-3">
-                <div className="text-center p-2 rounded-lg bg-blue-50 dark:bg-blue-950">
+                <div className="text-center p-2 rounded-lg bg-primary-soft">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Risque incident 90j</p>
-                  <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                  <p className="text-lg font-bold text-primary">
                     {(profil.survival_metrics.hazard90d * 100).toFixed(1)}%
                   </p>
                 </div>
-                <div className="text-center p-2 rounded-lg bg-green-50 dark:bg-green-950">
+                <div className="text-center p-2 rounded-lg bg-success-soft">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Médiane survie</p>
-                  <p className="text-lg font-bold text-green-700 dark:text-green-300">
+                  <p className="text-lg font-bold text-success">
                     {profil.survival_metrics.medianDays}j
                   </p>
                 </div>
               </div>
             </div>
+            </div>
           )}
 
           {/* Top écarts critiques */}
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
-              Écarts critiques
-            </h3>
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500" />
+                Écarts critiques
+              </h3>
+            </div>
+            <div className="card-content">
             <div className="flex items-center gap-3">
               {nbEcartsCritiques > 0 ? (
                 <>
-                  <span className="text-3xl font-bold text-red-600 dark:text-red-400">
+                  <span className="text-3xl font-bold text-danger">
                     {nbEcartsCritiques}
                   </span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -453,14 +472,18 @@ export function SyntheseTab({
               )}
             </div>
           </div>
+          </div>
 
           {/* Infrastructure snapshot */}
           {hasInfra && profil.infrastructure && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5">
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-                <Shield className="w-4 h-4 text-gray-500" />
-                Infrastructure
-              </h3>
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gray-500" />
+                  Infrastructure
+                </h3>
+              </div>
+              <div className="card-content">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 <div>
                   <span className="text-gray-400 dark:text-gray-500">Type</span>
@@ -481,6 +504,7 @@ export function SyntheseTab({
                   </p>
                 </div>
               </div>
+            </div>
             </div>
           )}
         </div>
