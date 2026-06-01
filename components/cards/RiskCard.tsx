@@ -37,12 +37,20 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
   const tendanceLabel = tendance === 'hausse' ? 'Amélioration' : tendance === 'baisse' ? 'Dégradation' : 'Stable'
 
   const criteres = [
-    { k: 'c1' as const, label: 'SGS', full: 'Maturité SGS' },
+    { k: 'c1' as const, label: 'SGS', full: 'Maturité SGS', isMaturite: true },
     { k: 'c2' as const, label: 'PAC', full: 'Efficacité PAC' },
     { k: 'c3' as const, label: 'Conform.', full: 'Conformité technique' },
     { k: 'c4' as const, label: 'Charge', full: 'Charge critique' },
     { k: 'c5' as const, label: 'Résil.', full: 'Résilience' },
   ]
+
+  function getMaturiteLevel(score: number): string {
+    if (score >= 80) return 'N5 Optimisé'
+    if (score >= 60) return 'N4 Géré'
+    if (score >= 40) return 'N3 Défini'
+    if (score >= 20) return 'N2 Répété'
+    return 'N1 Initial'
+  }
 
   if (compact) return (
     <div className={`card p-3 hover:shadow-md transition-shadow cursor-pointer border-l-4 ${getBorderClr()}`} onClick={onView}>
@@ -93,7 +101,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         <div>
           <p className="text-xs text-muted-foreground mb-1.5">Critères C1-C5</p>
           <div className="grid grid-cols-5 gap-1">
-            {criteres.map(({ k, label }) => {
+            {criteres.map(({ k, label, isMaturite }) => {
               const v = (profil as any)[k] as number
               const cls = v < 40 ? 'bg-danger' : v < 60 ? 'bg-warning' : 'bg-success'
               const clrTxt = v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'
@@ -103,7 +111,9 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
                   <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5">
                     <div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} />
                   </div>
-                  <span className={`text-[9px] font-bold ${clrTxt}`}>{v}</span>
+                  <span className={`text-[9px] font-bold ${clrTxt}`}>
+                    {isMaturite ? getMaturiteLevel(v) : v}
+                  </span>
                 </div>
               )
             })}
