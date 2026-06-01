@@ -1,7 +1,8 @@
 'use client'
 
-import { ProfilRisque } from '@/lib/store'
+import { ProfilRisque, Ecart } from '@/lib/store'
 import { AlertTriangle, Shield, Activity, Zap, BarChart3 } from 'lucide-react'
+import BowTieAnalyzer from './BowTieAnalyzer'
 
 type Niveau = 'critique' | 'eleve' | 'moyen' | 'faible'
 
@@ -77,10 +78,11 @@ const CRITERES = [
 interface DiagnosticTabProps {
   profil: ProfilRisque
   surveillances: any[]
+  ecarts: Ecart[]
   evenementsCount: number
 }
 
-export function DiagnosticTab({ profil, surveillances, evenementsCount }: DiagnosticTabProps) {
+export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount }: DiagnosticTabProps) {
   const niveauGlobal = getNiveau(profil.score_global)
   const scenarioCatastrophe = profil.scenarios?.[3]
 
@@ -329,70 +331,8 @@ export function DiagnosticTab({ profil, surveillances, evenementsCount }: Diagno
         </div>
       )}
 
-      {/* Bow-Tie — Barrières par domaine */}
-      {profil.bowtie_metrics && profil.bowtie_metrics.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Shield className="w-4 h-4 text-gray-500" />
-            <span className="text-sm font-semibold text-gray-700">Bow-Tie — Efficacité des barrières</span>
-          </div>
-          <div className="space-y-2">
-            {profil.bowtie_metrics.map(b => (
-              <div key={b.domaine} className="flex items-center gap-3">
-                <span className="text-xs font-mono font-bold w-10">{b.domaine}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-2.5">
-                  <div
-                    className={`h-2.5 rounded-full transition-all ${b.effectiveness < 40 ? 'bg-red-500' : b.effectiveness < 70 ? 'bg-orange-500' : 'bg-green-500'}`}
-                    style={{ width: `${b.effectiveness}%` }}
-                  />
-                </div>
-                <span className={`text-xs font-bold w-10 text-right ${b.effectiveness < 40 ? 'text-red-600' : b.effectiveness < 70 ? 'text-orange-600' : 'text-green-600'}`}>
-                  {b.effectiveness}%
-                </span>
-                {b.ecartsCount > 0 && (
-                  <span className="badge danger text-xs">{b.ecartsCount} écart(s)</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
-            Efficacité estimée des barrières de défense par domaine. Une barrière faible (&lt;40%) indique un risque de défaillance — renforcer les mesures d'atténuation dans ces domaines.
-          </p>
-        </div>
-      )}
-
-      {/* Bow-Tie — Analyse dangers / barrières / bénéfices */}
-      {profil.bowtie_metrics && profil.bowtie_metrics.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header border-b border-border"><div className="card-title text-sm font-semibold">Analyse Bow-Tie — Dangers, Barrières, Bénéfices</div></div>
-          <div className="card-content p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-danger-soft rounded-lg p-3">
-                <p className="text-xs font-semibold text-danger uppercase mb-2">Menaces ({profil.bowtie_metrics.filter(b => b.effectiveness < 40).length})</p>
-                {profil.bowtie_metrics.filter(b => b.effectiveness < 40).map(b => (
-                  <div key={b.domaine} className="flex items-center justify-between text-xs py-1"><span className="font-mono">{b.domaine}</span><span className="text-danger font-bold">{b.effectiveness}%</span></div>
-                ))}
-                {profil.bowtie_metrics.filter(b => b.effectiveness < 40).length === 0 && <p className="text-xs text-muted-foreground">Aucune menace critique</p>}
-                <p className="text-xs text-muted-foreground mt-2">Barriere &lt;40% = defaillance probable</p>
-              </div>
-              <div className="bg-warning-soft rounded-lg p-3">
-                <p className="text-xs font-semibold text-warning uppercase mb-2">Barrières à renforcer ({profil.bowtie_metrics.filter(b => b.effectiveness >= 40 && b.effectiveness < 70).length})</p>
-                {profil.bowtie_metrics.filter(b => b.effectiveness >= 40 && b.effectiveness < 70).map(b => (
-                  <div key={b.domaine} className="text-xs py-1"><span className="font-mono">{b.domaine}</span> {b.ecartsCount > 0 && <span className="badge warning text-xs ml-1">prioritaire</span>}</div>
-                ))}
-                <p className="text-xs text-muted-foreground mt-2">Renforcement → gain ~{Math.round(profil.bowtie_metrics.filter(b => b.effectiveness < 70).length * 4)} pts C2</p>
-              </div>
-              <div className="bg-success-soft rounded-lg p-3">
-                <p className="text-xs font-semibold text-success uppercase mb-2">Bénéfices estimés</p>
-                <p className="text-sm font-bold text-success">{Math.round(profil.bowtie_metrics.filter(b => b.effectiveness < 70).length / Math.max(1, profil.bowtie_metrics.length) * 100)}% réduction risque</p>
-                <p className="text-xs text-muted-foreground mt-1">{profil.bowtie_metrics.filter(b => b.effectiveness < 70).length} domaines à renforcer</p>
-                {profil.survival_metrics && <p className="text-xs text-success mt-1">Hazard 90j réduit de ~{Math.round(profil.survival_metrics.hazard90d * 40)}%</p>}
-                {profil.bowtie_metrics.filter(b => b.effectiveness >= 70).length > 0 && <p className="text-xs text-muted-foreground mt-1">{profil.bowtie_metrics.filter(b => b.effectiveness >= 70).length} domaines déjà protégés</p>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Bow-Tie — Analyse complète data-driven */}
+      <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} />
     </div>
   )
 }

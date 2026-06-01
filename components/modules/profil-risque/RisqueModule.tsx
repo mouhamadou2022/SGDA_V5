@@ -247,7 +247,7 @@ export function RisqueModule({ userRole }: Props) {
               <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} />
             )}
             {activeOnglet === 'diagnostic' && (
-              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} />
+              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} />
             )}
             {activeOnglet === 'anticipation' && (
               <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} />
