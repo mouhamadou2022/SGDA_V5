@@ -1,5 +1,5 @@
 // app/not-found.tsx
-// ✅ Page 404 premium avec animations avion et design système
+// Page 404 premium avec animations avion et design système
 
 'use client'
 
