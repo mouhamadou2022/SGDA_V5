@@ -15,6 +15,7 @@ import { SyntheseTab } from './SyntheseTab'
 import { DiagnosticTab } from './DiagnosticTab'
 import AnticipationTab from './AnticipationTab'
 import { ActionsTab } from './ActionsTab'
+import DecisionTab from './DecisionTab'
 
 interface Props { userRole: string }
 
@@ -105,6 +106,8 @@ export function RisqueModule({ userRole }: Props) {
     setRefreshing(false)
   }, [aerodrome, recalculerProfilRisque, computeFullRiskProfile])
 
+  const isDecisionMaker = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
+
   const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedAerodromeId(e.target.value)
     setActiveOnglet('synthese') // reset onglet on aerodrome change
@@ -149,7 +152,11 @@ export function RisqueModule({ userRole }: Props) {
       )}
 
       {/* Détail par aérodrome */}
-      {aerodrome && profil && (
+      {aerodrome && profil && isDecisionMaker && (
+        <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} />
+      )}
+
+      {aerodrome && profil && !isDecisionMaker && (
         <>
           <div className="flex items-center gap-3 mb-2">
             <span className="code-oaci-badge text-base">{aerodrome.code_oaci}</span>

@@ -163,6 +163,30 @@ export function ActionsTab({
     }
   }
 
+  const handleExportReport = () => {
+    const lines: string[] = []
+    lines.push(`RAPPORT DE PROFIL DE RISQUE — SGDA V5`)
+    lines.push(`Aérodrome: ${profil.aerodrome_id}`)
+    lines.push(`Date: ${profil.computed_at ? new Date(profil.computed_at).toLocaleDateString('fr-FR') : 'N/A'}`)
+    lines.push(``)
+    lines.push(`SCORE GLOBAL: ${profil.score_global}/100 — Niveau ${(profil.niveau || '').toUpperCase()}`)
+    lines.push(`Tendance: ${profil.tendance}`)
+    lines.push(`Prédiction 3m: ${profil.prediction_3m}/100 | 6m: ${profil.prediction_6m}/100`)
+    lines.push(``)
+    lines.push(`C1 (SGS): ${profil.c1}/100 | C2 (PAC): ${profil.c2}/100 | C3 (Conformité): ${profil.c3}/100`)
+    lines.push(`C4 (Charge): ${profil.c4}/100 | C5 (Résilience): ${profil.c5}/100`)
+    if (profil.hmm_state) lines.push(`HMM: ${profil.hmm_state.currentStateName} | Transition: ${profil.hmm_state.isTransitioning ? 'OUI' : 'non'}`)
+    if (profil.survival_metrics) lines.push(`Survival: Hazard 90j=${Math.round(profil.survival_metrics.hazard90d * 100)}%`)
+    if (profil.ts_metrics) lines.push(`Action IA: ${profil.ts_metrics.recommendedAction} (${Math.round(profil.ts_metrics.bestProbability * 100)}%)`)
+    lines.push(``)
+    lines.push(`--- Généré par SGDA V5 ---`)
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `SGDA_Rapport_${profil.aerodrome_id}_${new Date().toISOString().split('T')[0]}.txt`
+    a.click(); URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-5">
 
@@ -361,7 +385,7 @@ export function ActionsTab({
 
         <button
           className="btn btn-secondary gap-2"
-          onClick={() => {}}
+          onClick={handleExportReport}
         >
           <Download className="w-4 h-4" />
           Exporter le rapport
