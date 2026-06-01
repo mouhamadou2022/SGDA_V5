@@ -142,8 +142,11 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const updateKitDocument = useAppStore(s => s.updateKitDocument);
   const deleteKitDocument = useAppStore(s => s.deleteKitDocument);
   const incrementerTelechargement = useAppStore(s => s.incrementerTelechargement);
-  const aerodromes = useAppStore(s => s.aerodromes);
-  const profilsRisque = useAppStore(s => s.profilsRisque);
+  const addNotification = useAppStore(s => s.addNotification);
+  const importChecklistMemoryRecords = useAppStore(s => s.importChecklistMemoryRecords);
+  const masterChecklists = useAppStore(s => s.masterChecklists);
+  const setMasterChecklist = useAppStore(s => s.setMasterChecklist);
+  const deleteMasterChecklist = useAppStore(s => s.deleteMasterChecklist);
 
   // États
   const [searchTerm, setSearchTerm] = useState('');
@@ -207,9 +210,8 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
   const handleConfirmImport = () => {
     if (importItems.length === 0 || !importDoc) return;
-    const store = useAppStore.getState();
-    store.importChecklistMemoryRecords(importItems);
-    store.addNotification?.({ type: 'success', message: `${importItems.length} item(s) importé(s) dans la mémoire IA`, user_id: user?.id || '', canal: 'in_app' });
+    importChecklistMemoryRecords(importItems);
+    addNotification?.({ type: 'success', title: 'Import réussi', message: `${importItems.length} item(s) importé(s) dans la mémoire IA`, user_id: user?.id || '', canal: 'in_app' });
     setImportDoc(null);
     setImportItems([]);
   };
@@ -249,13 +251,11 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const handleGenerateChecklist = async () => {
     if (genPortee.length === 0) return
     setGenLoading(true)
-    const store = useAppStore.getState()
     try {
       if (!kitDocAgent.isReady()) await kitDocAgent.init()
       const now = new Date();
       const mmYY = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
       const domaineCode = genPortee.includes('AGA') || genPortee.length >= 8 ? 'AGA' : genPortee.join('-');
-      const masterChecklists = store.masterChecklists;
       const existingIds = Object.keys(masterChecklists).filter(id => id.startsWith(`CHCKLI-${domaineCode}-${mmYY}`));
       const version = existingIds.length + 1;
       const generationId = `CHCKLI-${domaineCode}-${mmYY}-${String(version).padStart(2, '0')}`;
@@ -317,7 +317,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       }))
 
       if (!result.domaines || result.domaines.length === 0) {
-        store.addNotification?.({
+        addNotification?.({
           user_id: user?.id || '',
           type: 'danger',
           title: 'Génération vide',
@@ -325,8 +325,8 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           canal: 'in_app',
         })
       } else {
-        store.setMasterChecklist(generationId, hierarchy as unknown as DomaineChecklist[])
-        store.addNotification?.({
+        setMasterChecklist(generationId, hierarchy as unknown as DomaineChecklist[])
+        addNotification?.({
           user_id: user?.id || '',
           type: 'success',
           title: 'Checklist générée',
@@ -344,7 +344,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       router.push(`/kit-checklist/${generationId}`)
     } catch (err) {
       console.error('[KitInspecteur] Erreur génération checklist:', err)
-      store.addNotification({
+      addNotification({
         user_id: user?.id || '',
         type: 'danger',
         title: 'Erreur',
@@ -424,7 +424,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   }, [listeDocuments]);
 
   const trainingRecords = useAppStore(s => s.checklistMemoryRecords).filter(r => r.aerodrome_id === 'anacim_legacy');
-  const masterChecklists = useAppStore(s => s.masterChecklists);
   const trainingStats = useMemo(() => {
     const parDomaine: Record<string, number> = {}
     for (const r of trainingRecords) {
@@ -1380,9 +1379,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                 type="button"
                                 onClick={() => {
                                   if (confirm('Supprimer cette checklist ?')) {
-                                    const updated = { ...masterChecklists }
-                                    delete updated[id]
-                                    useAppStore.setState({ masterChecklists: updated })
+                                    deleteMasterChecklist(id)
                                   }
                                 }}
                                 className="action-button danger"
