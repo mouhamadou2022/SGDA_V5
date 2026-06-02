@@ -646,7 +646,7 @@ export function getPAOENiveauFromScore(score: number): PAOELevel {
   if (score >= 90) return 'efficace';
   if (score >= 65) return 'operationnel';
   if (score >= 40) return 'approprie';
-  if (score >= 15) return 'present';
+  if (score >= 20) return 'present';
   return 'absent';
 }
 

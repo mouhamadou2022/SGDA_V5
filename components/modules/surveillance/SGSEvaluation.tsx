@@ -1551,7 +1551,7 @@ export function SGSEvaluationContent({
               </span>
               {/* Badge N0–N5 */}
               <span className={`${getNiveauN0N5BadgeClass(evaluation.scoreGlobal)} font-bold`}>
-                {getNiveauN0N5(evaluation.scoreGlobal)}
+                {getNiveauN0N5Label(evaluation.scoreGlobal)}
               </span>
               <span className="text-xl font-bold text-role-primary">{evaluation.scoreGlobal}%</span>
             </div>
