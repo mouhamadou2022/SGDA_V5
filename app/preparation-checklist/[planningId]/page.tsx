@@ -10,7 +10,7 @@
 //   ?type=mixte     → onglets Standard / PAC / Suivi dans la même page
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import {
@@ -580,6 +580,21 @@ export default function PreparationChecklistPage() {
     if (raw) { try { setDelegations(JSON.parse(raw)) } catch { /* ignore */ } }
   }, [planningId]);
 
+  // Filtrer les domaines selon les délégations (inspecteur ne voit que ses domaines)
+  const filteredDomaines = useMemo(() => {
+    const hasDelegations = Object.keys(delegations).some(k => delegations[k])
+    if (!hasDelegations || !user?.id) return standardDomaines
+    const isChef = user?.role === 'admin' || user?.role === 'inspector' && (user as any).poste === 'chef_dnsa'
+    if (isChef) return standardDomaines // Chef voit tout
+    return standardDomaines.filter(d => {
+      const code = d.id?.toUpperCase() || d.nom?.toUpperCase() || ''
+      // Domaines délégués à l'utilisateur OU domaines non assignés (visibles par tous)
+      const isDelegated = delegations[code] === user.id
+      const isUnassigned = !delegations[code]
+      return isDelegated || isUnassigned
+    })
+  }, [standardDomaines, delegations, user?.id, user?.role]);
+
   const planning = plannings.find(p => p.id === planningId);
   const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
   const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
@@ -1061,7 +1076,7 @@ export default function PreparationChecklistPage() {
         {/* Standard (mode standard, ou onglet standard en mixte) */}
         {activeContent === 'standard' && (
           <StandardContent
-            domaines={standardDomaines}
+                    domaines={filteredDomaines}
             onChangeDomaines={(d) => { setStandardDomaines(d); setHasChanges(true); }}
             sgsEvaluation={sgsEvaluation}
             onSaveSGS={(e) => { setSgsEvaluation(e); setHasChanges(true); }}
