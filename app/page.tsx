@@ -296,7 +296,8 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
               }
             }
           } catch { /* ignored */ }
-          if (!user!) throw new Error('Identifiant ou mot de passe incorrect')
+          if (!user) throw new Error('Identifiant ou mot de passe incorrect')
+        }
       }
 
       if (!user) throw new Error('Authentification échouée')
