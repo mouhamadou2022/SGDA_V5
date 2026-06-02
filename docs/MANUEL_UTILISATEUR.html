@@ -4,24 +4,23 @@
 <meta charset="UTF-8">
 <title>SGDA V5 — Manuel Utilisateur</title>
 <style>
-body { font-family: 'Calibri', Arial, sans-serif; font-size: 12pt; color: #1f2937; line-height: 1.6; max-width: 900px; margin: auto; padding: 40px; }
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12pt; color: #1f2937; line-height: 1.7; max-width: 950px; margin: auto; padding: 40px; }
 h1 { font-size: 28pt; color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }
 h2 { font-size: 20pt; color: #1a237e; margin-top: 40px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
 h3 { font-size: 14pt; color: #374151; margin-top: 25px; }
 h4 { font-size: 12pt; color: #4b5563; margin-top: 15px; }
-p { margin: 8px 0; }
+p, li { margin: 6px 0; }
 table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 11pt; }
 th, td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
 th { background: #1a237e; color: white; }
 tr:nth-child(even) { background: #f9fafb; }
 ul, ol { margin: 8px 0; padding-left: 25px; }
-li { margin: 4px 0; }
 code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10pt; }
 .alert { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; border-radius: 4px; margin: 15px 0; }
 .info { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 10px 15px; border-radius: 4px; margin: 15px 0; }
 .warning { background: #fee2e2; border-left: 4px solid #ef4444; padding: 10px 15px; border-radius: 4px; margin: 15px 0; }
 .page-break { page-break-before: always; }
-.cover { text-align: center; padding: 100px 0; }
+.cover { text-align: center; padding: 80px 0; }
 .cover h1 { font-size: 36pt; border: none; }
 .cover h2 { font-size: 18pt; color: #6b7280; border: none; margin-top: 10px; }
 .cover p { color: #9ca3af; font-size: 11pt; }
@@ -38,240 +37,348 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2>Table des matières</h2>
+<h2>Table des Matières</h2>
 <ol>
-  <li>Introduction</li>
-  <li>Profil de Risque (module clé)</li>
-  <li>Modèles de Prédiction</li>
-  <li>Module ML Monitoring</li>
-  <li>Scénarios et Analyse Bayésienne</li>
-  <li>Bow Tie et Analyse de Contagion</li>
-  <li>Administration des clés API</li>
-  <li>FAQ et Dépannage</li>
+  <li><a href="#intro">Introduction et Connexion</a></li>
+  <li><a href="#profil">Profil de Risque</a></li>
+  <li><a href="#planning">Planning des Surveillances</a></li>
+  <li><a href="#kit">Kit Inspecteur</a></li>
+  <li><a href="#surveillance">Surveillance et Checklist</a></li>
+  <li><a href="#aerodrome">Gestion des Aérodromes</a></li>
+  <li><a href="#ml">ML Monitoring</a></li>
+  <li><a href="#evenements">Événements de Sécurité</a></li>
+  <li><a href="#roles">Rôles et Permissions</a></li>
+  <li><a href="#faq">FAQ et Dépannage</a></li>
 </ol>
 
-<!-- ============================================================ -->
 <div class="page-break"></div>
-<h2>1. Introduction</h2>
 
-<p>SGDA V5 est le système de gestion des aérodromes de l'ANACIM Sénégal. Il couvre l'intégralité du cycle de vie réglementaire : surveillance, certification, homologation, écarts, événements, formations et registre.</p>
+<h2 id="intro">1. Introduction et Connexion</h2>
 
-<p>Ce manuel se concentre sur les modules avancés : <strong>Profil de Risque</strong>, <strong>Modèles de Prédiction</strong> et <strong>ML Monitoring</strong>.</p>
-
-<h3>Accès à l'application</h3>
-<p>URL : <code>https://sgda.anacim.sn</code> (ou l'URL fournie par votre administrateur)</p>
-<p>Connexion : identifiant (email) + mot de passe fournis par l'administrateur, ou code d'accès temporaire pour les exploitants.</p>
-
-<!-- ============================================================ -->
-<div class="page-break"></div>
-<h2>2. Profil de Risque</h2>
-
-<p>Le <strong>Profil de Risque</strong> est le cœur du système. Il évalue en continu le niveau de risque de chaque aérodrome selon 5 critères (C1 à C5) et produit des prédictions, des scénarios et des alertes proactives.</p>
-
-<h3>2.1 Les 5 critères (C1 à C5)</h3>
-
-<table>
-<tr><th>Critère</th><th>Nom</th><th>Ce qu'il mesure</th><th>Pondération</th></tr>
-<tr><td><strong>C1</strong></td><td>Maturité SGS</td><td>Niveau de maturité du Système de Gestion de la Sécurité (N1 à N5)</td><td>20%</td></tr>
-<tr><td><strong>C2</strong></td><td>Efficacité PAC</td><td>Respect des délais de traitement des écarts et plans d'action</td><td>20%</td></tr>
-<tr><td><strong>C3</strong></td><td>Conformité Technique</td><td>Résultats des inspections et surveillances par domaine (SGS, PHY, OLS, MFP, SLI, OPS, RA)</td><td>20%</td></tr>
-<tr><td><strong>C4</strong></td><td>Charge Critique</td><td>Volume et sévérité des écarts non résolus</td><td>20%</td></tr>
-<tr><td><strong>C5</strong></td><td>Résilience</td><td>Capacité de l'entité à absorber et répondre aux événements de sécurité</td><td>20%</td></tr>
-</table>
-
-<div class="info">
-<strong>Lecture :</strong> Chaque critère est noté de <strong>0</strong> (risque maximal) à <strong>100</strong> (risque nul). Le score global est la moyenne pondérée des 5 critères.
-</div>
-
-<h3>2.2 Échelle de risque</h3>
-<table>
-<tr><th>Score global</th><th>Niveau</th><th>Couleur</th><th>Action recommandée</th></tr>
-<tr><td>80-100</td><td>Faible</td><td style="color:green;">Vert</td><td>Maintien de la surveillance programmée</td></tr>
-<tr><td>60-79</td><td>Moyen</td><td style="color:orange;">Orange</td><td>Surveillance renforcée</td></tr>
-<tr><td>30-59</td><td>Élevé</td><td style="color:orange;">Orange foncé</td><td>Action corrective requise</td></tr>
-<tr><td>0-29</td><td>Critique</td><td style="color:red;">Rouge</td><td>Action immédiate — alerte proactive</td></tr>
-</table>
-
-<h3>2.3 Navigation</h3>
-<p>Accédez au module via <strong>Navigation → Profil Risque</strong>. L'interface comprend plusieurs onglets :</p>
-
-<table>
-<tr><th>Onglet</th><th>Contenu</th></tr>
-<tr><td><strong>SGS / Vue d'ensemble</strong></td><td>Score global, tendance, C1-C5 détaillés, maturité SGS, métriques vélocité, stress système, analyse bayésienne, détection Black Swan</td></tr>
-<tr><td><strong>Analyse des tendances</strong></td><td>Graphique d'évolution, tendance long terme (12 mois) et court terme (3 mois), points d'inflexion</td></tr>
-<tr><td><strong>Matrice des risques</strong></td><td>Matrice de criticité par domaine, heatmap de corrélation, timeline des événements</td></tr>
-<tr><td><strong>Prédictions</strong></td><td>Prédictions à 3/6/12 mois, prédiction d'incidents, calibration des modèles</td></tr>
-<tr><td><strong>Scénarios</strong></td><td>4 scénarios générés automatiquement (optimiste, réaliste, pessimiste, catastrophe)</td></tr>
-<tr><td><strong>Alertes</strong></td><td>Alertes proactives, escalade, suggestions IA</td></tr>
-</table>
-
-<!-- ============================================================ -->
-<div class="page-break"></div>
-<h2>3. Modèles de Prédiction</h2>
-
-<p>SGDA V5 intègre <strong>plusieurs modèles de prédiction</strong> qui travaillent en ensemble (modèle ensembliste) pour anticiper l'évolution du risque.</p>
-
-<h3>3.1 Types de prédictions</h3>
-
-<h4>Prédiction du score global (3/6/12 mois)</h4>
-<p>Basée sur l'historique des scores, utilise une combinaison de :</p>
+<h3>1.1 Présentation</h3>
+<p>SGDA V5 est le système de gestion des aérodromes de l'ANACIM Sénégal. Il permet :</p>
 <ul>
-  <li><strong>Régression linéaire</strong> — tendance générale</li>
-  <li><strong>Prophet (Meta)</strong> — détection des saisonnalités</li>
-  <li><strong>EWMA</strong> — moyenne mobile pondérée exponentiellement (réactivité aux changements récents)</li>
-  <li><strong>Moyenne d'ensemble</strong> — combine les 3 modèles pour une prédiction robuste</li>
+  <li>L'analyse du profil de risque de chaque aérodrome via 20+ modèles mathématiques et IA</li>
+  <li>La planification des surveillances (année en cours et N+1)</li>
+  <li>La gestion des écarts, PAC, certifications et homologations</li>
+  <li>Le kit documentaire réglementaire avec analyse IA</li>
+  <li>Le monitoring en temps réel des modèles d'apprentissage</li>
 </ul>
 
-<div class="info">
-<strong>Indicateur de confiance :</strong> Chaque prédiction est accompagnée d'un pourcentage de confiance. Plus l'historique est long, plus la confiance est élevée (de 30% avec peu de données à 85%+ avec 2+ ans d'historique).
-</div>
-
-<h4>Prédiction d'incidents (3/6/12 mois)</h4>
-<p>Probabilité qu'un incident de sécurité survienne dans les périodes à venir. Basée sur :</p>
+<h3>1.2 Connexion</h3>
+<p>Deux modes d'authentification :</p>
 <ul>
-  <li>La fréquence historique des événements</li>
-  <li>La sévérité des événements récents</li>
-  <li>Le temps écoulé depuis le dernier incident</li>
-  <li>L'accélération de la tendance événementielle</li>
+  <li><b>Email + mot de passe</b> : identifiant au format <code>prenom.nom@anacim.sn</code></li>
+  <li><b>Code d'accès</b> : pour les exploitants et opérateurs temporaires</li>
 </ul>
+<div class="info">Après 5 tentatives échouées, le compte est temporairement bloqué. Contactez l'administrateur.</div>
 
-<h4>Risque de contagion (Hawkes)</h4>
-<p>Modélise la propagation des écarts : un écart critique augmente temporairement la probabilité d'autres écarts. L'<strong>intensité Hawkes</strong> mesure ce phénomène de contagion.</p>
+<h3>1.3 Navigation</h3>
+<p>La barre latérale gauche donne accès à tous les modules. Les modules visibles dépendent de votre rôle (voir section 9).</p>
 
-<h4>Analyse Bayésienne et Black Swan</h4>
-<p>Met à jour en continu la probabilité d'un événement majeur. Le <strong>Black Swan</strong> (cygne noir) est un événement à très faible probabilité mais à impact extrême, détecté quand la probabilité postérieure dépasse un seuil critique.</p>
-
-<h3>3.2 Où voir les prédictions ?</h3>
-<ul>
-  <li><strong>Profil de Risque → onglet Prédictions</strong> : graphiques, calendrier et intervalle de confiance</li>
-  <li><strong>Profil de Risque → onglet SGS</strong> : résumé bayésien, black swan</li>
-  <li><strong>ML Monitoring</strong> : calibration, performance des modèles</li>
-</ul>
-
-<!-- ============================================================ -->
 <div class="page-break"></div>
-<h2>4. Module ML Monitoring</h2>
 
-<p>Le module <strong>ML Monitoring</strong> est le tableau de bord des performances des modèles de prédiction. Il permet de visualiser la qualité des prédictions et de détecter les dérives.</p>
+<h2 id="profil">2. Profil de Risque</h2>
+<div class="info">Module central du système. Le profil de risque est calculé automatiquement via 20+ modèles mathématiques et IA, mis à jour à chaque événement (écart, surveillance, incident).</div>
 
-<h3>4.1 Accès</h3>
-<p><strong>Navigation → ML Monitoring</strong> (réservé aux rôles admin et inspecteur).</p>
+<h3>2.1 Vue d'ensemble (tous les aérodromes)</h3>
+<ul>
+  <li><b>KPIs globaux</b> : score moyen des aérodromes, nombre d'aérodromes Excellents/Critiques/En dégradation</li>
+  <li><b>Analyse comparative</b> : tableau de benchmarking classé par score, tri par C1-C5 ou région. Vue liste ou grille</li>
+  <li><b>Grille de cartes</b> : chaque carte affiche le score, la tendance, le mini-radar C1-C5 (SGS, PAC, Conformité, Charge, Résilience), la maturité SGS (N1 Absent → N5 Efficace), les alertes HMM/Black Swan/Survival</li>
+</ul>
 
-<h3>4.2 Ce que vous y trouverez</h3>
+<h3>2.2 Vue détaillée (clic sur une carte)</h3>
+<p>4 onglets pour l'analyse approfondie :</p>
 
+<h4>Onglet Synthèse</h4>
+<ul>
+  <li><b>Gauge de risque</b> : score global /100 avec niveau (Excellent ≥80, Bon 60-79, Modéré 30-59, Critique &lt;30)</li>
+  <li><b>Radar C1-C5</b> : graphique radar des 5 critères</li>
+  <li><b>Tendance</b> : amélioration (vert) ou dégradation (rouge)</li>
+  <li><b>Alertes IA</b> : HMM (transition silencieuse), Survival (risque incident 90j), écarts critiques</li>
+  <li><b>Infrastructure</b> : type d'entité, horaires, catégorie SSLIA</li>
+  <li><b>Tableau de synthèse multicritère</b> : tableau C1-C5 avec poids, score, tendance par critère, prédictions 3m/6m avec intervalles de confiance, légende des niveaux</li>
+</ul>
+
+<h4>Onglet Diagnostic</h4>
+<ul>
+  <li><b>C1-C5 détaillé</b> : chaque critère avec barre de progression, score, explication du driver</li>
+  <li><b>Matrice OACI 5×5</b> : matrice de risque standard aviation, écarts positionnés dans les cellules avec compteurs</li>
+  <li><b>Corrélations C1-C5</b> : heatmap de corrélation entre critères, dépendance Copulas</li>
+  <li><b>Analyse Bow-Tie</b> : pour chaque domaine — Dangers, Barrières préventives/correctives (avec efficacité %), Risque résiduel, Bénéfices estimés, Impact C1-C5</li>
+  <li><b>Black Swans</b> : détection d'événements extrêmes improbables</li>
+</ul>
+
+<h4>Onglet Anticipation</h4>
+<ul>
+  <li><b>Timeline des prédictions</b> : scores projetés à 3, 6 et 12 mois</li>
+  <li><b>HMM</b> : état caché (stable/dégradation/critique), risque de transition, jours avant criticité</li>
+  <li><b>Survival Analysis</b> : hazard à 90 et 180 jours, médiane de survie</li>
+  <li><b>EVT (Extreme Value Theory)</b> : risque extrême, distribution à queue lourde, maximum attendu 12 mois</li>
+  <li><b>Negative Binomial</b> : surdispersion des incidents (arrivent-ils par grappes ?)</li>
+  <li><b>Prédictions contextuelles IA</b> : probabilité par type d'incident (birdstrike, FOD, etc.) dérivée des données réelles</li>
+  <li><b>Simulateur de scénarios</b> : sliders interactifs C1-C5, suggestions IA, sauvegarde de scénarios</li>
+  <li><b>Analyse des tendances</b> : graphe d'évolution du score, R², points d'inflexion</li>
+</ul>
+
+<h4>Onglet Actions</h4>
+<ul>
+  <li><b>Recommandations priorisées</b> : basées sur le score global et chaque critère C1-C5</li>
+  <li><b>Modèles ML</b> : Thompson Sampling (meilleure action), HMM (alerte transition), EVT (plan urgence), Survival (inspection 90j), Copulas (domaines liés), NB (grappes d'incidents)</li>
+  <li><b>Feedback inspecteur</b> : évaluez la précision des prédictions (exacte/assez proche/très éloignée)</li>
+  <li><b>Exporter le rapport</b> : téléchargement du rapport de risque au format texte</li>
+  <li><b>Recalculer le profil</b> : force le recalcul immédiat du profil de risque (admin/inspecteur)</li>
+</ul>
+
+<h3>2.3 Vue DG (décideurs)</h3>
+<p>Pour les DG ANACIM et DG exploitants, une vue simplifiée est affichée :</p>
+<ul>
+  <li>Score global + niveau + tendance</li>
+  <li>Actions prioritaires (urgentes)</li>
+  <li>Points de vigilance</li>
+  <li>Projection du risque (3m, 6m, pire cas)</li>
+  <li>Écarts critiques</li>
+</ul>
+<p>Les détails techniques (HMM, Copulas, Bow-Tie) sont masqués.</p>
+
+<h3>2.4 Modèles mathématiques intégrés</h3>
 <table>
-<tr><th>Section</th><th>Description</th></tr>
-<tr><td><strong>Calibration des modèles</strong></td><td>Performance globale : MAE (erreur moyenne absolue), biais, couverture IC95%. Indique si le modèle est fiable ou s'il nécessite une recalibration.</td></tr>
-<tr><td><strong>Performance par modèle</strong></td><td>Comparaison régression linéaire / Prophet / Hawkes / Ensemble. MAE, biais et couverture pour chaque modèle.</td></tr>
-<tr><td><strong>Prédictions récentes</strong></td><td>Liste des 10 dernières prédictions avec écart entre valeur prédite et valeur réelle (quand disponible).</td></tr>
-<tr><td><strong>Historique des prédictions</strong></td><td>Graphique des scores prédits vs réels pour visualiser la dérive du modèle.</td></tr>
+  <tr><th>Modèle</th><th>Rôle</th><th>Visible dans</th></tr>
+  <tr><td>Régression linéaire + EWMA</td><td>Prédiction score 3m/6m</td><td>Synthèse</td></tr>
+  <tr><td>Hawkes (uni + multivarié)</td><td>Contagion des écarts</td><td>Calcul interne</td></tr>
+  <tr><td>CUSUM</td><td>Détection de changement brusque</td><td>Anticipation</td></tr>
+  <tr><td>Bayésien</td><td>Probabilité postérieure, Black Swan</td><td>Diagnostic</td></tr>
+  <tr><td>Bayesian Dynamic</td><td>Prior évolutif (apprentissage continu)</td><td>Calcul interne</td></tr>
+  <tr><td>Poisson</td><td>Prédiction nombre d'incidents</td><td>Anticipation</td></tr>
+  <tr><td>Corrélation + Copulas</td><td>Dépendances C1-C5, dépendance de queue</td><td>Diagnostic</td></tr>
+  <tr><td>Conformal</td><td>Intervalles de confiance</td><td>Synthèse</td></tr>
+  <tr><td>HMM</td><td>État caché, transition silencieuse</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td>Survival (Kaplan-Meier / Cox PH)</td><td>Quand l'incident arrivera (hazard 90j/180j)</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td>EVT (GEV/GPD)</td><td>Pire incident possible (risque extrême)</td><td>Anticipation, Actions</td></tr>
+  <tr><td>Negative Binomial</td><td>Surdispersion (incidents par grappes)</td><td>Anticipation, Actions</td></tr>
+  <tr><td>Thompson Sampling</td><td>Meilleure action à entreprendre</td><td>Actions</td></tr>
+  <tr><td>XGBoost</td><td>Classification du niveau de risque</td><td>Calcul interne (≥20 points)</td></tr>
+  <tr><td>LSTM</td><td>Deep learning série temporelle</td><td>Calcul interne (≥30 points)</td></tr>
+  <tr><td>Ensemble (LSTM+XGB+Bayesian)</td><td>Combinaison des modèles IA</td><td>Calcul interne (≥6 points)</td></tr>
+  <tr><td>Bow-Tie</td><td>Barrières de défense par domaine</td><td>Diagnostic</td></tr>
+</table>
+<div class="info">Tous les modèles sont calculés via un <b>ModelCache</b> partagé (TTL 5 minutes) pour éviter les doubles calculs. Les résultats sont persistés dans la base de données.</div>
+
+<div class="page-break"></div>
+
+<h2 id="planning">3. Planning des Surveillances</h2>
+
+<h3>3.1 Vues disponibles</h3>
+<table>
+  <tr><th>Vue</th><th>Description</th></tr>
+  <tr><td>Liste</td><td>Cartes de planning par aérodrome avec actions (préparer, exécuter, voir, modifier, supprimer)</td></tr>
+  <tr><td>Tableau</td><td>Tableau groupé par aérodrome avec score de risque, 5 boutons d'action</td></tr>
+  <tr><td>Calendrier</td><td>Vue calendrier mensuel/annuel avec code OACI et statut</td></tr>
+  <tr><td>Gantt</td><td>Diagramme de Gantt des surveillances par inspecteur</td></tr>
+  <tr><td>Charge</td><td>Vue charge de travail par inspecteur</td></tr>
+  <tr><td>Assignation</td><td>Assignation intelligente des inspecteurs aux missions</td></tr>
 </table>
 
-<h3>4.3 Interprétation des métriques</h3>
+<h3>3.2 Créer un planning</h3>
+<ol>
+  <li>Cliquer sur <b>Nouveau planning</b></li>
+  <li>Remplir le formulaire : aérodrome, type, dates, domaines, équipe</li>
+  <li>Valider</li>
+</ol>
 
-<table>
-<tr><th>Métrique</th><th>Plage idéale</th><th>Signification</th></tr>
-<tr><td><strong>MAE</strong> (Erreur moyenne absolue)</td><td>&lt; 5</td><td>En moyenne, la prédiction se trompe de moins de 5 points</td></tr>
-<tr><td><strong>Biais</strong></td><td>-2 à +2</td><td>Le modèle ne sur-estime ni ne sous-estime systématiquement</td></tr>
-<tr><td><strong>Couverture IC95%</strong></td><td>≥ 90%</td><td>95% des valeurs réelles tombent dans l'intervalle de confiance prédit</td></tr>
-</table>
-
-<div class="warning">
-<strong>⚠️ Alerte calibration :</strong> Si le MAE dépasse 15 ou si le biais dépasse ±5, une recalibration est recommandée. L'alerte s'affiche automatiquement dans le module ML Monitoring.
-</div>
-
-<h3>4.4 Recalibration manuelle</h3>
-<p>Cliquez sur <strong>"Lancer calibration"</strong> dans la carte <strong>Calibration des modèles</strong> du Profil de Risque. La calibration ajuste automatiquement les seuils et les poids des modèles.</p>
-
-<div class="info">
-<strong>Recommandation :</strong> Lancez une calibration après avoir ajouté au moins 10 nouveaux points d'historique (surveillances ou événements).
-</div>
-
-<!-- ============================================================ -->
-<div class="page-break"></div>
-<h2>5. Scénarios et Analyse Bayésienne</h2>
-
-<h3>5.1 Les 4 scénarios</h3>
-<p>Le système génère automatiquement <strong>4 scénarios</strong> pour chaque aérodrome, basés sur l'historique des scores et la volatilité :</p>
-
-<table>
-<tr><th>Scénario</th><th>Probabilité</th><th>Description</th></tr>
-<tr><td><strong>Optimiste</strong></td><td>~30%</td><td>Les surveillances sont conformes, le SGS progresse, le score s'améliore</td></tr>
-<tr><td><strong>Réaliste</strong></td><td>~50%</td><td>Tendance actuelle se poursuit avec des fluctuations normales</td></tr>
-<tr><td><strong>Pessimiste</strong></td><td>~15%</td><td>Dégradation due à des écarts récurrents ou une baisse de maturité SGS</td></tr>
-<tr><td><strong>Catastrophe</strong></td><td>~5%</td><td>Défaillance critique nécessitant une fermeture temporaire</td></tr>
-</table>
-
-<h3>5.2 Analyse Bayésienne</h3>
-<p>Le <strong>modèle bayésien</strong> met à jour en continu la probabilité d'un événement grave en fonction des données observées :</p>
+<h3>3.3 Préparer une surveillance</h3>
+<p>Cliquer sur <b>Préparer</b> (icône fichier) sur une carte planning → ouvre la modale de préparation avec 4 onglets :</p>
 <ul>
-  <li><strong>Prior</strong> : probabilité initiale (estimation avant observation)</li>
-  <li><strong>Posterior</strong> : probabilité mise à jour après chaque événement</li>
-  <li><strong>Black Swan</strong> : détection d'un événement imprévisible (posterior significativement plus élevée que le prior)</li>
+  <li><b>Profil de risque</b> : score, tendance, critères C1-C5, vélocité</li>
+  <li><b>Historique</b> : surveillances précédentes, écarts non résolus</li>
+  <li><b>Checklist</b> : type recommandé (standard, SGS, suivi écarts, PAC), pré-remplissage IA</li>
+  <li><b>Délégation</b> : assigner les domaines aux inspecteurs</li>
+</ul>
+<p>Bouton <b>Envoyer la checklist</b> : notifie les exploitants par in-app + email.</p>
+
+<h3>3.4 Planning N+1 (année prochaine)</h3>
+<div class="warning">Disponible uniquement à partir de <b>novembre</b> de l'année en cours. Avant cette date, le bouton affiche « Bientôt ».</div>
+<p>En novembre, le planning N+1 est généré automatiquement :</p>
+<ol>
+  <li>Les propositions apparaissent classées par aérodrome (source : profil, carry-over écarts/PAC, certification)</li>
+  <li><b>Valider</b> : marque la proposition en vert (reste visible)</li>
+  <li><b>Ajuster</b> : modifier le type, les dates, les domaines, ajouter des observations</li>
+  <li><b>Refuser</b> : la proposition disparaît avec un motif</li>
+  <li><b>Consolider le planning N+1</b> : bouton vert qui apparaît après validation → modale de confirmation avec toutes les propositions validées</li>
+</ol>
+
+<h3>3.5 Suggestions IA (année en cours)</h3>
+<p>Le bouton <b>Suggestions IA</b> (à droite de la barre d'outils) ouvre un panneau d'analyse pour l'année en cours :</p>
+<ul>
+  <li>Déclencheurs d'écarts par aérodrome (PAC, suivi, urgence)</li>
+  <li>Profil de risque avec type/fréquence suggérés</li>
+  <li>Bouton <b>Créer maintenant</b> pour les cas critiques</li>
+</ul>
+<div class="alert">Le bouton pulse en rouge si des déclencheurs critiques sont détectés, en orange pour des alertes hautes, en bleu quand le panneau est ouvert.</div>
+
+<div class="page-break"></div>
+
+<h2 id="kit">4. Kit Inspecteur</h2>
+
+<h3>4.1 Documents réglementaires</h3>
+<p>Base documentaire partageable avec les exploitants :</p>
+<ul>
+  <li>Types : Réglementation, Procédure, Checklist, Modèle de rapport, Guide</li>
+  <li>Références OACI : RAS-14, Circulaires ANACIM, Guides OACI (Doc 9157, 9261), Checklists officielles</li>
+  <li>Filtres par domaine (SGS, SLI, PHY, OLS, etc.), type, statut (à jour/en révision/obsolète)</li>
+  <li>Vue liste ou grille</li>
 </ul>
 
-<h3>5.3 Diagramme Bow Tie</h3>
-<p>Le <strong>Bow Tie</strong> visualise les causes et conséquences des risques identifiés pour chaque domaine réglementaire. Il aide à comprendre les barrières de sécurité existantes et manquantes.</p>
+<h3>4.2 Analyse IA</h3>
+<p>Après l'import d'un document réglementaire, l'IA (<code>kitDocAgent</code>) analyse automatiquement le contenu et extrait les items de checklist pertinents.</p>
 
-<p>Accès : <strong>Profil de Risque → onglet SGS</strong> (carte Bow Tie Viewer).</p>
+<h3>4.3 Génération de checklist</h3>
+<p>Bouton <b>Générer la checklist</b> : crée une checklist structurée à partir des documents analysés, avec domaines, items, références réglementaires et prédictions IA.</p>
 
-<!-- ============================================================ -->
+<h3>4.4 Entraînement IA</h3>
+<p>Sous-onglet Entraînement : permet de visualiser les checklists maîtres générées et les records de mémoire d'apprentissage par domaine.</p>
+
+<h3>4.5 Partage</h3>
+<p>Partagez des documents avec les exploitants d'aérodromes spécifiques. Les documents partagés apparaissent dans leur portail.</p>
+
 <div class="page-break"></div>
-<h2>6. Administration des clés API</h2>
 
-<p>Les clés API (Groq, OpenRouter, Resend, Twilio) peuvent être gérées depuis l'interface au lieu du fichier <code>.env.local</code>.</p>
+<h2 id="surveillance">5. Surveillance et Checklist</h2>
 
-<h3>6.1 Accès</h3>
-<p><strong>Navigation → Dashboard Admin → Clés API</strong> (réservé au rôle admin).</p>
+<h3>5.1 Lancement d'une surveillance</h3>
+<p>Depuis le planning, cliquer sur <b>Exécuter</b> (icône coche) → la checklist s'ouvre avec les items pré-remplis.</p>
 
-<h3>6.2 Fonctionnalités</h3>
+<h3>5.2 Types de checklist</h3>
 <ul>
-  <li><strong>Ajouter</strong> une clé : sélectionnez le service, saisissez la clé, donnez un libellé</li>
-  <li><strong>Modifier</strong> une clé existante</li>
-  <li><strong>Supprimer</strong> une clé</li>
-  <li><strong>Activer/Désactiver</strong> une clé sans la supprimer</li>
+  <li><b>Standard</b> : items RAS-14 par domaine</li>
+  <li><b>SGS (PAOE)</b> : évaluation de la maturité SGS selon l'Annexe 19 OACI (4 piliers, 5 niveaux)</li>
+  <li><b>Suivi des écarts</b> : vérification de l'état d'avancement des écarts</li>
+  <li><b>Mise en œuvre PAC</b> : vérification des plans d'action corrective</li>
+  <li><b>Maintien</b> : items des surveillances antérieures + domaines du profil</li>
 </ul>
 
-<h3>6.3 Ordre de priorité</h3>
-<p>Le système essaie d'abord les clés du fichier <code>.env.local</code>, puis les clés en base dans l'ordre croissant de <code>fallback_order</code>. Si la première clé échoue (quota épuisé), la suivante est automatiquement essayée.</p>
-
-<!-- ============================================================ -->
-<div class="page-break"></div>
-<h2>7. FAQ et Dépannage</h2>
-
-<h3>L'IA ne répond pas (erreur 429 ou 402)</h3>
-<div class="alert">
-Les clés API Groq/OpenRouter sont épuisées. Ajoutez une nouvelle clé via <strong>Dashboard Admin → Clés API</strong> ou attendez le reset du quota (quotidien pour Groq).
-</div>
-
-<h3>Les emails ne partent pas</h3>
-<div class="alert">
-Vérifiez que <code>RESEND_API_KEY</code> est configurée. Les emails sont limités à 1 toutes les 30 secondes par destinataire (anti-boucle). Ajoutez la clé via l'interface admin.
-</div>
-
-<h3>Le profil de risque semble incorrect</h3>
-<div class="alert">
-Le profil se recalcule automatiquement à chaque modification (écart, événement, surveillance). Vérifiez que l'aérodrome a une <strong>maturité SGS</strong> renseignée. Sans donnée, le C1 est à 10 par défaut (prudent).
-</div>
-
-<h3>Les prédictions sont à 0 ou inexactes</h3>
-<div class="alert">
-Les prédictions nécessitent un minimum d'<strong>historique de scores</strong> (au moins 3 points temporels). Plus vous avez de données, meilleures sont les prédictions. La confiance s'affiche à côté de chaque prédiction.
-</div>
-
-<h3>Le ML Monitoring n'affiche aucune donnée</h3>
-<div class="alert">
-Le module ML Monitoring se remplit au fur et à mesure que les modèles font des prédictions. Après quelques prédictions (3-4 cycles), les métriques de performance apparaîtront.
-</div>
-
-<h3>Erreur "Maximum call stack size exceeded"</h3>
-<div class="alert">
-Bug corrigé dans la version actuelle. Si vous voyez encore cette erreur, videz le cache navigateur (<code>Ctrl+F5</code>) et reconnectez-vous.
-</div>
+<h3>5.3 Signature</h3>
+<p>La feuille de présence permet la signature électronique via un pad de signature. La checklist signée est archivée automatiquement.</p>
 
 <div class="page-break"></div>
-<hr>
-<p style="text-align:center;color:#9ca3af;font-size:10pt;">SGDA V5 — Manuel Utilisateur — ANACIM Sénégal — Juin 2026</p>
+
+<h2 id="aerodrome">6. Gestion des Aérodromes</h2>
+
+<h3>6.1 Fiche détaillée</h3>
+<p>Cliquer sur un aérodrome dans la liste ou la grille ouvre la fiche détaillée avec :</p>
+<ul>
+  <li>Informations générales (code OACI, nom, région, type, catégorie SSLIA)</li>
+  <li>Profil de risque complet (score, C1-C5, tendance, prédictions, scénarios)</li>
+  <li>Surveillances récentes</li>
+  <li>Écarts actifs</li>
+  <li>Certifications et homologations</li>
+  <li>Modèles avancés (HMM, Survival, EVT, Bayésien)</li>
+  <li>Analyse IA narrative</li>
+</ul>
+
+<h3>6.2 Création</h3>
+<p>Formulaire multi-étapes : type d'entité → informations générales → caractéristiques → maturité SGS → confirmation.</p>
+
+<div class="page-break"></div>
+
+<h2 id="ml">7. ML Monitoring</h2>
+<div class="info">Module réservé aux administrateurs pour le suivi des performances des modèles d'apprentissage.</div>
+
+<h3>7.1 Onglet Performances</h3>
+<ul>
+  <li><b>KPIs</b> : Feedbacks collectés, Précision du modèle, Alertes de recalibration, Échantillons RF, Convergence ML</li>
+  <li><b>Graphique</b> : précision par domaine</li>
+  <li><b>Métriques</b> : précision globale, faux positifs/négatifs, feedbacks récents</li>
+  <li><b>Corrélation ML ↔ Profil de Risque</b> : convergence, alignement, distribution des niveaux</li>
+  <li><b>Alertes</b> : recalibration en attente</li>
+  <li><b>Actions</b> : Recalibrer, Réinitialiser</li>
+</ul>
+
+<h3>7.2 Onglet Modèles (admin only)</h3>
+<ul>
+  <li><b>Random Forest</b> : entraînement, précision, importance des caractéristiques, matrice de confusion</li>
+  <li><b>PAC Learning</b> : taux de concordance, pondérations, priorisation</li>
+  <li><b>Historique</b> : tableau des entraînements, graphique d'évolution de la précision, export CSV</li>
+  <li><b>Graph Network</b> : nœuds, arêtes, chemins critiques</li>
+  <li><b>A/B Testing</b> : Neural Net vs Formules, taux de victoire, MAE</li>
+  <li><b>Configuration</b> : entraînement automatique, intervalle, réinitialisation</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2 id="evenements">8. Événements de Sécurité</h2>
+
+<h3>8.1 Saisie d'un événement</h3>
+<p>Créer un événement avec : type, gravité, domaine, date, description. Le workflow se déclenche automatiquement.</p>
+
+<h3>8.2 Workflow</h3>
+<ul>
+  <li><b>Accident/Incident grave</b> → investigation obligatoire → enquête → rapport</li>
+  <li><b>Incident simple</b> → recommandations</li>
+</ul>
+
+<h3>8.3 Analytique</h3>
+<p>Tableau de bord des événements avec :</p>
+<ul>
+  <li>Distribution par gravité et type</li>
+  <li>Prédictions saisonnières (12 mois)</li>
+  <li>Analyse EVT (risque extrême)</li>
+  <li>Filtres par période et aérodrome</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2 id="roles">9. Rôles et Permissions</h2>
+
+<table>
+  <tr><th>Rôle</th><th>Permissions</th></tr>
+  <tr><td><b>Admin</b></td><td>Tous les modules, configuration, calibration IA, ML Monitoring complet</td></tr>
+  <tr><td><b>DG ANACIM</b></td><td>Vue décisionnelle : profil de risque simplifié, dashboard, KPIs. Tous les aérodromes</td></tr>
+  <tr><td><b>Chef DNSA / SSA / SNA</b></td><td>Profil de risque complet, planning, validation N+1, assignation</td></tr>
+  <tr><td><b>Inspecteur</b></td><td>Profil de risque, checklist, saisie écarts, kit documentaire</td></tr>
+  <tr><td><b>DG Exploitant / Focal Operator</b></td><td>Vue décisionnelle limitée à son aérodrome, planification, portail exploitant</td></tr>
+  <tr><td><b>Staff Operator</b></td><td>Consultation documents partagés, planning de son aérodrome</td></tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2 id="faq">10. FAQ et Dépannage</h2>
+
+<h3>Connexion</h3>
+<p><b>Q : « Identifiant ou mot de passe incorrect »</b><br>
+R : Vérifiez le format email (<code>prenom.nom@anacim.sn</code>). Si le problème persiste, contactez l'administrateur.</p>
+
+<p><b>Q : La page ne charge pas / erreur 500</b><br>
+R : Si Supabase (free tier) est en pause, les données ne se chargent pas. L'administrateur doit réactiver le projet sur supabase.com.</p>
+
+<h3>Profil de Risque</h3>
+<p><b>Q : Pourquoi le score ne change pas ?</b><br>
+R : Le profil est recalculé automatiquement à chaque événement (écart, surveillance, incident). Utilisez le bouton « Recalculer » dans l'onglet Actions pour forcer une mise à jour.</p>
+
+<p><b>Q : Que signifient les modèles HMM, EVT, etc. ?</b><br>
+R : Voir la légende dans l'onglet Synthèse (tableau de synthèse multicritère) et les explications dans chaque onglet. L'assistant IA peut aussi répondre à vos questions.</p>
+
+<h3>Planning N+1</h3>
+<p><b>Q : Le bouton N+1 affiche « Bientôt »</b><br>
+R : Le planning N+1 est disponible uniquement à partir de novembre de l'année en cours. Les propositions sont générées automatiquement.</p>
+
+<p><b>Q : Comment valider définitivement les propositions N+1 ?</b><br>
+R : Validez chaque proposition (bouton vert), puis cliquez sur « Consolider le planning N+1 » → confirmez dans la modale.</p>
+
+<h3>Données</h3>
+<p><b>Q : Les données ne se chargent pas</b><br>
+R : Vérifiez votre connexion internet. Si le problème persiste, le projet Supabase est peut-être en pause (free tier).</p>
+
+<p><b>Q : Puis-je exporter les données ?</b><br>
+R : Oui — bouton Exporter dans ML Monitoring, export CSV dans l'historique des entraînements, export rapport dans ActionsTab du profil de risque.</p>
+
+<h3>IA et Modèles</h3>
+<p><b>Q : Les prédictions sont-elles fiables ?</b><br>
+R : La précision augmente avec le nombre de données. Les modèles avancés (XGBoost, LSTM) s'activent automatiquement quand suffisamment de données sont disponibles (≥20-30 points). La régression linéaire classique prend le relais en attendant.</p>
+
+<p><b>Q : Comment les modèles se coordonnent-ils ?</b><br>
+R : Tous les modèles convergent vers une source unique : le ProfilRisque. Un ModelCache partagé garantit qu'aucun modèle n'est calculé deux fois. Les résultats sont persistés en base de données.</p>
 
 </body>
 </html>
