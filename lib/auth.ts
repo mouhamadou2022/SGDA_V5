@@ -86,17 +86,19 @@ export const authService = {
     // Créer une session Supabase Auth anonyme (nécessaire pour RLS)
     try {
       const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously()
-      if (!anonError && anonData?.session?.access_token) {
-        await supabase.auth.setSession(anonData.session)
-        // Lier l'auth_id anonyme à l'utilisateur dans la base
-        await fetch('/api/auth/link-anonymous', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: data.user.id }),
-        }).catch(() => {})
+      if (anonError || !anonData?.session?.access_token) {
+        throw new Error(anonError?.message || 'Session anonyme non disponible')
       }
+      await supabase.auth.setSession(anonData.session)
+      // Lier l'auth_id anonyme à l'utilisateur dans la base
+      await fetch('/api/auth/link-anonymous', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: data.user.id }),
+      }).catch(() => {})
     } catch (e) {
-      console.warn('[auth] Échec création session anonyme:', e)
+      console.error('[auth] Échec création session anonyme:', e)
+      throw new Error("Session d'accès non disponible. Contactez l'administrateur.")
     }
 
     return data.user as AuthUser
