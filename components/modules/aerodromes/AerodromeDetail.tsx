@@ -102,13 +102,13 @@ const getTendanceIcon = (tendance?: string) => {
 };
 
 const SGS_LABELS: Record<number, string> = { 1: 'Absent', 2: 'Présent', 3: 'Approprié', 4: 'Opérationnel', 5: 'Efficace' };
-const SGS_CLASSES: Record<number, string> = { 1: 'badge danger', 2: 'badge warning', 3: 'badge primary', 4: 'badge success', 5: 'badge success' };
+const SGS_CLASSES: Record<number, string> = { 1: 'badge danger', 2: 'badge warning', 3: 'badge primary', 4: 'badge primary', 5: 'badge success' };
+
 const getSgsNiveau = (score: number): number => {
-  if (!score) return 1;
-  if (score <= 20) return 1;
-  if (score <= 40) return 2;
-  if (score <= 60) return 3;
-  if (score <= 80) return 4;
+  if (!score || score < 20) return 1;
+  if (score < 40) return 2;
+  if (score < 60) return 3;
+  if (score < 80) return 4;
   return 5;
 };
 
