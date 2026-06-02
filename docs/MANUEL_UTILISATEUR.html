@@ -47,6 +47,11 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><a href="#aerodrome">Gestion des Aérodromes</a></li>
   <li><a href="#ml">ML Monitoring</a></li>
   <li><a href="#evenements">Événements de Sécurité</a></li>
+  <li><a href="#certification">Certification et Homologation</a></li>
+  <li><a href="#dossiers">Dossiers</a></li>
+  <li><a href="#registre">Registre</a></li>
+  <li><a href="#workflow">Workflows</a></li>
+  <li><a href="#portails">Portails (DG ANACIM, Exploitants)</a></li>
   <li><a href="#roles">Rôles et Permissions</a></li>
   <li><a href="#faq">FAQ et Dépannage</a></li>
 </ol>
@@ -329,7 +334,132 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="roles">9. Rôles et Permissions</h2>
+<h2 id="certification">9. Certification et Homologation</h2>
+
+<h3>9.1 Certification</h3>
+<p>Gestion du cycle de vie complet des certifications d'aérodrome :</p>
+<ul>
+  <li><b>Demande initiale</b> : soumission du dossier par l'exploitant</li>
+  <li><b>Phase 1 - Examen documentaire</b> : vérification des documents réglementaires</li>
+  <li><b>Phase 2 - Inspection sur site</b> : vérification physique des infrastructures</li>
+  <li><b>Phase 3 - Décision</b> : certification, suspension ou refus</li>
+  <li><b>Renouvellement</b> : suivi des dates d'expiration, alertes à 6/3/1 mois</li>
+</ul>
+<p>Chaque phase génère des recommandations IA via le <code>certificationAgent</code>.</p>
+
+<h3>9.2 Homologation</h3>
+<p>Processus simplifié pour les aérodromes nationaux et hélistations :</p>
+<ul>
+  <li>Dossier d'homologation avec pièces justificatives</li>
+  <li>Évaluation technique par domaine</li>
+  <li>Émission du certificat d'homologation</li>
+</ul>
+
+<h3>9.3 Impact sur le profil de risque</h3>
+<div class="info">Chaque mise à jour de certification ou d'homologation déclenche un recalcul automatique du profil de risque de l'aérodrome concerné.</div>
+
+<div class="page-break"></div>
+
+<h2 id="dossiers">10. Dossiers</h2>
+
+<h3>10.1 Gestion des dossiers d'extension</h3>
+<p>Module de suivi des demandes d'extension de validité pour les certifications :</p>
+<ul>
+  <li><b>Types d'extension</b> : 3 jours, 7 jours, 10 jours</li>
+  <li><b>Historique</b> : traçabilité complète des extensions accordées</li>
+  <li><b>Workflow</b> : demande → examen → approbation/refus</li>
+</ul>
+
+<h3>10.2 Suivi documentaire</h3>
+<p>Centralise tous les documents liés aux dossiers :</p>
+<ul>
+  <li>Pièces justificatives</li>
+  <li>Rapports d'inspection</li>
+  <li>Courriers et notifications</li>
+  <li>Export PDF pour archivage</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2 id="registre">11. Registre</h2>
+
+<h3>11.1 Registre des surveillances</h3>
+<p>Historique complet de toutes les activités de surveillance :</p>
+<ul>
+  <li>Timeline chronologique des inspections</li>
+  <li>Fichiers attachés (rapports, photos, checklists signées)</li>
+  <li>Export PDF dans tous les onglets (Surveillance, Écarts, Événements, Formations)</li>
+  <li>Archivage automatique des événements clôturés</li>
+</ul>
+
+<h3>11.2 Consultation</h3>
+<p>Filtres par : période, aérodrome, type de surveillance, statut. Recherche plein texte.</p>
+
+<div class="page-break"></div>
+
+<h2 id="workflow">12. Workflows</h2>
+
+<h3>12.1 Workflow Événement</h3>
+<table>
+  <tr><th>Type d'événement</th><th>Workflow déclenché</th></tr>
+  <tr><td>Accident / Incident grave</td><td>Notification immédiate → Investigation obligatoire → Enquête → Rapport → Recommandations → Suivi</td></tr>
+  <tr><td>Incident simple</td><td>Analyse → Recommandations → Suivi</td></tr>
+</table>
+
+<h3>12.2 Workflow Certification</h3>
+<ol>
+  <li>Demande → Phase 1 (documentaire) → Phase 2 (inspection) → Phase 3 (décision)</li>
+  <li>Renouvellement : Phase 1 sautée (dossier existant), début direct à la Phase 2</li>
+</ol>
+
+<h3>12.3 Workflow Écart → PAC</h3>
+<ol>
+  <li>Détection d'un écart (checklist NS/NV)</li>
+  <li>Ouverture de l'écart avec niveau de risque</li>
+  <li>Proposition de Plan d'Action Corrective (PAC)</li>
+  <li>Validation du PAC → Mise en œuvre → Soumission des preuves</li>
+  <li>Évaluation des preuves → Clôture ou rejet</li>
+</ol>
+<div class="info">L'IA (<code>riskAgent</code>) assiste chaque étape : prédiction du résultat, suggestions de mesures, évaluation de l'efficacité.</div>
+
+<h3>12.4 Workflow Formation</h3>
+<ol>
+  <li>Détection de lacunes de compétences (via CompetenceMatrix)</li>
+  <li>Suggestions de formation (via FormationSuggestions piloté par l'IA/profil de risque)</li>
+  <li>Planification → Exécution → Évaluation</li>
+  <li>Mise à jour automatique des compétences des inspecteurs</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2 id="portails">13. Portails</h2>
+
+<h3>13.1 Portail DG ANACIM</h3>
+<p>Vue d'ensemble pour la direction générale :</p>
+<ul>
+  <li><b>Dashboard</b> : KPIs nationaux (score moyen, aérodromes critiques, tendances)</li>
+  <li><b>Profil de risque</b> : vue décisionnelle simplifiée (score, tendance, actions prioritaires, projections)</li>
+  <li><b>Planning</b> : vision consolidée des surveillances tous aérodromes</li>
+  <li><b>Événements</b> : suivi des incidents de sécurité</li>
+</ul>
+
+<h3>13.2 Portail Exploitant (DG Exploitant / Point Focal)</h3>
+<p>Vue limitée à l'aérodrome de l'exploitant :</p>
+<ul>
+  <li><b>Profil de risque</b> : vue décisionnelle (score, tendance, alertes, actions)</li>
+  <li><b>Planning annuel</b> : calendrier des surveillances à venir</li>
+  <li><b>Checklist de préparation</b> : 12 items interactifs (persistés localStorage), barre de progression, badge « Prêt ! »</li>
+  <li><b>Documents partagés</b> : kit documentaire transmis par l'ANACIM</li>
+  <li><b>Messagerie</b> : communication avec les inspecteurs</li>
+  <li><b>Notifications</b> : rappels avant surveillance (J-30, J-15, J-7), certificats arrivant à expiration</li>
+</ul>
+
+<h3>13.3 Staff Operator</h3>
+<p>Consultation seule : documents partagés, planning, messagerie. Pas de modification.</p>
+
+<div class="page-break"></div>
+
+<h2 id="roles">14. Rôles et Permissions</h2>
 
 <table>
   <tr><th>Rôle</th><th>Permissions</th></tr>
