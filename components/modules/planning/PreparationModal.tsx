@@ -36,6 +36,7 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
   const ecarts = useAppStore(s => s.ecarts)
   const user = useAppStore(s => s.user)
   const addNotification = useAppStore(s => s.addNotification)
+  const updatePlanning = useAppStore(s => s.updatePlanning)
 
   const [activeTab, setActiveTab] = useState<'profil' | 'historique' | 'checklist' | 'delegation'>('profil')
   const [delegations, setDelegations] = useState<Record<string, string>>({})
@@ -114,9 +115,10 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
 
   const handleSaveDelegations = () => {
     const nbDelegations = Object.keys(delegations).filter(d => delegations[d]).length
-    // Persister les délégations pour la checklist
+    // Persister les délégations dans localStorage + Supabase
     if (planning?.id) {
       localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
+      updatePlanning(planning.id, { delegations: delegations } as any)
     }
     addNotification({
       user_id: user?.id || '',
@@ -179,6 +181,7 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
     // Sauvegarder les délégations avant d'ouvrir la checklist
     if (Object.keys(delegations).filter(d => delegations[d]).length > 0) {
       localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
+      updatePlanning(planning.id, { delegations: delegations } as any)
     }
     const chosenType = possibleTypes[0]?.type || 'standard'
     if (chosenType === 'sgs') {

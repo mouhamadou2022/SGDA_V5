@@ -213,6 +213,22 @@ export function SurveillanceChecklistStandard({
         hierarchy = hierarchy.filter(d => !excludeUpper.some(e => (d.nom || d.id || '').toUpperCase().includes(e)));
       }
       mergeItemsIntoHierarchy(hierarchy, flatItems);
+      // Filtrer par délégation pour les inspecteurs (pas le chef)
+      const delegKey2 = `sgda_delegations_${surveillanceObj.planning_id || surveillanceId}`
+      try {
+        const raw = localStorage.getItem(delegKey2)
+        if (raw) {
+          const delegations: Record<string, string> = JSON.parse(raw)
+          const hasDelegations = Object.values(delegations).some(Boolean)
+          const isChef = user?.id === (surveillanceObj as any).chef_id || user?.role === 'admin'
+          if (hasDelegations && !isChef && user?.id) {
+            hierarchy = hierarchy.filter(d => {
+              const code = (d.id || d.nom || '').toUpperCase()
+              return delegations[code] === user?.id || !delegations[code]
+            })
+          }
+        }
+      } catch { /* ignore */ }
       setDomaines(hierarchy);
       let count = 0;
       const countItems = (d: DomaineChecklist) => {
@@ -437,11 +453,28 @@ export function SurveillanceChecklistStandard({
     setSignatureDialogOpen(false);
 
     const scoreGlobal = computeSurveillanceScore();
+    
+    // Récupérer les signatures existantes et ajouter la nouvelle
+    const existingSigs = surveillance?.signatures_checklist || []
+    const newSig = { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }
+    const allSigs = [...existingSigs.filter(s => s.signataire_id !== user?.id), newSig]
+
+    // Vérifier si TOUS les délégués ont signé
+    let allDelegatedSigned = true
+    const delegationRaw = localStorage.getItem(`sgda_delegations_${surveillance?.planning_id || surveillanceId}`)
+    if (delegationRaw) {
+      try {
+        const delegations: Record<string, string> = JSON.parse(delegationRaw)
+        const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
+        const signedIds = new Set(allSigs.map(s => s.signataire_id))
+        allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
+      } catch { /* ignoré */ }
+    }
 
     updateSurveillance(surveillanceId, {
-      statut: 'checklist_signee',
+      statut: allDelegatedSigned ? 'checklist_signee' : surveillance?.statut || 'en_cours',
       score_global: scoreGlobal,
-      signatures_checklist: [{ signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }],
+      signatures_checklist: allSigs,
     });
 
     if (sgsEvaluation) {
