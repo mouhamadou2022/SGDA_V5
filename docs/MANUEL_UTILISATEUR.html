@@ -1,8 +1,8 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>SGDA V5 â€” Manuel Utilisateur</title>
+<title>SGDA V5 — Manuel Utilisateur</title>
 <style>
 body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12pt; color: #1f2937; line-height: 1.7; max-width: 950px; margin: auto; padding: 40px; }
 h1 { font-size: 28pt; color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }
@@ -31,145 +31,145 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 <div class="cover">
   <h1>SGDA V5</h1>
   <h2>Manuel d'utilisation</h2>
-  <p>SystÃ¨me de Gestion des AÃ©rodromes â€” ANACIM SÃ©nÃ©gal</p>
-  <p>Version 5.0 â€” Juin 2026</p>
+  <p>Système de Gestion des Aérodromes — ANACIM Sénégal</p>
+  <p>Version 5.0 — Juin 2026</p>
 </div>
 
 <div class="page-break"></div>
 
-<h2>Table des MatiÃ¨res</h2>
+<h2>Table des Matières</h2>
 <ol>
   <li><a href="#intro">Introduction et Connexion</a></li>
   <li><a href="#profil">Profil de Risque</a></li>
   <li><a href="#planning">Planning des Surveillances</a></li>
   <li><a href="#kit">Kit Inspecteur</a></li>
   <li><a href="#surveillance">Surveillance et Checklist</a></li>
-  <li><a href="#aerodrome">Gestion des AÃ©rodromes</a></li>
+  <li><a href="#aerodrome">Gestion des Aérodromes</a></li>
   <li><a href="#ml">ML Monitoring</a></li>
-  <li><a href="#evenements">Ã‰vÃ©nements de SÃ©curitÃ©</a></li>
-  <li><a href="#ia">ModÃ¨les MathÃ©matiques, Agents IA et Architecture</a></li>
+  <li><a href="#evenements">Événements de Sécurité</a></li>
+  <li><a href="#ia">Modèles Mathématiques, Agents IA et Architecture</a></li>
   <li><a href="#certification">Certification et Homologation</a></li>
   <li><a href="#dossiers">Dossiers</a></li>
   <li><a href="#registre">Registre</a></li>
   <li><a href="#workflow">Workflows</a></li>
   <li><a href="#portails">Portails (DG ANACIM, Exploitants)</a></li>
-  <li><a href="#roles">RÃ´les et Permissions</a></li>
-  <li><a href="#faq">FAQ et DÃ©pannage</a></li>
+  <li><a href="#roles">Rôles et Permissions</a></li>
+  <li><a href="#faq">FAQ et Dépannage</a></li>
 </ol>
 
 <div class="page-break"></div>
 
 <h2 id="intro">1. Introduction et Connexion</h2>
 
-<h3>1.1 PrÃ©sentation</h3>
-<p>SGDA V5 est le systÃ¨me de gestion des aÃ©rodromes de l'ANACIM SÃ©nÃ©gal. Il permet :</p>
+<h3>1.1 Présentation</h3>
+<p>SGDA V5 est le système de gestion des aérodromes de l'ANACIM Sénégal. Il permet :</p>
 <ul>
-  <li>L'analyse du profil de risque de chaque aÃ©rodrome via 20+ modÃ¨les mathÃ©matiques et IA</li>
-  <li>La planification des surveillances (annÃ©e en cours et N+1)</li>
-  <li>La gestion des Ã©carts, PAC, certifications et homologations</li>
-  <li>Le kit documentaire rÃ©glementaire avec analyse IA</li>
-  <li>Le monitoring en temps rÃ©el des modÃ¨les d'apprentissage</li>
+  <li>L'analyse du profil de risque de chaque aérodrome via 20+ modèles mathématiques et IA</li>
+  <li>La planification des surveillances (année en cours et N+1)</li>
+  <li>La gestion des écarts, PAC, certifications et homologations</li>
+  <li>Le kit documentaire réglementaire avec analyse IA</li>
+  <li>Le monitoring en temps réel des modèles d'apprentissage</li>
 </ul>
 
 <h3>1.2 Connexion</h3>
 <p>Deux modes d'authentification :</p>
 <ul>
   <li><b>Email + mot de passe</b> : identifiant au format <code>prenom.nom@anacim.sn</code></li>
-  <li><b>Code d'accÃ¨s</b> : pour les exploitants et opÃ©rateurs temporaires</li>
+  <li><b>Code d'accès</b> : pour les exploitants et opérateurs temporaires</li>
 </ul>
-<div class="info">AprÃ¨s 5 tentatives Ã©chouÃ©es, le compte est temporairement bloquÃ©. Contactez l'administrateur.</div>
+<div class="info">Après 5 tentatives échouées, le compte est temporairement bloqué. Contactez l'administrateur.</div>
 
 <h3>1.3 Navigation</h3>
-<p>La barre latÃ©rale gauche donne accÃ¨s Ã  tous les modules. Les modules visibles dÃ©pendent de votre rÃ´le (voir section 9).</p>
+<p>La barre latérale gauche donne accès à tous les modules. Les modules visibles dépendent de votre rôle (voir section 9).</p>
 
 <div class="page-break"></div>
 
 <h2 id="profil">2. Profil de Risque</h2>
-<div class="info">Module central du systÃ¨me. Le profil de risque est calculÃ© automatiquement via 20+ modÃ¨les mathÃ©matiques et IA, mis Ã  jour Ã  chaque Ã©vÃ©nement (Ã©cart, surveillance, incident).</div>
+<div class="info">Module central du système. Le profil de risque est calculé automatiquement via 20+ modèles mathématiques et IA, mis à jour à chaque événement (écart, surveillance, incident).</div>
 
-<h3>2.1 Vue d'ensemble (tous les aÃ©rodromes)</h3>
+<h3>2.1 Vue d'ensemble (tous les aérodromes)</h3>
 <ul>
-  <li><b>KPIs globaux</b> : score moyen des aÃ©rodromes, nombre d'aÃ©rodromes Excellents/Critiques/En dÃ©gradation</li>
-  <li><b>Analyse comparative</b> : tableau de benchmarking classÃ© par score, tri par C1-C5 ou rÃ©gion. Vue liste ou grille</li>
-  <li><b>Grille de cartes</b> : chaque carte affiche le score, la tendance, le mini-radar C1-C5 (SGS, PAC, ConformitÃ©, Charge, RÃ©silience), la maturitÃ© SGS (N1 Absent â†’ N5 Efficace), les alertes HMM/Black Swan/Survival</li>
+  <li><b>KPIs globaux</b> : score moyen des aérodromes, nombre d'aérodromes Excellents/Critiques/En dégradation</li>
+  <li><b>Analyse comparative</b> : tableau de benchmarking classé par score, tri par C1-C5 ou région. Vue liste ou grille</li>
+  <li><b>Grille de cartes</b> : chaque carte affiche le score, la tendance, le mini-radar C1-C5 (SGS, PAC, Conformité, Charge, Résilience), la maturité SGS (N1 Absent → N5 Efficace), les alertes HMM/Black Swan/Survival</li>
 </ul>
 
-<h3>2.2 Vue dÃ©taillÃ©e (clic sur une carte)</h3>
+<h3>2.2 Vue détaillée (clic sur une carte)</h3>
 <p>4 onglets pour l'analyse approfondie :</p>
 
-<h4>Onglet SynthÃ¨se</h4>
+<h4>Onglet Synthèse</h4>
 <ul>
-  <li><b>Gauge de risque</b> : score global /100 avec niveau (Excellent â‰¥80, Bon 60-79, ModÃ©rÃ© 30-59, Critique &lt;30)</li>
-  <li><b>Radar C1-C5</b> : graphique radar des 5 critÃ¨res</li>
-  <li><b>Tendance</b> : amÃ©lioration (vert) ou dÃ©gradation (rouge)</li>
-  <li><b>Alertes IA</b> : HMM (transition silencieuse), Survival (risque incident 90j), Ã©carts critiques</li>
-  <li><b>Infrastructure</b> : type d'entitÃ©, horaires, catÃ©gorie SSLIA</li>
-  <li><b>Tableau de synthÃ¨se multicritÃ¨re</b> : tableau C1-C5 avec poids, score, tendance par critÃ¨re, prÃ©dictions 3m/6m avec intervalles de confiance, lÃ©gende des niveaux</li>
+  <li><b>Gauge de risque</b> : score global /100 avec niveau (Excellent ≥80, Bon 60-79, Modéré 30-59, Critique &lt;30)</li>
+  <li><b>Radar C1-C5</b> : graphique radar des 5 critères</li>
+  <li><b>Tendance</b> : amélioration (vert) ou dégradation (rouge)</li>
+  <li><b>Alertes IA</b> : HMM (transition silencieuse), Survival (risque incident 90j), écarts critiques</li>
+  <li><b>Infrastructure</b> : type d'entité, horaires, catégorie SSLIA</li>
+  <li><b>Tableau de synthèse multicritère</b> : tableau C1-C5 avec poids, score, tendance par critère, prédictions 3m/6m avec intervalles de confiance, légende des niveaux</li>
 </ul>
 
 <h4>Onglet Diagnostic</h4>
 <ul>
-  <li><b>C1-C5 dÃ©taillÃ©</b> : chaque critÃ¨re avec barre de progression, score, explication du driver</li>
-  <li><b>Matrice OACI 5Ã—5</b> : matrice de risque standard aviation, Ã©carts positionnÃ©s dans les cellules avec compteurs</li>
-  <li><b>CorrÃ©lations C1-C5</b> : heatmap de corrÃ©lation entre critÃ¨res, dÃ©pendance Copulas</li>
-  <li><b>Analyse Bow-Tie</b> : pour chaque domaine â€” Dangers, BarriÃ¨res prÃ©ventives/correctives (avec efficacitÃ© %), Risque rÃ©siduel, BÃ©nÃ©fices estimÃ©s, Impact C1-C5</li>
-  <li><b>Black Swans</b> : dÃ©tection d'Ã©vÃ©nements extrÃªmes improbables</li>
+  <li><b>C1-C5 détaillé</b> : chaque critère avec barre de progression, score, explication du driver</li>
+  <li><b>Matrice OACI 5×5</b> : matrice de risque standard aviation, écarts positionnés dans les cellules avec compteurs</li>
+  <li><b>Corrélations C1-C5</b> : heatmap de corrélation entre critères, dépendance Copulas</li>
+  <li><b>Analyse Bow-Tie</b> : pour chaque domaine — Dangers, Barrières préventives/correctives (avec efficacité %), Risque résiduel, Bénéfices estimés, Impact C1-C5</li>
+  <li><b>Black Swans</b> : détection d'événements extrêmes improbables</li>
 </ul>
 
 <h4>Onglet Anticipation</h4>
 <ul>
-  <li><b>Timeline des prÃ©dictions</b> : scores projetÃ©s Ã  3, 6 et 12 mois</li>
-  <li><b>HMM</b> : Ã©tat cachÃ© (stable/dÃ©gradation/critique), risque de transition, jours avant criticitÃ©</li>
-  <li><b>Survival Analysis</b> : hazard Ã  90 et 180 jours, mÃ©diane de survie</li>
-  <li><b>EVT (Extreme Value Theory)</b> : risque extrÃªme, distribution Ã  queue lourde, maximum attendu 12 mois</li>
+  <li><b>Timeline des prédictions</b> : scores projetés à 3, 6 et 12 mois</li>
+  <li><b>HMM</b> : état caché (stable/dégradation/critique), risque de transition, jours avant criticité</li>
+  <li><b>Survival Analysis</b> : hazard à 90 et 180 jours, médiane de survie</li>
+  <li><b>EVT (Extreme Value Theory)</b> : risque extrême, distribution à queue lourde, maximum attendu 12 mois</li>
   <li><b>Negative Binomial</b> : surdispersion des incidents (arrivent-ils par grappes ?)</li>
-  <li><b>PrÃ©dictions contextuelles IA</b> : probabilitÃ© par type d'incident (birdstrike, FOD, etc.) dÃ©rivÃ©e des donnÃ©es rÃ©elles</li>
-  <li><b>Simulateur de scÃ©narios</b> : sliders interactifs C1-C5, suggestions IA, sauvegarde de scÃ©narios</li>
-  <li><b>Analyse des tendances</b> : graphe d'Ã©volution du score, RÂ², points d'inflexion</li>
+  <li><b>Prédictions contextuelles IA</b> : probabilité par type d'incident (birdstrike, FOD, etc.) dérivée des données réelles</li>
+  <li><b>Simulateur de scénarios</b> : sliders interactifs C1-C5, suggestions IA, sauvegarde de scénarios</li>
+  <li><b>Analyse des tendances</b> : graphe d'évolution du score, R², points d'inflexion</li>
 </ul>
 
 <h4>Onglet Actions</h4>
 <ul>
-  <li><b>Recommandations priorisÃ©es</b> : basÃ©es sur le score global et chaque critÃ¨re C1-C5</li>
-  <li><b>ModÃ¨les ML</b> : Thompson Sampling (meilleure action), HMM (alerte transition), EVT (plan urgence), Survival (inspection 90j), Copulas (domaines liÃ©s), NB (grappes d'incidents)</li>
-  <li><b>Feedback inspecteur</b> : Ã©valuez la prÃ©cision des prÃ©dictions (exacte/assez proche/trÃ¨s Ã©loignÃ©e)</li>
-  <li><b>Exporter le rapport</b> : tÃ©lÃ©chargement du rapport de risque au format texte</li>
-  <li><b>Recalculer le profil</b> : force le recalcul immÃ©diat du profil de risque (admin/inspecteur)</li>
+  <li><b>Recommandations priorisées</b> : basées sur le score global et chaque critère C1-C5</li>
+  <li><b>Modèles ML</b> : Thompson Sampling (meilleure action), HMM (alerte transition), EVT (plan urgence), Survival (inspection 90j), Copulas (domaines liés), NB (grappes d'incidents)</li>
+  <li><b>Feedback inspecteur</b> : évaluez la précision des prédictions (exacte/assez proche/très éloignée)</li>
+  <li><b>Exporter le rapport</b> : téléchargement du rapport de risque au format texte</li>
+  <li><b>Recalculer le profil</b> : force le recalcul immédiat du profil de risque (admin/inspecteur)</li>
 </ul>
 
-<h3>2.3 Vue DG (dÃ©cideurs)</h3>
-<p>Pour les DG ANACIM et DG exploitants, une vue simplifiÃ©e est affichÃ©e :</p>
+<h3>2.3 Vue DG (décideurs)</h3>
+<p>Pour les DG ANACIM et DG exploitants, une vue simplifiée est affichée :</p>
 <ul>
   <li>Score global + niveau + tendance</li>
   <li>Actions prioritaires (urgentes)</li>
   <li>Points de vigilance</li>
   <li>Projection du risque (3m, 6m, pire cas)</li>
-  <li>Ã‰carts critiques</li>
+  <li>Écarts critiques</li>
 </ul>
-<p>Les dÃ©tails techniques (HMM, Copulas, Bow-Tie) sont masquÃ©s.</p>
+<p>Les détails techniques (HMM, Copulas, Bow-Tie) sont masqués.</p>
 
-<h3>2.4 ModÃ¨les mathÃ©matiques intÃ©grÃ©s</h3>
+<h3>2.4 Modèles mathématiques intégrés</h3>
 <table>
-  <tr><th>ModÃ¨le</th><th>RÃ´le</th><th>Visible dans</th></tr>
-  <tr><td>RÃ©gression linÃ©aire + EWMA</td><td>PrÃ©diction score 3m/6m</td><td>SynthÃ¨se</td></tr>
-  <tr><td>Hawkes (uni + multivariÃ©)</td><td>Contagion des Ã©carts</td><td>Calcul interne</td></tr>
-  <tr><td>CUSUM</td><td>DÃ©tection de changement brusque</td><td>Anticipation</td></tr>
-  <tr><td>BayÃ©sien</td><td>ProbabilitÃ© postÃ©rieure, Black Swan</td><td>Diagnostic</td></tr>
-  <tr><td>Bayesian Dynamic</td><td>Prior Ã©volutif (apprentissage continu)</td><td>Calcul interne</td></tr>
-  <tr><td>Poisson</td><td>PrÃ©diction nombre d'incidents</td><td>Anticipation</td></tr>
-  <tr><td>CorrÃ©lation + Copulas</td><td>DÃ©pendances C1-C5, dÃ©pendance de queue</td><td>Diagnostic</td></tr>
-  <tr><td>Conformal</td><td>Intervalles de confiance</td><td>SynthÃ¨se</td></tr>
-  <tr><td>HMM</td><td>Ã‰tat cachÃ©, transition silencieuse</td><td>SynthÃ¨se, Anticipation, Actions</td></tr>
-  <tr><td>Survival (Kaplan-Meier / Cox PH)</td><td>Quand l'incident arrivera (hazard 90j/180j)</td><td>SynthÃ¨se, Anticipation, Actions</td></tr>
-  <tr><td>EVT (GEV/GPD)</td><td>Pire incident possible (risque extrÃªme)</td><td>Anticipation, Actions</td></tr>
+  <tr><th>Modèle</th><th>Rôle</th><th>Visible dans</th></tr>
+  <tr><td>Régression linéaire + EWMA</td><td>Prédiction score 3m/6m</td><td>Synthèse</td></tr>
+  <tr><td>Hawkes (uni + multivarié)</td><td>Contagion des écarts</td><td>Calcul interne</td></tr>
+  <tr><td>CUSUM</td><td>Détection de changement brusque</td><td>Anticipation</td></tr>
+  <tr><td>Bayésien</td><td>Probabilité postérieure, Black Swan</td><td>Diagnostic</td></tr>
+  <tr><td>Bayesian Dynamic</td><td>Prior évolutif (apprentissage continu)</td><td>Calcul interne</td></tr>
+  <tr><td>Poisson</td><td>Prédiction nombre d'incidents</td><td>Anticipation</td></tr>
+  <tr><td>Corrélation + Copulas</td><td>Dépendances C1-C5, dépendance de queue</td><td>Diagnostic</td></tr>
+  <tr><td>Conformal</td><td>Intervalles de confiance</td><td>Synthèse</td></tr>
+  <tr><td>HMM</td><td>État caché, transition silencieuse</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td>Survival (Kaplan-Meier / Cox PH)</td><td>Quand l'incident arrivera (hazard 90j/180j)</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td>EVT (GEV/GPD)</td><td>Pire incident possible (risque extrême)</td><td>Anticipation, Actions</td></tr>
   <tr><td>Negative Binomial</td><td>Surdispersion (incidents par grappes)</td><td>Anticipation, Actions</td></tr>
-  <tr><td>Thompson Sampling</td><td>Meilleure action Ã  entreprendre</td><td>Actions</td></tr>
-  <tr><td>XGBoost</td><td>Classification du niveau de risque</td><td>Calcul interne (â‰¥20 points)</td></tr>
-  <tr><td>LSTM</td><td>Deep learning sÃ©rie temporelle</td><td>Calcul interne (â‰¥30 points)</td></tr>
-  <tr><td>Ensemble (LSTM+XGB+Bayesian)</td><td>Combinaison des modÃ¨les IA</td><td>Calcul interne (â‰¥6 points)</td></tr>
-  <tr><td>Bow-Tie</td><td>BarriÃ¨res de dÃ©fense par domaine</td><td>Diagnostic</td></tr>
+  <tr><td>Thompson Sampling</td><td>Meilleure action à entreprendre</td><td>Actions</td></tr>
+  <tr><td>XGBoost</td><td>Classification du niveau de risque</td><td>Calcul interne (≥20 points)</td></tr>
+  <tr><td>LSTM</td><td>Deep learning série temporelle</td><td>Calcul interne (≥30 points)</td></tr>
+  <tr><td>Ensemble (LSTM+XGB+Bayesian)</td><td>Combinaison des modèles IA</td><td>Calcul interne (≥6 points)</td></tr>
+  <tr><td>Bow-Tie</td><td>Barrières de défense par domaine</td><td>Diagnostic</td></tr>
 </table>
-<div class="info">Tous les modÃ¨les sont calculÃ©s via un <b>ModelCache</b> partagÃ© (TTL 5 minutes) pour Ã©viter les doubles calculs. Les rÃ©sultats sont persistÃ©s dans la base de donnÃ©es.</div>
+<div class="info">Tous les modèles sont calculés via un <b>ModelCache</b> partagé (TTL 5 minutes) pour éviter les doubles calculs. Les résultats sont persistés dans la base de données.</div>
 
 <div class="page-break"></div>
 
@@ -178,301 +178,301 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 <h3>3.1 Vues disponibles</h3>
 <table>
   <tr><th>Vue</th><th>Description</th></tr>
-  <tr><td>Liste</td><td>Cartes de planning par aÃ©rodrome avec actions (prÃ©parer, exÃ©cuter, voir, modifier, supprimer)</td></tr>
-  <tr><td>Tableau</td><td>Tableau groupÃ© par aÃ©rodrome avec score de risque, 5 boutons d'action</td></tr>
+  <tr><td>Liste</td><td>Cartes de planning par aérodrome avec actions (préparer, exécuter, voir, modifier, supprimer)</td></tr>
+  <tr><td>Tableau</td><td>Tableau groupé par aérodrome avec score de risque, 5 boutons d'action</td></tr>
   <tr><td>Calendrier</td><td>Vue calendrier mensuel/annuel avec code OACI et statut</td></tr>
   <tr><td>Gantt</td><td>Diagramme de Gantt des surveillances par inspecteur</td></tr>
   <tr><td>Charge</td><td>Vue charge de travail par inspecteur</td></tr>
   <tr><td>Assignation</td><td>Assignation intelligente des inspecteurs aux missions</td></tr>
 </table>
 
-<h3>3.2 CrÃ©er un planning</h3>
+<h3>3.2 Créer un planning</h3>
 <ol>
   <li>Cliquer sur <b>Nouveau planning</b></li>
-  <li>Remplir le formulaire : aÃ©rodrome, type, dates, domaines, Ã©quipe</li>
+  <li>Remplir le formulaire : aérodrome, type, dates, domaines, équipe</li>
   <li>Valider</li>
 </ol>
 
-<h3>3.3 PrÃ©parer une surveillance</h3>
-<p>Cliquer sur <b>PrÃ©parer</b> (icÃ´ne fichier) sur une carte planning â†’ ouvre la modale de prÃ©paration avec 4 onglets :</p>
+<h3>3.3 Préparer une surveillance</h3>
+<p>Cliquer sur <b>Préparer</b> (icône fichier) sur une carte planning → ouvre la modale de préparation avec 4 onglets :</p>
 <ul>
-  <li><b>Profil de risque</b> : score, tendance, critÃ¨res C1-C5, vÃ©locitÃ©</li>
-  <li><b>Historique</b> : surveillances prÃ©cÃ©dentes, Ã©carts non rÃ©solus</li>
-  <li><b>Checklist</b> : type recommandÃ© (standard, SGS, suivi Ã©carts, PAC), prÃ©-remplissage IA</li>
-  <li><b>DÃ©lÃ©gation</b> : assigner les domaines aux inspecteurs</li>
+  <li><b>Profil de risque</b> : score, tendance, critères C1-C5, vélocité</li>
+  <li><b>Historique</b> : surveillances précédentes, écarts non résolus</li>
+  <li><b>Checklist</b> : type recommandé (standard, SGS, suivi écarts, PAC), pré-remplissage IA</li>
+  <li><b>Délégation</b> : assigner les domaines aux inspecteurs</li>
 </ul>
 <p>Bouton <b>Envoyer la checklist</b> : notifie les exploitants par in-app + email.</p>
 
-<h3>3.4 Planning N+1 (annÃ©e prochaine)</h3>
-<div class="warning">Disponible uniquement Ã  partir de <b>novembre</b> de l'annÃ©e en cours. Avant cette date, le bouton affiche Â« BientÃ´t Â».</div>
-<p>En novembre, le planning N+1 est gÃ©nÃ©rÃ© automatiquement :</p>
+<h3>3.4 Planning N+1 (année prochaine)</h3>
+<div class="warning">Disponible uniquement à partir de <b>novembre</b> de l'année en cours. Avant cette date, le bouton affiche « Bientôt ».</div>
+<p>En novembre, le planning N+1 est généré automatiquement :</p>
 <ol>
-  <li>Les propositions apparaissent classÃ©es par aÃ©rodrome (source : profil, carry-over Ã©carts/PAC, certification)</li>
+  <li>Les propositions apparaissent classées par aérodrome (source : profil, carry-over écarts/PAC, certification)</li>
   <li><b>Valider</b> : marque la proposition en vert (reste visible)</li>
   <li><b>Ajuster</b> : modifier le type, les dates, les domaines, ajouter des observations</li>
-  <li><b>Refuser</b> : la proposition disparaÃ®t avec un motif</li>
-  <li><b>Consolider le planning N+1</b> : bouton vert qui apparaÃ®t aprÃ¨s validation â†’ modale de confirmation avec toutes les propositions validÃ©es</li>
+  <li><b>Refuser</b> : la proposition disparaît avec un motif</li>
+  <li><b>Consolider le planning N+1</b> : bouton vert qui apparaît après validation → modale de confirmation avec toutes les propositions validées</li>
 </ol>
 
-<h3>3.5 Suggestions IA (annÃ©e en cours)</h3>
-<p>Le bouton <b>Suggestions IA</b> (Ã  droite de la barre d'outils) ouvre un panneau d'analyse pour l'annÃ©e en cours :</p>
+<h3>3.5 Suggestions IA (année en cours)</h3>
+<p>Le bouton <b>Suggestions IA</b> (à droite de la barre d'outils) ouvre un panneau d'analyse pour l'année en cours :</p>
 <ul>
-  <li>DÃ©clencheurs d'Ã©carts par aÃ©rodrome (PAC, suivi, urgence)</li>
-  <li>Profil de risque avec type/frÃ©quence suggÃ©rÃ©s</li>
-  <li>Bouton <b>CrÃ©er maintenant</b> pour les cas critiques</li>
+  <li>Déclencheurs d'écarts par aérodrome (PAC, suivi, urgence)</li>
+  <li>Profil de risque avec type/fréquence suggérés</li>
+  <li>Bouton <b>Créer maintenant</b> pour les cas critiques</li>
 </ul>
-<div class="alert">Le bouton pulse en rouge si des dÃ©clencheurs critiques sont dÃ©tectÃ©s, en orange pour des alertes hautes, en bleu quand le panneau est ouvert.</div>
+<div class="alert">Le bouton pulse en rouge si des déclencheurs critiques sont détectés, en orange pour des alertes hautes, en bleu quand le panneau est ouvert.</div>
 
 <div class="page-break"></div>
 
 <h2 id="kit">4. Kit Inspecteur</h2>
 
-<h3>4.1 Documents rÃ©glementaires</h3>
+<h3>4.1 Documents réglementaires</h3>
 <p>Base documentaire partageable avec les exploitants :</p>
 <ul>
-  <li>Types : RÃ©glementation, ProcÃ©dure, Checklist, ModÃ¨le de rapport, Guide</li>
-  <li>RÃ©fÃ©rences OACI : RAS-14, Circulaires ANACIM, Guides OACI (Doc 9157, 9261), Checklists officielles</li>
-  <li>Filtres par domaine (SGS, SLI, PHY, OLS, etc.), type, statut (Ã  jour/en rÃ©vision/obsolÃ¨te)</li>
+  <li>Types : Réglementation, Procédure, Checklist, Modèle de rapport, Guide</li>
+  <li>Références OACI : RAS-14, Circulaires ANACIM, Guides OACI (Doc 9157, 9261), Checklists officielles</li>
+  <li>Filtres par domaine (SGS, SLI, PHY, OLS, etc.), type, statut (à jour/en révision/obsolète)</li>
   <li>Vue liste ou grille</li>
 </ul>
 
 <h3>4.2 Analyse IA</h3>
-<p>AprÃ¨s l'import d'un document rÃ©glementaire, l'IA (<code>kitDocAgent</code>) analyse automatiquement le contenu et extrait les items de checklist pertinents.</p>
+<p>Après l'import d'un document réglementaire, l'IA (<code>kitDocAgent</code>) analyse automatiquement le contenu et extrait les items de checklist pertinents.</p>
 
-<h3>4.3 GÃ©nÃ©ration de checklist</h3>
-<p>Bouton <b>GÃ©nÃ©rer la checklist</b> : crÃ©e une checklist structurÃ©e Ã  partir des documents analysÃ©s, avec domaines, items, rÃ©fÃ©rences rÃ©glementaires et prÃ©dictions IA.</p>
+<h3>4.3 Génération de checklist</h3>
+<p>Bouton <b>Générer la checklist</b> : crée une checklist structurée à partir des documents analysés, avec domaines, items, références réglementaires et prédictions IA.</p>
 
-<h3>4.4 EntraÃ®nement IA</h3>
-<p>Sous-onglet EntraÃ®nement : permet de visualiser les checklists maÃ®tres gÃ©nÃ©rÃ©es et les records de mÃ©moire d'apprentissage par domaine.</p>
+<h3>4.4 Entraînement IA</h3>
+<p>Sous-onglet Entraînement : permet de visualiser les checklists maîtres générées et les records de mémoire d'apprentissage par domaine.</p>
 
 <h3>4.5 Partage</h3>
-<p>Partagez des documents avec les exploitants d'aÃ©rodromes spÃ©cifiques. Les documents partagÃ©s apparaissent dans leur portail.</p>
+<p>Partagez des documents avec les exploitants d'aérodromes spécifiques. Les documents partagés apparaissent dans leur portail.</p>
 
 <div class="page-break"></div>
 
 <h2 id="surveillance">5. Surveillance et Checklist</h2>
 
 <h3>5.1 Lancement d'une surveillance</h3>
-<p>Depuis le planning, cliquer sur <b>ExÃ©cuter</b> (icÃ´ne coche) â†’ la checklist s'ouvre avec les items prÃ©-remplis.</p>
+<p>Depuis le planning, cliquer sur <b>Exécuter</b> (icône coche) → la checklist s'ouvre avec les items pré-remplis.</p>
 
 <h3>5.2 Types de checklist</h3>
 <ul>
   <li><b>Standard</b> : items RAS-14 par domaine</li>
-  <li><b>SGS (PAOE)</b> : Ã©valuation de la maturitÃ© SGS selon l'Annexe 19 OACI (4 piliers, 5 niveaux)</li>
-  <li><b>Suivi des Ã©carts</b> : vÃ©rification de l'Ã©tat d'avancement des Ã©carts</li>
-  <li><b>Mise en Å“uvre PAC</b> : vÃ©rification des plans d'action corrective</li>
-  <li><b>Maintien</b> : items des surveillances antÃ©rieures + domaines du profil</li>
+  <li><b>SGS (PAOE)</b> : évaluation de la maturité SGS selon l'Annexe 19 OACI (4 piliers, 5 niveaux)</li>
+  <li><b>Suivi des écarts</b> : vérification de l'état d'avancement des écarts</li>
+  <li><b>Mise en œuvre PAC</b> : vérification des plans d'action corrective</li>
+  <li><b>Maintien</b> : items des surveillances antérieures + domaines du profil</li>
 </ul>
 
 <h3>5.3 Signature</h3>
-<p>La feuille de prÃ©sence permet la signature Ã©lectronique via un pad de signature. La checklist signÃ©e est archivÃ©e automatiquement.</p>
+<p>La feuille de présence permet la signature électronique via un pad de signature. La checklist signée est archivée automatiquement.</p>
 
 <div class="page-break"></div>
 
-<h2 id="aerodrome">6. Gestion des AÃ©rodromes</h2>
+<h2 id="aerodrome">6. Gestion des Aérodromes</h2>
 
-<h3>6.1 Fiche dÃ©taillÃ©e</h3>
-<p>Cliquer sur un aÃ©rodrome dans la liste ou la grille ouvre la fiche dÃ©taillÃ©e avec :</p>
+<h3>6.1 Fiche détaillée</h3>
+<p>Cliquer sur un aérodrome dans la liste ou la grille ouvre la fiche détaillée avec :</p>
 <ul>
-  <li>Informations gÃ©nÃ©rales (code OACI, nom, rÃ©gion, type, catÃ©gorie SSLIA)</li>
-  <li>Profil de risque complet (score, C1-C5, tendance, prÃ©dictions, scÃ©narios)</li>
-  <li>Surveillances rÃ©centes</li>
-  <li>Ã‰carts actifs</li>
+  <li>Informations générales (code OACI, nom, région, type, catégorie SSLIA)</li>
+  <li>Profil de risque complet (score, C1-C5, tendance, prédictions, scénarios)</li>
+  <li>Surveillances récentes</li>
+  <li>Écarts actifs</li>
   <li>Certifications et homologations</li>
-  <li>ModÃ¨les avancÃ©s (HMM, Survival, EVT, BayÃ©sien)</li>
+  <li>Modèles avancés (HMM, Survival, EVT, Bayésien)</li>
   <li>Analyse IA narrative</li>
 </ul>
 
-<h3>6.2 CrÃ©ation</h3>
-<p>Formulaire multi-Ã©tapes : type d'entitÃ© â†’ informations gÃ©nÃ©rales â†’ caractÃ©ristiques â†’ maturitÃ© SGS â†’ confirmation.</p>
+<h3>6.2 Création</h3>
+<p>Formulaire multi-étapes : type d'entité → informations générales → caractéristiques → maturité SGS → confirmation.</p>
 
 <div class="page-break"></div>
 
 <h2 id="ml">7. ML Monitoring</h2>
-<div class="info">Module rÃ©servÃ© aux administrateurs pour le suivi des performances des modÃ¨les d'apprentissage.</div>
+<div class="info">Module réservé aux administrateurs pour le suivi des performances des modèles d'apprentissage.</div>
 
 <h3>7.1 Onglet Performances</h3>
 <ul>
-  <li><b>KPIs</b> : Feedbacks collectÃ©s, PrÃ©cision du modÃ¨le, Alertes de recalibration, Ã‰chantillons RF, Convergence ML</li>
-  <li><b>Graphique</b> : prÃ©cision par domaine</li>
-  <li><b>MÃ©triques</b> : prÃ©cision globale, faux positifs/nÃ©gatifs, feedbacks rÃ©cents</li>
-  <li><b>CorrÃ©lation ML â†” Profil de Risque</b> : convergence, alignement, distribution des niveaux</li>
+  <li><b>KPIs</b> : Feedbacks collectés, Précision du modèle, Alertes de recalibration, Échantillons RF, Convergence ML</li>
+  <li><b>Graphique</b> : précision par domaine</li>
+  <li><b>Métriques</b> : précision globale, faux positifs/négatifs, feedbacks récents</li>
+  <li><b>Corrélation ML ↔ Profil de Risque</b> : convergence, alignement, distribution des niveaux</li>
   <li><b>Alertes</b> : recalibration en attente</li>
-  <li><b>Actions</b> : Recalibrer, RÃ©initialiser</li>
+  <li><b>Actions</b> : Recalibrer, Réinitialiser</li>
 </ul>
 
-<h3>7.2 Onglet ModÃ¨les (admin only)</h3>
+<h3>7.2 Onglet Modèles (admin only)</h3>
 <ul>
-  <li><b>Random Forest</b> : entraÃ®nement, prÃ©cision, importance des caractÃ©ristiques, matrice de confusion</li>
-  <li><b>PAC Learning</b> : taux de concordance, pondÃ©rations, priorisation</li>
-  <li><b>Historique</b> : tableau des entraÃ®nements, graphique d'Ã©volution de la prÃ©cision, export CSV</li>
-  <li><b>Graph Network</b> : nÅ“uds, arÃªtes, chemins critiques</li>
+  <li><b>Random Forest</b> : entraînement, précision, importance des caractéristiques, matrice de confusion</li>
+  <li><b>PAC Learning</b> : taux de concordance, pondérations, priorisation</li>
+  <li><b>Historique</b> : tableau des entraînements, graphique d'évolution de la précision, export CSV</li>
+  <li><b>Graph Network</b> : nœuds, arêtes, chemins critiques</li>
   <li><b>A/B Testing</b> : Neural Net vs Formules, taux de victoire, MAE</li>
-  <li><b>Configuration</b> : entraÃ®nement automatique, intervalle, rÃ©initialisation</li>
+  <li><b>Configuration</b> : entraînement automatique, intervalle, réinitialisation</li>
 </ul>
 
 <div class="page-break"></div>
 
-<h2 id="evenements">8. Ã‰vÃ©nements de SÃ©curitÃ©</h2>
+<h2 id="evenements">8. Événements de Sécurité</h2>
 
-<h3>8.1 Saisie d'un Ã©vÃ©nement</h3>
-<p>CrÃ©er un Ã©vÃ©nement avec : type, gravitÃ©, domaine, date, description. Le workflow se dÃ©clenche automatiquement.</p>
+<h3>8.1 Saisie d'un événement</h3>
+<p>Créer un événement avec : type, gravité, domaine, date, description. Le workflow se déclenche automatiquement.</p>
 
 <h3>8.2 Workflow</h3>
 <ul>
-  <li><b>Accident/Incident grave</b> â†’ investigation obligatoire â†’ enquÃªte â†’ rapport</li>
-  <li><b>Incident simple</b> â†’ recommandations</li>
+  <li><b>Accident/Incident grave</b> → investigation obligatoire → enquête → rapport</li>
+  <li><b>Incident simple</b> → recommandations</li>
 </ul>
 
 <h3>8.3 Analytique</h3>
-<p>Tableau de bord des Ã©vÃ©nements avec :</p>
+<p>Tableau de bord des événements avec :</p>
 <ul>
-  <li>Distribution par gravitÃ© et type</li>
-  <li>PrÃ©dictions saisonniÃ¨res (12 mois)</li>
-  <li>Analyse EVT (risque extrÃªme)</li>
-  <li>Filtres par pÃ©riode et aÃ©rodrome</li>
+  <li>Distribution par gravité et type</li>
+  <li>Prédictions saisonnières (12 mois)</li>
+  <li>Analyse EVT (risque extrême)</li>
+  <li>Filtres par période et aérodrome</li>
 </ul>
 
 <div class="page-break"></div>
 
-<h2 id="ia">9. ModÃ¨les MathÃ©matiques, Agents IA et Architecture</h2>
+<h2 id="ia">9. Modèles Mathématiques, Agents IA et Architecture</h2>
 
 <h3>9.1 Vue d'ensemble du pipeline IA</h3>
-<p>Tous les modÃ¨les mathÃ©matiques et agents IA du systÃ¨me convergent vers une source unique : le <b>ProfilRisque</b>. Le pipeline est le suivant :</p>
+<p>Tous les modèles mathématiques et agents IA du système convergent vers une source unique : le <b>ProfilRisque</b>. Le pipeline est le suivant :</p>
 <ol>
-  <li><b>DonnÃ©es brutes</b> : Ã©carts, surveillances, Ã©vÃ©nements, certifications, homologations, aÃ©rodromes</li>
-  <li><b>Phase 1 â€” 13 modÃ¨les classiques</b> : C1-C5 (score multicritÃ¨re), rÃ©gression linÃ©aire, EWMA, Hawkes (contagion), CUSUM (changement brusque), BayÃ©sien (probabilitÃ© postÃ©rieure), Poisson (nombre d'incidents), CorrÃ©lation, ScÃ©narios (4 scenarios)</li>
-  <li><b>Phase 2 â€” MÃ©triques avancÃ©es</b> : VÃ©locitÃ© (vitesse, accÃ©lÃ©ration, volatilitÃ©), Stress systÃ¨me, Alertes proactives</li>
-  <li><b>Phase 3 â€” 6 modÃ¨les ML</b> (ModelCache partagÃ©, TTL 5 min) : HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling</li>
-  <li><b>Phase 4 â€” Ensemble IA</b> (avec fallback automatique) : BayesianDynamic (â‰¥5 points), XGBoost (â‰¥20 points), LSTM (â‰¥30 points)</li>
-  <li><b>Bow-Tie</b> : BarriÃ¨res de dÃ©fense par domaine</li>
+  <li><b>Données brutes</b> : écarts, surveillances, événements, certifications, homologations, aérodromes</li>
+  <li><b>Phase 1 — 13 modèles classiques</b> : C1-C5 (score multicritère), régression linéaire, EWMA, Hawkes (contagion), CUSUM (changement brusque), Bayésien (probabilité postérieure), Poisson (nombre d'incidents), Corrélation, Scénarios (4 scenarios)</li>
+  <li><b>Phase 2 — Métriques avancées</b> : Vélocité (vitesse, accélération, volatilité), Stress système, Alertes proactives</li>
+  <li><b>Phase 3 — 6 modèles ML</b> (ModelCache partagé, TTL 5 min) : HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling</li>
+  <li><b>Phase 4 — Ensemble IA</b> (avec fallback automatique) : BayesianDynamic (≥5 points), XGBoost (≥20 points), LSTM (≥30 points)</li>
+  <li><b>Bow-Tie</b> : Barrières de défense par domaine</li>
 </ol>
-<p>RÃ©sultat : <b>ProfilRisque</b> (30+ champs) â†’ stockÃ© en base â†’ consommÃ© par tous les modules.</p>
+<p>Résultat : <b>ProfilRisque</b> (30+ champs) → stocké en base → consommé par tous les modules.</p>
 
-<h3>9.2 Les 17 modÃ¨les mathÃ©matiques</h3>
+<h3>9.2 Les 17 modèles mathématiques</h3>
 <table>
-  <tr><th>ModÃ¨le</th><th>Famille</th><th>Ce qu'il calcule</th><th>UtilisÃ© par</th></tr>
-  <tr><td>C1 â€” MaturitÃ© SGS</td><td>Score multicritÃ¨re</td><td>Score SGS Ã  partir de la maturitÃ© PAOE et des enquÃªtes</td><td>Profil, Planning</td></tr>
-  <tr><td>C2 â€” EfficacitÃ© PAC</td><td>Score multicritÃ¨re</td><td>Score PAC basÃ© sur les dÃ©lais de traitement des Ã©carts</td><td>Profil, Planning</td></tr>
-  <tr><td>C3 â€” ConformitÃ© technique</td><td>Score multicritÃ¨re</td><td>Score de conformitÃ© via les rÃ©sultats d'inspection</td><td>Profil, Planning</td></tr>
-  <tr><td>C4 â€” Charge critique</td><td>Score multicritÃ¨re</td><td>Charge d'Ã©carts actifs avec pÃ©nalitÃ© progressive</td><td>Profil, Planning</td></tr>
-  <tr><td>C5 â€” RÃ©silience</td><td>Score multicritÃ¨re</td><td>RÃ©silience basÃ©e sur l'historique des incidents (gravitÃ© Ã— rÃ©cence)</td><td>Profil, Planning</td></tr>
-  <tr><td>RÃ©gression linÃ©aire</td><td>PrÃ©diction</td><td>PrÃ©diction du score Ã  3 et 6 mois</td><td>Profil, Anticipation</td></tr>
-  <tr><td>EWMA</td><td>Lissage</td><td>Moyenne mobile exponentielle pondÃ©rÃ©e</td><td>Profil (ensemble prÃ©dictif)</td></tr>
-  <tr><td>Hawkes (uni + multivariÃ©)</td><td>Contagion</td><td>IntensitÃ© de contagion des Ã©carts entre domaines</td><td>Profil (calcul interne)</td></tr>
-  <tr><td>CUSUM</td><td>DÃ©tection</td><td>DÃ©tection de changement brusque dans la tendance</td><td>Profil, Anticipation</td></tr>
-  <tr><td>BayÃ©sien</td><td>ProbabilitÃ©s</td><td>ProbabilitÃ© postÃ©rieure, Black Swan detection</td><td>Profil, Diagnostic</td></tr>
-  <tr><td>Bayesian Dynamic</td><td>Apprentissage</td><td>Prior Ã©volutif qui s'amÃ©liore avec les donnÃ©es (â‰¥5 points)</td><td>Profil (calcul interne)</td></tr>
-  <tr><td>Poisson</td><td>Comptage</td><td>PrÃ©diction du nombre d'incidents par pÃ©riode</td><td>Profil, Anticipation</td></tr>
-  <tr><td>CorrÃ©lation + Copulas</td><td>DÃ©pendance</td><td>CorrÃ©lations C1-C5, dÃ©pendance de queue (extrÃªmes)</td><td>Profil, Diagnostic</td></tr>
-  <tr><td>Conformal</td><td>Intervalle</td><td>Intervalles de confiance pour les prÃ©dictions</td><td>Profil, SynthÃ¨se</td></tr>
-  <tr><td>ScÃ©narios</td><td>Simulation</td><td>4 scÃ©narios (optimiste, rÃ©aliste, pessimiste, catastrophe)</td><td>Profil, Anticipation</td></tr>
-  <tr><td>VÃ©locitÃ©</td><td>Dynamique</td><td>Vitesse, accÃ©lÃ©ration et volatilitÃ© du score</td><td>Profil, SynthÃ¨se</td></tr>
-  <tr><td>Bow-Tie</td><td>BarriÃ¨res</td><td>EfficacitÃ© des barriÃ¨res de dÃ©fense par domaine</td><td>Profil, Diagnostic</td></tr>
+  <tr><th>Modèle</th><th>Famille</th><th>Ce qu'il calcule</th><th>Utilisé par</th></tr>
+  <tr><td>C1 — Maturité SGS</td><td>Score multicritère</td><td>Score SGS à partir de la maturité PAOE et des enquêtes</td><td>Profil, Planning</td></tr>
+  <tr><td>C2 — Efficacité PAC</td><td>Score multicritère</td><td>Score PAC basé sur les délais de traitement des écarts</td><td>Profil, Planning</td></tr>
+  <tr><td>C3 — Conformité technique</td><td>Score multicritère</td><td>Score de conformité via les résultats d'inspection</td><td>Profil, Planning</td></tr>
+  <tr><td>C4 — Charge critique</td><td>Score multicritère</td><td>Charge d'écarts actifs avec pénalité progressive</td><td>Profil, Planning</td></tr>
+  <tr><td>C5 — Résilience</td><td>Score multicritère</td><td>Résilience basée sur l'historique des incidents (gravité × récence)</td><td>Profil, Planning</td></tr>
+  <tr><td>Régression linéaire</td><td>Prédiction</td><td>Prédiction du score à 3 et 6 mois</td><td>Profil, Anticipation</td></tr>
+  <tr><td>EWMA</td><td>Lissage</td><td>Moyenne mobile exponentielle pondérée</td><td>Profil (ensemble prédictif)</td></tr>
+  <tr><td>Hawkes (uni + multivarié)</td><td>Contagion</td><td>Intensité de contagion des écarts entre domaines</td><td>Profil (calcul interne)</td></tr>
+  <tr><td>CUSUM</td><td>Détection</td><td>Détection de changement brusque dans la tendance</td><td>Profil, Anticipation</td></tr>
+  <tr><td>Bayésien</td><td>Probabilités</td><td>Probabilité postérieure, Black Swan detection</td><td>Profil, Diagnostic</td></tr>
+  <tr><td>Bayesian Dynamic</td><td>Apprentissage</td><td>Prior évolutif qui s'améliore avec les données (≥5 points)</td><td>Profil (calcul interne)</td></tr>
+  <tr><td>Poisson</td><td>Comptage</td><td>Prédiction du nombre d'incidents par période</td><td>Profil, Anticipation</td></tr>
+  <tr><td>Corrélation + Copulas</td><td>Dépendance</td><td>Corrélations C1-C5, dépendance de queue (extrêmes)</td><td>Profil, Diagnostic</td></tr>
+  <tr><td>Conformal</td><td>Intervalle</td><td>Intervalles de confiance pour les prédictions</td><td>Profil, Synthèse</td></tr>
+  <tr><td>Scénarios</td><td>Simulation</td><td>4 scénarios (optimiste, réaliste, pessimiste, catastrophe)</td><td>Profil, Anticipation</td></tr>
+  <tr><td>Vélocité</td><td>Dynamique</td><td>Vitesse, accélération et volatilité du score</td><td>Profil, Synthèse</td></tr>
+  <tr><td>Bow-Tie</td><td>Barrières</td><td>Efficacité des barrières de défense par domaine</td><td>Profil, Diagnostic</td></tr>
 </table>
 
-<h3>9.3 Les 6 modÃ¨les ML (Phase 3)</h3>
+<h3>9.3 Les 6 modèles ML (Phase 3)</h3>
 <table>
-  <tr><th>ModÃ¨le</th><th>Type</th><th>Question rÃ©pondue</th><th>Visible dans</th></tr>
-  <tr><td><b>HMM</b> (Hidden Markov Model)</td><td>Ã‰tat cachÃ©</td><td>Â« L'aÃ©rodrome est-il en train de glisser silencieusement vers un Ã©tat critique ? Â»</td><td>SynthÃ¨se, Anticipation, Actions</td></tr>
-  <tr><td><b>Survival Analysis</b> (Kaplan-Meier / Cox PH)</td><td>Survie</td><td>Â« Dans combien de jours un incident est-il probable ? Â»</td><td>SynthÃ¨se, Anticipation, Actions</td></tr>
-  <tr><td><b>EVT</b> (Extreme Value Theory â€” GEV/GPD)</td><td>ExtrÃªmes</td><td>Â« Quel est le pire incident possible ? Â»</td><td>Anticipation, Actions</td></tr>
-  <tr><td><b>Negative Binomial</b></td><td>Surdispersion</td><td>Â« Les incidents arrivent-ils par grappes (mÃ©tÃ©o = FOD en sÃ©rie) ? Â»</td><td>Anticipation, Actions, Diagnostic</td></tr>
-  <tr><td><b>Copulas</b></td><td>DÃ©pendance</td><td>Â« Si C1 chute, C5 va-t-il suivre ? Quels domaines sont liÃ©s ? Â»</td><td>Diagnostic, Actions</td></tr>
-  <tr><td><b>Thompson Sampling</b></td><td>DÃ©cision</td><td>Â« Quelle est la meilleure action Ã  entreprendre (audit, maintien, pÃ©riodique) ? Â»</td><td>Actions</td></tr>
+  <tr><th>Modèle</th><th>Type</th><th>Question répondue</th><th>Visible dans</th></tr>
+  <tr><td><b>HMM</b> (Hidden Markov Model)</td><td>État caché</td><td>L'aérodrome est-il en train de glisser silencieusement vers un état critique ?</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td><b>Survival Analysis</b> (Kaplan-Meier / Cox PH)</td><td>Survie</td><td>Dans combien de jours un incident est-il probable ?</td><td>Synthèse, Anticipation, Actions</td></tr>
+  <tr><td><b>EVT</b> (Extreme Value Theory — GEV/GPD)</td><td>Extrêmes</td><td>Quel est le pire incident possible ?</td><td>Anticipation, Actions</td></tr>
+  <tr><td><b>Negative Binomial</b></td><td>Surdispersion</td><td>Les incidents arrivent-ils par grappes (météo = FOD en série) ?</td><td>Anticipation, Actions, Diagnostic</td></tr>
+  <tr><td><b>Copulas</b></td><td>Dépendance</td><td>Si C1 chute, C5 va-t-il suivre ? Quels domaines sont liés ?</td><td>Diagnostic, Actions</td></tr>
+  <tr><td><b>Thompson Sampling</b></td><td>Décision</td><td>Quelle est la meilleure action à entreprendre (audit, maintien, périodique) ?</td><td>Actions</td></tr>
 </table>
 
-<h3>9.4 Les 4 modÃ¨les IA (Phase 4 â€” Ensemble avec fallback)</h3>
+<h3>9.4 Les 4 modèles IA (Phase 4 — Ensemble avec fallback)</h3>
 <table>
-  <tr><th>ModÃ¨le</th><th>Technologie</th><th>Seuil d'activation</th><th>Fallback</th></tr>
-  <tr><td><b>Bayesian Dynamic</b></td><td>BayÃ©sien Ã©volutif</td><td>â‰¥ 5 points historiques</td><td>BayÃ©sien statique classique</td></tr>
-  <tr><td><b>XGBoost</b></td><td>Gradient boosting</td><td>â‰¥ 20 Ã©chantillons labellisÃ©s</td><td>RÃ©gression linÃ©aire</td></tr>
-  <tr><td><b>LSTM</b></td><td>Deep learning (rÃ©seau de neurones rÃ©current)</td><td>â‰¥ 30 points de sÃ©rie temporelle</td><td>RÃ©gression linÃ©aire</td></tr>
-  <tr><td><b>Ensemble</b></td><td>Combinaison pondÃ©rÃ©e des 3 ci-dessus</td><td>â‰¥ 2 modÃ¨les disponibles</td><td>RÃ©gression + EWMA</td></tr>
+  <tr><th>Modèle</th><th>Technologie</th><th>Seuil d'activation</th><th>Fallback</th></tr>
+  <tr><td><b>Bayesian Dynamic</b></td><td>Bayésien évolutif</td><td>≥ 5 points historiques</td><td>Bayésien statique classique</td></tr>
+  <tr><td><b>XGBoost</b></td><td>Gradient boosting</td><td>≥ 20 échantillons labellisés</td><td>Régression linéaire</td></tr>
+  <tr><td><b>LSTM</b></td><td>Deep learning (réseau de neurones récurrent)</td><td>≥ 30 points de série temporelle</td><td>Régression linéaire</td></tr>
+  <tr><td><b>Ensemble</b></td><td>Combinaison pondérée des 3 ci-dessus</td><td>≥ 2 modèles disponibles</td><td>Régression + EWMA</td></tr>
 </table>
-<div class="info"><b>Ã‰volution automatique</b> : Plus le systÃ¨me collecte de donnÃ©es (25 aÃ©rodromes Ã— 2 recalculs/mois = 600 profils/an), plus les modÃ¨les IA s'activent automatiquement. Aujourd'hui : rÃ©gression classique. Dans 1 an : XGBoost actif. Dans 2 ans : LSTM + Ensemble complet.</div>
+<div class="info"><b>Évolution automatique</b> : Plus le système collecte de données (25 aérodromes × 2 recalculs/mois = 600 profils/an), plus les modèles IA s'activent automatiquement. Aujourd'hui : régression classique. Dans 1 an : XGBoost actif. Dans 2 ans : LSTM + Ensemble complet.</div>
 
 <h3>9.5 Les 8 agents IA</h3>
 <table>
-  <tr><th>Agent</th><th>RÃ´le</th><th>Modules consommateurs</th></tr>
-  <tr><td><b>riskAgent</b></td><td>Analyse complÃ¨te du risque : prÃ©dictions, modÃ¨les avancÃ©s, Black Swans, suggestions structurÃ©es, analyse narrative IA</td><td>Profil de risque, AerodromeDetail, Ã‰vÃ©nements, Dashboard</td></tr>
-  <tr><td><b>assistantAgent</b></td><td>Assistant conversationnel IA : rÃ©pond aux questions des utilisateurs sur le risque, les recommandations</td><td>Planning, AIAssistant, CommandPalette, SmartAssignment</td></tr>
-  <tr><td><b>kitDocAgent</b></td><td>Analyse de documents rÃ©glementaires : extraction d'items de checklist, gÃ©nÃ©ration de structures par domaine</td><td>Kit Inspecteur, Checklist</td></tr>
-  <tr><td><b>certificationAgent</b></td><td>Ã‰valuation des dossiers de certification : recommandations Phase 1/2/3</td><td>Certification, Homologation</td></tr>
-  <tr><td><b>ecartAgent</b></td><td>Analyse des Ã©carts : suggestions de PAC, Ã©valuation de l'efficacitÃ© des mesures</td><td>Surveillance, Ã‰carts, Plans d'actions</td></tr>
-  <tr><td><b>suggestionMLAgent</b></td><td>Suggestion de type/frÃ©quence de surveillance basÃ©e sur le profil de risque et les dÃ©clencheurs</td><td>Planning (Suggestions IA)</td></tr>
-  <tr><td><b>checklistAgent</b></td><td>PrÃ©diction du rÃ©sultat probable des items de checklist (SA/NS/NV)</td><td>Checklist (via orchestrateur)</td></tr>
-  <tr><td><b>learningAgent</b></td><td>Apprentissage continu : calibration des modÃ¨les, mÃ©triques F1, ajustement des seuils</td><td>ML Monitoring (interne)</td></tr>
+  <tr><th>Agent</th><th>Rôle</th><th>Modules consommateurs</th></tr>
+  <tr><td><b>riskAgent</b></td><td>Analyse complète du risque : prédictions, modèles avancés, Black Swans, suggestions structurées, analyse narrative IA</td><td>Profil de risque, AerodromeDetail, Événements, Dashboard</td></tr>
+  <tr><td><b>assistantAgent</b></td><td>Assistant conversationnel IA : répond aux questions des utilisateurs sur le risque, les recommandations</td><td>Planning, AIAssistant, CommandPalette, SmartAssignment</td></tr>
+  <tr><td><b>kitDocAgent</b></td><td>Analyse de documents réglementaires : extraction d'items de checklist, génération de structures par domaine</td><td>Kit Inspecteur, Checklist</td></tr>
+  <tr><td><b>certificationAgent</b></td><td>Évaluation des dossiers de certification : recommandations Phase 1/2/3</td><td>Certification, Homologation</td></tr>
+  <tr><td><b>ecartAgent</b></td><td>Analyse des écarts : suggestions de PAC, évaluation de l'efficacité des mesures</td><td>Surveillance, Écarts, Plans d'actions</td></tr>
+  <tr><td><b>suggestionMLAgent</b></td><td>Suggestion de type/fréquence de surveillance basée sur le profil de risque et les déclencheurs</td><td>Planning (Suggestions IA)</td></tr>
+  <tr><td><b>checklistAgent</b></td><td>Prédiction du résultat probable des items de checklist (SA/NS/NV)</td><td>Checklist (via orchestrateur)</td></tr>
+  <tr><td><b>learningAgent</b></td><td>Apprentissage continu : calibration des modèles, métriques F1, ajustement des seuils</td><td>ML Monitoring (interne)</td></tr>
 </table>
 
 <h3>9.6 Architecture du pipeline</h3>
-<pre><code>Ã‰carts + Surveillances + Ã‰vÃ©nements + AÃ©rodromes
-                    â”‚
-                    â–¼
+<pre><code>Écarts + Surveillances + Événements + Aérodromes
+                    │
+                    ▼
          recalculerProfilRisque()
-         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-         â”‚ Phase 1 : 13 modÃ¨les classiques      â”‚
-         â”‚ Phase 2 : MÃ©triques avancÃ©es         â”‚
-         â”‚ Phase 3 : ModelCache (HMM, Survival, â”‚
-         â”‚           EVT, NB, Copulas, TS)      â”‚
-         â”‚ Phase 4 : Ensemble IA                â”‚
-         â”‚           (BayesianDynamic, XGBoost, â”‚
-         â”‚            LSTM) avec fallback       â”‚
-         â”‚ Bow-Tie : BarriÃ¨res par domaine      â”‚
-         â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                        â”‚
+         ┌──────────────────────────────────────┐
+         │ Phase 1 : 13 modèles classiques      │
+         │ Phase 2 : Métriques avancées         │
+         │ Phase 3 : ModelCache (HMM, Survival, │
+         │           EVT, NB, Copulas, TS)      │
+         │ Phase 4 : Ensemble IA                │
+         │           (BayesianDynamic, XGBoost, │
+         │            LSTM) avec fallback       │
+         │ Bow-Tie : Barrières par domaine      │
+         └──────────────┬───────────────────────┘
+                        │
                 ProfilRisque (30+ champs)
-                        â”‚
-         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-         â–¼              â–¼                  â–¼
+                        │
+         ┌──────────────┼──────────────────┐
+         ▼              ▼                  ▼
     RisqueModule   planningGenerator   riskEngine
-    (4 onglets)    (N+1 propositions)  (dÃ©cisions)
+    (4 onglets)    (N+1 propositions)  (décisions)
 </code></pre>
 
-<div class="info"><b>ModelCache</b> : Cache partagÃ© (TTL 5 minutes) entre riskAgent, planningGenerator et recalculerProfilRisque. Garantit qu'aucun modÃ¨le n'est calculÃ© deux fois. Les rÃ©sultats sont persistÃ©s dans le ProfilRisque en base de donnÃ©es.</div>
+<div class="info"><b>ModelCache</b> : Cache partagé (TTL 5 minutes) entre riskAgent, planningGenerator et recalculerProfilRisque. Garantit qu'aucun modèle n'est calculé deux fois. Les résultats sont persistés dans le ProfilRisque en base de données.</div>
 
 <div class="page-break"></div>
 
 <h2 id="certification">10. Certification et Homologation</h2>
 
-<h3>10.1 Certification</h3>
-<p>Gestion du cycle de vie complet des certifications d'aÃ©rodrome :</p>
+<h3>9.1 Certification</h3>
+<p>Gestion du cycle de vie complet des certifications d'aérodrome :</p>
 <ul>
   <li><b>Demande initiale</b> : soumission du dossier par l'exploitant</li>
-  <li><b>Phase 1 - Examen documentaire</b> : vÃ©rification des documents rÃ©glementaires</li>
-  <li><b>Phase 2 - Inspection sur site</b> : vÃ©rification physique des infrastructures</li>
-  <li><b>Phase 3 - DÃ©cision</b> : certification, suspension ou refus</li>
-  <li><b>Renouvellement</b> : suivi des dates d'expiration, alertes Ã  6/3/1 mois</li>
+  <li><b>Phase 1 - Examen documentaire</b> : vérification des documents réglementaires</li>
+  <li><b>Phase 2 - Inspection sur site</b> : vérification physique des infrastructures</li>
+  <li><b>Phase 3 - Décision</b> : certification, suspension ou refus</li>
+  <li><b>Renouvellement</b> : suivi des dates d'expiration, alertes à 6/3/1 mois</li>
 </ul>
-<p>Chaque phase gÃ©nÃ¨re des recommandations IA via le <code>certificationAgent</code>.</p>
+<p>Chaque phase génère des recommandations IA via le <code>certificationAgent</code>.</p>
 
-<h3>10.2 Homologation</h3>
-<p>Processus simplifiÃ© pour les aÃ©rodromes nationaux et hÃ©listations :</p>
+<h3>9.2 Homologation</h3>
+<p>Processus simplifié pour les aérodromes nationaux et hélistations :</p>
 <ul>
-  <li>Dossier d'homologation avec piÃ¨ces justificatives</li>
-  <li>Ã‰valuation technique par domaine</li>
-  <li>Ã‰mission du certificat d'homologation</li>
+  <li>Dossier d'homologation avec pièces justificatives</li>
+  <li>Évaluation technique par domaine</li>
+  <li>Émission du certificat d'homologation</li>
 </ul>
 
-<h3>10.3 Impact sur le profil de risque</h3>
-<div class="info">Chaque mise Ã  jour de certification ou d'homologation dÃ©clenche un recalcul automatique du profil de risque de l'aÃ©rodrome concernÃ©.</div>
+<h3>9.3 Impact sur le profil de risque</h3>
+<div class="info">Chaque mise à jour de certification ou d'homologation déclenche un recalcul automatique du profil de risque de l'aérodrome concerné.</div>
 
 <div class="page-break"></div>
 
-<h2 id="dossiers">11. Dossiers</h2>
+<h2 id="dossiers">10. Dossiers</h2>
 
-<h3>11.1 Gestion des dossiers d'extension</h3>
-<p>Module de suivi des demandes d'extension de validitÃ© pour les certifications :</p>
+<h3>10.1 Gestion des dossiers d'extension</h3>
+<p>Module de suivi des demandes d'extension de validité pour les certifications :</p>
 <ul>
   <li><b>Types d'extension</b> : 3 jours, 7 jours, 10 jours</li>
-  <li><b>Historique</b> : traÃ§abilitÃ© complÃ¨te des extensions accordÃ©es</li>
-  <li><b>Workflow</b> : demande â†’ examen â†’ approbation/refus</li>
+  <li><b>Historique</b> : traçabilité complète des extensions accordées</li>
+  <li><b>Workflow</b> : demande → examen → approbation/refus</li>
 </ul>
 
-<h3>11.2 Suivi documentaire</h3>
-<p>Centralise tous les documents liÃ©s aux dossiers :</p>
+<h3>10.2 Suivi documentaire</h3>
+<p>Centralise tous les documents liés aux dossiers :</p>
 <ul>
-  <li>PiÃ¨ces justificatives</li>
+  <li>Pièces justificatives</li>
   <li>Rapports d'inspection</li>
   <li>Courriers et notifications</li>
   <li>Export PDF pour archivage</li>
@@ -480,135 +480,134 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="registre">12. Registre</h2>
+<h2 id="registre">11. Registre</h2>
 
-<h3>12.1 Registre des surveillances</h3>
-<p>Historique complet de toutes les activitÃ©s de surveillance :</p>
+<h3>11.1 Registre des surveillances</h3>
+<p>Historique complet de toutes les activités de surveillance :</p>
 <ul>
   <li>Timeline chronologique des inspections</li>
-  <li>Fichiers attachÃ©s (rapports, photos, checklists signÃ©es)</li>
-  <li>Export PDF dans tous les onglets (Surveillance, Ã‰carts, Ã‰vÃ©nements, Formations)</li>
-  <li>Archivage automatique des Ã©vÃ©nements clÃ´turÃ©s</li>
+  <li>Fichiers attachés (rapports, photos, checklists signées)</li>
+  <li>Export PDF dans tous les onglets (Surveillance, Écarts, Événements, Formations)</li>
+  <li>Archivage automatique des événements clôturés</li>
 </ul>
 
-<h3>12.2 Consultation</h3>
-<p>Filtres par : pÃ©riode, aÃ©rodrome, type de surveillance, statut. Recherche plein texte.</p>
+<h3>11.2 Consultation</h3>
+<p>Filtres par : période, aérodrome, type de surveillance, statut. Recherche plein texte.</p>
 
 <div class="page-break"></div>
 
-<h2 id="workflow">13. Workflows</h2>
+<h2 id="workflow">12. Workflows</h2>
 
-<h3>13.1 Workflow Ã‰vÃ©nement</h3>
+<h3>12.1 Workflow Événement</h3>
 <table>
-  <tr><th>Type d'Ã©vÃ©nement</th><th>Workflow dÃ©clenchÃ©</th></tr>
-  <tr><td>Accident / Incident grave</td><td>Notification immÃ©diate â†’ Investigation obligatoire â†’ EnquÃªte â†’ Rapport â†’ Recommandations â†’ Suivi</td></tr>
-  <tr><td>Incident simple</td><td>Analyse â†’ Recommandations â†’ Suivi</td></tr>
+  <tr><th>Type d'événement</th><th>Workflow déclenché</th></tr>
+  <tr><td>Accident / Incident grave</td><td>Notification immédiate → Investigation obligatoire → Enquête → Rapport → Recommandations → Suivi</td></tr>
+  <tr><td>Incident simple</td><td>Analyse → Recommandations → Suivi</td></tr>
 </table>
 
-<h3>13.2 Workflow Certification</h3>
+<h3>12.2 Workflow Certification</h3>
 <ol>
-  <li>Demande â†’ Phase 1 (documentaire) â†’ Phase 2 (inspection) â†’ Phase 3 (dÃ©cision)</li>
-  <li>Renouvellement : Phase 1 sautÃ©e (dossier existant), dÃ©but direct Ã  la Phase 2</li>
+  <li>Demande → Phase 1 (documentaire) → Phase 2 (inspection) → Phase 3 (décision)</li>
+  <li>Renouvellement : Phase 1 sautée (dossier existant), début direct à la Phase 2</li>
 </ol>
 
-<h3>13.3 Workflow Ã‰cart â†’ PAC</h3>
+<h3>12.3 Workflow Écart → PAC</h3>
 <ol>
-  <li>DÃ©tection d'un Ã©cart (checklist NS/NV)</li>
-  <li>Ouverture de l'Ã©cart avec niveau de risque</li>
+  <li>Détection d'un écart (checklist NS/NV)</li>
+  <li>Ouverture de l'écart avec niveau de risque</li>
   <li>Proposition de Plan d'Action Corrective (PAC)</li>
-  <li>Validation du PAC â†’ Mise en Å“uvre â†’ Soumission des preuves</li>
-  <li>Ã‰valuation des preuves â†’ ClÃ´ture ou rejet</li>
+  <li>Validation du PAC → Mise en œuvre → Soumission des preuves</li>
+  <li>Évaluation des preuves → Clôture ou rejet</li>
 </ol>
-<div class="info">L'IA (<code>riskAgent</code>) assiste chaque Ã©tape : prÃ©diction du rÃ©sultat, suggestions de mesures, Ã©valuation de l'efficacitÃ©.</div>
+<div class="info">L'IA (<code>riskAgent</code>) assiste chaque étape : prédiction du résultat, suggestions de mesures, évaluation de l'efficacité.</div>
 
-<h3>13.4 Workflow Formation</h3>
+<h3>12.4 Workflow Formation</h3>
 <ol>
-  <li>DÃ©tection de lacunes de compÃ©tences (via CompetenceMatrix)</li>
-  <li>Suggestions de formation (via FormationSuggestions pilotÃ© par l'IA/profil de risque)</li>
-  <li>Planification â†’ ExÃ©cution â†’ Ã‰valuation</li>
-  <li>Mise Ã  jour automatique des compÃ©tences des inspecteurs</li>
+  <li>Détection de lacunes de compétences (via CompetenceMatrix)</li>
+  <li>Suggestions de formation (via FormationSuggestions piloté par l'IA/profil de risque)</li>
+  <li>Planification → Exécution → Évaluation</li>
+  <li>Mise à jour automatique des compétences des inspecteurs</li>
 </ol>
 
 <div class="page-break"></div>
 
-<h2 id="portails">14. Portails</h2>
+<h2 id="portails">13. Portails</h2>
 
-<h3>14.1 Portail DG ANACIM</h3>
-<p>Vue d'ensemble pour la direction gÃ©nÃ©rale :</p>
+<h3>13.1 Portail DG ANACIM</h3>
+<p>Vue d'ensemble pour la direction générale :</p>
 <ul>
-  <li><b>Dashboard</b> : KPIs nationaux (score moyen, aÃ©rodromes critiques, tendances)</li>
-  <li><b>Profil de risque</b> : vue dÃ©cisionnelle simplifiÃ©e (score, tendance, actions prioritaires, projections)</li>
-  <li><b>Planning</b> : vision consolidÃ©e des surveillances tous aÃ©rodromes</li>
-  <li><b>Ã‰vÃ©nements</b> : suivi des incidents de sÃ©curitÃ©</li>
+  <li><b>Dashboard</b> : KPIs nationaux (score moyen, aérodromes critiques, tendances)</li>
+  <li><b>Profil de risque</b> : vue décisionnelle simplifiée (score, tendance, actions prioritaires, projections)</li>
+  <li><b>Planning</b> : vision consolidée des surveillances tous aérodromes</li>
+  <li><b>Événements</b> : suivi des incidents de sécurité</li>
 </ul>
 
-<h3>14.2 Portail Exploitant (DG Exploitant / Point Focal)</h3>
-<p>Vue limitÃ©e Ã  l'aÃ©rodrome de l'exploitant :</p>
+<h3>13.2 Portail Exploitant (DG Exploitant / Point Focal)</h3>
+<p>Vue limitée à l'aérodrome de l'exploitant :</p>
 <ul>
-  <li><b>Profil de risque</b> : vue dÃ©cisionnelle (score, tendance, alertes, actions)</li>
-  <li><b>Planning annuel</b> : calendrier des surveillances Ã  venir</li>
-  <li><b>Checklist de prÃ©paration</b> : 12 items interactifs (persistÃ©s localStorage), barre de progression, badge Â« PrÃªt ! Â»</li>
-  <li><b>Documents partagÃ©s</b> : kit documentaire transmis par l'ANACIM</li>
+  <li><b>Profil de risque</b> : vue décisionnelle (score, tendance, alertes, actions)</li>
+  <li><b>Planning annuel</b> : calendrier des surveillances à venir</li>
+  <li><b>Checklist de préparation</b> : 12 items interactifs (persistés localStorage), barre de progression, badge « Prêt ! »</li>
+  <li><b>Documents partagés</b> : kit documentaire transmis par l'ANACIM</li>
   <li><b>Messagerie</b> : communication avec les inspecteurs</li>
-  <li><b>Notifications</b> : rappels avant surveillance (J-30, J-15, J-7), certificats arrivant Ã  expiration</li>
+  <li><b>Notifications</b> : rappels avant surveillance (J-30, J-15, J-7), certificats arrivant à expiration</li>
 </ul>
 
-<h3>14.3 Staff Operator</h3>
-<p>Consultation seule : documents partagÃ©s, planning, messagerie. Pas de modification.</p>
+<h3>13.3 Staff Operator</h3>
+<p>Consultation seule : documents partagés, planning, messagerie. Pas de modification.</p>
 
 <div class="page-break"></div>
 
-<h2 id="roles">14. RÃ´les et Permissions</h2>
+<h2 id="roles">14. Rôles et Permissions</h2>
 
 <table>
-  <tr><th>RÃ´le</th><th>Permissions</th></tr>
+  <tr><th>Rôle</th><th>Permissions</th></tr>
   <tr><td><b>Admin</b></td><td>Tous les modules, configuration, calibration IA, ML Monitoring complet</td></tr>
-  <tr><td><b>DG ANACIM</b></td><td>Vue dÃ©cisionnelle : profil de risque simplifiÃ©, dashboard, KPIs. Tous les aÃ©rodromes</td></tr>
+  <tr><td><b>DG ANACIM</b></td><td>Vue décisionnelle : profil de risque simplifié, dashboard, KPIs. Tous les aérodromes</td></tr>
   <tr><td><b>Chef DNSA / SSA / SNA</b></td><td>Profil de risque complet, planning, validation N+1, assignation</td></tr>
-  <tr><td><b>Inspecteur</b></td><td>Profil de risque, checklist, saisie Ã©carts, kit documentaire</td></tr>
-  <tr><td><b>DG Exploitant / Focal Operator</b></td><td>Vue dÃ©cisionnelle limitÃ©e Ã  son aÃ©rodrome, planification, portail exploitant</td></tr>
-  <tr><td><b>Staff Operator</b></td><td>Consultation documents partagÃ©s, planning de son aÃ©rodrome</td></tr>
+  <tr><td><b>Inspecteur</b></td><td>Profil de risque, checklist, saisie écarts, kit documentaire</td></tr>
+  <tr><td><b>DG Exploitant / Focal Operator</b></td><td>Vue décisionnelle limitée à son aérodrome, planification, portail exploitant</td></tr>
+  <tr><td><b>Staff Operator</b></td><td>Consultation documents partagés, planning de son aérodrome</td></tr>
 </table>
 
 <div class="page-break"></div>
 
-<h2 id="faq">10. FAQ et DÃ©pannage</h2>
+<h2 id="faq">10. FAQ et Dépannage</h2>
 
 <h3>Connexion</h3>
-<p><b>Q : Â« Identifiant ou mot de passe incorrect Â»</b><br>
-R : VÃ©rifiez le format email (<code>prenom.nom@anacim.sn</code>). Si le problÃ¨me persiste, contactez l'administrateur.</p>
+<p><b>Q : « Identifiant ou mot de passe incorrect »</b><br>
+R : Vérifiez le format email (<code>prenom.nom@anacim.sn</code>). Si le problème persiste, contactez l'administrateur.</p>
 
 <p><b>Q : La page ne charge pas / erreur 500</b><br>
-R : Si Supabase (free tier) est en pause, les donnÃ©es ne se chargent pas. L'administrateur doit rÃ©activer le projet sur supabase.com.</p>
+R : Si Supabase (free tier) est en pause, les données ne se chargent pas. L'administrateur doit réactiver le projet sur supabase.com.</p>
 
 <h3>Profil de Risque</h3>
 <p><b>Q : Pourquoi le score ne change pas ?</b><br>
-R : Le profil est recalculÃ© automatiquement Ã  chaque Ã©vÃ©nement (Ã©cart, surveillance, incident). Utilisez le bouton Â« Recalculer Â» dans l'onglet Actions pour forcer une mise Ã  jour.</p>
+R : Le profil est recalculé automatiquement à chaque événement (écart, surveillance, incident). Utilisez le bouton « Recalculer » dans l'onglet Actions pour forcer une mise à jour.</p>
 
-<p><b>Q : Que signifient les modÃ¨les HMM, EVT, etc. ?</b><br>
-R : Voir la lÃ©gende dans l'onglet SynthÃ¨se (tableau de synthÃ¨se multicritÃ¨re) et les explications dans chaque onglet. L'assistant IA peut aussi rÃ©pondre Ã  vos questions.</p>
+<p><b>Q : Que signifient les modèles HMM, EVT, etc. ?</b><br>
+R : Voir la légende dans l'onglet Synthèse (tableau de synthèse multicritère) et les explications dans chaque onglet. L'assistant IA peut aussi répondre à vos questions.</p>
 
 <h3>Planning N+1</h3>
-<p><b>Q : Le bouton N+1 affiche Â« BientÃ´t Â»</b><br>
-R : Le planning N+1 est disponible uniquement Ã  partir de novembre de l'annÃ©e en cours. Les propositions sont gÃ©nÃ©rÃ©es automatiquement.</p>
+<p><b>Q : Le bouton N+1 affiche « Bientôt »</b><br>
+R : Le planning N+1 est disponible uniquement à partir de novembre de l'année en cours. Les propositions sont générées automatiquement.</p>
 
-<p><b>Q : Comment valider dÃ©finitivement les propositions N+1 ?</b><br>
-R : Validez chaque proposition (bouton vert), puis cliquez sur Â« Consolider le planning N+1 Â» â†’ confirmez dans la modale.</p>
+<p><b>Q : Comment valider définitivement les propositions N+1 ?</b><br>
+R : Validez chaque proposition (bouton vert), puis cliquez sur « Consolider le planning N+1 » → confirmez dans la modale.</p>
 
-<h3>DonnÃ©es</h3>
-<p><b>Q : Les donnÃ©es ne se chargent pas</b><br>
-R : VÃ©rifiez votre connexion internet. Si le problÃ¨me persiste, le projet Supabase est peut-Ãªtre en pause (free tier).</p>
+<h3>Données</h3>
+<p><b>Q : Les données ne se chargent pas</b><br>
+R : Vérifiez votre connexion internet. Si le problème persiste, le projet Supabase est peut-être en pause (free tier).</p>
 
-<p><b>Q : Puis-je exporter les donnÃ©es ?</b><br>
-R : Oui â€” bouton Exporter dans ML Monitoring, export CSV dans l'historique des entraÃ®nements, export rapport dans ActionsTab du profil de risque.</p>
+<p><b>Q : Puis-je exporter les données ?</b><br>
+R : Oui — bouton Exporter dans ML Monitoring, export CSV dans l'historique des entraînements, export rapport dans ActionsTab du profil de risque.</p>
 
-<h3>IA et ModÃ¨les</h3>
-<p><b>Q : Les prÃ©dictions sont-elles fiables ?</b><br>
-R : La prÃ©cision augmente avec le nombre de donnÃ©es. Les modÃ¨les avancÃ©s (XGBoost, LSTM) s'activent automatiquement quand suffisamment de donnÃ©es sont disponibles (â‰¥20-30 points). La rÃ©gression linÃ©aire classique prend le relais en attendant.</p>
+<h3>IA et Modèles</h3>
+<p><b>Q : Les prédictions sont-elles fiables ?</b><br>
+R : La précision augmente avec le nombre de données. Les modèles avancés (XGBoost, LSTM) s'activent automatiquement quand suffisamment de données sont disponibles (≥20-30 points). La régression linéaire classique prend le relais en attendant.</p>
 
-<p><b>Q : Comment les modÃ¨les se coordonnent-ils ?</b><br>
-R : Tous les modÃ¨les convergent vers une source unique : le ProfilRisque. Un ModelCache partagÃ© garantit qu'aucun modÃ¨le n'est calculÃ© deux fois. Les rÃ©sultats sont persistÃ©s en base de donnÃ©es.</p>
+<p><b>Q : Comment les modèles se coordonnent-ils ?</b><br>
+R : Tous les modèles convergent vers une source unique : le ProfilRisque. Un ModelCache partagé garantit qu'aucun modèle n'est calculé deux fois. Les résultats sont persistés en base de données.</p>
 
 </body>
 </html>
-
