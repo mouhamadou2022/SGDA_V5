@@ -16,6 +16,7 @@ import {
 import { useAppStore } from '@/lib/store'
 import { loadInitialData, subscribeToEcarts } from '@/lib/datastore'
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
+import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
@@ -272,23 +273,30 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
       } else {
         try {
           user = await authService.loginWithEmail(identifiant, motDePasse)
-        } catch {
-          // Fallback local (Zustand) — utile si Supabase est en pause ou en dev
-          const store = useAppStore.getState()
-          const utilisateur = store.utilisateurs.find(
-            u => u.email === identifiant && (u as any).mot_de_passe === motDePasse
-          )
-          if (!utilisateur) throw new Error('Identifiant ou mot de passe incorrect')
-          user = {
-            id: utilisateur.id,
-            email: utilisateur.email ?? '',
-            nom: utilisateur.nom,
-            prenom: utilisateur.prenom,
-            role: utilisateur.role as import('@/lib/config').Role,
-            must_change_password: false,
-            last_login: new Date().toISOString(),
-          }
-        }
+        } catch (supabaseErr) {
+          // Fallback : Supabase Auth échoue → on interroge directement la table utilisateurs
+          try {
+            const { data: utilisateurs, error: fetchErr } = await supabase
+              .from('utilisateurs')
+              .select('*')
+            if (!fetchErr && utilisateurs) {
+              const utilisateur = utilisateurs.find(
+                (u: any) => u.email === identifiant && (u as any).mot_de_passe === motDePasse
+              )
+              if (utilisateur) {
+                user = {
+                  id: utilisateur.id,
+                  email: utilisateur.email ?? '',
+                  nom: utilisateur.nom,
+                  prenom: utilisateur.prenom,
+                  role: utilisateur.role as import('@/lib/config').Role,
+                  must_change_password: false,
+                  last_login: new Date().toISOString(),
+                }
+              }
+            }
+          } catch { /* ignored */ }
+          if (!user!) throw new Error('Identifiant ou mot de passe incorrect')
       }
 
       if (!user) throw new Error('Authentification échouée')
