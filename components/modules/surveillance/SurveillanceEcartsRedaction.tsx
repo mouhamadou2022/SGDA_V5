@@ -804,16 +804,31 @@ export default function SurveillanceEcartsRedaction({
   };
 
   const onSignatureSave = (signatureUrl: string) => {
+    const fullSurv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
+    const existingSigs = fullSurv?.signatures_ecarts || []
+    const newSig = {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
+      date_signature: new Date().toISOString(),
+      signature_url: signatureUrl,
+    }
+    const allSigs = [...existingSigs.filter(s => s.signataire_id !== user?.id), newSig]
+
+    // Vérifier si TOUS les délégués ont signé
+    let allDelegatedSigned = true
+    const delegationRaw = localStorage.getItem(`sgda_delegations_${fullSurv?.planning_id || surveillanceId}`)
+    if (delegationRaw) {
+      try {
+        const delegations: Record<string, string> = JSON.parse(delegationRaw)
+        const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
+        const signedIds = new Set(allSigs.map(s => s.signataire_id))
+        allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
+      } catch { /* ignoré */ }
+    }
+
     updateSurveillance(surveillanceId, {
-      statut: 'ecarts_signes',
-      signatures_ecarts: [
-        {
-          signataire_id: user?.id || '',
-          signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
-          date_signature: new Date().toISOString(),
-          signature_url: signatureUrl,
-        },
-      ],
+      statut: allDelegatedSigned ? 'ecarts_signes' : fullSurv?.statut || 'checklist_signee',
+      signatures_ecarts: allSigs,
     });
     onSigner?.(signatureUrl);
     setSignatureDialogOpen(false);
