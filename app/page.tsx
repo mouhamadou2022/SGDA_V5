@@ -983,6 +983,7 @@ const MODULES = {
   'operator-dashboard': lazy(() => import('@/components/modules/portail-exploitant/OperatorDashboardModule').then((m) => resolveModule(m, 'OperatorDashboardModule'))),
   'operator-ecarts': lazy(() => import('@/components/modules/portail-exploitant/OperatorEcartsModule').then((m) => resolveModule(m, 'OperatorEcartsModule'))),
   'operator-pac-consolide': lazy(() => import('@/components/modules/portail-exploitant/OperatorPACConsolideModule').then((m) => resolveModule(m, 'OperatorPACConsolideModule'))),
+  'operator-planning': lazy(() => import('@/components/modules/portail-exploitant/OperatorPlanningModule').then((m) => resolveModule(m, 'OperatorPlanningModule'))),
   'operator-evenements': lazy(() => import('@/components/modules/portail-exploitant/OperatorEvenementsModule').then((m) => resolveModule(m, 'OperatorEvenementsModule'))),
   'operator-documentations': lazy(() => import('@/components/modules/portail-exploitant/OperatorDocumentationsModule').then((m) => resolveModule(m, 'OperatorDocumentationsModule'))),
   'operator-enquetes': lazy(() => import('@/components/modules/portail-exploitant/OperatorEnquetesModule').then((m) => resolveModule(m, 'OperatorEnquetesModule'))),

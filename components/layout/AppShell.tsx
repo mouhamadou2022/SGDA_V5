@@ -120,6 +120,8 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
       'operator-evenements': 'Événements',
       'operator-documentations': 'Documents',
       'operator-kit': 'Kit Références',
+      'operator-planning': 'Mon Planning',
+      'operator-pac-consolide': 'PAC (Consolidation)',
       'operator-enquetes': 'Enquêtes',
       'operator-messagerie': 'Messagerie',
       'operator-certification': 'Certification',

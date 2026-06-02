@@ -39,7 +39,7 @@ export const PERMISSIONS = {
   inspector: {
     modules: [
       'dashboard', 'aerodromes', 'certification', 'homologation', 
-      'planning', 'surveillance', 'plans', 'registres', 'dossiers', 
+      'planning', 'surveillance', 'registres', 'dossiers', 
       'formation', 'kit', 'evenements', 'enquetes', 'messagerie', 
       'risque', 'charge', 'plans-actions', 'ml-monitoring'
     ]
@@ -48,7 +48,7 @@ export const PERMISSIONS = {
   dg_anacim: {
     modules: [
       'dashboard', 'aerodromes', 'certification', 'homologation', 
-      'planning', 'surveillance', 'plans', 'registres', 'dossiers', 
+      'planning', 'surveillance', 'registres', 'dossiers', 
       'formation', 'evenements', 'enquetes', 'messagerie', 
       'risque', 'signatures', 'plans-actions'
     ]
@@ -61,6 +61,7 @@ export const PERMISSIONS = {
       'aerodromes', 'risque',
       'certification', 'homologation',
       'operator-ecarts', 'operator-pac-consolide',
+      'operator-planning',
       'operator-messagerie',
       'operator-certification', 'operator-homologation',
     ],
@@ -74,6 +75,7 @@ export const PERMISSIONS = {
       'operator-dashboard', 'operator-ecarts', 'operator-evenements',
       'operator-documentations', 'operator-enquetes', 'operator-messagerie',
       'operator-pac-consolide',
+      'operator-planning',
       'operator-certification', 'operator-homologation',
     ],
   },
@@ -83,6 +85,7 @@ export const PERMISSIONS = {
     modules: [
       'dashboard', 'staff-dashboard',
       'risque',
+      'operator-planning',
       'operator-evenements',
       'operator-documentations',
       'operator-certification', 'operator-homologation',

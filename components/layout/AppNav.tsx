@@ -149,14 +149,16 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'messagerie', label: 'Messagerie', icon: Mail, roles: ['admin', 'inspector', 'dg_anacim'], badge: messagesNonLus, badgeVariant: 'primary' },
     { id: 'risque', label: 'Profil Risque', icon: Activity, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'focal_operator', 'staff_operator'] },
     { id: 'signatures', label: 'Signatures DG', icon: PenLine, roles: ['dg_anacim'] },
-    { id: 'charge', label: 'Charge Travail', icon: ListTodo, roles: ['admin', 'inspector', 'dg_anacim'] },
+    { id: 'charge', label: 'Charge Travail', icon: ListTodo, roles: ['admin', 'inspector'] },
     // ── Modules admin exclusifs ──
     { id: 'utilisateurs', label: 'Utilisateurs', icon: Users, roles: ['admin'] },
     { id: 'audit', label: 'Journal Audit', icon: FileSearch, roles: ['admin'] },
     { id: 'codes', label: "Codes d'Accès", icon: Key, roles: ['admin'] },
     { id: 'ml-monitoring', label: 'ML Monitoring', icon: Activity, roles: ['admin', 'inspector'] },
     // ── Portail exploitant ──
+    { id: 'operator-planning', label: 'Mon Planning', icon: ListTodo, roles: ['dg_operator', 'focal_operator', 'staff_operator'] },
     { id: 'operator-ecarts', label: 'Écarts & PAC', icon: Flame, roles: ['dg_operator', 'focal_operator'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
+    { id: 'operator-pac-consolide', label: 'PAC Consolidé', icon: ShieldCheck, roles: ['focal_operator'] },
     { id: 'operator-certification', label: 'Certification', icon: ShieldCheck, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorCertification },
     { id: 'operator-homologation', label: 'Homologation', icon: Scale, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorHomologation },
     { id: 'operator-evenements', label: 'Événements', icon: AlertCircle, roles: ['focal_operator', 'staff_operator'] },
