@@ -1,23 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 
-let _supabase: SupabaseClient | null = null
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-function getClient(): SupabaseClient {
-  if (_supabase) return _supabase
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Missing Supabase environment variables')
-  _supabase = createClient(url, key)
-  return _supabase
-}
+export const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null as any
 
-function createSupabaseProxy(): SupabaseClient {
-  return new Proxy({} as SupabaseClient, {
-    get(_, prop) {
-      const client = getClient()
-      return (client as any)[prop]
-    },
-  })
-}
-
-export const supabase = createSupabaseProxy()
+// Note : si null, les appels Supabase lèveront une erreur côté client.
+// Pas de throw au build — Vercel peut générer les pages statiques sans erreur.
