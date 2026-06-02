@@ -83,21 +83,19 @@ export const authService = {
       throw new Error(data.error || "Code d'accès invalide")
     }
 
-    // Créer une session Supabase Auth anonyme (nécessaire pour RLS)
+    // Créer une session Supabase Auth réelle avec le mot de passe par défaut
+    const email = data.user.email || ''
     try {
-      const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously()
-      if (anonError || !anonData?.session?.access_token) {
-        throw new Error(anonError?.message || 'Session anonyme non disponible')
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: 'AnacimDNS@2026',
+      })
+      if (signInError) {
+        console.warn('[auth] Échec signInWithPassword:', signInError.message)
+        throw signInError
       }
-      await supabase.auth.setSession(anonData.session)
-      // Lier l'auth_id anonyme à l'utilisateur dans la base
-      await fetch('/api/auth/link-anonymous', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: data.user.id }),
-      }).catch(() => {})
     } catch (e) {
-      console.error('[auth] Échec création session anonyme:', e)
+      console.error('[auth] Session auth non disponible:', e)
       throw new Error("Session d'accès non disponible. Contactez l'administrateur.")
     }
 

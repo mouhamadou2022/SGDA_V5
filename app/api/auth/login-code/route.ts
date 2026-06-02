@@ -52,6 +52,8 @@ export async function POST(request: Request) {
       .single()
 
     // 3b. Créer l'utilisateur s'il n'existe pas
+    const identifiant = `${expectedRole}_${codeData.aerodrome_id}`.toLowerCase()
+    const authDomain = process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'anacim.sn'
     if (!utilisateur) {
       const nameMap: Record<string, { prenom: string; nom: string }> = {
         dg_operator:     { prenom: codeData.dg_prenom || 'DG',      nom: codeData.dg_nom || 'Exploitant' },
@@ -59,7 +61,6 @@ export async function POST(request: Request) {
         staff_operator:  { prenom: codeData.staff_prenom || 'Staff',  nom: codeData.staff_nom || 'Exploitant' },
       }
       const names = nameMap[expectedRole] || { prenom: 'Exploitant', nom: 'Exploitant' }
-      const identifiant = `${expectedRole}_${codeData.aerodrome_id}`.toLowerCase()
 
       const { data: newUser, error: createError } = await supabaseAdmin
         .from('utilisateurs')
@@ -87,7 +88,39 @@ export async function POST(request: Request) {
       utilisateur = newUser
     }
 
-    // 4. Incrémenter le compteur de connexions
+    // 4. Créer/Mettre à jour l'utilisateur Supabase Auth (pas anonyme)
+    const email = codeData.email || `${identifiant}@${authDomain}`
+    let authUser = null
+    
+    // Chercher si l'utilisateur Auth existe déjà
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    authUser = existingUsers?.users?.find(u => u.email === email)
+    
+    if (!authUser) {
+      // Créer un utilisateur Auth avec un mot de passe par défaut
+      const defaultPassword = 'AnacimDNS@2026'
+      const { data: newAuthUser, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: defaultPassword,
+        email_confirm: true,
+        user_metadata: { role: expectedRole, aerodrome_id: codeData.aerodrome_id },
+      })
+      if (authCreateError) {
+        console.error('[login-code] Erreur création auth user:', authCreateError)
+        return NextResponse.json({ error: 'Erreur création compte' }, { status: 500 })
+      }
+      authUser = newAuthUser.user
+    }
+    
+    // Lier l'auth_id à l'utilisateur dans la table utilisateurs
+    if (authUser && utilisateur.auth_id !== authUser.id) {
+      await supabaseAdmin
+        .from('utilisateurs')
+        .update({ auth_id: authUser.id })
+        .eq('id', utilisateur.id)
+    }
+
+    // 5. Incrémenter le compteur de connexions
     await supabaseAdmin
       .from('codes_acces')
       .update({
