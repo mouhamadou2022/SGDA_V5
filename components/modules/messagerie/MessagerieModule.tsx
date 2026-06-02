@@ -1,7 +1,7 @@
 // components/modules/messagerie/MessagerieModule.tsx
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Message } from '@/lib/store'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { ComposeMessage } from './ComposeMessage'
 import type { AuthUser } from '@/lib/auth'
+import { subscribeToMessages } from '@/lib/datastore'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -35,6 +36,17 @@ export function MessagerieModule({ user: userProp }: { user: AuthUser }) {
   const user = userProp || storeUser
   const userId = user?.id || ''
   const userRole = user?.role || 'inspector'
+
+  // Abonnement temps réel aux nouveaux messages
+  useEffect(() => {
+    if (!userId) return
+    const sub = subscribeToMessages(userId, (payload) => {
+      if (payload.new) {
+        useAppStore.getState().setMessages([...useAppStore.getState().messages, payload.new as Message])
+      }
+    })
+    return () => { sub?.unsubscribe?.() }
+  }, [userId])
 
   const [canal, setCanal] = useState<'interne' | 'exploitant'>(
     userRole === 'dg_operator' || userRole === 'focal_operator' || userRole === 'staff_operator'

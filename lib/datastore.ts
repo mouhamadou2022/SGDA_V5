@@ -715,6 +715,20 @@ export function subscribeToNotifications(
     .subscribe()
 }
 
+export function subscribeToMessages(
+  userId: string,
+  callback: (payload: { eventType: string; new: any }) => void,
+) {
+  return supabase
+    .channel(`messages_${userId}`)
+    .on(
+      'postgres_changes' as any,
+      { event: 'INSERT', schema: 'public', table: 'messages', filter: `to_id=eq.${userId}` },
+      callback,
+    )
+    .subscribe()
+}
+
 // ─────────────────────────────────────────────────────────────
 // INSPECTEURS
 // ─────────────────────────────────────────────────────────────
