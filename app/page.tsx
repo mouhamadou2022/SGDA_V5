@@ -266,7 +266,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
     setIsLoading(true)
     try {
       const loginType = detectLoginType(identifiant)
-      let user: AuthUser
+      let user: AuthUser | undefined
 
       if (loginType === 'code_acces') {
         user = await authService.loginWithCode(identifiant)
