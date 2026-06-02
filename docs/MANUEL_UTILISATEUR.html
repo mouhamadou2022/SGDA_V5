@@ -264,8 +264,60 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Maintien</b> : items des surveillances antérieures + domaines du profil</li>
 </ul>
 
-<h3>5.3 Signature</h3>
-<p>La feuille de présence permet la signature électronique via un pad de signature. La checklist signée est archivée automatiquement.</p>
+<h3>5.3 Délégation des domaines</h3>
+<p>Avant de lancer la checklist, le chef d'équipe peut déléguer des domaines spécifiques à chaque inspecteur :</p>
+<ol>
+  <li>Ouvrir la modale de préparation → onglet <b>Délégation</b></li>
+  <li>Pour chaque domaine, sélectionner l'inspecteur assigné</li>
+  <li>Cliquer sur <b>Enregistrer les délégations</b></li>
+</ol>
+<p>Résumé des délégations visible dans la modale. Chaque inspecteur voit uniquement ses domaines assignés dans la checklist.</p>
+<div class="info">La délégation est optionnelle. Sans délégation, tous les inspecteurs peuvent voir l'ensemble des domaines.</div>
+
+<h3>5.4 Préparation de l'inspection — Côté Inspecteur</h3>
+<p>Depuis le module Planning, cliquer sur <b>Préparer</b> (icône fichier) sur une carte planning. La modale de préparation offre 4 onglets :</p>
+<ul>
+  <li><b>Profil de risque</b> : score global, C1-C5, tendance, vélocité (vitesse, accélération, volatilité)</li>
+  <li><b>Historique</b> : 3 dernières surveillances, écarts critiques non résolus</li>
+  <li><b>Checklist</b> : type recommandé (standard, SGS PAOE, suivi écarts, PAC), pré-remplissage IA avec l'historique</li>
+  <li><b>Délégation</b> : attribution des domaines aux inspecteurs</li>
+</ul>
+<h4>Ouverture de la checklist</h4>
+<p>Si plusieurs types de checklist sont disponibles, une modale de choix s'affiche :</p>
+<ul>
+  <li><b>Checklist Standard</b> : items RAS-14</li>
+  <li><b>Évaluation SGS (PAOE)</b> : maturité Annexe 19 OACI</li>
+  <li><b>Suivi des écarts</b> : état d'avancement des écarts actifs</li>
+  <li><b>Mise en œuvre PAC</b> : vérification des plans d'action corrective</li>
+</ul>
+
+<h3>5.5 Préparation de l'inspection — Côté Exploitant</h3>
+<p>L'exploitant reçoit une notification (in-app + email) quand une checklist est prête. Il peut :</p>
+<ul>
+  <li><b>Checklist de préparation</b> (12 items interactifs) : vérifier les points avant inspection (documents, infrastructures, équipements, personnel)</li>
+  <li><b>Barre de progression</b> : suivi en temps réel des items complétés</li>
+  <li><b>Badge « Prêt ! »</b> : s'affiche quand tous les items sont validés</li>
+  <li><b>Persistance locale</b> : les réponses sont sauvegardées dans le navigateur (localStorage)</li>
+</ul>
+<div class="alert">L'exploitant reçoit des rappels automatiques à J-30, J-15 et J-7 avant la date de surveillance.</div>
+
+<h3>5.6 Feuille de présence et signature</h3>
+<p>Pendant l'inspection, la feuille de présence permet :</p>
+<ul>
+  <li><b>Signature électronique</b> : pad de signature tactile (SignaturePadWithColor)</li>
+  <li><b>Enregistrement</b> : date, heure, nom du signataire, rôle</li>
+  <li><b>Validation</b> : le chef d'équipe valide la feuille signée</li>
+  <li><b>Archivage</b> : la checklist signée est automatiquement archivée dans le registre</li>
+</ul>
+
+<h3>5.7 Rapports de surveillance</h3>
+<p>Après la complétion de la checklist et la signature :</p>
+<ul>
+  <li><b>Rapport automatique</b> : généré avec tous les items, résultats (SA/NS/NV), écarts détectés</li>
+  <li><b>Export PDF</b> : disponible dans le registre et dans la vue détail de la surveillance</li>
+  <li><b>Transmission</b> : notification automatique à l'exploitant et au chef hiérarchique</li>
+  <li><b>Archivage</b> : conservation dans le registre avec tous les fichiers attachés</li>
+</ul>
 
 <div class="page-break"></div>
 
