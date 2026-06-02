@@ -2811,6 +2811,14 @@ getActiveAerodromes: () => {
       setCurrentEcart: (ecart) => set({ currentEcart: ecart }),
       
       addEcart: async (ecart) => {
+        // Valider l'accès à l'aérodrome (sécurité)
+        const currentUser = get().user
+        const operatorRoles = ['focal_operator', 'dg_operator', 'staff_operator']
+        if (currentUser && operatorRoles.includes(currentUser.role)) {
+          if (ecart.aerodrome_id !== currentUser.aerodrome_id) {
+            throw new Error("Vous ne pouvez créer des écarts que sur votre aérodrome")
+          }
+        }
         const historiqueEntry: HistoriqueEcart = {
           id: crypto.randomUUID(),
           type: 'creation',
@@ -2832,6 +2840,24 @@ getActiveAerodromes: () => {
             [savedEcart.id]: [historiqueEntry]
           }
         }))
+        // Notifier les exploitants de l'aérodrome concerné
+        try {
+          const operators = get().utilisateurs.filter(u => 
+            ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role) && 
+            u.aerodrome_id === ecart.aerodrome_id
+          )
+          const aero = get().aerodromes.find(a => a.id === ecart.aerodrome_id)
+          operators.forEach(op => {
+            get().addNotification({
+              user_id: op.id,
+              type: 'warning',
+              title: `Nouvel écart — ${aero?.code_oaci || ''}`,
+              message: `Écart ${savedEcart.reference} : ${savedEcart.libelle?.substring(0, 100) || 'sans libellé'} (niveau ${savedEcart.niveau_risque})`,
+              canal: 'in_app',
+              link: '/portail-exploitant/ecarts',
+            })
+          })
+        } catch { /* notification non critique */ }
       },
       updateEcart: async (id, data) => {
         const result = await datastore.updateEcart(id, data)
@@ -5931,7 +5957,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
                 // Notifier les operators
                 const aerodrome = get().aerodromes.find(a => a.id === surveillance.aerodrome_id)
                 const focalOperators = get().utilisateurs.filter(u => 
-                  (u.role === 'focal_operator' || u.role === 'dg_operator') && 
+                  (u.role === 'focal_operator' || u.role === 'dg_operator' || u.role === 'staff_operator') && 
                   u.aerodrome_id === surveillance.aerodrome_id
                 )
                 
