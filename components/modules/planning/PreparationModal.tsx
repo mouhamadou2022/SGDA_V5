@@ -114,6 +114,10 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
 
   const handleSaveDelegations = () => {
     const nbDelegations = Object.keys(delegations).filter(d => delegations[d]).length
+    // Persister les délégations pour la checklist
+    if (planning?.id) {
+      localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
+    }
     addNotification({
       user_id: user?.id || '',
       type: 'success',
@@ -172,6 +176,10 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
     }
 
     onClose()
+    // Sauvegarder les délégations avant d'ouvrir la checklist
+    if (Object.keys(delegations).filter(d => delegations[d]).length > 0) {
+      localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
+    }
     const chosenType = possibleTypes[0]?.type || 'standard'
     if (chosenType === 'sgs') {
       router.push(`/preparation-checklist/${planning.id}?type=sgs`)

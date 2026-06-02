@@ -573,6 +573,13 @@ export default function PreparationChecklistPage() {
   // Onglet actif en mode mixte
   const [mixteTab, setMixteTab] = useState<MixteTab>('standard');
 
+  // Délégations (domaine → inspecteur) chargées depuis la préparation
+  const [delegations, setDelegations] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const raw = localStorage.getItem(`sgda_delegations_${planningId}`);
+    if (raw) { try { setDelegations(JSON.parse(raw)) } catch { /* ignore */ } }
+  }, [planningId]);
+
   const planning = plannings.find(p => p.id === planningId);
   const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
   const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
