@@ -985,7 +985,7 @@ const MODULES = {
   'operator-pac-consolide': lazy(() => import('@/components/modules/portail-exploitant/OperatorPACConsolideModule').then((m) => resolveModule(m, 'OperatorPACConsolideModule'))),
   'operator-planning': lazy(() => import('@/components/modules/portail-exploitant/OperatorPlanningModule').then((m) => resolveModule(m, 'OperatorPlanningModule'))),
   'operator-evenements': lazy(() => import('@/components/modules/portail-exploitant/OperatorEvenementsModule').then((m) => resolveModule(m, 'OperatorEvenementsModule'))),
-  'operator-documentations': lazy(() => import('@/components/modules/portail-exploitant/OperatorDocumentationsModule').then((m) => resolveModule(m, 'OperatorDocumentationsModule'))),
+  'operator-documentations': lazy(() => import('@/components/modules/portail-exploitant/OperatorKitModule').then((m) => resolveModule(m, 'OperatorKitModule'))),
   'operator-enquetes': lazy(() => import('@/components/modules/portail-exploitant/OperatorEnquetesModule').then((m) => resolveModule(m, 'OperatorEnquetesModule'))),
   'operator-messagerie': lazy(() => import('@/components/modules/portail-exploitant/OperatorMessagerie').then((m) => resolveModule(m, 'OperatorMessagerie'))),
   'operator-certification': lazy(() => import('@/components/modules/portail-exploitant/OperatorCertificationModule').then((m) => resolveModule(m, 'OperatorCertificationModule'))),

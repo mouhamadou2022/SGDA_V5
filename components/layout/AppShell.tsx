@@ -118,7 +118,7 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
       'operator-dashboard': 'Mon Dashboard',
       'operator-ecarts': 'Mes Écarts',
       'operator-evenements': 'Événements',
-      'operator-documentations': 'Documents',
+      'operator-documentations': 'Documents (Kit ANACIM)',
       'operator-kit': 'Kit Références',
       'operator-planning': 'Mon Planning',
       'operator-pac-consolide': 'PAC (Consolidation)',

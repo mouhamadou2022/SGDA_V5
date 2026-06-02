@@ -162,7 +162,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'operator-certification', label: 'Certification', icon: ShieldCheck, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorCertification },
     { id: 'operator-homologation', label: 'Homologation', icon: Scale, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorHomologation },
     { id: 'operator-evenements', label: 'Événements', icon: AlertCircle, roles: ['focal_operator', 'staff_operator'] },
-    { id: 'operator-documentations', label: 'Documents', icon: FileText, roles: ['focal_operator', 'staff_operator'] },
+    { id: 'operator-documentations', label: 'Kit Références', icon: FileText, roles: ['focal_operator', 'staff_operator'] },
     { id: 'operator-enquetes', label: 'Enquêtes', icon: MessageCircle, roles: ['focal_operator'] },
     { id: 'operator-messagerie', label: 'Messagerie', icon: Mail, roles: ['dg_operator', 'focal_operator'], badge: messagesNonLus, badgeVariant: 'primary' },
   ]
