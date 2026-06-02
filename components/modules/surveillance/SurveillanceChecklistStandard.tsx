@@ -214,7 +214,7 @@ export function SurveillanceChecklistStandard({
       }
       mergeItemsIntoHierarchy(hierarchy, flatItems);
       // Filtrer par délégation pour les inspecteurs (pas le chef)
-      const delegKey2 = `sgda_delegations_${surveillanceObj.planning_id || surveillanceId}`
+      const delegKey2 = `sgda_delegations_${(surveillanceObj as any).planning_id || surveillanceId}`
       try {
         const raw = localStorage.getItem(delegKey2)
         if (raw) {
@@ -455,13 +455,14 @@ export function SurveillanceChecklistStandard({
     const scoreGlobal = computeSurveillanceScore();
     
     // Récupérer les signatures existantes et ajouter la nouvelle
-    const existingSigs = surveillance?.signatures_checklist || []
+    const fullSurv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
+    const existingSigs = fullSurv?.signatures_checklist || []
     const newSig = { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }
     const allSigs = [...existingSigs.filter(s => s.signataire_id !== user?.id), newSig]
 
     // Vérifier si TOUS les délégués ont signé
     let allDelegatedSigned = true
-    const delegationRaw = localStorage.getItem(`sgda_delegations_${surveillance?.planning_id || surveillanceId}`)
+    const delegationRaw = localStorage.getItem(`sgda_delegations_${fullSurv?.planning_id || surveillanceId}`)
     if (delegationRaw) {
       try {
         const delegations: Record<string, string> = JSON.parse(delegationRaw)
@@ -472,7 +473,7 @@ export function SurveillanceChecklistStandard({
     }
 
     updateSurveillance(surveillanceId, {
-      statut: allDelegatedSigned ? 'checklist_signee' : surveillance?.statut || 'en_cours',
+      statut: allDelegatedSigned ? 'checklist_signee' : fullSurv?.statut || 'en_cours',
       score_global: scoreGlobal,
       signatures_checklist: allSigs,
     });
