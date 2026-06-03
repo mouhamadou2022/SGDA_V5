@@ -258,13 +258,13 @@ L'équipe ANACIM`;
                   const { assistantAgent } = await import('@/lib/ia/agents/assistantAgent')
                   const delaiPAC = ecart?.delai_pac ? new Date(ecart.delai_pac).toLocaleDateString('fr-FR') : 'non définie'
                   const nbRappels = rappelEngine.getRappelsManuels(ecartId).length + 1
-                  const aeroData = ecart.aerodrome_id
+                  const storeUser = useAppStore.getState().user
                   const resp = await assistantAgent.chat({
-                    aerodromeId: ecart.aerodrome_id,
-                    question: `Rédige un rappel professionnel pour un exploitant d'aérodrome concernant l'écart "${ecart?.reference}: ${ecart?.libelle?.substring(0, 80) || ''}" de niveau ${ecart?.niveau_risque}. Délai PAC: ${delaiPAC}. Rappel n°${nbRappels}. Format: email professionnel avec objet. Ton: ferme mais courtois. Langue: français. Signé: ANACIM - SGDA.`,
-                    role: userRole || 'inspector',
+                    message: `Rédige un rappel professionnel pour un exploitant d'aérodrome concernant l'écart "${ecart?.reference}: ${ecart?.libelle?.substring(0, 80) || ''}" de niveau ${ecart?.niveau_risque}. Délai PAC: ${delaiPAC}. Rappel n°${nbRappels}. Format: email professionnel avec objet. Ton: ferme mais courtois. Langue: français. Signé: ANACIM - SGDA.`,
+                    userRole: storeUser?.role || 'inspector',
+                    contexte: { aerodromeId: ecart?.aerodrome_id },
                   })
-                  if (resp?.content) setMessage(resp.content)
+                  if (resp?.message) setMessage(resp.message)
                   else setMessage(getMessageParDefaut())
                 } catch {
                   setMessage(getMessageParDefaut())
