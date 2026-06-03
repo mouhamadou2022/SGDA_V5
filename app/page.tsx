@@ -405,11 +405,13 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
         
         {/* Logo ANACIM + SGDA V5 centré */}
           <div className="flex flex-col items-center justify-start pt-16 pb-6 z-20 animate-slide-down">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30 flex items-center justify-center mb-3">
-              <Plane className="w-6 h-6 text-white" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-500/30 flex items-center justify-center mb-4">
+              <Plane className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">ANACIM</h1>
-            <p className="text-white/50 text-xs tracking-wide mt-1">SGDA V5 — Système de Gestion des Aérodromes</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">ANACIM — SGDA V5</h1>
+            <p className="text-white/40 text-sm mt-2 text-center max-w-md">
+              Sécurité, Sûreté et Développement Durable des aérodromes du Sénégal
+            </p>
           </div>
 
           {/* Avion décoratif */}
@@ -419,7 +421,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
 
           {/* Contenu centré */}
           <div className="flex-1 flex items-center justify-center px-4 z-10">
-            <div className="w-full max-w-md">
+            <div className="w-full max-w-lg">
 
               {/* Carte de connexion */}
               <div className="relative bg-white/[0.04] backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
