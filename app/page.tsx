@@ -426,7 +426,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
             <div className="grid lg:grid-cols-2 gap-20 items-start">
               
               {/* ==================== COLONNE GAUCHE ==================== */}
-              <div className="pt-20 flex flex-col h-full">
+              <div className="pt-20 flex flex-col h-full bg-gradient-to-b from-slate-900/80 to-blue-950/60 rounded-3xl p-8">
                 
                 {/* SECTION 1 : SLOGAN avec animation */}
                 <div className="animate-fade-up">
@@ -463,27 +463,12 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
                   </div>
                 </div>
 
-                {/* Espace RÉSEAU → MÉTÉO */}
-                <div className="h-12" />
-
-                {/* SECTION 3 : MÉTÉO AÉRODROMES */}
-                <div className="animate-fade-up" style={{ animationDelay: '0.35s' }}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <div className="w-1 h-5 bg-gradient-to-b from-sky-500 to-cyan-500 rounded-full" />
-                    <span className="text-white/40 text-[10px] uppercase tracking-wider font-semibold">
-                      Météo aérodromes
-                    </span>
-                    <Navigation className="w-3 h-3 text-sky-400 animate-pulse" />
-                  </div>
-                  <WeatherCarousel />
-                </div>
-
-                {/* Espace flexible pour pousser vers le bas */}
+                {/* Espace flexible */}
                 <div className="flex-1" />
               </div>
 
               {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center">
+              <div className="flex items-center justify-center bg-gradient-to-b from-blue-400/20 to-blue-200/10 rounded-3xl p-8">
                 
                 {/* Effet de lueur derrière la carte */}
                 <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
