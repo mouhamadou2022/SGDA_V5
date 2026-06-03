@@ -266,6 +266,23 @@ CREATE POLICY "api_keys_admin" ON api_keys
   FOR ALL USING (get_user_role() = 'admin');
 
 -- ============================================================
+-- TABLE self_assessments — auto-évaluation exploitants
+-- ============================================================
+CREATE TABLE IF NOT EXISTS self_assessments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL UNIQUE REFERENCES utilisateurs(id) ON DELETE CASCADE,
+  aerodrome_id UUID REFERENCES aerodromes(id) ON DELETE SET NULL,
+  reponses JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE self_assessments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "self_assessments_owner" ON self_assessments;
+CREATE POLICY "self_assessments_owner" ON self_assessments
+  FOR ALL USING (auth.uid() = user_id);
+
+-- ============================================================
 -- SECTION 5.D — COLONNES HIÉRARCHIE ANACIM
 -- poste : fonction hiérarchique (inspecteur, chef_ssa, chef_sna, chef_dnsa)
 -- superieur_id : lien vers le supérieur direct
