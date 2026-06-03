@@ -468,14 +468,14 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
               </div>
 
               {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center bg-gradient-to-b from-sky-100 to-blue-50 rounded-3xl p-8">
+              <div className="flex items-center justify-center">
                 
                 {/* Effet de lueur derrière la carte */}
                 <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
                 
                 {/* Carte Glassmorphism premium */}
                 <div 
-                  className="relative w-full max-w-lg bg-white/[0.04] backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden transition-all duration-500 hover:shadow-role-glow"
+                  className="relative w-full max-w-lg bg-gradient-to-b from-sky-50 to-blue-100 backdrop-blur-xl rounded-3xl border border-blue-200 shadow-2xl overflow-hidden transition-all duration-500"
                   onMouseEnter={() => setIsCardHovered(true)}
                   onMouseLeave={() => setIsCardHovered(false)}
                 >
