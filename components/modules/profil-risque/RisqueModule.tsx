@@ -71,8 +71,8 @@ export function RisqueModule({ userRole }: Props) {
   const [refreshing, setRefreshing] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
-  const isDecisionMaker = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
-  const isExploitant = userRole === 'dg_operator' || userRole === 'focal_operator' || userRole === 'staff_operator'
+  const isDecisionMaker = userRole === 'dg_anacim'
+  const isExploitant = !!user?.aerodrome_id
   const historiqueScores = useHistoricalScores(selectedAerodromeId || '')
 
   const aerodromesActifs = useMemo(() => {
