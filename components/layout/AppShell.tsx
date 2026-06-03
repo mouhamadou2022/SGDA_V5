@@ -122,6 +122,7 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
       'operator-kit': 'Kit Références',
       'operator-planning': 'Mon Planning',
       'operator-pac-consolide': 'PAC (Consolidation)',
+      'operator-self-assessment': 'Auto-évaluation',
       'operator-enquetes': 'Enquêtes',
       'operator-messagerie': 'Messagerie',
       'operator-certification': 'Certification',
