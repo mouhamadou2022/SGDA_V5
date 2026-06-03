@@ -24,6 +24,8 @@ import {
   Users,
   UserCheck,
   Settings,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
@@ -76,6 +78,7 @@ function EnvoiRappelModal({
   const [canaux, setCanaux] = useState<CanalRappel[]>(['email', 'in_app']);
   const [fichiers, setFichiers] = useState<{ id: string; nom: string; url: string }[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingIA, setIsGeneratingIA] = useState(false);
   const addNotification = useAppStore(s => s.addNotification);
 
   const getMessageParDefaut = () => {
@@ -247,6 +250,33 @@ L'équipe ANACIM`;
               className="form-textarea w-full"
               placeholder="Votre message..."
             />
+            <button
+              type="button"
+              onClick={async () => {
+                setIsGeneratingIA(true)
+                try {
+                  const { assistantAgent } = await import('@/lib/ia/agents/assistantAgent')
+                  const delaiPAC = ecart?.delai_pac ? new Date(ecart.delai_pac).toLocaleDateString('fr-FR') : 'non définie'
+                  const nbRappels = rappelEngine.getRappelsManuels(ecartId).length + 1
+                  const aeroData = ecart.aerodrome_id
+                  const resp = await assistantAgent.chat({
+                    aerodromeId: ecart.aerodrome_id,
+                    question: `Rédige un rappel professionnel pour un exploitant d'aérodrome concernant l'écart "${ecart?.reference}: ${ecart?.libelle?.substring(0, 80) || ''}" de niveau ${ecart?.niveau_risque}. Délai PAC: ${delaiPAC}. Rappel n°${nbRappels}. Format: email professionnel avec objet. Ton: ferme mais courtois. Langue: français. Signé: ANACIM - SGDA.`,
+                    role: userRole || 'inspector',
+                  })
+                  if (resp?.content) setMessage(resp.content)
+                  else setMessage(getMessageParDefaut())
+                } catch {
+                  setMessage(getMessageParDefaut())
+                } finally {
+                  setIsGeneratingIA(false)
+                }
+              }}
+              disabled={isGeneratingIA}
+              className={`btn btn-sm gap-1.5 mt-1.5 ${isGeneratingIA ? 'btn-secondary' : 'btn-outline'}`}
+            >
+              {isGeneratingIA ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Génération...</> : <><Sparkles className="w-3.5 h-3.5" />Générer avec IA</>}
+            </button>
           </div>
 
           <div className="form-field">
