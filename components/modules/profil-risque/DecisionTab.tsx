@@ -32,14 +32,26 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
   // Construire les recommandations actionnables
   const recommandations: { id: string; label: string; icon: React.ElementType; priorite: 'critique' | 'haute' | 'moyenne' | 'basse'; action: string }[] = []
-  if (profil.score_global < 30) recommandations.push({ id: 'score', label: 'Surveillance immédiate', icon: AlertTriangle, priorite: 'critique', action: 'Programmer une inspection complète dans les 7 jours' })
-  if (profil.c1 < 40) recommandations.push({ id: 'sgs', label: 'Renforcer le SGS', icon: Shield, priorite: 'haute', action: 'Auditer les 4 piliers PAOE et identifier les lacunes de maturité' })
-  if (profil.c2 < 40) recommandations.push({ id: 'pac', label: 'Accélérer les PAC', icon: Clock, priorite: 'haute', action: 'Vérifier l\'état d\'avancement des plans d\'action corrective' })
-  if (profil.c3 < 50) recommandations.push({ id: 'conformite', label: 'Contrôler la conformité', icon: Target, priorite: 'moyenne', action: 'Inspecter les infrastructures critiques (piste, balisage, énergie)' })
-  if (profil.c5 < 50) recommandations.push({ id: 'resilience', label: 'Améliorer la résilience', icon: Shield, priorite: 'moyenne', action: 'Analyser les incidents récents et renforcer les barrières de sécurité' })
-  if (nbEcartsCritiques > 0) recommandations.push({ id: 'ecarts', label: `${nbEcartsCritiques} écart(s) critique(s)`, icon: AlertTriangle, priorite: 'critique', action: 'Traiter les écarts critiques avant la prochaine inspection' })
-  if (profil.hmm_state?.isTransitioning) recommandations.push({ id: 'hmm', label: 'Transition silencieuse détectée', icon: TrendingDown, priorite: 'critique', action: `Agir avant J-${profil.hmm_state.daysToCritical} — l'aérodrome glisse vers un état critique` })
-  if (profil.extreme_risk?.isHeavyTailed) recommandations.push({ id: 'evt', label: 'Risque extrême identifié', icon: AlertTriangle, priorite: 'haute', action: 'Préparer un plan d\'urgence — risque de queue lourde détecté' })
+  
+  if (isDG) {
+    // Recommandations côté exploitant — actions qu'ils peuvent RÉELLEMENT faire
+    if (nbEcartsCritiques > 0) recommandations.push({ id: 'pac', label: `${nbEcartsCritiques} PAC à soumettre`, icon: AlertTriangle, priorite: 'critique', action: 'Soumettre les plans d\'action corrective pour les écarts en attente' })
+    if (profil.c2 < 40) recommandations.push({ id: 'preuves', label: 'Preuves à fournir', icon: CheckCircle2, priorite: 'haute', action: 'Rassembler et soumettre les preuves de mise en œuvre des PAC acceptés' })
+    if (profil.score_global < 30) recommandations.push({ id: 'contact', label: 'Contacter votre inspecteur', icon: AlertTriangle, priorite: 'critique', action: 'Score critique — prenez contact avec l\'inspecteur ANACIM référent pour organiser une inspection' })
+    if (profil.c3 < 50) recommandations.push({ id: 'preparer', label: 'Préparer les documents', icon: Shield, priorite: 'moyenne', action: 'Rassembler les registres, manuels et documents réglementaires avant la prochaine inspection' })
+    if (profil.c5 < 50) recommandations.push({ id: 'incidents', label: 'Surveiller les incidents', icon: AlertTriangle, priorite: 'moyenne', action: 'Signaler tout incident de sécurité à l\'ANACIM et renforcer les mesures préventives' })
+    if (profil.tendance === 'baisse') recommandations.push({ id: 'tendance', label: 'Votre score se dégrade', icon: TrendingDown, priorite: 'haute', action: 'Agissez avant que le score ne passe au niveau critique — les PAC en retard impactent directement votre évaluation' })
+  } else {
+    // Recommandations côté inspecteur
+    if (profil.score_global < 30) recommandations.push({ id: 'score', label: 'Surveillance immédiate', icon: AlertTriangle, priorite: 'critique', action: 'Programmer une inspection complète dans les 7 jours' })
+    if (profil.c1 < 40) recommandations.push({ id: 'sgs', label: 'Renforcer le SGS', icon: Shield, priorite: 'haute', action: 'Auditer les 4 piliers PAOE et identifier les lacunes de maturité' })
+    if (profil.c2 < 40) recommandations.push({ id: 'pac', label: 'Accélérer les PAC', icon: Clock, priorite: 'haute', action: 'Vérifier l\'état d\'avancement des plans d\'action corrective' })
+    if (profil.c3 < 50) recommandations.push({ id: 'conformite', label: 'Contrôler la conformité', icon: Target, priorite: 'moyenne', action: 'Inspecter les infrastructures critiques (piste, balisage, énergie)' })
+    if (profil.c5 < 50) recommandations.push({ id: 'resilience', label: 'Améliorer la résilience', icon: Shield, priorite: 'moyenne', action: 'Analyser les incidents récents et renforcer les barrières de sécurité' })
+    if (nbEcartsCritiques > 0) recommandations.push({ id: 'ecarts', label: `${nbEcartsCritiques} écart(s) critique(s)`, icon: AlertTriangle, priorite: 'critique', action: 'Traiter les écarts critiques avant la prochaine inspection' })
+    if (profil.hmm_state?.isTransitioning) recommandations.push({ id: 'hmm', label: 'Transition silencieuse détectée', icon: TrendingDown, priorite: 'critique', action: `Agir avant J-${profil.hmm_state.daysToCritical} — l'aérodrome glisse vers un état critique` })
+    if (profil.extreme_risk?.isHeavyTailed) recommandations.push({ id: 'evt', label: 'Risque extrême identifié', icon: AlertTriangle, priorite: 'haute', action: 'Préparer un plan d\'urgence — risque de queue lourde détecté' })
+  }
 
   const prioriteOrder = { critique: 0, haute: 1, moyenne: 2, basse: 3 }
   recommandations.sort((a, b) => prioriteOrder[a.priorite] - prioriteOrder[b.priorite])
@@ -96,9 +108,9 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Alertes immédiates */}
       {topRisks.length > 0 && (
-        <div className="rounded-xl border border-danger/30 bg-danger-soft p-4">
-          <h3 className="text-sm font-bold text-danger mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />Actions prioritaires
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />{isDG ? 'Actions recommandées' : 'Actions prioritaires'}
           </h3>
           <div className="space-y-2">
             {topRisks.map(r => (
