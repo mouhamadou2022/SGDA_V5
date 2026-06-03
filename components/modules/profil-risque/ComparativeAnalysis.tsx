@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react'
 import { BarChart3, TrendingUp, TrendingDown, Minus, Medal, Crown, Eye, Plane, Target } from 'lucide-react'
 import { useAppStore, ProfilRisque, Aerodrome } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' }
@@ -116,7 +117,7 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
                     <td><div className="flex items-center gap-2"><Plane className="w-3.5 h-3.5 text-muted-foreground" /><span className="font-medium text-sm">{aerodrome.code_oaci}</span><span className="text-xs text-muted-foreground truncate max-w-[120px]">{aerodrome.nom}</span></div></td>
                     <td><span className={`text-sm font-bold ${getScoreColor(profil.score_global)}`}>{profil.score_global}</span></td>
                     <td>{profil.tendance === 'hausse' ? <TrendingUp className="w-3.5 h-3.5 text-success" /> : profil.tendance === 'baisse' ? <TrendingDown className="w-3.5 h-3.5 text-danger animate-pulse" /> : <Minus className="w-3.5 h-3.5 text-muted-foreground" />}</td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c1)}`}>{profil.c1}</span></td>
+                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c1)}`}>{profil.c1}</span> <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(profil.c1)})</span></td>
                     <td><span className={`text-xs font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></td>
                     <td><span className={`text-xs font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></td>
                     <td><span className={`text-xs font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></td>
@@ -137,7 +138,7 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
                   <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><RankIcon className={`w-5 h-5 ${getRankMedal(rank).color}`} /><span className="text-sm font-bold">{rank}</span></div><span className="badge outline text-xs">{aerodrome.region}</span></div>
                   <div className="flex items-center gap-2 mb-2"><Plane className="w-4 h-4 text-muted-foreground" /><span className="font-semibold">{aerodrome.code_oaci}</span><span className="text-xs text-muted-foreground truncate">{aerodrome.nom}</span></div>
                   <div className="flex items-center justify-between mb-3"><span className="text-2xl font-bold">{profil.score_global}</span><span className="text-xs text-muted-foreground">/100</span>{profil.tendance === 'hausse' ? <TrendingUp className="w-4 h-4 text-success" /> : profil.tendance === 'baisse' ? <TrendingDown className="w-4 h-4 text-danger animate-pulse" /> : <Minus className="w-4 h-4 text-muted-foreground" />}</div>
-                  <div className="grid grid-cols-5 gap-1 text-center text-xs"><div><span className="text-muted-foreground">C1</span><span className={`ml-1 font-medium ${getScoreColor(profil.c1)}`}>{profil.c1}</span></div><div><span className="text-muted-foreground">C2</span><span className={`ml-1 font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></div><div><span className="text-muted-foreground">C3</span><span className={`ml-1 font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></div><div><span className="text-muted-foreground">C4</span><span className={`ml-1 font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></div><div><span className="text-muted-foreground">C5</span><span className={`ml-1 font-medium ${getScoreColor(profil.c5)}`}>{profil.c5}</span></div></div>
+                  <div className="grid grid-cols-5 gap-1 text-center text-xs"><div><span className="text-muted-foreground">C1</span><span className={`ml-1 font-medium ${getScoreColor(profil.c1)}`}>{getSgsMaturiteLabel(profil.c1)}</span></div><div><span className="text-muted-foreground">C2</span><span className={`ml-1 font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></div><div><span className="text-muted-foreground">C3</span><span className={`ml-1 font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></div><div><span className="text-muted-foreground">C4</span><span className={`ml-1 font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></div><div><span className="text-muted-foreground">C5</span><span className={`ml-1 font-medium ${getScoreColor(profil.c5)}`}>{profil.c5}</span></div></div>
                   <div className="progress h-1 mt-2"><div className="progress-bar" style={{ width: `${profil.score_global}%` }} /></div>
                 </div>
               )

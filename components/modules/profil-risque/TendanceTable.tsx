@@ -6,6 +6,7 @@
 import { useMemo } from 'react'
 import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { ProfilRisque } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 
 interface Props { profil: ProfilRisque }
 
@@ -78,7 +79,7 @@ export function TendanceTable({ profil }: Props) {
               <td className="text-center"><TendanceIcon t={row.tendance} s="md" /></td>
               <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-muted-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div></td>
               <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred6m.valeur)}`}>{row.pred6m.valeur}</span><div className="text-xs text-muted-foreground">IC: [{row.pred6m.intervalle[0]}–{row.pred6m.intervalle[1]}]</div></div></td>
-              <td className="text-center"><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span></td>
+              <td className="text-center"><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span>{row.key === 'c1' && <> <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(row.score)})</span></>}</td>
             </tr>
           ))}
         </tbody>

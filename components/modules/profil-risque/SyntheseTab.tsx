@@ -4,6 +4,7 @@
 'use client'
 
 import { ProfilRisque } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Shield, Zap, Clock, Brain } from 'lucide-react'
 import { TendanceTable } from './TendanceTable'
 
@@ -299,10 +300,11 @@ export function SyntheseTab({
                 {RADAR_CRITERES.map((c) => (
                   <div key={c.key} className="flex items-center justify-between gap-2">
                     <span className="w-8">{c.label}</span>
-                    <span className="font-mono font-medium text-foreground">
-                      {profil[c.key] ?? '-'}
-                    </span>
-                    <span className="text-muted-foreground">
+                <span className="font-mono font-medium text-foreground">
+                  {profil[c.key] ?? '-'}
+                </span>
+                {c.key === 'c1' && <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(profil.c1 as number)})</span>}
+                <span className="text-muted-foreground">
                       / {c.poids}
                     </span>
                   </div>

@@ -5,6 +5,7 @@
 'use client'
 
 import { ProfilRisque } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
 
 interface Props {
@@ -100,7 +101,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
                 <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-danger' : c.value < 60 ? 'bg-warning' : 'bg-success'}`}
                   style={{ width: `${c.value}%` }} />
               </div>
-              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}</span>
+              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}{c.label === 'SGS' && <> <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(c.value)})</span></>}</span>
             </div>
           ))}
         </div>

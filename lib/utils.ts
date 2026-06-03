@@ -39,3 +39,12 @@ export function formatDate(date: string | Date, format: 'short' | 'long' | 'rela
 export function generateId(): string {
   return crypto.randomUUID()
 }
+
+/** Niveau de maturité SGS OACI — N1 Absent → N5 Efficace */
+export function getSgsMaturiteLabel(score: number): string {
+  if (score >= 80) return 'N5 Efficace'
+  if (score >= 60) return 'N4 Opérationnel'
+  if (score >= 40) return 'N3 Approprié'
+  if (score >= 20) return 'N2 Présent'
+  return 'N1 Absent'
+}

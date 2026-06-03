@@ -4,6 +4,7 @@
 'use client'
 
 import { ProfilRisque } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 import { TrendingUp, TrendingDown, Minus, Activity, Eye, Brain } from 'lucide-react'
 
 interface Props {
@@ -112,7 +113,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
                     <div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} />
                   </div>
                   <span className={`text-[9px] font-bold ${clrTxt}`}>
-                    {isMaturite ? getMaturiteLevel(v) : v}
+                    {isMaturite ? getSgsMaturiteLabel(v) : v}
                   </span>
                 </div>
               )
