@@ -16,6 +16,7 @@ import { DiagnosticTab } from './DiagnosticTab'
 import AnticipationTab from './AnticipationTab'
 import { ActionsTab } from './ActionsTab'
 import DecisionTab from './DecisionTab'
+import ExploitantRiskView from './ExploitantRiskView'
 import { RiskCard } from '@/components/cards/RiskCard'
 import { ComparativeAnalysis } from './ComparativeAnalysis'
 
@@ -164,7 +165,7 @@ export function RisqueModule({ userRole }: Props) {
 
       {/* Vue exploitant : pas de grille, direct sur son aérodrome */}
       {isExploitant && !selectedAerodromeId && aerodromesAvecProfil.length === 1 && aerodromesAvecProfil[0].profil && (
-        <DecisionTab
+        <ExploitantRiskView
           profil={aerodromesAvecProfil[0].profil}
           aerodromeCode={aerodromesAvecProfil[0].aerodrome.code_oaci}
           aerodromeName={aerodromesAvecProfil[0].aerodrome.nom}
@@ -172,7 +173,7 @@ export function RisqueModule({ userRole }: Props) {
           userRole={userRole}
           onRecalculate={handleRecalculer}
           prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
-          ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 5)}
+          ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
         />
       )}
 
@@ -212,8 +213,8 @@ export function RisqueModule({ userRole }: Props) {
         </div>
       )}
 
-      {/* Vue détaillée — DG */}
-      {selectedAerodromeId && aerodrome && profil && isDecisionMaker && (
+      {/* Vue détaillée — DG ANACIM uniquement (exploitants = ExploitantRiskView) */}
+      {selectedAerodromeId && aerodrome && profil && userRole === 'dg_anacim' && (
         <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} />
       )}
 
