@@ -5,7 +5,7 @@
 'use client'
 
 import { ProfilRisque } from '@/lib/store'
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
 
 interface Props {
   profil: ProfilRisque
