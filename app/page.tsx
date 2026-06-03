@@ -468,7 +468,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
               </div>
 
               {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center bg-gradient-to-b from-blue-400/20 to-blue-200/10 rounded-3xl p-8">
+              <div className="flex items-center justify-center bg-gradient-to-b from-sky-100 to-blue-50 rounded-3xl p-8">
                 
                 {/* Effet de lueur derrière la carte */}
                 <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
