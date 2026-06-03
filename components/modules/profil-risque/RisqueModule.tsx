@@ -164,34 +164,35 @@ export function RisqueModule({ userRole }: Props) {
       )}
 
       {/* Vue exploitant : pas de grille, direct sur son aérodrome */}
-      {isExploitant && !selectedAerodromeId && aerodromesAvecProfil.length === 1 && aerodromesAvecProfil[0].profil && (
-        <ExploitantRiskView
-          profil={aerodromesAvecProfil[0].profil}
-          aerodromeCode={aerodromesAvecProfil[0].aerodrome.code_oaci}
-          aerodromeName={aerodromesAvecProfil[0].aerodrome.nom}
-          nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
-          userRole={userRole}
-          onRecalculate={handleRecalculer}
-          prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
-          ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
-        />
+      {isExploitant && !selectedAerodromeId && aerodromesAvecProfil.length >= 1 && (
+        aerodromesAvecProfil[0].profil ? (
+          <ExploitantRiskView
+            profil={aerodromesAvecProfil[0].profil}
+            aerodromeCode={aerodromesAvecProfil[0].aerodrome.code_oaci}
+            aerodromeName={aerodromesAvecProfil[0].aerodrome.nom}
+            nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+            userRole={userRole}
+            onRecalculate={handleRecalculer}
+            prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
+            ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
+          />
+        ) : (
+          <div className="card border-border text-center py-12">
+            <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
+            <p className="text-muted-foreground">Profil de risque non calculé pour votre aérodrome</p>
+            <p className="text-xs text-muted-foreground mt-1">Contactez votre inspecteur ANACIM</p>
+          </div>
+        )
       )}
 
-      {/* Exploitant sans profil */}
-      {isExploitant && !selectedAerodromeId && (!aerodromesAvecProfil.length || !aerodromesAvecProfil[0].profil) && (
+      {/* Exploitant sans aérodrome */}
+      {isExploitant && !selectedAerodromeId && !aerodromesAvecProfil.length && (
         <div className="card border-border text-center py-12">
-          <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
-          <p className="text-muted-foreground">Profil de risque non calculé pour votre aérodrome</p>
-          <p className="text-xs text-muted-foreground mt-1">Contactez votre inspecteur ANACIM</p>
+          <MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" />
+          <p className="text-muted-foreground">Aucun aérodrome lié à votre compte</p>
+          <p className="text-xs text-muted-foreground mt-1">Contactez l'administrateur ANACIM</p>
         </div>
       )}
-
-      {/* Grille de cartes d'aérodromes — pas pour les exploitants */}
-      {!selectedAerodromeId && !isExploitant && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {aerodromesAvecProfil.length === 0 && (
-            <div className="col-span-3 text-center py-12 text-muted-foreground"><MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" /><p>Aucun aérodrome disponible</p></div>
-          )}
           {aerodromesAvecProfil.map(({ aerodrome, profil }) => {
             if (!profil) return (
               <div key={aerodrome.id} className="card border-border border-l-4 border-l-muted cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleSelectAerodrome(aerodrome.id)}>
