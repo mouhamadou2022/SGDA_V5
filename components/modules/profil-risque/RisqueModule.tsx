@@ -71,6 +71,7 @@ export function RisqueModule({ userRole }: Props) {
   const [showHelp, setShowHelp] = useState(false)
 
   const isDecisionMaker = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
+  const isExploitant = userRole === 'dg_operator' || userRole === 'focal_operator' || userRole === 'staff_operator'
   const historiqueScores = useHistoricalScores(selectedAerodromeId || '')
 
   const aerodromesActifs = useMemo(() => {
@@ -157,12 +158,35 @@ export function RisqueModule({ userRole }: Props) {
       )}
 
       {/* Analyse comparative */}
-      {!selectedAerodromeId && aerodromesAvecProfil.filter(e => e.profil).length >= 2 && (
+      {!selectedAerodromeId && !isExploitant && aerodromesAvecProfil.filter(e => e.profil).length >= 2 && (
         <ComparativeAnalysis onSelectAerodrome={handleSelectAerodrome} />
       )}
 
-      {/* Grille de cartes d'aérodromes */}
-      {!selectedAerodromeId && (
+      {/* Vue exploitant : pas de grille, direct sur son aérodrome */}
+      {isExploitant && !selectedAerodromeId && aerodromesAvecProfil.length === 1 && aerodromesAvecProfil[0].profil && (
+        <DecisionTab
+          profil={aerodromesAvecProfil[0].profil}
+          aerodromeCode={aerodromesAvecProfil[0].aerodrome.code_oaci}
+          aerodromeName={aerodromesAvecProfil[0].aerodrome.nom}
+          nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+          userRole={userRole}
+          onRecalculate={handleRecalculer}
+          prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
+          ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 5)}
+        />
+      )}
+
+      {/* Exploitant sans profil */}
+      {isExploitant && !selectedAerodromeId && (!aerodromesAvecProfil.length || !aerodromesAvecProfil[0].profil) && (
+        <div className="card border-border text-center py-12">
+          <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
+          <p className="text-muted-foreground">Profil de risque non calculé pour votre aérodrome</p>
+          <p className="text-xs text-muted-foreground mt-1">Contactez votre inspecteur ANACIM</p>
+        </div>
+      )}
+
+      {/* Grille de cartes d'aérodromes — pas pour les exploitants */}
+      {!selectedAerodromeId && !isExploitant && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {aerodromesAvecProfil.length === 0 && (
             <div className="col-span-3 text-center py-12 text-muted-foreground"><MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" /><p>Aucun aérodrome disponible</p></div>

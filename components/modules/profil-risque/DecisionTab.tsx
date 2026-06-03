@@ -14,9 +14,11 @@ interface Props {
   nbEcartsCritiques: number
   userRole: string
   onRecalculate: () => void
+  prochainesSurveillances?: any[]
+  ecartsActifs?: any[]
 }
 
-export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate }: Props) {
+export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [] }: Props) {
   const isDG = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
 
   const getNiveauConfig = (score: number) => {
@@ -182,6 +184,54 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
           <button className="btn btn-secondary gap-2 text-sm" onClick={onRecalculate}>
             <BarChart3 className="w-4 h-4" />Recalculer le profil
           </button>
+        </div>
+      )}
+
+      {/* Prochaines surveillances (exploitant) */}
+      {prochainesSurveillances.length > 0 && (
+        <div className="card border-border">
+          <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><Calendar className="w-4 h-4 text-role-primary" />Prochaines surveillances</div></div>
+          <div className="card-content p-4">
+            <div className="space-y-2">
+              {prochainesSurveillances.map((s: any) => (
+                <div key={s.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="capitalize">{s.type?.replace(/_/g, ' ')}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {s.date_debut ? new Date(s.date_debut).toLocaleDateString('fr-FR') : 'À planifier'}
+                  </span>
+                  <span className={`badge text-xs ${s.statut === 'en_cours' ? 'warning' : s.statut === 'realisee' ? 'success' : 'primary'}`}>
+                    {s.statut === 'planifiee' ? 'Planifiée' : s.statut === 'en_cours' ? 'En cours' : 'Réalisée'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Écarts actifs (exploitant) */}
+      {ecartsActifs.length > 0 && (
+        <div className="card border-border">
+          <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" />Écarts actifs ({ecartsActifs.length})</div></div>
+          <div className="card-content p-4">
+            <div className="space-y-2">
+              {ecartsActifs.map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${e.niveau_risque === 'critique' ? 'bg-danger' : e.niveau_risque === 'eleve' ? 'bg-warning' : 'bg-primary'}`} />
+                    <span>{e.reference}</span>
+                    <span className="text-xs text-muted-foreground">{e.libelle?.substring(0, 50)}</span>
+                  </div>
+                  <span className={`badge text-xs ${e.statut === 'pac_attendu' ? 'warning' : e.statut === 'pac_accepte' ? 'primary' : e.statut === 'cloture' ? 'success' : 'outline'}`}>
+                    {e.statut === 'pac_attendu' ? 'PAC requis' : e.statut === 'pac_accepte' ? 'PAC accepté' : e.statut}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
