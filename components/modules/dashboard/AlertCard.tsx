@@ -128,7 +128,23 @@ export function AlertCard({ role, aerodromeId, onAction }: Props) {
     return items.slice(0, 6)
   }, [surveillances, ecarts, profilsRisque, recalibrationAlerts, plannings, user, role, aerodromeId])
 
-  if (alerts.length === 0) return null
+  if (alerts.length === 0) return (
+    <div className="card border-l-4 border-l-success">
+      <div className="card-header pb-2">
+        <div className="card-title text-sm font-semibold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-success" />
+          Alertes en temps réel
+          <span className="badge success text-xs ml-1">Aucune</span>
+        </div>
+      </div>
+      <div className="card-content">
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-success-soft">
+          <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+          <span className="text-sm">Aucune alerte — tout est à jour</span>
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <div className="card border-l-4 border-l-danger">
