@@ -509,38 +509,6 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
           </p>
         </div>
       </div>
-                        ) : (
-                          <form onSubmit={handleRecovery} className="space-y-8">
-                            <div className="space-y-2.5">
-                              <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium flex items-center gap-2">
-                                <User size={12} />Adresse email ANACIM
-                              </label>
-                              <div className="relative group">
-                                <input
-                                  type="email"
-                                  value={recoveryEmail}
-                                  onChange={(e) => setRecoveryEmail(e.target.value)}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-5 pl-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                  placeholder="prenom.nom@anacim.sn"
-                                  required
-                                />
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              </div>
-                            </div>
-                            <button type="submit" disabled={recoveryLoading} className="relative w-full group pt-4">
-                              <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300" />
-                              <div className="relative flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl py-4 px-6 text-white font-semibold text-base overflow-hidden group-hover:scale-[1.02] transition-transform">
-                                {recoveryLoading ? (
-                                  <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>Envoi...</span></>
-                                ) : (
-                                  <><Sparkles className="w-5 h-5" /><span>Envoyer le lien</span><ArrowRight className="w-5 h-5" /></>
-                                )}
-                              </div>
-                            </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
