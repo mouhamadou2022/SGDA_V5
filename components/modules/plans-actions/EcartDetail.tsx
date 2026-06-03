@@ -194,6 +194,7 @@ function PacActionsSection({ ecart }: { ecart: Ecart }) {
 export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
   const ecart = useOptimizedStore(s => s.ecarts.find((e: Ecart) => e.id === ecartId));
   const aerodromes = useOptimizedStore(s => s.aerodromes);
+  const user = useOptimizedStore(s => s.user);
 
   if (!ecart) {
     return (
@@ -340,7 +341,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
         </div>
       )}
       {/* Rappels à l'exploitant */}
-      <RappelSection ecartId={ecart.id} ecart={ecart} />
+      <RappelSection ecartId={ecart.id} ecart={ecart} userRole={user?.role || ''} userId={user?.id || ''} />
     </div>
   );
 }
