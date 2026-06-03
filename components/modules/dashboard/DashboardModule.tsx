@@ -1,12 +1,13 @@
 // components/modules/dashboard/DashboardModule.tsx
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BarChart3,
   PieChart,
   AlertTriangle,
-  CheckCircle2,
+  Plus,
+  Target,
   Clock,
   Eye,
   GraduationCap,
@@ -23,7 +24,9 @@ import {
 } from 'lucide-react';
 
 // Store
+import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
+import { AlertCard } from './AlertCard';
 
 // Graphiques
 import { BarChart } from '@/components/ui/charts/BarChart';
@@ -39,13 +42,13 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   const aerodromes = useAppStore(s => s.aerodromes);
   const surveillances = useAppStore(s => s.surveillances);
   const ecarts = useAppStore(s => s.ecarts);
-  const notifications = useAppStore(s => s.notifications);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const evenements = useAppStore(s => s.evenements);
   const certifications = useAppStore(s => s.certifications);
   const formations = useAppStore(s => s.formations);
   const inspecteurs = useAppStore(s => s.inspecteurs);
   const plannings = useAppStore(s => s.plannings);
+  const notifications = useAppStore(s => s.notifications);
   const storeUser = useAppStore(s => s.user);
   const userRole = userProp?.role ?? storeUser?.role ?? '';
   const [filterAlerte, setFilterAlerte] = useState<string>('all');
@@ -212,8 +215,8 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   // Alertes avec priorité
   const alertes = useMemo(() => {
     return notifications
-      .filter(n => !n.read_at)
-      .map(n => {
+      .filter((n: any) => !n.read_at)
+      .map((n: any) => {
         let priorite = 'basse';
         if (n.type === 'danger' || n.message.includes('critique')) priorite = 'haute';
         else if (n.type === 'warning') priorite = 'moyenne';
@@ -232,7 +235,7 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
 
   const filteredAlertes = useMemo(() => {
     if (filterAlerte === 'all') return alertes;
-    return alertes.filter(a => a.priorite === filterAlerte);
+    return alertes.filter((a: any) => a.priorite === filterAlerte);
   }, [alertes, filterAlerte]);
 
   const getPrioriteBadgeClass = (priorite: string) => {
@@ -275,77 +278,8 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   return (
     <div className="space-y-6 animate-fade-in" data-role={userRole} data-module="dashboard">
 
-      {/* Bandeau alertes premium */}
-      <div className="card card-accent">
-        <div className="card-content p-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <AlertTriangle className="h-5 w-5 text-role-primary" />
-                  {alertes.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-danger animate-pulse" />
-                  )}
-                </div>
-                <span className="font-medium text-small text-foreground">
-                  {alertes.length} alerte(s) non lue(s)
-                </span>
-              </div>
-              <div className="filter-chips">
-                {['all', 'haute', 'moyenne', 'basse'].map((f) => (
-                  <button
-                    key={f}
-                    className={`filter-chip ${filterAlerte === f ? 'active' : ''}`}
-                    onClick={() => setFilterAlerte(f)}
-                  >
-                    {f === 'all' ? 'Toutes' :
-                     f === 'haute' ? 'Hautes' :
-                     f === 'moyenne' ? 'Moyennes' : 'Basses'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <button className="btn btn-secondary btn-sm gap-2">
-              <CheckCircle2 className="h-4 w-4" />
-              Tout marquer lu
-            </button>
-          </div>
-
-          {/* Liste des alertes animée */}
-          <div className="mt-4 space-y-2">
-            {filteredAlertes.map((alerte, idx) => (
-              <div
-                key={alerte.id}
-                className="flex items-center justify-between p-3 bg-role-primary-soft rounded-xl hover:bg-role-primary-soft/80 transition-all cursor-pointer group animate-fade-up"
-                style={{ animationDelay: `${idx * 0.05}s` }}
-              >
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className={getPrioriteBadgeClass(alerte.priorite)}>
-                    {alerte.priorite}
-                  </span>
-                  <span className="text-small text-foreground">{alerte.message}</span>
-                  <span className="code-oaci-badge text-xs">{alerte.aerodrome}</span>
-                  <span className="badge outline text-xs">{alerte.module}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted">
-                    il y a {Math.floor((Date.now() - alerte.date.getTime()) / 3600000)}h
-                  </span>
-                  <button className="action-button">
-                    <CheckCircle2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {filteredAlertes.length === 0 && (
-              <div className="text-center py-6 text-muted animate-fade-up">
-                <CheckCircle2 className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                <p className="text-small">Aucune alerte non lue</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* AlertCard — alertes temps réel */}
+      <AlertCard role={userRole} />
 
       {/* KPIs Grid - 6 cartes premium */}
       <div className="kpi-grid">

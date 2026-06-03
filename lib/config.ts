@@ -57,7 +57,7 @@ export const PERMISSIONS = {
   // DG Exploitant : vue stratégique — pilotage et décision, pas les détails opérationnels
   dg_operator: {
     modules: [
-      'dashboard', 'dg-operator-dashboard',
+      'dashboard', 'operator-dashboard',
       'aerodromes', 'risque',
       'certification', 'homologation',
       'operator-ecarts', 'operator-pac-consolide',
@@ -70,9 +70,9 @@ export const PERMISSIONS = {
   // Point Focal : interface opérationnelle avec ANACIM — toutes les actions en écriture
   focal_operator: {
     modules: [
-      'dashboard', 'focal-dashboard',
+      'dashboard', 'operator-dashboard',
       'aerodromes', 'risque',
-      'operator-dashboard', 'operator-ecarts', 'operator-evenements',
+      'operator-ecarts', 'operator-evenements',
       'operator-documentations', 'operator-enquetes', 'operator-messagerie',
       'operator-pac-consolide',
       'operator-planning',
@@ -83,7 +83,7 @@ export const PERMISSIONS = {
   // Personnel Exploitant : consultation + notifications événements
   staff_operator: {
     modules: [
-      'dashboard', 'staff-dashboard',
+      'dashboard', 'operator-dashboard',
       'risque',
       'operator-planning',
       'operator-evenements',

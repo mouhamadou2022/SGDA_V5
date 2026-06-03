@@ -992,9 +992,6 @@ const MODULES = {
   'operator-homologation': lazy(() => import('@/components/modules/portail-exploitant/OperatorHomologationModule').then((m) => resolveModule(m, 'OperatorHomologationModule'))),
   'dg-dashboard': lazy(() => import('@/components/modules/dashboard/DgDashboardModule').then((m) => resolveModule(m, 'DgDashboardModule'))),
   'guest-dashboard': lazy(() => import('@/components/modules/dashboard/GuestDashboardModule').then((m) => resolveModule(m, 'GuestDashboardModule'))),
-  'focal-dashboard': lazy(() => import('@/components/modules/dashboard/FocalOperatorDashboardModule').then((m) => resolveModule(m, 'FocalOperatorDashboardModule'))),
-  'staff-dashboard': lazy(() => import('@/components/modules/dashboard/StaffOperatorDashboardModule').then((m) => resolveModule(m, 'StaffOperatorDashboardModule'))),
-  'dg-operator-dashboard': lazy(() => import('@/components/modules/portail-exploitant/DgOperatorDashboardModule').then((m) => resolveModule(m, 'DgOperatorDashboardModule'))),
   'admin-dashboard': lazy(() => import('@/components/modules/dashboard/AdminDashboardModule').then((m) => resolveModule(m, 'AdminDashboardModule'))),
   'ml-monitoring': lazy(() => import('@/components/modules/ml-monitoring/MLMonitoringModule').then((m) => resolveModule(m, 'MLMonitoringModule'))),
 } as Record<string, React.LazyExoticComponent<React.ComponentType<{ user: AuthUser }>>>
@@ -1206,9 +1203,9 @@ const DASHBOARD_BY_ROLE: Record<string, string> = {
   admin: 'admin-dashboard',
   inspector: 'dashboard',
   dg_anacim: 'dg-dashboard',
-  dg_operator: 'dg-operator-dashboard',
-  focal_operator: 'focal-dashboard',
-  staff_operator: 'staff-dashboard',
+  dg_operator: 'operator-dashboard',
+  focal_operator: 'operator-dashboard',
+  staff_operator: 'operator-dashboard',
   guest: 'guest-dashboard',
 }
 
