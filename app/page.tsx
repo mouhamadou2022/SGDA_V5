@@ -426,7 +426,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
             <div className="grid lg:grid-cols-2 gap-20 items-start">
               
               {/* ==================== COLONNE GAUCHE ==================== */}
-              <div className="pt-20 flex flex-col h-full bg-gradient-to-b from-slate-900/80 to-blue-950/60 rounded-3xl p-8">
+              <div className="pt-20 flex flex-col h-full rounded-3xl p-8" style={{ backgroundColor: '#0f172a' }}>
                 
                 {/* SECTION 1 : SLOGAN avec animation */}
                 <div className="animate-fade-up">
@@ -468,7 +468,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
               </div>
 
               {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center bg-sky-50/80 rounded-3xl p-6">
+              <div className="flex items-center justify-center rounded-3xl p-6" style={{ backgroundColor: '#ecfeff' }}>
                 
                 {/* Effet de lueur derrière la carte */}
                 <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
