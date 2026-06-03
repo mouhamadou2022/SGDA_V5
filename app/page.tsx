@@ -402,311 +402,113 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
         <path d="M0,600 Q400,500 800,600 T1400,550" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-white/30" />
       </svg>
 
-      <div className="relative z-10 min-h-screen flex flex-col">
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4">
         
-        {/* Logo ANACIM en haut à gauche avec animation */}
-        <div className="absolute top-8 left-8 flex items-center gap-3 z-20 group animate-slide-down">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-            <Plane className="w-5 h-5 text-white" />
+        {/* Logo ANACIM */}
+        <div className="text-center mb-10 animate-fade-up">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-500/30 flex items-center justify-center">
+            <Plane className="w-8 h-8 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white tracking-tight">ANACIM</h1>
-            <p className="text-white/40 text-[10px] tracking-wide">Système de Gestion des Aérodromes</p>
-          </div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">SGDA V5</h1>
+          <p className="text-white/40 text-sm mt-1">ANACIM — Système de Gestion des Aérodromes</p>
         </div>
-
-        {/* Avion qui traverse périodiquement */}
-        <div className="absolute top-32 left-0 animate-takeoff opacity-30 pointer-events-none" style={{ animationDuration: '15s', animationIterationCount: 'infinite' }}>
-          <Plane className="w-8 h-8 text-white" />
-        </div>
-
-        {/* Contenu principal centré */}
-        <div className="flex-1 flex items-center">
-          <div className="container mx-auto px-8 lg:px-16 py-8">
-            <div className="grid lg:grid-cols-2 gap-20 items-start">
-              
-              {/* ==================== COLONNE GAUCHE ==================== */}
-              <div className="pt-20 flex flex-col h-full">
-                
-                {/* SECTION 1 : SLOGAN avec animation */}
-                <div className="animate-fade-up">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Compass className="w-5 h-5 text-blue-400" />
-                    <span className="text-white/40 text-[10px] uppercase tracking-wider font-mono">Bienvenue</span>
-                  </div>
-                  <h2 className="text-white text-4xl lg:text-5xl font-bold leading-tight tracking-tight">
-                    Sécurité, Sûreté et<br />
-                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-indigo-400">
-                      Développement Durable
-                    </span>
-                  </h2>
-                  <p className="text-white/40 text-base mt-3">des aérodromes du Sénégal</p>
-                </div>
-
-                {/* Espace SLOGAN → RÉSEAU */}
-                <div className="h-12" />
-
-                {/* SECTION 2 : RÉSEAU AÉROPORTUAIRE */}
-                <div className="animate-fade-up" style={{ animationDelay: '0.1s' }}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <div className="w-1 h-5 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full" />
-                    <span className="text-white/40 text-[10px] uppercase tracking-wider font-semibold">
-                      Réseau aéroportuaire
-                    </span>
-                    <Radar className="w-3 h-3 text-blue-400 animate-pulse" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-5">
-                    <StatCard label="AÉRODROMES" value="14" icon={MapPin} trend="+2" trendLabel="vs mois dernier" delay={0.15} />
-                    <StatCard label="HOMOLOGUÉS" value="12" icon={ShieldCheck} trend="+1" trendLabel="vs mois dernier" delay={0.2} />
-                    <StatCard label="SURVEILLANCE" value="74%" icon={Activity} trend="+5%" trendLabel="vs mois dernier" delay={0.25} />
-                    <StatCard label="CONFORMITÉ" value="87%" icon={TrendingUp} trend="+3%" trendLabel="vs mois dernier" delay={0.3} />
-                  </div>
-                </div>
-
-                {/* Espace RÉSEAU → MÉTÉO */}
-                <div className="h-12" />
-
-                {/* SECTION 3 : MÉTÉO AÉRODROMES */}
-                <div className="animate-fade-up" style={{ animationDelay: '0.35s' }}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <div className="w-1 h-5 bg-gradient-to-b from-sky-500 to-cyan-500 rounded-full" />
-                    <span className="text-white/40 text-[10px] uppercase tracking-wider font-semibold">
-                      Météo aérodromes
-                    </span>
-                    <Navigation className="w-3 h-3 text-sky-400 animate-pulse" />
-                  </div>
-                  <WeatherCarousel />
-                </div>
-
-                {/* Espace flexible pour pousser vers le bas */}
-                <div className="flex-1" />
-              </div>
-
-              {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center">
-                
-                {/* Effet de lueur derrière la carte */}
-                <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
-                
-                {/* Carte Glassmorphism premium */}
-                <div 
-                  className="relative w-full max-w-lg bg-white/[0.04] backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden transition-all duration-500 hover:shadow-role-glow"
-                  onMouseEnter={() => setIsCardHovered(true)}
-                  onMouseLeave={() => setIsCardHovered(false)}
-                >
-                  
-                  {/* En-tête avec motif aviation */}
-                  <div className="relative px-10 pt-12 pb-8 text-center border-b border-white/10">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
-                    <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-blue-500/10 blur-2xl" />
-                    <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl" />
-
-                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-500/30 flex items-center justify-center transition-transform duration-300">
-                      {view === 'forgot-password' && <ShieldCheck className="w-10 h-10 text-white" />}
-                      {view === 'forgot-identifier' && <HelpCircle className="w-10 h-10 text-white" />}
-                      {view === 'change-password' && <Key className="w-10 h-10 text-white" />}
-                      {view === 'login' && <LogIn className="w-10 h-10 text-white" />}
+        
+        {/* Carte login */}
+        <div className="w-full max-w-md animate-fade-up" style={{ animationDelay: '0.15s' }}>
+          <div className="bg-white/[0.04] backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+            
+            {/* Header */}
+            <div className="relative px-8 pt-8 pb-6 text-center border-b border-white/10">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+              <h2 className="text-white text-lg font-semibold">
+                {view === 'login' ? 'Connexion' : view === 'forgot-password' ? 'Mot de passe oublié' : view === 'forgot-identifier' ? 'Identifiant oublié' : 'Nouveau mot de passe'}
+              </h2>
+              <p className="text-white/40 text-sm mt-1">
+                {view === 'login' ? 'Accédez à votre espace de travail' : view === 'forgot-password' ? 'Recevez un lien de réinitialisation' : view === 'forgot-identifier' ? 'Retrouvez votre identifiant ANACIM' : 'Définissez votre nouveau mot de passe'}
+              </p>
+            </div>
+            
+            {/* Body */}
+            <div className="px-8 py-8">
+              {view === 'login' ? (
+                <>
+                  {failedAttempts >= 3 && !isLocked && (
+                    <div className="mb-5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <p className="text-amber-300 text-sm">{attemptsLeft} tentative{attemptsLeft > 1 ? 's' : ''} restante{attemptsLeft > 1 ? 's' : ''}</p>
                     </div>
-
-                    <h3 className="text-white text-3xl font-bold tracking-tight">
-                      {view === 'forgot-password' && 'Réinitialisation'}
-                      {view === 'forgot-identifier' && 'Identifiant oublié'}
-                      {view === 'change-password' && 'Nouveau mot de passe'}
-                      {view === 'login' && 'Connexion'}
-                    </h3>
-                    <p className="text-white/40 text-sm mt-2">
-                      {view === 'forgot-password' && 'Recevez un lien pour changer votre mot de passe'}
-                      {view === 'forgot-identifier' && 'Retrouvez votre identifiant ANACIM'}
-                      {view === 'change-password' && 'Votre mot de passe provisoire doit être changé'}
-                      {view === 'login' && 'Accédez à votre espace de travail'}
-                    </p>
-
-                    {/* Badge sécurité */}
-                    <div className="absolute top-4 right-4">
-                      <Badge variant="outline" className="bg-white/5 border-white/10 text-white/50 text-[8px] gap-1">
-                        <ShieldCheck className="w-2.5 h-2.5" />
-                        Sécurisé
-                      </Badge>
+                  )}
+                  {isLocked && (
+                    <div className="mb-5 p-4 rounded-lg bg-red-500/10 border border-red-500/20 space-y-3">
+                      <div className="flex items-start gap-2"><XCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" /><p className="text-red-300 text-sm">Compte temporairement bloqué</p></div>
+                      <a href="mailto:admin@anacim.sn" className="block text-center py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white text-sm transition-colors">Contacter l'administrateur</a>
                     </div>
-                  </div>
-
-                  {/* Contenu conditionnel selon la vue */}
-                  {view === 'login' ? (
-                    <>
-                      {/* Formulaire de connexion */}
-                      <div className="px-10 py-10">
-
-                        {/* Avertissement tentatives */}
-                        {failedAttempts >= 3 && !isLocked && (
-                          <div className="mb-6 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
-                            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                            <p className="text-amber-300 text-xs">
-                              Attention — {attemptsLeft} tentative{attemptsLeft > 1 ? 's' : ''} restante{attemptsLeft > 1 ? 's' : ''} avant blocage.
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Blocage compte */}
-                        {isLocked && (
-                          <div className="mb-6 space-y-3">
-                            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-                              <div className="flex items-start gap-3">
-                                <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                                <div>
-                                  <p className="text-red-300 text-sm font-medium">Compte temporairement bloqué</p>
-                                  <p className="text-red-300/70 text-xs mt-1">
-                                    {MAX_ATTEMPTS} tentatives échouées. Contactez l'administrateur.
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                            <a
-                              href="mailto:admin@anacim.sn?subject=Déverrouillage compte SGDA&body=Bonjour, mon compte SGDA est bloqué après plusieurs tentatives de connexion. Merci de m'aider."
-                              className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 hover:text-white transition-all text-sm"
-                            >
-                              <Phone className="w-4 h-4" />
-                              Contacter l'administrateur
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => { setFailedAttempts(0); setError(''); }}
-                              className="flex items-center justify-center gap-2 w-full py-2 text-white/30 hover:text-white/60 transition-colors text-xs"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Réessayer
-                            </button>
-                          </div>
-                        )}
-
-                        <form onSubmit={handleSubmit} className="space-y-8">
-                          
-                          {/* Champ identifiant */}
-                          <div className="space-y-2.5">
-                            <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium flex items-center gap-2">
-                              <User size={12} />
-                              Email ou code d'accès
-                            </label>
-                            <div className="relative group">
-                              <input
-                                type="text"
-                                value={identifiant}
-                                onChange={(e) => setIdentifiant(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-5 pl-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                placeholder="prenom.nom@anacim.sn"
-                                required
-                              />
-                              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-focus-within:translate-x-full transition-transform duration-1000 pointer-events-none" />
-                            </div>
-                            <p className="text-white/25 text-[11px]">
-                              Format: prenom.nom@anacim.sn ou code GOXX-XXXXXXX
-                            </p>
-                          </div>
-
-                          {/* Champ mot de passe (conditionnel) */}
-                          {detectLoginType(identifiant) === 'email' && (
-                            <div className="space-y-2.5 animate-fade-up">
-                              <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium flex items-center gap-2">
-                                <Lock size={12} />
-                                Mot de passe
-                              </label>
-                              <div className="relative group">
-                                <input
-                                  type={showPassword ? 'text' : 'password'}
-                                  value={motDePasse}
-                                  onChange={(e) => setMotDePasse(e.target.value)}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-5 pl-12 pr-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                  placeholder="••••••••"
-                                  required
-                                />
-                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowPassword(!showPassword)}
-                                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
-                                >
-                                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-focus-within:translate-x-full transition-transform duration-1000 pointer-events-none" />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Bouton connexion avec animation avion */}
-                          <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="relative w-full group pt-4"
-                          >
-                            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300" />
-                            <div className="relative flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl py-4 px-6 text-white font-semibold text-base overflow-hidden group-hover:scale-[1.02] transition-transform">
-                              {isLoading ? (
-                                <>
-                                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  <span>Connexion en cours...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Sparkles className="w-5 h-5 group-hover:animate-pulse" />
-                                  <span>Se connecter</span>
-                                  <ArrowRight className="w-5 h-5 group-hover:translate-x-2 transition-transform duration-300" />
-                                  <Plane className="absolute -right-10 top-1/2 -translate-y-1/2 w-6 h-6 text-white/20 group-hover:right-6 transition-all duration-700 group-hover:animate-takeoff" />
-                                </>
-                              )}
-                            </div>
-                          </button>
-
-                          {/* Message d'erreur avec animation */}
-                          {error && (
-                            <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3 animate-shake">
-                              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5 animate-pulse" />
-                              <p className="text-red-300 text-sm">{error}</p>
-                            </div>
-                          )}
-                        </form>
-
-                        {/* Liens aide */}
-                        <div className="mt-6 flex items-center justify-center gap-4">
-                          <button
-                            type="button"
-                            onClick={() => { setView('forgot-password'); setError(''); }}
-                            className="text-white/30 text-[10px] hover:text-white/60 transition-colors"
-                          >
-                            Mot de passe oublié ?
-                          </button>
-                          <span className="w-px h-3 bg-white/15" />
-                          <button
-                            type="button"
-                            onClick={() => { setView('forgot-identifier'); setError(''); }}
-                            className="text-white/30 text-[10px] hover:text-white/60 transition-colors"
-                          >
-                            Identifiant oublié ?
+                  )}
+                  <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="space-y-1.5">
+                      <label className="text-white/60 text-sm font-medium">Email ou code d'accès</label>
+                      <input type="text" value={identifiant} onChange={e => setIdentifiant(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 px-4 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
+                        placeholder="prenom.nom@anacim.sn" required />
+                    </div>
+                    {detectLoginType(identifiant) === 'email' && (
+                      <div className="space-y-1.5">
+                        <label className="text-white/60 text-sm font-medium">Mot de passe</label>
+                        <div className="relative">
+                          <input type={showPassword ? 'text' : 'password'} value={motDePasse} onChange={e => setMotDePasse(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 px-4 pr-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
+                            placeholder="••••••••" required />
+                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors">
+                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                           </button>
                         </div>
                       </div>
-                    </>
-                  ) : view === 'forgot-password' ? (
-                    <>
-                      {/* Vue : Mot de passe oublié */}
-                      <div className="px-10 py-10">
-                        {recoverySent ? (
-                          <div className="text-center space-y-6 animate-fade-up">
-                            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
-                              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                            </div>
-                            <p className="text-white/80 text-sm">
-                              Lien de réinitialisation envoyé à<br />
-                              <span className="text-white font-semibold">{recoveryEmail}</span>
-                            </p>
-                            <p className="text-white/40 text-xs">Vérifiez votre boîte de réception et vos spams.</p>
-                            <button onClick={() => { goToLogin(); setRecoverySent(false); setRecoveryEmail(''); }} className="relative w-full group pt-4">
-                              <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300" />
-                              <div className="relative flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl py-4 px-6 text-white font-semibold text-base overflow-hidden">
-                                <ArrowRight className="w-5 h-5 rotate-180" />
-                                <span>Revenir à la connexion</span>
-                              </div>
-                            </button>
-                          </div>
+                    )}
+                    <button type="submit" disabled={isLoading}
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 rounded-xl py-3.5 text-white font-semibold text-base transition-all disabled:opacity-50">
+                      {isLoading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Connexion en cours...</> : <>Se connecter <ArrowRight className="w-4 h-4" /></>}
+                    </button>
+                    {error && (
+                      <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                        <p className="text-red-300 text-sm">{error}</p>
+                      </div>
+                    )}
+                  </form>
+                  <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-center gap-3">
+                    <button onClick={() => { setView('forgot-password'); setError('') }} className="text-white/40 hover:text-white/60 text-sm transition-colors">Mot de passe oublié ?</button>
+                  </div>
+                </>
+              ) : view === 'forgot-password' ? (
+                <div className="space-y-5">
+                  {recoverySent ? (
+                    <div className="text-center space-y-4">
+                      <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+                      <p className="text-white/80 text-sm">Lien envoyé à <span className="text-white font-semibold">{recoveryEmail}</span></p>
+                      <button onClick={() => { goToLogin(); setRecoverySent(false); setRecoveryEmail('') }} className="w-full py-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl text-white font-semibold">Retour à la connexion</button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handlePasswordReset} className="space-y-5">
+                      <div className="space-y-1.5">
+                        <label className="text-white/60 text-sm font-medium">Adresse email ANACIM</label>
+                        <input type="email" value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 px-4 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="prenom.nom@anacim.sn" required />
+                      </div>
+                      <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl text-white font-semibold">Envoyer le lien</button>
+                      <button type="button" onClick={goToLogin} className="w-full text-white/40 hover:text-white/60 text-sm transition-colors">Retour à la connexion</button>
+                    </form>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          
+          {/* Footer */}
+          <p className="text-center text-white/20 text-xs mt-6">
+            🔒 Connexion sécurisée · ANACIM Sénégal · {new Date().getFullYear()}
+          </p>
+        </div>
+      </div>
                         ) : (
                           <form onSubmit={handleRecovery} className="space-y-8">
                             <div className="space-y-2.5">
@@ -735,161 +537,13 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
                                 )}
                               </div>
                             </button>
-                            {recoveryError && (
-                              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3">
-                                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                                <p className="text-red-300 text-sm">{recoveryError}</p>
-                              </div>
-                            )}
-                          </form>
-                        )}
-                        <div className="mt-6 text-center">
-                          <button onClick={goToLogin} className="text-white/30 text-[10px] hover:text-white/60 transition-colors">
-                            ← Revenir à la connexion
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  ) : view === 'forgot-identifier' ? (
-                    <>
-                      {/* Vue : Identifiant oublié */}
-                      <div className="px-10 py-10 space-y-6">
-                        {foundIdentifier ? (
-                          <div className="space-y-5 animate-fade-up">
-                            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
-                              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-3" />
-                              <p className="text-white/60 text-xs mb-2">Votre identifiant ANACIM est :</p>
-                              <p className="text-white font-mono text-sm font-bold break-all">{foundIdentifier}</p>
-                            </div>
-                            <p className="text-white/30 text-xs text-center">
-                              Utilisez cet identifiant avec votre mot de passe pour vous connecter.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => { setIdentifiant(foundIdentifier); goToLogin(); }}
-                              className="relative w-full group"
-                            >
-                              <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300" />
-                              <div className="relative flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl py-3 px-6 text-white font-semibold text-sm overflow-hidden">
-                                <LogIn className="w-4 h-4" />
-                                <span>Se connecter avec cet identifiant</span>
-                              </div>
-                            </button>
-                            <button type="button" onClick={() => setFoundIdentifier('')} className="w-full text-white/30 text-[10px] hover:text-white/60 transition-colors">
-                              Chercher un autre identifiant
-                            </button>
-                          </div>
-                        ) : (
-                          <form onSubmit={handleForgotIdentifier} className="space-y-6">
-                            <p className="text-white/50 text-sm">
-                              Saisissez votre prénom et nom pour retrouver votre identifiant ANACIM.
-                            </p>
-                            <div className="space-y-2.5">
-                              <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium">Prénom</label>
-                              <div className="relative group">
-                                <input
-                                  type="text"
-                                  value={forgotPrenom}
-                                  onChange={(e) => setForgotPrenom(e.target.value)}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-5 pl-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                  placeholder="Ex : Mouhamadou"
-                                  required
-                                />
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              </div>
-                            </div>
-                            <div className="space-y-2.5">
-                              <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium">Nom</label>
-                              <div className="relative group">
-                                <input
-                                  type="text"
-                                  value={forgotNom}
-                                  onChange={(e) => setForgotNom(e.target.value)}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-5 pl-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                  placeholder="Ex : Ba"
-                                  required
-                                />
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              </div>
-                            </div>
-                            <button type="submit" className="relative w-full group">
-                              <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300" />
-                              <div className="relative flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl py-3 px-6 text-white font-semibold text-sm overflow-hidden">
-                                <HelpCircle className="w-4 h-4" />
-                                <span>Retrouver mon identifiant</span>
-                              </div>
-                            </button>
-                          </form>
-                        )}
-                        <div className="text-center">
-                          <button onClick={goToLogin} className="text-white/30 text-[10px] hover:text-white/60 transition-colors">
-                            ← Revenir à la connexion
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Vue : Changement de mot de passe obligatoire */}
-                      <div className="px-10 py-10">
-                        <div className="mb-6 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
-                          <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                          <p className="text-amber-300 text-xs">
-                            Votre mot de passe provisoire doit être changé avant d'accéder au système.
-                          </p>
-                        </div>
-                        <form onSubmit={handlePasswordChange} className="space-y-6">
-                          <div className="space-y-2.5">
-                            <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium flex items-center gap-2">
-                              <Key size={12} />Nouveau mot de passe
-                            </label>
-                            <div className="relative group">
-                              <input
-                                type={showNewPassword ? 'text' : 'password'}
-                                value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-5 pl-12 pr-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                placeholder="Minimum 8 caractères"
-                                required
-                                minLength={8}
-                              />
-                              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors">
-                                {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                              </button>
-                            </div>
-                            {newPassword.length > 0 && (
-                              <div className="flex gap-1 mt-1">
-                                {[...Array(4)].map((_, i) => (
-                                  <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                                    newPassword.length >= (i + 1) * 3
-                                      ? i < 1 ? 'bg-red-400' : i < 2 ? 'bg-amber-400' : i < 3 ? 'bg-blue-400' : 'bg-emerald-400'
-                                      : 'bg-white/10'
-                                  }`} />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-2.5">
-                            <label className="text-white/60 text-[11px] uppercase tracking-wider font-medium flex items-center gap-2">
-                              <Key size={12} />Confirmer le mot de passe
-                            </label>
-                            <div className="relative group">
-                              <input
-                                type="password"
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-5 pl-12 text-white text-base placeholder-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:bg-white/10 transition-all outline-none"
-                                placeholder="Répétez le mot de passe"
-                                required
-                              />
-                              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-blue-400 transition-colors" />
-                              {confirmPassword.length > 0 && (
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                  {newPassword === confirmPassword
-                                    ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                                    : <XCircle className="w-4 h-4 text-red-400" />
-                                  }
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
                                 </div>
                               )}
                             </div>
