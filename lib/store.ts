@@ -585,8 +585,8 @@ export interface ProfilRisque {
   negbin_metrics?: { isOverdispersed: boolean; dispersion: number; mean: number; variance: number }
   copula_metrics?: { maxTailDependence: number; worstCaseProbability: number; worstCaseDescription: string }
   ts_metrics?: { recommendedAction: string; bestProbability: number }
-  // Bow-Tie — efficacité des barrières par domaine
-  bowtie_metrics?: { domaine: string; effectiveness: number; nsCount: number; ecartsCount: number }[]
+  // Bow-Tie HIRM — modèles Bow-Tie enrichis par domaine
+  bowtie_metrics?: import('./risque/types').BowTieModele[]
   // SNAPSHOT INFRASTRUCTURE (au moment du calcul)
   // Permet aux décisions (type surveillance, filtrage checklist) de refléter
   // les caractéristiques réelles de l'entité sans re-calculer le score numérique.
@@ -3965,26 +3965,63 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           } catch { /* bayesianDynamic indisponible */ }
         }
 
-        // Bow-Tie — efficacité des barrières par domaine
-        const DOMAINES = ['SGS', 'PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
+        // Bow-Tie HIRM — analyse complète par domaine (danger, barrières, conséquences)
+        const DOMAINES2 = ['SGS', 'PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
         let bowtieMetrics: ProfilRisque['bowtie_metrics'] = []
-        if (surveillancesAerodrome.length > 0 || ecartsAerodrome.length > 0) {
-          try {
-            const { assessBarrierEffectiveness } = await import('./risque')
-            bowtieMetrics = DOMAINES.map(domaine => {
-              const ecartsDom = ecartsAerodrome.filter((e: Ecart) => e.domaine === domaine)
-              const surveillancesDom = surveillancesAerodrome.filter((s: any) => (s.portee || []).includes(domaine))
-              const dernierScore = surveillancesDom.length > 0 ? surveillancesDom.reduce((max: number, s: any) => Math.max(max, s.score_global || 0), 0) : 70
-              const effectiveness = assessBarrierEffectiveness(`${aerodromeId}_${domaine}`, {
-                nsCount: 0,
-                ecartsCount: ecartsDom.length,
-                inspectionsPassed: surveillancesDom.some((s: any) => s.statut === 'realisee' || s.statut === 'rapport_signe'),
-                lastAuditScore: dernierScore,
-              })
-              return { domaine, effectiveness, nsCount: 0, ecartsCount: ecartsDom.length }
-            }).filter(b => b.ecartsCount > 0 || b.effectiveness < 80)
-          } catch { /* Bow-tie indisponible */ }
-        }
+        const existingProfil = get().profilsRisque?.[aerodromeId]
+        try {
+          const { computeInitialCell } = await import('./risque/bowTieEngine')
+          const allEcarts = get().ecarts || []
+          bowtieMetrics = DOMAINES2.map(domaine => {
+            const ecartsDom = ecartsAerodrome.filter((e: Ecart) => e.domaine === domaine)
+            const surveillancesDom = surveillancesAerodrome.filter((s: any) => (s.portee || []).includes(domaine))
+            const c1Score = c1
+            const c2Score = c2
+            const c3Score = c3Final
+            const dernierScore = surveillancesDom.length > 0 ? surveillancesDom.reduce((max: number, s: any) => Math.max(max, s.score_global || 0), 0) : 70
+
+            // Danger basé sur les écarts réels
+            const danger = ecartsDom.length > 0
+              ? `${ecartsDom.length} écart(s) actif(s)${ecartsDom.filter(e => e.niveau_risque === 'critique').length > 0 ? ` dont ${ecartsDom.filter(e => e.niveau_risque === 'critique').length} critique(s)` : ''}`
+              : `${domaine} — Conformité nominale`
+
+            // Défaillance liée à la conformité technique
+            const defaillance = c3Score < 40 ? 'Maintenance insuffisante — score critique'
+              : c3Score < 60 ? 'Surveillance sous-optimale'
+              : 'Fonctionnement nominal'
+
+            // Barrières préventives (existantes)
+            const barrieresPreventives = [
+              { id: `prev-sgs-${domaine}`, nom: `Maturité SGS (C1)`, type: 'preventive' as const, efficace: c1Score > 50, efficacite: c1Score, dernierTest: existingProfil?.computed_at, remarque: c1Score < 40 ? 'Maturité insuffisante' : c1Score < 60 ? 'En progression' : 'SGS efficace' },
+              { id: `prev-audit-${domaine}`, nom: `Audits ${domaine}`, type: 'preventive' as const, efficace: surveillancesDom.length > 0, efficacite: surveillancesDom.length > 0 ? 70 : 30, dernierTest: surveillancesDom[0]?.date_fin || undefined, remarque: surveillancesDom.length > 0 ? `${surveillancesDom.length} inspection(s)` : 'Aucune inspection' },
+            ]
+
+            // Barrières correctives (existantes + nouvelles via IA)
+            const barrieresCorrectives = [
+              { id: `corr-pac-${domaine}`, nom: `PAC existants`, type: 'corrective' as const, efficace: c2Score > 50, efficacite: c2Score, dernierTest: existingProfil?.computed_at, remarque: c2Score < 30 ? 'PAC inefficaces' : c2Score < 60 ? 'Progression nécessaire' : 'PAC efficaces' },
+              { id: `corr-new-${domaine}`, nom: `Nouvelles mesures (IA)`, type: 'corrective' as const, efficace: true, efficacite: Math.min(90, c2Score + 15), dernierTest: undefined, remarque: 'Mesures suggérées par IA' },
+            ]
+
+            // Probabilité résiduelle combinée C1-C5 + efficacité barrières
+            const barrierEffAvg = (c1Score + c2Score) / 2
+            const probResiduelle = Math.max(5, Math.min(95, 100 - (scoreGlobal + barrierEffAvg) / 2))
+            const niveauRisque = probResiduelle > 60 ? 'critique' : probResiduelle > 40 ? 'eleve' : probResiduelle > 20 ? 'moyen' : 'faible'
+
+            return {
+              id: `bt-${domaine}`,
+              domaine,
+              danger,
+              defaillance,
+              scenario: `Si ${defaillance.toLowerCase()} alors ${danger.toLowerCase().replace(/\d+ écart.*$/, 'incident de sécurité')}`,
+              consequence: c5 < 40 ? `Incidents probables — impact sécurité (C5=${c5}/100)` : c5 < 60 ? 'Non-conformité documentaire' : 'Impact opérationnel mineur',
+              barrieresPreventives,
+              barrieresCorrectives,
+              probabiliteResiduelle: Math.round(probResiduelle),
+              niveauRisqueResiduel: niveauRisque as 'critique' | 'eleve' | 'moyen' | 'faible',
+              lastAssessed: existingProfil?.computed_at || new Date().toISOString(),
+            }
+          }).filter(b => b.barrieresPreventives.some(p => p.efficacite < 80) || b.probabiliteResiduelle > 30)
+        } catch { /* Bow-Tie HIRM indisponible */ }
 
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,

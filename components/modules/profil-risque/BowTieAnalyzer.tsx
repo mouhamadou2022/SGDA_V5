@@ -109,7 +109,12 @@ function generateBowTieModels(profil: ProfilRisque, ecarts: Ecart[], surveillanc
 export default function BowTieAnalyzer({ profil, ecarts, surveillances }: Props) {
   const [selectedDomaine, setSelectedDomaine] = useState(DOMAINES[0])
 
-  const models = useMemo(() => generateBowTieModels(profil, ecarts, surveillances), [profil, ecarts, surveillances])
+  const models = useMemo(() => {
+    // Priorité au profil déjà calculé (via recalculerProfilRisque + bowTieEngine HIRM)
+    if (profil.bowtie_metrics && profil.bowtie_metrics.length > 0) return profil.bowtie_metrics
+    // Fallback : génération à la volée depuis écarts/surveillances
+    return generateBowTieModels(profil, ecarts, surveillances)
+  }, [profil, ecarts, surveillances])
   const current = models.find(m => m.domaine === selectedDomaine)
 
   const getEffCls = (v: number) => v >= 80 ? 'bg-success text-white' : v >= 60 ? 'bg-primary text-white' : v >= 40 ? 'bg-warning text-white' : 'bg-danger text-white'
