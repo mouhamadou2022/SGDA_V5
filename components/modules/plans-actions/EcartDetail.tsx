@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import {
   X,
   AlertTriangle,
@@ -349,7 +350,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
                 })}
               </div>
               {ecart.justification_risque_ia && <p className="text-xs text-muted-foreground mt-2 italic">{ecart.justification_risque_ia}</p>}
-              {ecart.justification_risque_pac && <p className="text-xs text-muted-foreground mt-1 italic">{ecart.justification_risque_pac}</p>}
+              {(ecart as any).justification_risque_pac && <p className="text-xs text-muted-foreground mt-1 italic">{(ecart as any).justification_risque_pac}</p>}
             </div>
           </div>
         )
