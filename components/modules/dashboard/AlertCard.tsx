@@ -63,6 +63,19 @@ export function AlertCard({ role, aerodromeId, onAction }: Props) {
       })
     }
 
+    // Preuves à soumettre (exploitants) — PAC accepté mais preuves manquantes
+    const preuvesAttendues = ecarts.filter(e => {
+      if (aerodromeId && e.aerodrome_id !== aerodromeId) return false
+      return e.statut === 'pac_accepte' || e.statut === 'preuves_soumises'
+    })
+    if (preuvesAttendues.length > 0 && ['dg_operator', 'focal_operator', 'staff_operator'].includes(role)) {
+      items.push({
+        id: 'preuves-attente', type: 'warning',
+        message: `${preuvesAttendues.length} écart(s) en attente de preuves`,
+        icon: Shield, action: 'operator-ecarts', actionLabel: 'Soumettre les preuves'
+      })
+    }
+
     // Aérodromes en score critique
     const critiques = Object.values(profilsRisque).filter(p => {
       if (aerodromeId && p.aerodrome_id !== aerodromeId) return false

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { Ecart } from '@/lib/store';
+import { RappelSection } from './RappelSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -338,6 +339,8 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
           <p className="text-sm text-gray-400">Aucun PAC soumis pour le moment.</p>
         </div>
       )}
+      {/* Rappels à l'exploitant */}
+      <RappelSection ecartId={ecart.id} ecart={ecart} />
     </div>
   );
 }
