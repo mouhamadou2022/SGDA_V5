@@ -19,6 +19,7 @@ export async function POST(request: Request) {
       : `<p>${message}</p>`;
 
     const resend = new Resend(process.env.RESEND_API_KEY);
+    console.log('[Email] Envoi à', to, '| Sujet:', subject)
     const { data, error } = await resend.emails.send({
       from: `SGDA ANACIM <notifications@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'anacim.sn'}>`,
       to: Array.isArray(to) ? to : [to],
@@ -27,9 +28,10 @@ export async function POST(request: Request) {
     });
 
     if (error) {
+      console.error('[Email] Erreur Resend:', error)
       return NextResponse.json({ error }, { status: 400 });
     }
-
+    console.log('[Email] Succès — ID:', data?.id)
     return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json({ error }, { status: 500 });
