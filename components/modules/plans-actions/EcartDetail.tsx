@@ -319,6 +319,42 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
         </div>
       </div>
 
+      {/* OACI Risk Trajectory — Bow-Tie Data-Driven */}
+      {(() => {
+        const { getRiskTrajectory } = require('@/lib/risque/bowTieEngine')
+        const traj = getRiskTrajectory(ecart)
+        if (!traj) return null
+        return (
+          <div className="card border-l-4 border-l-role-primary">
+            <div className="card-header pb-2"><div className="card-title text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-role-primary" />Trajectoire de risque (OACI Bow-Tie)</div></div>
+            <div className="card-content p-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                {[
+                  { label: 'Initial', cell: traj.initial, active: true },
+                  traj.afterPAC && { label: 'Après PAC', cell: traj.afterPAC, active: true },
+                  traj.afterPreuves && { label: 'Après preuves', cell: traj.afterPreuves, active: true },
+                ].filter(Boolean).map((step: any, idx, arr) => {
+                  const p = parseInt(step.cell[0]) || 3
+                  const g = step.cell[1] || 'C'
+                  const niveau = p >= 4 ? 'danger' : p >= 3 ? 'warning' : p >= 2 ? 'primary' : 'success'
+                  return (
+                    <React.Fragment key={step.label}>
+                      <div className={`p-2 rounded-lg text-center ${niveau === 'danger' ? 'bg-danger-soft' : niveau === 'warning' ? 'bg-warning-soft' : niveau === 'primary' ? 'bg-primary-soft' : 'bg-success-soft'}`}>
+                        <span className={`badge ${niveau === 'danger' ? 'danger' : niveau === 'warning' ? 'warning' : niveau === 'primary' ? 'primary' : 'success'} text-xs block mb-1`}>{step.cell}</span>
+                        <span className="text-xs text-muted-foreground">{step.label}</span>
+                      </div>
+                      {idx < arr.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                    </React.Fragment>
+                  )
+                })}
+              </div>
+              {ecart.justification_risque_ia && <p className="text-xs text-muted-foreground mt-2 italic">{ecart.justification_risque_ia}</p>}
+              {ecart.justification_risque_pac && <p className="text-xs text-muted-foreground mt-1 italic">{ecart.justification_risque_pac}</p>}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Section 3: PAC actuel */}
       {ecart.pac && (
         <div className="space-y-3">

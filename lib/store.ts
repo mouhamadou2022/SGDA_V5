@@ -2896,11 +2896,25 @@ getActiveAerodromes: () => {
           throw new Error(`Erreur de synchronisation Supabase: ${syncResult.error}`)
         }
 
-        // Supabase OK → mise à jour du store local
+        // Supabase OK → mise à jour du store local + Bow-Tie risk evaluation
+        // Bow-Tie : évaluer le risque résiduel après PAC
+        let pacCellule: string | undefined
+        let pacJustification: string | undefined
+        try {
+          const { evaluatePAC } = require('@/lib/risque/bowTieEngine')
+          const celluleInit = { probabilite: ecart.probabilite_risque || 3, gravite: ecart.gravite_risque || 'C', cellule: ecart.cellule_risque_oaci || '3C', niveau: ecart.niveau_risque || 'moyen', couleur: '#eab308' }
+          const nbActions = (pacData.actions || []).length
+          const assessment = evaluatePAC(celluleInit, nbActions, pacData.actions || [])
+          if (assessment.celluleResiduelle) {
+            pacCellule = assessment.celluleResiduelle.cellule
+            pacJustification = assessment.gainPAC
+          }
+        } catch { /* Bow-Tie indisponible */ }
+
         set((state) => {
           const updatedEcarts = (state.ecarts.map(e =>
             e.id === ecartId
-              ? { ...e, statut: 'pac_soumis', pac: pacPayload, updated_at: now }
+              ? { ...e, statut: 'pac_soumis', pac: pacPayload, updated_at: now, ...(pacCellule ? { cellule_risque_reevalue: pacCellule, justification_risque_pac: pacJustification } : {}) }
               : e
           ) as Ecart[])
           const historiqueEntry: HistoriqueEcart = {
@@ -5635,6 +5649,20 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       
       addEcartRedaction: (ecartData) => {
         const now = new Date().toISOString()
+        // Data-driven OACI cell via Bow-Tie Engine
+        let celluleRisque: string | undefined
+        let probabiliteRisque: 1|2|3|4|5 | undefined
+        let graviteRisque: 'A'|'B'|'C'|'D'|'E' | undefined
+        let justificationRisque: string | undefined
+        try {
+          const ecartsSimilaires = get().ecarts.filter(e => e.domaine === ecartData.domaine && e.statut !== 'cloture')
+          const { computeInitialCell } = require('@/lib/risque/bowTieEngine')
+          const assessment = computeInitialCell({ niveau_risque: ecartData.niveau || 'moyen', domaine: ecartData.domaine } as any, ecartsSimilaires)
+          celluleRisque = assessment.celluleInitiale.cellule
+          probabiliteRisque = assessment.celluleInitiale.probabilite
+          graviteRisque = assessment.celluleInitiale.gravite
+          justificationRisque = assessment.justificationInitiale
+        } catch { /* fallback silencieux */ }
         const newEcart: EcartRedaction = {
           id: crypto.randomUUID(),
           reference: ecartData.reference || `ECA-${new Date().getFullYear()}-${String(get().ecartsRedaction.length + 1).padStart(3, '0')}`,
@@ -5648,6 +5676,10 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           updated_at: now,
           created_by: get().user?.id || '',
           updated_by: get().user?.id || '',
+          cellule_risque_oaci: celluleRisque,
+          probabilite_risque: probabiliteRisque,
+          gravite_risque: graviteRisque,
+          justification_risque_ia: justificationRisque,
         }
         set((state) => ({
           ecartsRedaction: [...state.ecartsRedaction, newEcart]
