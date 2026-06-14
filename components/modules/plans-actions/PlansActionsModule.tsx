@@ -494,7 +494,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       )}
 
       {/* Barre d'outils */}
-      <div className="filters-panel">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
           <div className="flex-1 w-full lg:w-auto">
             <div className="search-box">
@@ -576,7 +576,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
         </div>
 
         {/* Filtres rapides enrichis */}
-        <div className="filter-chips mt-3 pt-3 border-t">
+        <div className="filter-chips mt-4 pt-4 border-t border-primary/10">
           <button
             className={`filter-chip ${filters.statut === 'en_retard' ? 'active' : ''}`}
             onClick={() => setFilters({...filters, statut: 'en_retard'})}
@@ -606,7 +606,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             Priorité dynamique
           </button>
         </div>
-      </div>
+      </Card>
 
       {/* Onglets */}
       <div className="tabs">
