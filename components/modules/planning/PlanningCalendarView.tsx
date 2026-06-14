@@ -8,6 +8,7 @@ import 'moment/locale/fr';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import type { Planning, Aerodrome } from '@/lib/store';
 import { createPortal } from 'react-dom';
+import { Card } from '@/components/ui/card';
 import { Eye, PenSquare, Trash2, X, MapPin, Calendar as CalendarIcon, Users, Target, AlertTriangle } from 'lucide-react';
 
 moment.locale('fr');
@@ -80,12 +81,17 @@ const SixMonthsView = (props: any) => {
           moment(e.start).month() === month.month() && moment(e.start).year() === month.year()
         );
         return (
-          <div key={idx} className="card border-border">
-            <div className="card-header py-2 px-3 bg-gradient-to-r from-role-primary/5 to-transparent flex items-center justify-between">
-              <div className="card-title text-small font-semibold text-role-primary">{month.format('MMMM')}</div>
-              {monthEvents.length > 0 && <span className="badge neutral text-[9px] h-4 px-1.5">{monthEvents.length}</span>}
-            </div>
-            <div className="card-content p-2">
+          <Card
+            key={idx}
+            heading={
+              <div className="flex items-center justify-between w-full">
+                <span className="text-small font-semibold text-role-primary">{month.format('MMMM')}</span>
+                {monthEvents.length > 0 && <span className="badge neutral text-[9px] h-4 px-1.5">{monthEvents.length}</span>}
+              </div>
+            }
+            size="sm"
+            className="[&>div:last-child]:p-2"
+          >
               <div className="space-y-1 max-h-[250px] overflow-y-auto">
                 {monthEvents.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-4">Aucun</p>
@@ -98,8 +104,7 @@ const SixMonthsView = (props: any) => {
                   </>
                 )}
               </div>
-            </div>
-          </div>
+          </Card>
         );
       })}
     </div>
@@ -118,12 +123,17 @@ const YearView = (props: any) => {
           moment(e.start).month() === idx && moment(e.start).year() === moment(date).year()
         );
         return (
-          <div key={idx} className="card border-border">
-            <div className="card-header py-2 px-3 bg-gradient-to-r from-role-primary/5 to-transparent flex items-center justify-between">
-              <div className="card-title text-small font-semibold text-role-primary">{month.format('MMMM YYYY')}</div>
-              {monthEvents.length > 0 && <span className="badge neutral text-[9px] h-4 px-1.5">{monthEvents.length}</span>}
-            </div>
-            <div className="card-content p-2">
+          <Card
+            key={idx}
+            heading={
+              <div className="flex items-center justify-between w-full">
+                <span className="text-small font-semibold text-role-primary">{month.format('MMMM YYYY')}</span>
+                {monthEvents.length > 0 && <span className="badge neutral text-[9px] h-4 px-1.5">{monthEvents.length}</span>}
+              </div>
+            }
+            size="sm"
+            className="[&>div:last-child]:p-2"
+          >
               <div className="space-y-1 max-h-[200px] overflow-y-auto">
                 {monthEvents.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-4">Aucun planning</p>
@@ -136,8 +146,7 @@ const YearView = (props: any) => {
                   </>
                 )}
               </div>
-            </div>
-          </div>
+          </Card>
         );
       })}
     </div>
@@ -280,18 +289,16 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
   }, [currentView]);
 
   return (
-    <div className="card border-border shadow-md">
-      <div className="card-content p-0">
-        <Calendar
-          localizer={localizer} events={events} startAccessor="start" endAccessor="end"
-          titleAccessor={(event: any) => `${event.aerodrome?.code_oaci} - ${getStatutBadge(event.statut).label}`}
-          className="h-[700px]" views={views} view={currentView as any} date={currentDate}
-          onNavigate={(date) => setCurrentDate(date)} onView={(view) => setCurrentView(view as string)}
-          messages={messages} eventPropGetter={eventStyleGetter}
-          components={{ event: EventComponent, toolbar: CustomToolbar }}
-          onSelectEvent={handleSelectEvent} popup selectable step={30} timeslots={2}
-        />
-      </div>
+    <Card className="shadow-md">
+      <Calendar
+        localizer={localizer} events={events} startAccessor="start" endAccessor="end"
+        titleAccessor={(event: any) => `${event.aerodrome?.code_oaci} - ${getStatutBadge(event.statut).label}`}
+        className="h-[700px]" views={views} view={currentView as any} date={currentDate}
+        onNavigate={(date) => setCurrentDate(date)} onView={(view) => setCurrentView(view as string)}
+        messages={messages} eventPropGetter={eventStyleGetter}
+        components={{ event: EventComponent, toolbar: CustomToolbar }}
+        onSelectEvent={handleSelectEvent} popup selectable step={30} timeslots={2}
+      />
       {showDetail && selectedPlanning && (
         <EventDetailModal planning={selectedPlanning} aerodrome={selectedAerodrome}
           onClose={() => { setShowDetail(false); setSelectedPlanning(null); }}
@@ -300,6 +307,6 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
           onDelete={(p) => { setShowDetail(false); setSelectedPlanning(null); onDelete?.(p); }}
         />
       )}
-    </div>
+    </Card>
   );
 }

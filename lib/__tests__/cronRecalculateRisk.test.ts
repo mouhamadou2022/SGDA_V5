@@ -37,10 +37,10 @@ describe('calculateGlobalScore', () => {
     const score = calculateGlobalScore({ c1: 80, c2: 80, c3: 80, c4: 80, c5: 80 })
     expect(score).toBe(80)
   })
-  test('pondération : C5 > C4 (0.25 vs 0.15)', () => {
-    const basC5 = calculateGlobalScore({ c1: 100, c2: 100, c3: 100, c4: 100, c5: 0 })
+  test('pondération : C2 > C4 (0.25 vs 0.20)', () => {
+    const basC2 = calculateGlobalScore({ c1: 100, c2: 0, c3: 100, c4: 100, c5: 100 })
     const basC4 = calculateGlobalScore({ c1: 100, c2: 100, c3: 100, c4: 0, c5: 100 })
-    expect(basC5).toBeLessThan(basC4)
+    expect(basC2).toBeLessThan(basC4)
   })
   test('score entre 0 et 100', () => {
     const score = calculateGlobalScore({ c1: 50, c2: 50, c3: 50, c4: 50, c5: 50 })

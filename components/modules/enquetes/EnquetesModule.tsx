@@ -28,6 +28,7 @@ import {
   Edit3,
   FileQuestion,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { EnqueteForm } from '@/components/forms/EnqueteForm';
 import { EnqueteBuilder } from './EnqueteBuilder';
 import { EnqueteStats } from './EnqueteStats';
@@ -601,9 +602,8 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
           const estActive = enquete.statut === 'active';
 
           return (
-            <div key={enquete.id} className="card hover:shadow-role-glow transition-all">
-              <div className="card-content p-4">
-                <div className="flex items-start justify-between flex-wrap gap-4">
+            <Card key={enquete.id} className="hover:shadow-role-glow transition-all">
+              <div className="flex items-start justify-between flex-wrap gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="code-oaci-badge text-sm">{enquete.reference}</span>
@@ -692,18 +692,15 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
                       </button>
                     )}
                   </div>
-                </div>
               </div>
-            </div>
+            </Card>
           );
         })}
         {filteredEnquetes.length === 0 && (
-          <div className="card">
-            <div className="card-content py-12 text-center text-muted-foreground">
-              <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p>Aucune enquête trouvée</p>
-            </div>
-          </div>
+          <Card className="text-center">
+            <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            <p>Aucune enquête trouvée</p>
+          </Card>
         )}
       </div>
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 import { SignaturePadWithColor } from './SignaturePadWithColor'
 
 interface DocSignature {
@@ -79,32 +80,34 @@ export function SignatureInterface({ userId, userRole }: Props) {
             Documents en attente ({enAttente.length})
           </p>
           {enAttente.length === 0 && (
-            <div className="card p-4 text-center text-muted-foreground text-sm">
+            <Card className="text-center">
               Aucun document en attente de signature
-            </div>
+            </Card>
           )}
           {enAttente.map(doc => (
-            <div key={doc.id} className="card p-4 flex items-start justify-between gap-3">
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{doc.titre}</span>
-                  {doc.urgent && (
-                    <span className="badge danger text-xs">Urgent</span>
-                  )}
+            <Card key={doc.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{doc.titre}</span>
+                    {doc.urgent && (
+                      <span className="badge danger text-xs">Urgent</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[doc.type]}`}>
+                      {doc.type}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{doc.aerodrome}</span>
+                    <span className="text-xs text-muted-foreground">Demandé le {doc.datedemande}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[doc.type]}`}>
-                    {doc.type}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{doc.aerodrome}</span>
-                  <span className="text-xs text-muted-foreground">Demandé le {doc.datedemande}</span>
+                <div className="flex gap-2 shrink-0">
+                  <button className="btn btn-primary btn-sm" onClick={() => setSignerDoc(doc)}>Signer</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setRefuserDoc(doc)}>Refuser</button>
                 </div>
               </div>
-              <div className="flex gap-2 shrink-0">
-                <button className="btn btn-primary btn-sm" onClick={() => setSignerDoc(doc)}>Signer</button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setRefuserDoc(doc)}>Refuser</button>
-              </div>
-            </div>
+            </Card>
           ))}
         </div>
 

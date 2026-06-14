@@ -13,6 +13,7 @@ import {
 import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
 import { computeIncidentPredictions } from '@/lib/risque/predictions'
+import { Card } from '@/components/ui/card'
 interface Props {
   aerodromeId?: string
   userRole?: string
@@ -167,14 +168,7 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
 
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-role-primary" />
-              Tendance 12 mois
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<TrendingUp />} title="Tendance 12 mois">
             <BarChart
               data={trendData}
               xKey="mois"
@@ -185,37 +179,21 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
               ]}
               height={250}
             />
-          </div>
-        </div>
+        </Card>
 
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-role-primary" />
-              Répartition par type
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<PieChart />} title="Répartition par type">
             <PieChartComponent
               data={typeData}
               nameKey="type"
               valueKey="valeur"
               height={250}
             />
-          </div>
-        </div>
+        </Card>
       </div>
 
       {/* Top 5 aérodromes + Prédictions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Target className="w-4 h-4 text-role-primary" />
-              Top 5 aérodromes les plus touchés
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<Target />} title="Top 5 aérodromes les plus touchés">
             {topAerodromes.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4 text-center">Aucun événement</p>
             ) : (
@@ -232,17 +210,10 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
                 ))}
               </div>
             )}
-          </div>
-        </div>
+        </Card>
 
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Zap className="w-4 h-4 text-role-primary" />
-              Prédictions — 3 prochains mois
-            </div>
-          </div>
-          <div className="card-content space-y-2">
+        <Card icon={<Zap />} title="Prédictions — 3 prochains mois">
+          <div className="space-y-2">
             {predictions.map((p, i) => (
               <div key={i} className={`p-3 rounded-lg border ${p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'border-danger/30 bg-danger/5' : 'border-border'}`}>
                 <div className="flex items-center justify-between">
@@ -266,19 +237,12 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
               Analyse saisonnière — moy. {saisonStats.moyenneCritiques}/mois, écart-type {saisonStats.ecartType}
             </p>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Événements critiquess récents */}
       {recents.length > 0 && (
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-danger" />
-              Événements critiquess récents
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<AlertTriangle className="text-danger" />} title="Événements critiquess récents">
             <div className="table-container">
               <table className="table text-xs">
                 <thead>
@@ -308,8 +272,7 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+        </Card>
       )}
     </div>
   )

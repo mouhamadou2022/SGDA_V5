@@ -21,6 +21,7 @@ import {
   XCircle,
   History,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore, useGlobalDebounce, useGlobalTransition } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { AccordionSection, AccordionGroup, AccordionSubGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
@@ -150,14 +151,7 @@ function EcartDetailModal({
           </div>
 
           {/* Timeline */}
-          <div className="card border-border">
-            <div className="card-header pb-2">
-              <div className="card-title text-sm flex items-center gap-2">
-                <History className="w-4 h-4 text-role-primary" />
-                Timeline
-              </div>
-            </div>
-            <div className="card-content">
+          <Card icon={<History className="w-4 h-4 text-role-primary" />} title="Timeline">
               <div className="flex items-center justify-between">
                 {timelineSteps.map((step, idx) => (
                   <React.Fragment key={step.label}>
@@ -176,8 +170,7 @@ function EcartDetailModal({
                   </React.Fragment>
                 ))}
               </div>
-            </div>
-          </div>
+          </Card>
 
           {/* Décision */}
           <div className={`p-3 rounded-lg ${ecart.decision_pac === 'accepte' ? 'bg-success/10 border border-success/30' : 'bg-danger/10 border border-danger/30'}`}>
@@ -198,14 +191,7 @@ function EcartDetailModal({
 
           {/* Preuves */}
           {ecart.preuves.length > 0 && (
-            <div className="card border-border">
-              <div className="card-header pb-2">
-                <div className="card-title text-sm flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-role-primary" />
-                  Preuves archivées
-                </div>
-              </div>
-              <div className="card-content">
+            <Card icon={<FileText className="w-4 h-4 text-role-primary" />} title="Preuves archivées">
                 <div className="space-y-2">
                   {ecart.preuves.map((preuve, idx) => (
                     <div key={idx} className="flex items-center justify-between p-2 bg-role-primary-soft rounded-lg">
@@ -223,19 +209,11 @@ function EcartDetailModal({
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
+            </Card>
           )}
 
           {/* Historique détaillé */}
-          <div className="card border-border">
-            <div className="card-header pb-2">
-              <div className="card-title text-sm flex items-center gap-2">
-                <History className="w-4 h-4 text-role-primary" />
-                Historique des actions
-              </div>
-            </div>
-            <div className="card-content">
+          <Card icon={<History className="w-4 h-4 text-role-primary" />} title="Historique des actions">
               <div className="space-y-2">
                 {ecart.timeline.map((event, idx) => (
                   <div key={idx} className="flex items-start gap-3 text-sm">
@@ -249,8 +227,7 @@ function EcartDetailModal({
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
+          </Card>
         </div>
 
         <div className="modal-footer">
@@ -533,8 +510,7 @@ export function ArchiveEcarts({ userRole }: ArchiveEcartsProps) {
                         const niveauBadge = getNiveauBadge(ecart.niveau_risque);
                         
                         return (
-                          <div key={ecart.id} className="card border-border hover:shadow-md transition-all">
-                            <div className="card-content p-3">
+                          <Card key={ecart.id} className="hover:shadow-md transition-all">
                               <div className="flex items-start justify-between flex-wrap gap-3">
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -567,8 +543,7 @@ export function ArchiveEcarts({ userRole }: ArchiveEcartsProps) {
                                   </button>
                                 </div>
                               </div>
-                            </div>
-                          </div>
+                          </Card>
                         );
                       })}
                     </AccordionSubItem>
@@ -580,13 +555,11 @@ export function ArchiveEcarts({ userRole }: ArchiveEcartsProps) {
         })}
 
         {Object.keys(groupedByYear).length === 0 && (
-          <div className="card">
-            <div className="card-content py-12 text-center text-muted-foreground">
+          <Card className="text-center">
               <Archive className="w-12 h-12 mx-auto mb-4 opacity-30" />
               <p className="text-body">Aucun écart archivé trouvé</p>
               <p className="text-small mt-2">Modifiez vos filtres pour élargir la recherche</p>
-            </div>
-          </div>
+          </Card>
         )}
       </AccordionGroup>
 

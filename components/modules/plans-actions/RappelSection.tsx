@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { Card } from '@/components/ui/card';
 import {
   Bell,
   BellRing,
@@ -554,14 +555,7 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
 
       {/* Rappels programmés */}
       {rappelsProgrammes.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header pb-2">
-            <div className="card-title text-sm flex items-center gap-2">
-              <Clock className="w-4 h-4 text-role-primary" />
-              Rappels automatiques programmés
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<Clock className="w-4 h-4 text-role-primary" />} title="Rappels automatiques programmés">
             <div className="space-y-2">
               {rappelsProgrammes.map(rappel => {
                 const dateDeclenchement = new Date(rappel.date_declenchement);
@@ -613,20 +607,12 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
                 );
               })}
             </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Historique des rappels manuels */}
       {rappelsManuels.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header pb-2">
-            <div className="card-title text-sm flex items-center gap-2">
-              <History className="w-4 h-4 text-role-primary" />
-              Historique des rappels
-            </div>
-          </div>
-          <div className="card-content">
+        <Card icon={<History className="w-4 h-4 text-role-primary" />} title="Historique des rappels">
             <div className="space-y-2">
               {rappelsManuels.slice(0, 5).map(rappel => (
                 <div key={rappel.id} className="flex items-start gap-3 p-2 border-b border-border last:border-0">
@@ -660,8 +646,7 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Modales */}

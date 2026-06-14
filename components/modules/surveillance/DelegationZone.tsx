@@ -21,6 +21,7 @@ import {
   BarChart3,
   Bell,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
@@ -702,42 +703,33 @@ export function DelegationZone({
 
   if (readOnly) {
     return (
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-          <div className="card-title text-base flex items-center gap-2">
-            <Users className="w-4 h-4 text-blue-600" />
-            Délégations actuelles
-            {getTypeBadge(typeSurveillance)}
-          </div>
-        </div>
-        <div className="card-content p-4">
-          {delegations.length === 0 ? (
-            <p className="text-center text-muted-foreground text-sm py-4">
-              Aucune délégation configurée
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {delegationsParInspecteur.filter(i => i.delegations.length > 0).map(insp => (
-                <div key={insp.id} className="border rounded-lg p-3 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <UserCheck className="w-4 h-4 text-blue-600" />
-                    <span className="font-medium text-sm">{insp.prenom} {insp.nom}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {insp.delegations.map(d => (
-                      <div key={d.id} className="flex items-center gap-1.5 border rounded-lg px-2 py-1 bg-white">
-                        {getDomaineBadge(d.domaineCode)}
-                        <span className="text-xs font-medium">{d.domaineNom}</span>
-                        {getTypeBadge(d.typeSurveillance)}
-                      </div>
-                    ))}
-                  </div>
+      <Card icon={<Users className="w-4 h-4 text-blue-600" />} title="Délégations actuelles" badge={getTypeBadge(typeSurveillance)}>
+        {delegations.length === 0 ? (
+          <p className="text-center text-muted-foreground text-sm py-4">
+            Aucune délégation configurée
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {delegationsParInspecteur.filter(i => i.delegations.length > 0).map(insp => (
+              <div key={insp.id} className="border rounded-lg p-3 bg-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <UserCheck className="w-4 h-4 text-blue-600" />
+                  <span className="font-medium text-sm">{insp.prenom} {insp.nom}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+                <div className="flex flex-wrap gap-2">
+                  {insp.delegations.map(d => (
+                    <div key={d.id} className="flex items-center gap-1.5 border rounded-lg px-2 py-1 bg-white">
+                      {getDomaineBadge(d.domaineCode)}
+                      <span className="text-xs font-medium">{d.domaineNom}</span>
+                      {getTypeBadge(d.typeSurveillance)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     );
   }
 
@@ -745,154 +737,113 @@ export function DelegationZone({
     <div className="space-y-4">
       {/* Stats Dashboard */}
       {delegations.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-blue-600" />
-              Tableau de bord du chef
-              <button
-                onClick={() => setShowStats(!showStats)}
-                className="btn btn-sm px-3 py-1 btn-ghost"
-              >
-                {showStats ? 'Masquer' : 'Détails'}
-              </button>
-            </div>
-          </div>
-          <div className="card-content p-4">
-            <StatsDashboard delegations={delegations} inspecteurs={inspecteurs} />
-          </div>
-        </div>
+        <Card icon={<BarChart3 className="w-4 h-4 text-blue-600" />} title="Tableau de bord du chef"
+          badge={<button onClick={() => setShowStats(!showStats)} className="btn btn-sm px-3 py-1 btn-ghost">{showStats ? 'Masquer' : 'Détails'}</button>}
+        >
+          <StatsDashboard delegations={delegations} inspecteurs={inspecteurs} />
+        </Card>
       )}
 
       {/* Zone de drag & drop - 2 colonnes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Colonne gauche : Domaines à assigner */}
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
-              <Target className="w-4 h-4 text-blue-600" />
-              Domaines à couvrir
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{domainesNonAssignesList.length} restant(s)</span>
+        <Card icon={<Target className="w-4 h-4 text-blue-600" />} title="Domaines à couvrir"
+          badge={<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{domainesNonAssignesList.length} restant(s)</span>}
+          className="max-h-[500px] overflow-y-auto"
+        >
+          {domainesNonAssignesList.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-green-500" />
+              <p className="text-sm">Tous les domaines sont assignés</p>
             </div>
-          </div>
-          <div className="card-content p-4 max-h-[500px] overflow-y-auto">
-            {domainesNonAssignesList.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-green-500" />
-                <p className="text-sm">Tous les domaines sont assignés</p>
-              </div>
-            ) : (
-              domainesNonAssignesList.map(domaine => (
-                <DomaineCard
-                  key={domaine.id}
-                  domaine={domaine}
-                  isDragging={draggedDomaine?.id === domaine.id}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                  onAssign={() => {
-                    setSelectedDomaine(domaine);
-                    setSelectedTypeSurveillance(typeSurveillance);
-                    setShowAssignModal(true);
-                  }}
-                  typeSurveillance={typeSurveillance}
-                />
-              ))
-            )}
-          </div>
-        </div>
+          ) : (
+            domainesNonAssignesList.map(domaine => (
+              <DomaineCard
+                key={domaine.id}
+                domaine={domaine}
+                isDragging={draggedDomaine?.id === domaine.id}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onAssign={() => {
+                  setSelectedDomaine(domaine);
+                  setSelectedTypeSurveillance(typeSurveillance);
+                  setShowAssignModal(true);
+                }}
+                typeSurveillance={typeSurveillance}
+              />
+            ))
+          )}
+        </Card>
 
         {/* Colonne droite : Inspecteurs disponibles */}
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-600" />
-              Équipe de surveillance
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{inspecteurs.filter(i => i.estDisponible).length} disponible(s)</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Glissez-déposez un domaine sur un inspecteur pour assigner
-            </p>
-          </div>
-          <div className="card-content p-4 max-h-[500px] overflow-y-auto">
-            {inspecteurs.map(inspecteur => (
-              <InspecteurCard
-                key={inspecteur.id}
-                inspecteur={inspecteur}
-                isDragOver={dragOverInspecteurId === inspecteur.id}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                assignedDomaines={delegations}
-              />
-            ))}
-          </div>
-        </div>
+        <Card icon={<Users className="w-4 h-4 text-blue-600" />} title="Équipe de surveillance"
+          subtitle="Glissez-déposez un domaine sur un inspecteur pour assigner"
+          badge={<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{inspecteurs.filter(i => i.estDisponible).length} disponible(s)</span>}
+          className="max-h-[500px] overflow-y-auto"
+        >
+          {inspecteurs.map(inspecteur => (
+            <InspecteurCard
+              key={inspecteur.id}
+              inspecteur={inspecteur}
+              isDragOver={dragOverInspecteurId === inspecteur.id}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              assignedDomaines={delegations}
+            />
+          ))}
+        </Card>
       </div>
 
       {/* Résumé des délégations */}
       {delegations.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-            <div className="card-title text-base flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                Délégations configurées ({delegations.length})
-              </div>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="btn btn-sm px-3 py-1 btn-primary"
+        <Card className="border-border"
+          heading={<div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-500" />Délégations configurées ({delegations.length})</div>}
+          badge={<button onClick={handleSave} disabled={isSaving} className="btn btn-sm px-3 py-1 btn-primary"><Save className="w-4 h-4" />{isSaving ? 'Sauvegarde...' : 'Sauvegarder'}</button>}
+        >
+          <AccordionGroup spacing="sm">
+            {delegationsParInspecteur.filter(i => i.delegations.length > 0).map(insp => (
+              <AccordionSection
+                key={insp.id}
+                icon={<UserCheck className="w-4 h-4 text-role-primary" />}
+                title={`${insp.prenom} ${insp.nom}`}
+                badges={<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{insp.delegations.length} domaine(s)</span>}
               >
-                <Save className="w-4 h-4" />
-                {isSaving ? 'Sauvegarde...' : 'Sauvegarder'}
-              </button>
-            </div>
-          </div>
-          <div className="card-content p-4">
-            <AccordionGroup spacing="sm">
-              {delegationsParInspecteur.filter(i => i.delegations.length > 0).map(insp => (
-                <AccordionSection
-                  key={insp.id}
-                  icon={<UserCheck className="w-4 h-4 text-role-primary" />}
-                  title={`${insp.prenom} ${insp.nom}`}
-                  badges={<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{insp.delegations.length} domaine(s)</span>}
-                >
-                  {insp.delegations.map(d => (
-                    <div key={d.id} className="flex items-center justify-between p-2.5 bg-blue-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        {getDomaineBadge(d.domaineCode)}
-                        <div>
-                          <span className="font-medium text-sm">{d.domaineNom}</span>
-                          <div className="flex items-center gap-2 mt-1">
-                            {getTypeBadge(d.typeSurveillance)}
-                            <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${
-                                  d.progression >= 80 ? 'bg-green-500' :
-                                  d.progression >= 50 ? 'bg-blue-500' :
-                                  d.progression >= 25 ? 'bg-amber-500' : 'bg-red-500'
-                                }`}
-                                style={{ width: `${d.progression}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-muted-foreground">{d.progression}%</span>
+                {insp.delegations.map(d => (
+                  <div key={d.id} className="flex items-center justify-between p-2.5 bg-blue-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      {getDomaineBadge(d.domaineCode)}
+                      <div>
+                        <span className="font-medium text-sm">{d.domaineNom}</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          {getTypeBadge(d.typeSurveillance)}
+                          <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                d.progression >= 80 ? 'bg-green-500' :
+                                d.progression >= 50 ? 'bg-blue-500' :
+                                d.progression >= 25 ? 'bg-amber-500' : 'bg-red-500'
+                              }`}
+                              style={{ width: `${d.progression}%` }}
+                            />
                           </div>
+                          <span className="text-xs text-muted-foreground">{d.progression}%</span>
                         </div>
                       </div>
-                      <button
-                        onClick={() => supprimerDelegation(d.id)}
-                        className="btn btn-sm px-3 py-1 btn-danger"
-                        title="Retirer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
-                  ))}
-                </AccordionSection>
-              ))}
-            </AccordionGroup>
-          </div>
-        </div>
+                    <button
+                      onClick={() => supprimerDelegation(d.id)}
+                      className="btn btn-sm px-3 py-1 btn-danger"
+                      title="Retirer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </AccordionSection>
+            ))}
+          </AccordionGroup>
+        </Card>
       )}
 
       {/* Modal d'assignation manuelle */}

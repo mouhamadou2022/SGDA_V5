@@ -59,6 +59,7 @@ import {
   ClipboardList,
   CheckSquare,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
 import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
@@ -96,32 +97,34 @@ function TableOfContents({ headings, onNavigate }: { headings: { id: string; tex
 
   return (
     <div className="fixed right-4 top-1/2 -translate-y-1/2 z-40 hidden xl:block">
-      <div className="card border-border shadow-lg p-3 max-h-96 overflow-y-auto w-60">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center justify-between w-full text-xs font-semibold text-role-primary mb-2"
-        >
-          <span className="flex items-center gap-1">
-            <FolderTree className="w-3 h-3" />
-            Table des matières
-          </span>
-          <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-        {isOpen && (
-          <div className="space-y-1">
-            {headings.map((h, idx) => (
-              <button
-                key={idx}
-                onClick={() => onNavigate(h.id)}
-                className="text-left text-xs hover:text-role-primary transition-colors block truncate w-full"
-                style={{ paddingLeft: `${(h.level - 1) * 12}px` }}
-              >
-                {h.text || `Section ${idx + 1}`}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <Card className="shadow-lg max-h-96 overflow-y-auto w-60">
+        <div className="p-3">
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="flex items-center justify-between w-full text-xs font-semibold text-role-primary mb-2"
+          >
+            <span className="flex items-center gap-1">
+              <FolderTree className="w-3 h-3" />
+              Table des matières
+            </span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isOpen && (
+            <div className="space-y-1">
+              {headings.map((h, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onNavigate(h.id)}
+                  className="text-left text-xs hover:text-role-primary transition-colors block truncate w-full"
+                  style={{ paddingLeft: `${(h.level - 1) * 12}px` }}
+                >
+                  {h.text || `Section ${idx + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -189,7 +192,7 @@ function RapportToolbar({
 
   if (readOnly || isSigned) {
     return (
-      <div className="card border-border mb-4 sticky top-0 z-[100]">
+      <Card className="mb-4 sticky top-0 z-[100]">
         <div className="p-2 flex flex-wrap items-center justify-between gap-2 bg-white border-b border-border">
           <div className="flex items-center gap-2">
             <button onClick={onPrint} className="btn btn-secondary btn-sm gap-1">
@@ -205,12 +208,12 @@ function RapportToolbar({
             <span>👁️ Mode lecture seule</span>
           </div>
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="card border-border mb-4 sticky top-0 z-[100]">
+    <Card className="mb-4 sticky top-0 z-[100]">
       <div className="tabs border-b border-border px-2 pt-1 bg-gray-50">
         <button
           onClick={() => setActiveTab('accueil')}
@@ -424,24 +427,26 @@ function RapportToolbar({
               <ChevronDown className="w-2 h-2 ml-0.5" />
             </button>
             <div className="absolute top-full left-0 mt-1 hidden group-hover:block z-50">
-              <div className="card border-border shadow-lg p-1 w-64 space-y-0.5">
-                {[
-                  { label: 'Constat de sécurité', html: '<p><strong>Constat :</strong> Il a été observé que...</p>' },
-                  { label: 'Recommandation', html: '<p><strong>Recommandation :</strong> Il est recommandé de...</p>' },
-                  { label: 'Observation', html: '<p><strong>Observation :</strong> Aucun écart n\'a été relevé concernant...</p>' },
-                  { label: 'Mesure corrective', html: '<p><strong>Mesure corrective :</strong> L\'exploitant doit mettre en œuvre...</p>' },
-                  { label: 'Non-conformité', html: '<p><strong>Non-conformité :</strong> Le point suivant n\'est pas conforme...</p>' },
-                  { label: 'Délai de mise en œuvre', html: '<p><strong>Délai :</strong> La corrective doit être mise en œuvre sous...</p>' },
-                ].map((s) => (
-                  <button
-                    key={s.label}
-                    onClick={() => onExecCommand('insertHTML', s.html)}
-                    className="block w-full text-left text-xs px-2 py-1.5 hover:bg-primary-soft rounded transition-colors"
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+              <Card className="shadow-lg w-64">
+                <div className="p-1 space-y-0.5">
+                  {[
+                    { label: 'Constat de sécurité', html: '<p><strong>Constat :</strong> Il a été observé que...</p>' },
+                    { label: 'Recommandation', html: '<p><strong>Recommandation :</strong> Il est recommandé de...</p>' },
+                    { label: 'Observation', html: '<p><strong>Observation :</strong> Aucun écart n\'a été relevé concernant...</p>' },
+                    { label: 'Mesure corrective', html: '<p><strong>Mesure corrective :</strong> L\'exploitant doit mettre en œuvre...</p>' },
+                    { label: 'Non-conformité', html: '<p><strong>Non-conformité :</strong> Le point suivant n\'est pas conforme...</p>' },
+                    { label: 'Délai de mise en œuvre', html: '<p><strong>Délai :</strong> La corrective doit être mise en œuvre sous...</p>' },
+                  ].map((s) => (
+                    <button
+                      key={s.label}
+                      onClick={() => onExecCommand('insertHTML', s.html)}
+                      className="block w-full text-left text-xs px-2 py-1.5 hover:bg-primary-soft rounded transition-colors"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </Card>
             </div>
           </div>
 
@@ -531,7 +536,7 @@ function RapportToolbar({
           <span>✏️ Mode édition</span>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -725,22 +730,18 @@ function EditableSection({
 
   if (!editable) {
     return (
-      <div className="card border-border mb-4">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-          <div className="card-title text-base">{title}</div>
-        </div>
-        <div className="card-content p-4">
-          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
-        </div>
-      </div>
+      <Card title={title} className="mb-4">
+        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
+      </Card>
     );
   }
 
   if (isEditing) {
     return (
-      <div className="card border-border mb-4">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-          <div className="card-title text-base flex items-center justify-between">
+      <Card
+        className="mb-4"
+        heading={
+          <>
             <span>{title}</span>
             <div className="flex items-center gap-2">
               <button onClick={handleSave} className="btn btn-sm px-3 py-1 btn-success">
@@ -752,26 +753,26 @@ function EditableSection({
                 Annuler
               </button>
             </div>
-          </div>
-        </div>
-        <div className="card-content p-4">
-          <div
-            ref={editorRef}
-            contentEditable
-            suppressContentEditableWarning
-            onInput={() => editorRef.current && setLocalContent(editorRef.current.innerHTML)}
-            className="min-h-[150px] p-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-role-primary prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: localContent }}
-          />
-        </div>
-      </div>
+          </>
+        }
+      >
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={() => editorRef.current && setLocalContent(editorRef.current.innerHTML)}
+          className="min-h-[150px] p-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-role-primary prose prose-sm max-w-none"
+          dangerouslySetInnerHTML={{ __html: localContent }}
+        />
+      </Card>
     );
   }
 
   return (
-    <div className="card border-border mb-4">
-      <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-        <div className="card-title text-base flex items-center justify-between">
+    <Card
+      className="mb-4"
+      heading={
+        <>
           <span>{title}</span>
           <div className="flex items-center gap-2">
             {onImprove && (
@@ -831,12 +832,11 @@ function EditableSection({
               Modifier
             </button>
           </div>
-        </div>
-      </div>
-      <div className="card-content p-4">
-        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
-      </div>
-    </div>
+        </>
+      }
+    >
+      <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
+    </Card>
   );
 }
 
@@ -1068,31 +1068,31 @@ export default function SurveillanceRapport({
     const globalColor = globalTaux >= 70 ? 'success' : globalTaux >= 50 ? 'warning' : 'danger';
 
     let html = `
-      <div class="space-y-6">
-        <div class="card border-border">
-          <div class="card-header">
-            <div class="card-title text-sm">Score global de risque</div>
+      <div className="space-y-6">
+        <div className="card border-border">
+          <div className="card-header">
+            <div className="card-title text-sm">Score global de risque</div>
           </div>
-          <div class="card-content">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-3xl font-bold ${globalColor === 'success' ? 'text-success' : globalColor === 'warning' ? 'text-warning' : 'text-danger'}">${profil.score_global}/100</span>
-              <div class="flex items-center gap-1">
+          <div className="card-content">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-3xl font-bold ${globalColor === 'success' ? 'text-success' : globalColor === 'warning' ? 'text-warning' : 'text-danger'}">${profil.score_global}/100</span>
+              <div className="flex items-center gap-1">
                 ${profil.tendance === 'hausse' ? '<TrendingUp className="w-4 h-4 text-success" />' : profil.tendance === 'baisse' ? '<TrendingDown className="w-4 h-4 text-danger" />' : ''}
-                <span class="text-sm capitalize">${profil.tendance}</span>
+                <span className="text-sm capitalize">${profil.tendance}</span>
               </div>
             </div>
-            <div class="progress h-2">
-              <div class="progress-bar ${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" style="width: ${profil.score_global}%"></div>
+            <div className="progress h-2">
+              <div className="progress-bar ${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" style="width: ${profil.score_global}%"></div>
             </div>
           </div>
         </div>
 
-        <div class="card border-border">
-          <div class="card-header">
-            <div class="card-title text-sm">Critères d'évaluation (C1 à C5)</div>
+        <div className="card border-border">
+          <div className="card-header">
+            <div className="card-title text-sm">Critères d'évaluation (C1 à C5)</div>
           </div>
-          <div class="card-content">
-            <div class="space-y-3">
+          <div className="card-content">
+            <div className="space-y-3">
               <ProgressBar label="C1 - Maturité SGS" value="${profil.c1}" colorClass="${profil.c1 >= 70 ? 'bg-success' : profil.c1 >= 50 ? 'bg-warning' : 'bg-danger'}" />
               <ProgressBar label="C2 - Efficacité PAC" value="${profil.c2}" colorClass="${profil.c2 >= 70 ? 'bg-success' : profil.c2 >= 50 ? 'bg-warning' : 'bg-danger'}" />
               <ProgressBar label="C3 - Conformité" value="${profil.c3}" colorClass="${profil.c3 >= 70 ? 'bg-success' : profil.c3 >= 50 ? 'bg-warning' : 'bg-danger'}" />
@@ -1102,48 +1102,48 @@ export default function SurveillanceRapport({
           </div>
         </div>
 
-        <div class="card border-border">
-          <div class="card-header">
-            <div class="card-title text-sm">Taux de conformité</div>
+        <div className="card border-border">
+          <div className="card-header">
+            <div className="card-title text-sm">Taux de conformité</div>
           </div>
-          <div class="card-content">
-            <div class="grid grid-cols-3 gap-3 mb-4">
-              <div class="text-center p-2 bg-success/10 rounded-lg"><div class="text-xl font-bold text-success">${checklistStats.sa}</div><div class="text-xs">SA</div></div>
-              <div class="text-center p-2 bg-danger/10 rounded-lg"><div class="text-xl font-bold text-danger">${checklistStats.ns}</div><div class="text-xs">NS</div></div>
-              <div class="text-center p-2 bg-warning/10 rounded-lg"><div class="text-xl font-bold text-warning">${checklistStats.nv}</div><div class="text-xs">NV</div></div>
+          <div className="card-content">
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="text-center p-2 bg-success/10 rounded-lg"><div className="text-xl font-bold text-success">${checklistStats.sa}</div><div className="text-xs">SA</div></div>
+              <div className="text-center p-2 bg-danger/10 rounded-lg"><div className="text-xl font-bold text-danger">${checklistStats.ns}</div><div className="text-xs">NS</div></div>
+              <div className="text-center p-2 bg-warning/10 rounded-lg"><div className="text-xl font-bold text-warning">${checklistStats.nv}</div><div className="text-xs">NV</div></div>
             </div>
             <ProgressBar label="Taux de conformité réel (NV=NS)" value="${checklistStats.taux}" colorClass="${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" />
           </div>
         </div>
 
-        <div class="card border-border">
-          <div class="card-header">
-            <div class="card-title text-sm">Écarts par niveau de risque</div>
+        <div className="card border-border">
+          <div className="card-header">
+            <div className="card-title text-sm">Écarts par niveau de risque</div>
           </div>
-          <div class="card-content">
-            <div class="space-y-3">
+          <div className="card-content">
+            <div className="space-y-3">
               <ProgressBar label="Critique" value="${ecartsList.filter(e => e.niveau_risque === 'critique').length}" colorClass="bg-danger" maxValue="${Math.max(ecartsList.length, 1)}" />
               <ProgressBar label="Élevé" value="${ecartsList.filter(e => e.niveau_risque === 'eleve').length}" colorClass="bg-warning" maxValue="${Math.max(ecartsList.length, 1)}" />
               <ProgressBar label="Moyen" value="${ecartsList.filter(e => e.niveau_risque === 'moyen').length}" colorClass="bg-primary" maxValue="${Math.max(ecartsList.length, 1)}" />
               <ProgressBar label="Faible" value="${ecartsList.filter(e => e.niveau_risque === 'faible').length}" colorClass="bg-info" maxValue="${Math.max(ecartsList.length, 1)}" />
             </div>
             ${ecartsList.filter(e => e.niveau_risque === 'critique').length > 0 ? `
-              <div class="alert alert-danger mt-3">
+              <div className="alert alert-danger mt-3">
                 <AlertTriangle className="alert-icon" />
-                <div class="alert-content">
-                  <div class="alert-title">⚠️ Action immédiate requise</div>
-                  <div class="alert-description">${ecartsList.filter(e => e.niveau_risque === 'critique').length} écart(s) critique(s) nécessitent une attention immédiate.</div>
+                <div className="alert-content">
+                  <div className="alert-title">⚠️ Action immédiate requise</div>
+                  <div className="alert-description">${ecartsList.filter(e => e.niveau_risque === 'critique').length} écart(s) critique(s) nécessitent une attention immédiate.</div>
                 </div>
               </div>
             ` : ''}
           </div>
         </div>
 
-        <div class="card border-border">
-          <div class="card-header">
-            <div class="card-title text-sm">Détail par domaine</div>
+        <div className="card border-border">
+          <div className="card-header">
+            <div className="card-title text-sm">Détail par domaine</div>
           </div>
-          <div class="card-content space-y-3">
+          <div className="card-content space-y-3">
     `;
     
     Object.entries(byDomaine).forEach(([domaine, stats]) => {
@@ -1151,17 +1151,17 @@ export default function SurveillanceRapport({
       const colorClass = taux >= 70 ? 'bg-success' : taux >= 50 ? 'bg-warning' : 'bg-danger';
       html += `
         <div>
-          <div class="flex justify-between text-sm mb-1">
-            <span class="font-medium">${domaine}</span>
+          <div className="flex justify-between text-sm mb-1">
+            <span className="font-medium">${domaine}</span>
             <span>${taux}%</span>
           </div>
-          <div class="progress h-2 mb-1">
-            <div class="progress-bar ${colorClass}" style="width: ${taux}%"></div>
+          <div className="progress h-2 mb-1">
+            <div className="progress-bar ${colorClass}" style="width: ${taux}%"></div>
           </div>
-          <div class="flex gap-2 text-xs">
-            <span class="text-success">SA:${stats.sa}</span>
-            <span class="text-danger">NS:${stats.ns}</span>
-            <span class="text-warning">NV:${stats.nv}</span>
+          <div className="flex gap-2 text-xs">
+            <span className="text-success">SA:${stats.sa}</span>
+            <span className="text-danger">NS:${stats.ns}</span>
+            <span className="text-warning">NV:${stats.nv}</span>
           </div>
         </div>
       `;
@@ -1594,23 +1594,21 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
 
   if (isSigned) {
     return (
-      <div className="card border-success bg-success/10" data-role={userRole}>
-        <div className="card-content p-6 text-center">
-          <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-success-800 mb-2">Rapport signé</h3>
-          <p className="text-small text-success-600 mb-4">Le rapport a été signé par les inspecteurs.</p>
-          <div className="flex justify-center gap-3">
-            <button onClick={handleExportPDF} className="btn btn-secondary gap-2">
-              <Download className="h-4 w-4" />
-              Télécharger PDF
-            </button>
-            <button onClick={handlePrint} className="btn btn-secondary gap-2">
-              <Printer className="h-4 w-4" />
-              Imprimer
-            </button>
-          </div>
+      <Card variant="level" levelColor="success" className="border-success bg-success/10 text-center" data-role={userRole}>
+        <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-success-800 mb-2">Rapport signé</h3>
+        <p className="text-small text-success-600 mb-4">Le rapport a été signé par les inspecteurs.</p>
+        <div className="flex justify-center gap-3">
+          <button onClick={handleExportPDF} className="btn btn-secondary gap-2">
+            <Download className="h-4 w-4" />
+            Télécharger PDF
+          </button>
+          <button onClick={handlePrint} className="btn btn-secondary gap-2">
+            <Printer className="h-4 w-4" />
+            Imprimer
+          </button>
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -1710,21 +1708,13 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
           />
 
           <div className="page-break-before"></div>
-          <div className="card border-border mb-4">
-            <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-              <div className="card-title text-base">4. ÉQUIPE D'INSPECTION</div>
-            </div>
-            <div className="card-content p-4">
-              <div dangerouslySetInnerHTML={{ __html: generateEquipeHtml() }} />
-            </div>
-          </div>
+          <Card title="4. ÉQUIPE D'INSPECTION" className="mb-4">
+            <div dangerouslySetInnerHTML={{ __html: generateEquipeHtml() }} />
+          </Card>
 
           <div className="page-break-before"></div>
-          <div className="card border-border mb-4">
-            <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-              <div className="card-title text-base">5. DÉROULEMENT DE L'INSPECTION</div>
-            </div>
-            <div className="card-content p-4 space-y-4">
+          <Card title="5. DÉROULEMENT DE L'INSPECTION" className="mb-4">
+            <div className="space-y-4">
               <EditableSection
                 title="5.1. Préparation"
                 content={sections.deroulement.preparation}
@@ -1750,14 +1740,11 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
                 editable={!readOnly && !isSigned}
               />
             </div>
-          </div>
+          </Card>
 
           <div className="page-break-before"></div>
-          <div className="card border-border mb-4">
-            <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-              <div className="card-title text-base">6. RÉSULTATS DE L'INSPECTION</div>
-            </div>
-            <div className="card-content p-4 space-y-4">
+          <Card title="6. RÉSULTATS DE L'INSPECTION" className="mb-4">
+            <div className="space-y-4">
               <EditableSection
                 title="6.1. Introduction"
                 content={sections.resultsIntro}
@@ -1776,7 +1763,7 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
                 isImproving={isImproving}
               />
             </div>
-          </div>
+          </Card>
 
           <div className="page-break-before"></div>
           <EditableSection
@@ -1789,14 +1776,9 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
           />
 
           <div className="page-break-before"></div>
-          <div className="card border-border mb-4">
-            <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-              <div className="card-title text-base">8. NON-CONFORMITÉS IDENTIFIÉES</div>
-            </div>
-            <div className="card-content p-4">
-              <div dangerouslySetInnerHTML={{ __html: generateEcartsTable() }} />
-            </div>
-          </div>
+          <Card title="8. NON-CONFORMITÉS IDENTIFIÉES" className="mb-4">
+            <div dangerouslySetInnerHTML={{ __html: generateEcartsTable() }} />
+          </Card>
 
           <div className="page-break-before"></div>
           <EditableSection
@@ -1819,18 +1801,13 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
           />
 
           <div className="page-break-before"></div>
-          <div className="card border-border mb-4">
-            <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-              <div className="card-title text-base">11. ANNEXES</div>
-            </div>
-            <div className="card-content p-4">
-              <RapportAnnexes
+          <Card title="11. ANNEXES" className="mb-4">
+            <RapportAnnexes
               surveillanceId={surveillanceId}
               readOnly={readOnly || isSigned}
               userRole={userRole}
             />
-          </div>
-          </div>
+          </Card>
         </div>
       </div>
 

@@ -17,6 +17,7 @@ export {
   computeFullMatrix,
   getRiskLevelClass,
   getRiskLevelColor,
+  getRiskLevelFromCell5,
 } from './matrix'
 
 // Modèle bayésien

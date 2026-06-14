@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Send, MessageSquare, Filter } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -146,10 +147,9 @@ export function CommentsFil({ ecartId, userRole }: CommentsFilProps) {
   }
 
   return (
-    <div className="card flex flex-col" data-role={userRole}>
-      <div className="card-header pb-3">
-        <div className="flex items-center justify-between">
-          <h3 className="card-title flex items-center gap-2">
+    <Card data-role={userRole} heading={
+        <div className="flex items-center justify-between w-full">
+          <h3 className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
             Fil de commentaires
             <span className="badge neutral">{commentaires.length}</span>
@@ -170,9 +170,7 @@ export function CommentsFil({ ecartId, userRole }: CommentsFilProps) {
             </select>
           </div>
         </div>
-      </div>
-
-      <div className="card-content flex flex-col gap-4">
+      }>
         {/* Liste des commentaires */}
         <div className="flex flex-col gap-3 max-h-96 overflow-y-auto pr-1">
           {commentairesFiltres.length === 0 && (
@@ -258,8 +256,7 @@ export function CommentsFil({ ecartId, userRole }: CommentsFilProps) {
           </div>
           <p className="text-xs text-gray-400">Ctrl+Entrée pour envoyer</p>
         </div>
-      </div>
-    </div>
+    </Card>
   );
 }
 

@@ -9,6 +9,7 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable'
 import type { DomaineChecklist, ChecklistItem, ProfilRisque } from '@/lib/store'
 import { Shield, RefreshCw, Info, Sparkles, TrendingUp } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 interface Props {
   surveillanceId: string
@@ -216,34 +217,32 @@ export default function SurveillanceChecklistMaintien({
   return (
     <div className="space-y-4" data-role={userRole}>
       {/* Bandeau info maintien */}
-      <div className="card border-l-4 border-l-role-primary bg-role-primary/5">
-        <div className="card-content p-4">
-          <div className="flex items-start gap-3">
-            <RefreshCw className="w-5 h-5 text-role-primary mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm text-foreground">Maintien — revérification ciblée</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {derniereSurveillance
-                  ? `Basé sur la dernière inspection du ${new Date(derniereSurveillance.date_debut).toLocaleDateString('fr-FR')}`
-                  : 'Première inspection de maintien — pas d\'historique disponible'}
-                {aerodrome?.code_oaci ? ` — ${aerodrome.code_oaci}` : ''}
-              </p>
-              <div className="flex items-center gap-4 mt-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">
-                  <Sparkles className="w-3 h-3 inline mr-1 text-role-primary" />
-                  {totalItems} items à vérifier • {itemsSA} déjà conformes
+      <Card variant="role" className="bg-role-primary/5">
+        <div className="flex items-start gap-3">
+          <RefreshCw className="w-5 h-5 text-role-primary mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm text-foreground">Maintien — revérification ciblée</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {derniereSurveillance
+                ? `Basé sur la dernière inspection du ${new Date(derniereSurveillance.date_debut).toLocaleDateString('fr-FR')}`
+                : 'Première inspection de maintien — pas d\'historique disponible'}
+              {aerodrome?.code_oaci ? ` — ${aerodrome.code_oaci}` : ''}
+            </p>
+            <div className="flex items-center gap-4 mt-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                <Sparkles className="w-3 h-3 inline mr-1 text-role-primary" />
+                {totalItems} items à vérifier • {itemsSA} déjà conformes
+              </span>
+              {domainesProfil.length > 0 && (
+                <span className="text-xs text-warning flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  Domaines du profil : {domainesProfil.join(', ')}
                 </span>
-                {domainesProfil.length > 0 && (
-                  <span className="text-xs text-warning flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" />
-                    Domaines du profil : {domainesProfil.join(', ')}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Sélecteur de domaines additionnels */}
       {!readOnly && (
@@ -285,13 +284,11 @@ export default function SurveillanceChecklistMaintien({
           readOnly={readOnly}
         />
       ) : (
-        <div className="card">
-          <div className="card-content py-12 text-center">
-            <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-muted-foreground">Aucun item à vérifier pour cette inspection de maintien</p>
-            {!readOnly && <p className="text-xs text-muted-foreground mt-1">Ajoutez des domaines ou lancez une inspection standard</p>}
-          </div>
-        </div>
+        <Card className="text-center">
+          <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-muted-foreground">Aucun item à vérifier pour cette inspection de maintien</p>
+          {!readOnly && <p className="text-xs text-muted-foreground mt-1">Ajoutez des domaines ou lancez une inspection standard</p>}
+        </Card>
       )}
     </div>
   )

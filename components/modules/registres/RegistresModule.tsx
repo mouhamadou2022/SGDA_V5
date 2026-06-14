@@ -57,6 +57,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { registreAgent } from '@/lib/ia/agents/registreAgent';
 import { RegistreForm } from '@/components/forms/RegistreForm';
 import { exportElementToPDF } from '@/lib/pdfGenerator';
+import { Card } from '@/components/ui/card';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = {
@@ -288,72 +289,56 @@ function DashboardTab() {
   return (<>
     <div className="space-y-6">
       {/* Graphique tendance */}
-      <div className="card border-border">
-        <div className="card-header">
-          <div className="card-title text-base flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-role-primary" />
-            Évolution des entrées (6 derniers mois)
-          </div>
+      <Card icon={<TrendingUp className="w-4 h-4 text-role-primary" />} title="Évolution des entrées (6 derniers mois)">
+        <div className="flex items-end gap-2 h-32">
+          {entriesByMonth.map((item, idx) => {
+            const height = (item.count / maxCount) * 100;
+            const monthName = new Date(item.month + '-01').toLocaleDateString('fr-FR', { month: 'short' });
+            return (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full bg-role-primary-soft rounded-t-lg transition-all duration-300 hover:bg-role-primary" style={{ height: `${height}%`, minHeight: '4px' }} />
+                <span className="text-xs text-muted-foreground">{monthName}</span>
+                <span className="text-xs font-medium">{item.count}</span>
+              </div>
+            );
+          })}
         </div>
-        <div className="card-content">
-          <div className="flex items-end gap-2 h-32">
-            {entriesByMonth.map((item, idx) => {
-              const height = (item.count / maxCount) * 100;
-              const monthName = new Date(item.month + '-01').toLocaleDateString('fr-FR', { month: 'short' });
-              return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full bg-role-primary-soft rounded-t-lg transition-all duration-300 hover:bg-role-primary" style={{ height: `${height}%`, minHeight: '4px' }} />
-                  <span className="text-xs text-muted-foreground">{monthName}</span>
-                  <span className="text-xs font-medium">{item.count}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      </Card>
       
       {/* Dernières entrées */}
-      <div className="card border-border">
-        <div className="card-header">
-          <div className="card-title text-base flex items-center gap-2">
-            <Clock className="w-4 h-4 text-role-primary" />
-            Dernières entrées
-          </div>
+      <Card icon={<Clock className="w-4 h-4 text-role-primary" />} title="Dernières entrées">
+        <div className="table-container">
+          <table className="table">
+            <thead>
+              <tr className="border-b border-border">
+                <th>Référence</th>
+                <th>Titre</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentEntries.map(entry => {
+                const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
+                return (
+                  <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
+                    <td className="code-oaci-badge text-xs">{entry.reference}</td>
+                    <td className="text-foreground">{entry.titre}</td>
+                    <td><span className={typeInfo.badgeClass}>{typeInfo.label}</span></td>
+                    <td className="text-muted-foreground">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
+                    <td className="text-right">
+                      <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedEntry(entry)}>
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div className="card-content">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr className="border-b border-border">
-                  <th>Référence</th>
-                  <th>Titre</th>
-                  <th>Type</th>
-                  <th>Date</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentEntries.map(entry => {
-                  const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
-                  return (
-                    <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
-                      <td className="code-oaci-badge text-xs">{entry.reference}</td>
-                      <td className="text-foreground">{entry.titre}</td>
-                      <td><span className={typeInfo.badgeClass}>{typeInfo.label}</span></td>
-                      <td className="text-muted-foreground">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
-                      <td className="text-right">
-                        <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedEntry(entry)}>
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      </Card>
     </div>
 
     {/* Modal détail entrée */}
@@ -595,12 +580,10 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <Shield className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucune certification enregistrée</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <Shield className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucune certification enregistrée</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -835,12 +818,10 @@ function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <Scale className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucune homologation enregistrée</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <Scale className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucune homologation enregistrée</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -1036,12 +1017,10 @@ function SurveillancesTab() {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <Eye className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucune surveillance archivée</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <Eye className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucune surveillance archivée</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -1279,12 +1258,10 @@ function EcartsTab() {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucun écart clôturé</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucun écart clôturé</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -1471,12 +1448,10 @@ function EvenementsTab() {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucun événement clôturé</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucun événement clôturé</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -1661,12 +1636,10 @@ function FormationsTab() {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <GraduationCap className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucune formation terminée</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <GraduationCap className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucune formation terminée</p>
+        </Card>
       )}
     </AccordionGroup>
 
@@ -1823,35 +1796,36 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails }: {
       {documentEntries.map(entry => {
         const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
         return (
-          <div
+          <Card
             key={entry.id}
-            className="card cursor-pointer hover:shadow-role-glow transition-all duration-300"
+            className="cursor-pointer hover:shadow-role-glow transition-all duration-300"
+            interactive
+            heading={
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-role-primary-soft flex items-center justify-center">
+                    <FileText className="w-4 h-4 text-role-primary" />
+                  </div>
+                  <span className="code-oaci-badge text-xs" style={{fontSize:'0.75rem'}}>{entry.reference}</span>
+                </div>
+                <span className={typeInfo.badgeClass}>{typeInfo.label}</span>
+              </div>
+            }
             onClick={() => onViewDetails(entry)}
           >
-            <div className="card-header flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-role-primary-soft flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-role-primary" />
-                </div>
-                <span className="code-oaci-badge text-xs">{entry.reference}</span>
-              </div>
-              <span className={typeInfo.badgeClass}>{typeInfo.label}</span>
+            <h4 className="heading-4 font-semibold mb-2 line-clamp-2">{entry.titre}</h4>
+            <p className="text-small text-muted line-clamp-3">{entry.description}</p>
+            <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+              <Calendar className="w-3 h-3 text-role-primary" />
+              {new Date(entry.date_entree).toLocaleDateString('fr-FR')}
             </div>
-            <div className="card-content">
-              <h4 className="heading-4 font-semibold mb-2 line-clamp-2">{entry.titre}</h4>
-              <p className="text-small text-muted line-clamp-3">{entry.description}</p>
-              <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
-                <Calendar className="w-3 h-3 text-role-primary" />
-                {new Date(entry.date_entree).toLocaleDateString('fr-FR')}
+            {entry.fichiers && entry.fichiers.length > 0 && (
+              <div className="mt-2 flex items-center gap-1 text-xs text-primary">
+                <FileText className="w-3 h-3" />
+                {entry.fichiers.length} fichier(s)
               </div>
-              {entry.fichiers && entry.fichiers.length > 0 && (
-                <div className="mt-2 flex items-center gap-1 text-xs text-primary">
-                  <FileText className="w-3 h-3" />
-                  {entry.fichiers.length} fichier(s)
-                </div>
-              )}
-            </div>
-            <div className="card-footer flex justify-between items-center">
+            )}
+            <div className="flex justify-between items-center mt-4 pt-3 border-t border-border">
               <span className="text-small text-role-primary hover:underline cursor-pointer">
                 Voir détails
               </span>
@@ -1859,7 +1833,7 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails }: {
                 <Eye className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          </Card>
         );
       })}
     </div>
@@ -1938,12 +1912,10 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails }: {
       })}
       
       {groupedData.length === 0 && (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
-            <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>Aucun document trouvé</p>
-          </div>
-        </div>
+        <Card className="py-8 text-center text-muted-foreground">
+          <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
+          <p>Aucun document trouvé</p>
+        </Card>
       )}
     </AccordionGroup>
   );
@@ -2194,15 +2166,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
           </div>
           
           {pendingRegulationAlerts.length > 0 && (
-            <div className="card border-danger">
-              <div className="card-header bg-danger/10">
-                <div className="card-title text-base flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-danger" />
-                  Évolutions réglementaires
-                  <span className="badge danger">{pendingRegulationAlerts.length}</span>
-                </div>
-              </div>
-              <div className="card-content space-y-3">
+            <Card variant="level" levelColor="danger" className="border-danger" icon={<AlertCircle className="w-4 h-4 text-danger" />} title="Évolutions réglementaires" badge={<span className="badge danger">{pendingRegulationAlerts.length}</span>}>
                 {pendingRegulationAlerts.map(alert => (
                   <div key={alert.id} className={`border-l-4 ${alert.impact === 'majeur' ? 'border-danger' : 'border-warning'} p-3 bg-gray-50 rounded-r-lg`}>
                     <div className="flex justify-between items-start flex-wrap gap-2">
@@ -2221,20 +2185,11 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
+            </Card>
           )}
           
           {activeFormationSuggestions.length > 0 && (
-            <div className="card border-primary">
-              <div className="card-header bg-primary/10">
-                <div className="card-title text-base flex items-center gap-2">
-                  <GraduationCap className="w-4 h-4 text-primary" />
-                  Formations recommandées
-                  <span className="badge primary">{activeFormationSuggestions.length}</span>
-                </div>
-              </div>
-              <div className="card-content space-y-2">
+            <Card variant="level" levelColor="primary" className="border-primary" icon={<GraduationCap className="w-4 h-4 text-primary" />} title="Formations recommandées" badge={<span className="badge primary">{activeFormationSuggestions.length}</span>}>
                 {activeFormationSuggestions.slice(0, 3).map(suggestion => (
                   <div key={suggestion.id} className="flex items-center justify-between p-2 border-b border-border last:border-0">
                     <div>
@@ -2249,43 +2204,36 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
+            </Card>
           )}
         </div>
       )}
       
       {/* Assistant IA */}
-      <div className="card border-primary/20 bg-primary-soft/30">
-        <div className="card-content p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Brain className="w-4 h-4 text-role-primary" />
-            <span className="text-sm font-medium">🤖 Assistant Registre</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={iaCommand}
-              onChange={(e) => setIaCommand(e.target.value)}
-              placeholder="Ex: statistiques, tendances, analyse besoins formation..."
-              className={`flex-1 form-input text-sm ${focusClass}`}
-              onKeyDown={(e) => e.key === 'Enter' && handleIACommand()}
-            />
-            <button onClick={handleIACommand} disabled={isIaProcessing || !iaCommand.trim()} className="btn btn-primary gap-2">
-              {isIaProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              Exécuter
-            </button>
-          </div>
-          {iaResponse && (
-            <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
-              <div className="flex items-start gap-2">
-                <Sparkles className="w-4 h-4 text-role-primary mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-gray-700">{iaResponse}</p>
-              </div>
-            </div>
-          )}
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Brain className="w-4 h-4 text-role-primary" />} title="Assistant Registre">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={iaCommand}
+            onChange={(e) => setIaCommand(e.target.value)}
+            placeholder="Ex: statistiques, tendances, analyse besoins formation..."
+            className={`flex-1 form-input text-sm ${focusClass}`}
+            onKeyDown={(e) => e.key === 'Enter' && handleIACommand()}
+          />
+          <button onClick={handleIACommand} disabled={isIaProcessing || !iaCommand.trim()} className="btn btn-primary gap-2">
+            {isIaProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Exécuter
+          </button>
         </div>
-      </div>
+        {iaResponse && (
+          <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
+            <div className="flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-role-primary mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-gray-700">{iaResponse}</p>
+            </div>
+          </div>
+        )}
+      </Card>
       
       {/* Barre d'outils - UNE SEULE LIGNE */}
       {showFilters && (

@@ -30,6 +30,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
+import { Card } from '@/components/ui/card'
 import type { Certification } from '@/lib/store'
 
 interface CertDashboardProps {
@@ -255,14 +256,8 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
 
       {/* Taux de réussite + Renouvellements */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card col-span-1 animate-fade-up" style={{ animationDelay: '0.2s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-role-primary" />
-              Taux de certification
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up col-span-1" style={{ animationDelay: '0.2s' }}>
+          <Card icon={<TrendingUp className="h-4 w-4 text-role-primary" />} title="Taux de certification">
             <div className="text-center">
               <div className="text-4xl font-bold text-role-primary mb-2">{stats.tauxReussite}%</div>
               <div className="progress h-2">
@@ -272,17 +267,11 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 {stats.certifies} aérodromes certifiés sur {stats.total} éligibles
               </p>
             </div>
-          </div>
+          </Card>
         </div>
 
-        <div className="card col-span-2 animate-fade-up" style={{ animationDelay: '0.25s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-medium flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-role-primary" />
-              Renouvellements prévus (6 mois)
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up col-span-2" style={{ animationDelay: '0.25s' }}>
+          <Card icon={<Calendar className="h-4 w-4 text-role-primary" />} title="Renouvellements prévus (6 mois)">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-3xl font-bold text-role-primary">{stats.renouvellementsPrevus}</div>
@@ -303,21 +292,15 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       </div>
 
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* BarChart - Certifications par phase */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.3s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-role-primary" />
-              Certifications en cours par phase
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.3s' }}>
+          <Card icon={<TrendingUp className="h-4 w-4 text-role-primary" />} title="Certifications en cours par phase">
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={stats.parPhase} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <XAxis dataKey="phase" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
@@ -337,18 +320,12 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 <Bar dataKey="count" name="En cours" fill={barColor} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
 
         {/* PieChart - Distribution des statuts */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.35s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-role-primary" />
-              Distribution des statuts
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.35s' }}>
+          <Card icon={<ShieldCheck className="h-4 w-4 text-role-primary" />} title="Distribution des statuts">
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
@@ -376,18 +353,12 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 />
               </PieChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
 
         {/* LineChart - Évolution mensuelle */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.4s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-role-primary" />
-              Évolution des certifications
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.4s' }}>
+          <Card icon={<TrendingUp className="h-4 w-4 text-role-primary" />} title="Évolution des certifications">
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={stats.evolutionMensuelle} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -416,18 +387,12 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
 
         {/* BarChart - Délai moyen par phase */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.45s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <Clock className="h-4 w-4 text-role-primary" />
-              Délai moyen par phase (jours)
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.45s' }}>
+          <Card icon={<Clock className="h-4 w-4 text-role-primary" />} title="Délai moyen par phase (jours)">
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={stats.delaiMoyenParPhase} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <XAxis dataKey="phase" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
@@ -448,7 +413,7 @@ export function CertDashboard({ userRole }: CertDashboardProps) {
                 <Bar dataKey="duree" name="Délai moyen" fill={barColor} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
       </div>
     </div>

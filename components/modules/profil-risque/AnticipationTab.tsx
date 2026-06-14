@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react'
 import { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, Clock, AlertTriangle, Zap, Brain, Activity, Target } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
 import { TrendSection } from './TrendSection'
@@ -33,7 +34,7 @@ function ScoreLabel({ label, value, color }: { label: string; value?: number; co
   if (value === undefined) return null
   return (
     <div className="flex flex-col items-center gap-1 flex-1">
-      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className="text-[10px] text-foreground">{label}</span>
       <span className={`text-lg font-bold ${color}`}>{Math.round(value)}</span>
     </div>
   )
@@ -57,78 +58,61 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
   const prevScore = historicalScores?.[historicalScores.length - 1]?.score
 
   return (
-    <div className="space-y-6 animate-fade-up" data-module="anticipation-tab">
+    <div className="space-y-10 animate-fade-up" data-module="anticipation-tab">
       {/* ── Predictions Timeline ── */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title flex items-center gap-2">
-            <Target className="w-4 h-4 text-role-primary" />
-            Prédictions temporelles
-            {profil.ensemble_confidence !== undefined && (
-              <ConfidenceBadge confidence={profil.ensemble_confidence} />
-            )}
-          </div>
-        </div>
-        <div className="card-content">
-          <div className="flex items-center gap-4">
-            {/* Barre de timeline 3m / 6m / 12m */}
-            <div className="flex-1 flex items-center gap-0">
-              <div className="flex flex-col items-center gap-1 flex-1 relative">
-                <div className={`w-full h-2 rounded-l-full ${
-                  (profil.prediction_3m ?? 0) >= 80 ? 'bg-danger' :
-                  (profil.prediction_3m ?? 0) >= 60 ? 'bg-warning' :
-                  (profil.prediction_3m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
-                }`} style={{ width: `${Math.min(Math.max(profil.prediction_3m ?? 0, 5), 100)}%` }} />
-                <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_3m)}</span>
-                <span className="text-[10px] text-muted-foreground">3 mois</span>
-                {profil.prediction_interval_3m && (
-                  <span className="text-[10px] text-muted-foreground italic">
-                    IC95: [{Math.round(profil.prediction_interval_3m.lower)} - {Math.round(profil.prediction_interval_3m.upper)}]
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col items-center gap-1 flex-1">
-                <div className={`w-full h-2 ${
-                  (profil.prediction_6m ?? 0) >= 80 ? 'bg-danger' :
-                  (profil.prediction_6m ?? 0) >= 60 ? 'bg-warning' :
-                  (profil.prediction_6m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
-                }`} style={{ width: `${Math.min(Math.max(profil.prediction_6m ?? 0, 5), 100)}%` }} />
-                <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_6m)}</span>
-                <span className="text-[10px] text-muted-foreground">6 mois</span>
-                {profil.prediction_interval_6m && (
-                  <span className="text-[10px] text-muted-foreground italic">
-                    IC95: [{Math.round(profil.prediction_interval_6m.lower)} - {Math.round(profil.prediction_interval_6m.upper)}]
-                  </span>
-                )}
-              </div>
-              {profil.prediction_12m !== undefined && (
-                <div className="flex flex-col items-center gap-1 flex-1">
-                  <div className={`w-full h-2 rounded-r-full ${
-                    (profil.prediction_12m ?? 0) >= 80 ? 'bg-danger' :
-                    (profil.prediction_12m ?? 0) >= 60 ? 'bg-warning' :
-                    (profil.prediction_12m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
-                  }`} style={{ width: `${Math.min(Math.max(profil.prediction_12m ?? 0, 5), 100)}%` }} />
-                  <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_12m)}</span>
-                  <span className="text-[10px] text-muted-foreground">12 mois</span>
-                </div>
+      <Card variant="role" title="Prédictions temporelles" icon={<Target className="w-4 h-4" />} badge={profil.ensemble_confidence !== undefined ? <ConfidenceBadge confidence={profil.ensemble_confidence} /> : undefined}>
+        <div className="flex items-center gap-4">
+          {/* Barre de timeline 3m / 6m / 12m */}
+          <div className="flex-1 flex items-center gap-0">
+            <div className="flex flex-col items-center gap-1 flex-1 relative">
+              <div className={`w-full h-2 rounded-l-full ${
+                (profil.prediction_3m ?? 0) >= 80 ? 'bg-danger' :
+                (profil.prediction_3m ?? 0) >= 60 ? 'bg-warning' :
+                (profil.prediction_3m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
+              }`} style={{ width: `${Math.min(Math.max(profil.prediction_3m ?? 0, 5), 100)}%` }} />
+              <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_3m)}</span>
+              <span className="text-[10px] text-foreground">3 mois</span>
+              {profil.prediction_interval_3m && (
+                <span className="text-[10px] text-foreground italic">
+                  IC95: [{Math.round(profil.prediction_interval_3m.lower)} - {Math.round(profil.prediction_interval_3m.upper)}]
+                </span>
               )}
             </div>
-            <TrendBadge score={profil.prediction_3m} prev={prevScore} />
+            <div className="flex flex-col items-center gap-1 flex-1">
+              <div className={`w-full h-2 ${
+                (profil.prediction_6m ?? 0) >= 80 ? 'bg-danger' :
+                (profil.prediction_6m ?? 0) >= 60 ? 'bg-warning' :
+                (profil.prediction_6m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
+              }`} style={{ width: `${Math.min(Math.max(profil.prediction_6m ?? 0, 5), 100)}%` }} />
+              <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_6m)}</span>
+              <span className="text-[10px] text-foreground">6 mois</span>
+              {profil.prediction_interval_6m && (
+                <span className="text-[10px] text-foreground italic">
+                  IC95: [{Math.round(profil.prediction_interval_6m.lower)} - {Math.round(profil.prediction_interval_6m.upper)}]
+                </span>
+              )}
+            </div>
+            {profil.prediction_12m !== undefined && (
+              <div className="flex flex-col items-center gap-1 flex-1">
+                <div className={`w-full h-2 rounded-r-full ${
+                  (profil.prediction_12m ?? 0) >= 80 ? 'bg-danger' :
+                  (profil.prediction_12m ?? 0) >= 60 ? 'bg-warning' :
+                  (profil.prediction_12m ?? 0) >= 30 ? 'bg-role-primary' : 'bg-success'
+                }`} style={{ width: `${Math.min(Math.max(profil.prediction_12m ?? 0, 5), 100)}%` }} />
+                <span className="text-xs font-semibold text-foreground">{Math.round(profil.prediction_12m)}</span>
+                <span className="text-[10px] text-foreground">12 mois</span>
+              </div>
+            )}
           </div>
+          <TrendBadge score={profil.prediction_3m} prev={prevScore} />
         </div>
-      </div>
+      </Card>
 
       {/* ── Grid de cartes ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* HMM State */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Brain className="w-4 h-4 text-role-primary" />
-              État caché (HMM)
-            </div>
-          </div>
-          <div className="card-content space-y-3">
+        <Card variant="role" title="État caché (HMM)" icon={<Brain className="w-4 h-4" />}>
+          <div className="space-y-3">
             {hmm ? (
               <>
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-role-primary-soft">
@@ -139,7 +123,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                   }`} />
                   <div>
                     <p className="text-sm font-semibold capitalize text-foreground">{hmm.currentStateName}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-foreground">
                       {hmm.daysToCritical < 999
                         ? `~${hmm.daysToCritical} jours avant critique`
                         : 'Pas de risque critique imminent'}
@@ -150,7 +134,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                   <div className="alert alert-warning">
                     <AlertTriangle className="alert-icon" />
                     <div className="alert-content">
-                      <div className="alert-description text-xs">
+                      <div className="alert-description text-xs text-foreground">
                         Transition silencieuse détectée — passage d'un état stable à dégradé
                       </div>
                     </div>
@@ -160,8 +144,8 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                   <div className="alert alert-danger">
                     <AlertTriangle className="alert-icon" />
                     <div className="alert-content">
-                      <div className="alert-title text-xs font-semibold">Risque de transition élevé</div>
-                      <div className="alert-description text-xs">
+                      <div className="alert-title text-xs font-semibold text-foreground">Risque de transition élevé</div>
+                      <div className="alert-description text-xs text-foreground">
                         Probabilité de transition : {Math.round(hmm.transitionRisk)}% — action immédiate recommandée
                       </div>
                     </div>
@@ -172,68 +156,56 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                 </div>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Données HMM non disponibles</p>
+              <p className="text-xs text-foreground">Données HMM non disponibles</p>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Survival Metrics */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Clock className="w-4 h-4 text-role-primary" />
-              Analyse de survie
-            </div>
-          </div>
-          <div className="card-content space-y-3">
+        <Card variant="role" title="Analyse de survie" icon={<Clock className="w-4 h-4" />}>
+          <div className="space-y-3">
             {surv ? (
               <>
                 <div className="flex items-center gap-4">
                   <div className="flex-1">
-                    <p className="text-xs text-muted-foreground">Hazard 90 jours</p>
+                    <p className="text-xs text-foreground">Hazard 90 jours</p>
                     <div className="progress h-3">
                       <div className="progress-bar bg-danger" style={{ width: `${Math.min(surv.hazard90d, 100)}%` }} />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 text-right">{Math.round(surv.hazard90d)}%</p>
+                    <p className="text-xs text-foreground mt-1 text-right">{Math.round(surv.hazard90d)}%</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex-1">
-                    <p className="text-xs text-muted-foreground">Hazard 180 jours</p>
+                    <p className="text-xs text-foreground">Hazard 180 jours</p>
                     <div className="progress h-3">
                       <div className="progress-bar bg-warning" style={{ width: `${Math.min(surv.hazard180d, 100)}%` }} />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 text-right">{Math.round(surv.hazard180d)}%</p>
+                    <p className="text-xs text-foreground mt-1 text-right">{Math.round(surv.hazard180d)}%</p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground italic">
+                <p className="text-xs text-foreground italic">
                   Médiane de survie : <strong>{surv.medianDays} jours</strong> avant incident critique
                 </p>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Données de survie non disponibles</p>
+              <p className="text-xs text-foreground">Données de survie non disponibles</p>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Extreme Value Theory */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Zap className="w-4 h-4 text-role-primary" />
-              Risques extrêmes (EVT)
-            </div>
-          </div>
-          <div className="card-content space-y-3">
+        <Card variant="role" title="Risques extrêmes (EVT)" icon={<Zap className="w-4 h-4" />}>
+          <div className="space-y-3">
             {evt ? (
               <>
                 <div className="grid grid-cols-2 gap-2 text-center">
                   <div className="p-2 rounded-lg bg-danger/5">
-                    <p className="text-xs text-muted-foreground">Risque de queue</p>
+                    <p className="text-xs text-foreground">Risque de queue</p>
                     <p className="text-lg font-bold text-danger">{Math.round(evt.tailRisk)}%</p>
                   </div>
                   <div className="p-2 rounded-lg bg-warning/5">
-                    <p className="text-xs text-muted-foreground">Max attendu 12m</p>
+                    <p className="text-xs text-foreground">Max attendu 12m</p>
                     <p className="text-lg font-bold text-warning">{evt.maxExpected12m}</p>
                   </div>
                 </div>
@@ -242,34 +214,28 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                     {evt.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground italic">
+                <p className="text-xs text-foreground italic">
                   Maximum attendu sur 12 mois : <strong>{evt.maxExpected12m} incidents</strong>
                 </p>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Données EVT non disponibles</p>
+              <p className="text-xs text-foreground">Données EVT non disponibles</p>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Scénarios */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Activity className="w-4 h-4 text-role-primary" />
-              Scénarios projetés
-            </div>
-          </div>
-          <div className="card-content space-y-3">
+        <Card variant="role" title="Scénarios projetés" icon={<Activity className="w-4 h-4" />}>
+          <div className="space-y-3">
             {/* Catastrophe — warning card */}
             {scenarioCatastrophe ? (
               <div className="alert alert-danger">
                 <AlertTriangle className="alert-icon" />
                 <div className="alert-content">
-                  <div className="alert-title text-xs font-semibold">
+                  <div className="alert-title text-xs font-semibold text-foreground">
                     Catastrophe — {Math.round(scenarioCatastrophe.probabilite * 100)}%
                   </div>
-                  <div className="alert-description text-xs">
+                  <div className="alert-description text-xs text-foreground">
                     Score projeté : <strong>{Math.round(scenarioCatastrophe.scoreProjecte)}</strong>
                     <br />
                     {scenarioCatastrophe.description}
@@ -277,7 +243,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Scénario catastrophe non disponible</p>
+              <p className="text-xs text-foreground">Scénario catastrophe non disponible</p>
             )}
 
             {/* Summary of other scenarios */}
@@ -287,203 +253,134 @@ export default function AnticipationTab({ profil, historicalScores, evenements }
                   <div key={s.nom} className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
                     <div>
                       <p className="text-xs font-semibold capitalize text-foreground">{s.nom}</p>
-                      <p className="text-[10px] text-muted-foreground">{s.description}</p>
+                      <p className="text-[10px] text-foreground">{s.description}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-foreground">{Math.round(s.scoreProjecte)}</p>
-                      <p className="text-[10px] text-muted-foreground">{Math.round(s.probabilite * 100)}%</p>
+                      <p className="text-[10px] text-foreground">{Math.round(s.probabilite * 100)}%</p>
                     </div>
                   </div>
                 ))}
               </div>
             )}
             {!scenarioCatastrophe && scenariosSummary.length === 0 && (
-              <p className="text-xs text-muted-foreground">Aucun scénario disponible</p>
+              <p className="text-xs text-foreground">Aucun scénario disponible</p>
             )}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* ── Incident Predictions ── */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-role-primary" />
-            Prédictions d'incidents
+      <Card variant="role" title="Prédictions d'incidents" icon={<AlertTriangle className="w-4 h-4" />}>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center p-3 rounded-lg bg-danger/5">
+            <p className="text-xs text-foreground">3 mois</p>
+            <p className="text-xl font-bold text-danger">{profil.incident_prediction_3m ?? '—'}</p>
+          </div>
+          <div className="text-center p-3 rounded-lg bg-warning/5">
+            <p className="text-xs text-foreground">6 mois</p>
+            <p className="text-xl font-bold text-warning">{profil.incident_prediction_6m ?? '—'}</p>
+          </div>
+          <div className="text-center p-3 rounded-lg bg-role-primary-soft">
+            <p className="text-xs text-foreground">12 mois</p>
+            <p className="text-xl font-bold text-role-primary">{profil.incident_prediction_12m ?? '—'}</p>
           </div>
         </div>
-        <div className="card-content">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center p-3 rounded-lg bg-danger/5">
-              <p className="text-xs text-muted-foreground">3 mois</p>
-              <p className="text-xl font-bold text-danger">{profil.incident_prediction_3m ?? '—'}</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-warning/5">
-              <p className="text-xs text-muted-foreground">6 mois</p>
-              <p className="text-xl font-bold text-warning">{profil.incident_prediction_6m ?? '—'}</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-role-primary-soft">
-              <p className="text-xs text-muted-foreground">12 mois</p>
-              <p className="text-xl font-bold text-role-primary">{profil.incident_prediction_12m ?? '—'}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      </Card>
 
       {/* ── Event Metrics ── */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title flex items-center gap-2">
-            <Activity className="w-4 h-4 text-role-primary" />
-            Métriques événementielles
+      <Card variant="role" title="Métriques événementielles" icon={<Activity className="w-4 h-4" />}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="kpi-card">
+            <div className="kpi-label text-foreground">Fréquence</div>
+            <div className="kpi-value text-foreground">{profil.event_frequency?.toFixed(1) ?? '—'} /mois</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label text-foreground">Tendance sévérité</div>
+            <div className="kpi-value text-sm capitalize text-foreground">{profil.event_severity_trend ?? '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label text-foreground">Dernier événement</div>
+            <div className="kpi-value text-foreground">{profil.days_since_last_event ?? '—'} j</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label text-foreground">Accélération</div>
+            <div className="kpi-value text-foreground">{profil.event_trend_acceleration?.toFixed(2) ?? '—'}</div>
           </div>
         </div>
-        <div className="card-content">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="kpi-card">
-              <div className="kpi-label">Fréquence</div>
-              <div className="kpi-value">{profil.event_frequency?.toFixed(1) ?? '—'} /mois</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-label">Tendance sévérité</div>
-              <div className="kpi-value text-sm capitalize">{profil.event_severity_trend ?? '—'}</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-label">Dernier événement</div>
-              <div className="kpi-value">{profil.days_since_last_event ?? '—'} j</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-label">Accélération</div>
-              <div className="kpi-value">{profil.event_trend_acceleration?.toFixed(2) ?? '—'}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Contextual incident predictions ── */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title flex items-center gap-2">
-            <Brain className="w-4 h-4 text-role-primary" />
-            Prédictions contextuelles (IA)
-          </div>
-        </div>
-        <div className="card-content p-4 space-y-3">
-          {(() => {
-            const typeCounts: Record<string, number> = {}
-            evenements.forEach(e => {
-              const t = (e.type || 'autre').toLowerCase()
-              typeCounts[t] = (typeCounts[t] || 0) + 1
-            })
-            const totalEvents = Object.values(typeCounts).reduce((a, b) => a + b, 0) || 1
-            const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3)
-
-            const hasBirdstrike = Object.keys(typeCounts).some(k =>
-              k.includes('bird') || k.includes('volatil') || k.includes('oiseau') || k.includes('péril') && k.includes('animal')
-            )
-            const hasFod = Object.keys(typeCounts).some(k =>
-              k.includes('fod') || k.includes('debris') || k.includes('débris') || k.includes('objet') && !k.includes('oiseau')
-            )
-
-            const recurrenceFromModel = profil.incident_prediction_6m !== undefined
-              ? Math.round(profil.incident_prediction_6m)
-              : Math.round((evenements.length / Math.max(1, 6)) * 100 / 10)
-
-            return (
-              <>
-                {hasBirdstrike && (
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-danger/5">
-                    <span className="text-xs font-medium">Risque de birdstrike</span>
-                    <span className="text-xs font-bold text-danger">{recurrenceFromModel}% dans les 6 prochains mois</span>
-                  </div>
-                )}
-                {hasFod && (
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-warning/5">
-                    <span className="text-xs font-medium">Risque FOD</span>
-                    <span className="text-xs font-bold text-warning">{recurrenceFromModel}% dans les 6 prochains mois</span>
-                  </div>
-                )}
-
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground mb-2">Top 3 types d&apos;incidents — probabilité de récurrence</p>
-                  {sortedTypes.map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between py-1 border-b border-border last:border-0">
-                      <span className="text-xs capitalize">{type}</span>
-                      <span className="text-xs font-bold">{Math.round((count / totalEvents) * 100)}% ({count})</span>
-                    </div>
-                  ))}
-                  {sortedTypes.length === 0 && (
-                    <p className="text-xs text-muted-foreground">Aucun événement récent</p>
-                  )}
-                </div>
-
-                {profil.negbin_metrics?.isOverdispersed && (
-                  <p className="text-xs text-muted-foreground italic">
-                    Tendance au clustering — les incidents surviennent par grappes (surdispersion = {profil.negbin_metrics.dispersion.toFixed(1)})
-                  </p>
-                )}
-                {profil.extreme_risk?.tailRisk !== undefined && (
-                  <p className="text-xs text-muted-foreground">
-                    Scénario pire cas : probabilité de queue = {Math.round(profil.extreme_risk.tailRisk * 100)}%
-                  </p>
-                )}
-              </>
-            )
-          })()}
-        </div>
-      </div>
+      </Card>
 
       <ScenarioSimulator profil={profil} aerodromeName={profil.aerodrome_id} userRole="admin" />
 
       {/* Prédictions contextuelles par type d'incident */}
       {evenements && evenements.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header border-b border-border"><div className="card-title text-sm font-semibold flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Prédictions contextuelles (IA)</div></div>
-          <div className="card-content p-4">
-            <div className="space-y-3">
-              {(() => {
-                // Dériver les types d'incidents des événements réels
-                const eventTypes = new Map<string, number>()
-                for (const evt of evenements) {
-                  const t = (evt as any).type_incident || (evt as any).type || (evt as any).gravite || 'incident'
-                  eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
-                }
-                const sorted = Array.from(eventTypes.entries())
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 4)
+        <Card variant="role" title="Prédictions contextuelles (IA)" icon={<Brain className="w-4 h-4" />}>
+          <div className="space-y-3">
+            {(() => {
+              const eventTypes = new Map<string, number>()
+              for (const evt of evenements) {
+                const t = (evt as any).type_incident || (evt as any).type || (evt as any).gravite || 'incident'
+                eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
+              }
+              const sorted = Array.from(eventTypes.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 4)
 
-                const incidentProb = profil.incident_prediction_6m ?? 0
-                const tailRisk = profil.extreme_risk?.tailRisk ?? 0
-                const isOverdispersed = profil.negbin_metrics?.isOverdispersed ?? false
+              const hasBirdstrike = [...eventTypes.keys()].some(k =>
+                k.includes('bird') || k.includes('volatil') || k.includes('oiseau') || (k.includes('péril') && k.includes('animal'))
+              )
+              const hasFod = [...eventTypes.keys()].some(k =>
+                k.includes('fod') || k.includes('debris') || k.includes('débris') || (k.includes('objet') && !k.includes('oiseau'))
+              )
 
-                return sorted.map(([type, count], i) => {
-                  const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * (incidentProb > 0 ? incidentProb * 100 : 50)))
-                  return (
-                    <div key={type} className={`flex items-center justify-between gap-3 p-3 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`w-2 h-2 rounded-full ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />
-                        <div>
-                          <p className="text-sm font-medium capitalize">{type.toLowerCase().replace(/_/g, ' ')}</p>
-                          <p className="text-xs text-muted-foreground">{count} occurrence(s) historiques</p>
+              const incidentProb = profil.incident_prediction_6m ?? 0
+              const tailRisk = profil.extreme_risk?.tailRisk ?? 0
+              const isOverdispersed = profil.negbin_metrics?.isOverdispersed ?? false
+              const recurrenceFromModel = incidentProb > 0 ? Math.round(incidentProb * 100) : Math.round((evenements.length / Math.max(1, 6)) * 10)
+
+              return (
+                <>
+                  {hasBirdstrike && (
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-danger/5">
+                      <span className="text-xs font-medium text-foreground">Risque de birdstrike</span>
+                      <span className="text-xs font-bold text-danger">{recurrenceFromModel}% dans les 6 prochains mois</span>
+                    </div>
+                  )}
+                  {hasFod && (
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-warning/5">
+                      <span className="text-xs font-medium text-foreground">Risque FOD</span>
+                      <span className="text-xs font-bold text-warning">{recurrenceFromModel}% dans les 6 prochains mois</span>
+                    </div>
+                  )}
+                  {sorted.map(([type, count]) => {
+                    const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * (incidentProb > 0 ? incidentProb * 100 : 50)))
+                    return (
+                      <div key={type} className={`flex items-center justify-between gap-3 p-3 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
+                        <div className="flex items-center gap-3">
+                          <span className={`w-2 h-2 rounded-full ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />
+                          <div>
+                            <p className="text-sm font-medium capitalize text-foreground">{type.toLowerCase().replace(/_/g, ' ')}</p>
+                            <p className="text-xs text-foreground">{count} occurrence(s) historiques</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-lg font-bold ${prob > 50 ? 'text-danger' : prob > 30 ? 'text-warning' : 'text-primary'}`}>{prob}%</p>
+                          <p className="text-xs text-foreground">prob. 6 mois</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className={`text-lg font-bold ${prob > 50 ? 'text-danger' : prob > 30 ? 'text-warning' : 'text-primary'}`}>{prob}%</p>
-                        <p className="text-xs text-muted-foreground">prob. 6 mois</p>
-                      </div>
-                    </div>
-                  )
-                }).concat([
-                  <div key="meta" className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-border">
+                    )
+                  })}
+                  {sorted.length === 0 && <p className="text-xs text-foreground">Aucun événement récent</p>}
+                  <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-border">
                     {isOverdispersed && <span className="badge warning text-xs">Incidents groupés (surdispersion)</span>}
                     {tailRisk > 0.1 && <span className="badge danger text-xs">Risque extrême {(tailRisk * 100).toFixed(0)}%</span>}
                     {profil.survival_metrics && profil.survival_metrics.hazard90d > 0.5 && <span className="badge danger text-xs">Hazard 90j: {Math.round(profil.survival_metrics.hazard90d * 100)}%</span>}
                   </div>
-                ])
-              })()}
-            </div>
+                </>
+              )
+            })()}
           </div>
-        </div>
+        </Card>
       )}
 
       <TrendSection historicalScores={historicalScores} />

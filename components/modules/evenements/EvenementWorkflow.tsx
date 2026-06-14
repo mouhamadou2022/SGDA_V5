@@ -4,6 +4,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
+import { Card } from '@/components/ui/card'
 import { X, CheckCircle2, AlertTriangle, FileText, User, Calendar, MapPin, Clock, ChevronDown, ChevronRight, AlertCircle, Sparkles, Loader2, TrendingUp, TrendingDown } from 'lucide-react'
 
 interface EvenementWorkflowProps {
@@ -312,47 +313,47 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
           <div className="space-y-4 animate-fade-in">
             <h3 className="heading-4 text-role-primary">Réception & Qualification</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="card p-4 border-l-4 border-l-role-primary">
+              <Card variant="role" size="sm">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><FileText className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">RÉFÉRENCE</p><p className="code-oaci-badge mt-1">{evt.reference}</p></div>
                 </div>
-              </div>
-              <div className="card p-4 border-l-4 border-l-role-primary">
+              </Card>
+              <Card variant="role" size="sm">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><Calendar className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">DATE / HEURE</p><p className="font-medium mt-1">{evt.date} à {evt.heure}</p></div>
                 </div>
-              </div>
-              <div className="card p-4 border-l-4 border-l-role-primary">
+              </Card>
+              <Card variant="role" size="sm">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><AlertTriangle className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">TYPE</p><p className="font-medium mt-1">{evt.type}</p></div>
                 </div>
-              </div>
-              <div className="card p-4 border-l-4 border-l-role-primary">
+              </Card>
+              <Card variant="role" size="sm">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><AlertCircle className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">GRAVITÉ</p><div className="mt-1"><span className={getBadgeGravite(evt.gravite)}>{getLabelGravite(evt.gravite)}</span></div></div>
                 </div>
-              </div>
-              <div className="card p-4 border-l-4 border-l-role-primary col-span-2">
+              </Card>
+              <Card variant="role" size="sm" className="col-span-2">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><MapPin className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">LOCALISATION</p><p className="font-medium mt-1">{evt.localisation}</p></div>
                 </div>
-              </div>
-              <div className="card p-4 border-l-4 border-l-role-primary col-span-2">
+              </Card>
+              <Card variant="role" size="sm" className="col-span-2">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><FileText className="w-4 h-4 text-role-primary" /></div>
                   <div><p className="text-xs text-muted-foreground font-medium">DESCRIPTION</p><p className="text-small mt-1">{evt.description}</p></div>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* Analyse IA du profil de risque */}
             {profilAerodrome && (
-              <div className="card p-4 border-l-4 border-l-role-primary bg-gradient-to-r from-role-primary/5 to-transparent">
+              <Card variant="role" size="sm" className="bg-gradient-to-r from-role-primary/5 to-transparent">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><Sparkles className="w-4 h-4 text-role-primary" /></div>
                   <div className="flex-1">
@@ -365,12 +366,12 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
                     {iaSuggestion && <p className="text-xs text-muted-foreground mt-2">💡 {iaSuggestion}</p>}
                   </div>
                 </div>
-              </div>
+              </Card>
             )}
 
             {/* Assignation inspecteur */}
             {(userRole === 'admin' || userRole === 'inspector') && (
-              <div className="card p-4 space-y-3 border-l-4 border-l-role-primary bg-role-primary-soft">
+              <Card variant="role" size="sm" className="space-y-3 bg-role-primary-soft">
                 <p className="font-semibold text-role-primary text-sm flex items-center gap-2"><User className="w-4 h-4" />Assigner un inspecteur</p>
                 <div className="flex gap-2">
                   <select className={`w-full py-3 pl-4 pr-10 rounded-xl border-2 border-role-primary/40 bg-background text-foreground font-medium appearance-none ${focusClass}`} style={selectStyle} value={inspecteurId} onChange={(e) => setInspecteurId(e.target.value)}>
@@ -379,7 +380,7 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
                   </select>
                   <button className="btn btn-primary px-5" disabled={!inspecteurId} onClick={() => assignerInspecteur(evenementId, inspecteurId)}>Assigner</button>
                 </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -404,7 +405,7 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
               </div>
             </div>
             {classification === 'incident' && (
-              <div className="card p-4 border-l-4 border-l-role-primary bg-role-primary-soft">
+              <Card variant="role" size="sm" className="bg-role-primary-soft">
                 <p className="text-xs font-semibold text-role-primary uppercase mb-2">Impact sur la sécurité</p>
                 <div className="flex gap-4">
                   {(['moyen', 'faible'] as const).map((imp) => (
@@ -415,15 +416,15 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">ℹ️ Pour un incident simple, l'impact guide le besoin de recommandations et de suivi.</p>
-              </div>
+              </Card>
             )}
             {isAccidentGrave && (
-              <div className="card p-4 border-l-4 border-l-danger bg-danger/5">
+              <Card variant="level" levelColor="danger" size="sm" className="bg-danger/5">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-danger" />
                   <p className="text-sm font-medium text-danger">Classification {classification === 'accident' ? 'accident' : 'incident grave'} — investigation, écarts et rapport final obligatoires</p>
                 </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -466,10 +467,10 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
         {etape === 2 && !isAccidentGrave && (
           <div className="space-y-4 animate-fade-in">
             <h3 className="heading-4 text-role-primary">Recommandations à l'exploitant</h3>
-            <div className="card p-4 border-l-4 border-l-success bg-success/5">
+            <Card variant="level" levelColor="success" size="sm" className="bg-success/5">
               <p className="text-small">Incident simple — pas d'investigation approfondie requise.</p>
               <p className="text-small mt-1">Impact sécurité: <strong>{impactSecurite === 'moyen' ? 'Moyen' : 'Faible'}</strong></p>
-            </div>
+            </Card>
             <div className="form-field">
               <label className="text-role-primary text-xs uppercase font-semibold">Recommandations</label>
               <textarea className={`form-textarea w-full bg-gradient-to-r from-background to-role-primary/5 border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} placeholder="Recommandations à transmettre à l'exploitant…" value={recommandations} onChange={(e) => setRecommandations(e.target.value)} rows={4} />
@@ -495,26 +496,26 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
               </div>
             )}
             {ecartCreated && (
-              <div className="card p-4 border-l-4 border-l-success bg-gradient-to-r from-success/5 to-transparent">
+              <Card variant="level" levelColor="success" size="sm" className="bg-gradient-to-r from-success/5 to-transparent">
                 <p className="font-medium text-success flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />Écart créé</p>
                 <p className="text-small text-muted-foreground mt-1">Un PAC sera requis de l'exploitant.</p>
-              </div>
+              </Card>
             )}
             {aucunEcart && !ecartCreated && (
-              <div className="card p-4 border-l-4 border-l-role-primary">
+              <Card variant="role" size="sm">
                 <p className="font-medium">Aucun écart créé</p>
                 <button className="btn btn-secondary mt-2" onClick={() => setAucunEcart(false)}>← Revenir</button>
-              </div>
+              </Card>
             )}
           </div>
         )}
         {etape === 3 && !isAccidentGrave && (
           <div className="space-y-4 animate-fade-in">
             <h3 className="heading-4 text-role-primary">Finalisation</h3>
-            <div className="card p-4 border-l-4 border-l-success bg-success/5">
+            <Card variant="level" levelColor="success" size="sm" className="bg-success/5">
               <p className="font-medium flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" />Incident simple traité par recommandations</p>
               {recommandations && <p className="text-small mt-2">{recommandations}</p>}
-            </div>
+            </Card>
           </div>
         )}
 
@@ -533,10 +534,10 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
               <textarea className={`form-textarea w-full bg-gradient-to-r from-background to-role-primary/5 border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} placeholder="Rapport final complet…" value={rapportFinal} onChange={(e) => setRapportFinal(e.target.value)} rows={8} />
             </div>
             {recommandations && (
-              <div className="card p-4 border-l-4 border-l-role-primary bg-role-primary/5">
+              <Card variant="role" size="sm" className="bg-role-primary/5">
                 <p className="text-xs font-semibold text-role-primary uppercase mb-1">Recommandations</p>
                 <p className="text-small">{recommandations}</p>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -552,27 +553,27 @@ Structure le rapport avec: 1. Récapitulatif 2. Analyse 3. Causes et facteurs 4.
         {etape === 5 && (
           <div className="space-y-4 animate-fade-in">
             <h3 className="heading-4 text-role-primary">Clôture</h3>
-            <div className="card border-border"><div className="flex items-center justify-between p-4 cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step1')}>
+            <Card heading={<div className="flex items-center justify-between cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step1')}>
               <div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-success-soft flex items-center justify-center"><CheckCircle2 className="w-4 h-4 text-success" /></div><span className="font-medium">Réception</span></div>
               {expandedSteps.includes('step1') ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </div>{expandedSteps.includes('step1') && <div className="p-4 border-t border-border space-y-2"><p className="text-small"><span className="font-medium text-muted-foreground">Type:</span> {evt.type}</p><p className="text-small"><span className="font-medium text-muted-foreground">Gravité:</span> <span className={getBadgeGravite(evt.gravite)}>{getLabelGravite(evt.gravite)}</span></p></div>}</div>
+            </div>}>{expandedSteps.includes('step1') && <div className="space-y-2"><p className="text-small"><span className="font-medium text-muted-foreground">Type:</span> {evt.type}</p><p className="text-small"><span className="font-medium text-muted-foreground">Gravité:</span> <span className={getBadgeGravite(evt.gravite)}>{getLabelGravite(evt.gravite)}</span></p></div>}</Card>
 
-            <div className="card border-border"><div className="flex items-center justify-between p-4 cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step2')}>
+            <Card heading={<div className="flex items-center justify-between cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step2')}>
               <div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-success-soft flex items-center justify-center"><CheckCircle2 className="w-4 h-4 text-success" /></div><span className="font-medium">Analyse</span></div>
               {expandedSteps.includes('step2') ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </div>{expandedSteps.includes('step2') && <div className="p-4 border-t border-border space-y-2"><p className="text-small"><span className="font-medium text-muted-foreground">Classification:</span> {classification === 'incident_grave' ? 'incident grave' : classification}{!isAccidentGrave && ` — Impact ${impactSecurite}`}</p><p className="text-small"><span className="font-medium text-muted-foreground">Analyse:</span> {analysePreliminaire || '—'}</p></div>}</div>
+            </div>}>{expandedSteps.includes('step2') && <div className="space-y-2"><p className="text-small"><span className="font-medium text-muted-foreground">Classification:</span> {classification === 'incident_grave' ? 'incident grave' : classification}{!isAccidentGrave && ` — Impact ${impactSecurite}`}</p><p className="text-small"><span className="font-medium text-muted-foreground">Analyse:</span> {analysePreliminaire || '—'}</p></div>}</Card>
 
-            {isAccidentGrave && <div className="card border-border"><div className="flex items-center justify-between p-4 cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step3')}>
+            {isAccidentGrave && <Card heading={<div className="flex items-center justify-between cursor-pointer hover:bg-role-primary-soft transition-colors" onClick={() => toggleStep('step3')}>
               <div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-success-soft flex items-center justify-center"><CheckCircle2 className="w-4 h-4 text-success" /></div><span className="font-medium">Investigation</span></div>
               {expandedSteps.includes('step3') ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </div>{expandedSteps.includes('step3') && <div className="p-4 border-t border-border space-y-2"><p className="text-small">{rapportInvestigation || '—'}</p>{causes.length > 0 && <><p className="text-small font-medium text-muted-foreground">Causes:</p><ul className="list-disc pl-4 text-small">{causes.map((c, i) => <li key={i}>{c}</li>)}</ul></>}</div>}</div>}
+            </div>}>{expandedSteps.includes('step3') && <div className="space-y-2"><p className="text-small">{rapportInvestigation || '—'}</p>{causes.length > 0 && <><p className="text-small font-medium text-muted-foreground">Causes:</p><ul className="list-disc pl-4 text-small">{causes.map((c, i) => <li key={i}>{c}</li>)}</ul></>}</div>}</Card>}
 
-            {!isAccidentGrave && recommandations && <div className="card border-border"><div className="p-4"><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Recommandations</p><p className="text-small">{recommandations}</p></div></div>}
+            {!isAccidentGrave && recommandations && <Card size="sm"><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Recommandations</p><p className="text-small">{recommandations}</p></Card>}
 
-            <div className="card bg-warning-soft/20 border border-warning-soft/30 p-4">
+            <Card className="bg-warning-soft/20 border-warning-soft/30" size="sm">
               <p className="text-xs font-semibold uppercase flex items-center gap-2"><Sparkles className="w-3 h-3" />Impact sur le profil de risque</p>
               <p className="text-xs text-muted-foreground mt-1">La clôture de cet événement mettra à jour le score C5 (résilience) et les prédictions d'incidents du profil de risque {evt.aerodrome_id}. L'IA bayésienne ajustera ses priors.</p>
-            </div>
+            </Card>
           </div>
         )}
       </div>

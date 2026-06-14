@@ -6,6 +6,7 @@
 
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
+import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
 
 interface Props {
@@ -61,24 +62,24 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
   const otherRisks = recommandations.filter(r => r.priorite !== 'critique' && r.priorite !== 'haute')
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       {/* Carte score principal */}
       <div className={`rounded-2xl border-2 ${config.border} ${config.bg} p-6`}>
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="code-oaci-badge text-sm">{aerodromeCode}</span>
-              <span className="text-sm text-muted-foreground">{aerodromeName}</span>
+              <span className="text-sm text-foreground">{aerodromeName}</span>
             </div>
             <h1 className={`text-4xl font-bold ${config.color}`}>{profil.score_global}/100</h1>
             <span className={`badge ${config.badge} mt-1`}>Niveau {config.label}</span>
           </div>
           <div className="text-right text-sm">
             <div className="flex items-center gap-1.5 justify-end mb-1">
-              <span className="text-muted-foreground">Tendance :</span>
+              <span className="text-foreground">Tendance :</span>
               {profil.tendance === 'hausse' ? <><TrendingUp className="w-4 h-4 text-success" /><span className="text-success">En amélioration</span></>
                 : profil.tendance === 'baisse' ? <><TrendingDown className="w-4 h-4 text-danger" /><span className="text-danger font-semibold">En dégradation</span></>
-                : <><Minus className="w-4 h-4 text-muted-foreground" /><span className="text-muted-foreground">Stable</span></>}
+                : <><Minus className="w-4 h-4 text-foreground" /><span className="text-foreground">Stable</span></>}
             </div>
             {profil.bayesian_black_swan && (
               <span className="badge danger animate-pulse text-xs">Black Swan détecté</span>
@@ -96,12 +97,12 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
             { label: 'Résilience', value: profil.c5 },
           ].map(c => (
             <div key={c.label} className="text-center">
-              <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
+              <div className="text-xs text-foreground mb-1">{c.label}</div>
               <div className="w-full bg-muted rounded-full h-2 mb-1">
                 <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-danger' : c.value < 60 ? 'bg-warning' : 'bg-success'}`}
                   style={{ width: `${c.value}%` }} />
               </div>
-              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}{c.label === 'SGS' && <> <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(c.value)})</span></>}</span>
+              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}{c.label === 'SGS' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(c.value)})</span></>}</span>
             </div>
           ))}
         </div>
@@ -109,76 +110,73 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Alertes immédiates */}
       {topRisks.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <h3 className="text-sm font-bold text-red-700 mb-3 flex items-center gap-2">
+        <Card variant="alert" alertBg="danger">
+          <h3 className="text-sm font-bold text-danger mb-3 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />{isDG ? 'Actions recommandées' : 'Actions prioritaires'}
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {topRisks.map(r => (
               <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg bg-background/70">
                 <r.icon className={`w-4 h-4 mt-0.5 shrink-0 ${r.priorite === 'critique' ? 'text-danger' : 'text-warning'}`} />
                 <div>
                   <p className="text-sm font-semibold text-foreground">{r.label}</p>
-                  <p className="text-xs text-muted-foreground">{r.action}</p>
+                  <p className="text-xs text-foreground">{r.action}</p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Autres recommandations */}
       {otherRisks.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+        <Card>
+          <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4" />Points de vigilance
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {otherRisks.map(r => (
               <div key={r.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/30 transition-colors">
                 <r.icon className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
                 <div>
                   <p className="text-sm text-foreground">{r.label}</p>
-                  <p className="text-xs text-muted-foreground">{r.action}</p>
+                  <p className="text-xs text-foreground">{r.action}</p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Prédictions simplifiées */}
-      <div className="card border-border">
-        <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-muted-foreground" />Projection du risque</div></div>
-        <div className="card-content p-4">
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-xs text-muted-foreground">3 mois</p>
-              <p className={`text-lg font-bold ${profil.prediction_3m < 30 ? 'text-danger' : profil.prediction_3m < 60 ? 'text-warning' : 'text-success'}`}>
-                {profil.prediction_3m}/100
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">6 mois</p>
-              <p className={`text-lg font-bold ${profil.prediction_6m < 30 ? 'text-danger' : profil.prediction_6m < 60 ? 'text-warning' : 'text-success'}`}>
-                {profil.prediction_6m}/100
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Scénario pire cas</p>
-              <p className={`text-lg font-bold ${(profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global) < 30 ? 'text-danger' : 'text-warning'}`}>
-                {profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global}/100
-              </p>
-            </div>
+      <Card variant="role" title="Projection du risque" icon={<BarChart3 className="w-4 h-4" />}>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-foreground">3 mois</p>
+            <p className={`text-lg font-bold ${profil.prediction_3m < 30 ? 'text-danger' : profil.prediction_3m < 60 ? 'text-warning' : 'text-success'}`}>
+              {profil.prediction_3m}/100
+            </p>
           </div>
-          {profil.survival_metrics && (
-            <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground text-center">
-              Risque d'incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
-              {profil.survival_metrics.hazard90d > 0.5 && <span className="text-danger font-semibold ml-1">— Inspection recommandée</span>}
-            </div>
-          )}
+          <div>
+            <p className="text-xs text-foreground">6 mois</p>
+            <p className={`text-lg font-bold ${profil.prediction_6m < 30 ? 'text-danger' : profil.prediction_6m < 60 ? 'text-warning' : 'text-success'}`}>
+              {profil.prediction_6m}/100
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-foreground">Scénario pire cas</p>
+            <p className={`text-lg font-bold ${(profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global) < 30 ? 'text-danger' : 'text-warning'}`}>
+              {profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global}/100
+            </p>
+          </div>
         </div>
-      </div>
+        {profil.survival_metrics && (
+          <div className="mt-3 pt-3 border-t border-border text-xs text-foreground text-center">
+            Risque d'incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
+            {profil.survival_metrics.hazard90d > 0.5 && <span className="text-danger font-semibold ml-1">— Inspection recommandée</span>}
+          </div>
+        )}
+      </Card>
 
       {/* Écarts critiques */}
       {nbEcartsCritiques > 0 && (
@@ -202,50 +200,44 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
       {/* Prochaines surveillances (exploitant) */}
       {prochainesSurveillances.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><Calendar className="w-4 h-4 text-role-primary" />Prochaines surveillances</div></div>
-          <div className="card-content p-4">
-            <div className="space-y-2">
-              {prochainesSurveillances.map((s: any) => (
-                <div key={s.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="capitalize">{s.type?.replace(/_/g, ' ')}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {s.date_debut ? new Date(s.date_debut).toLocaleDateString('fr-FR') : 'À planifier'}
-                  </span>
-                  <span className={`badge text-xs ${s.statut === 'en_cours' ? 'warning' : s.statut === 'realisee' ? 'success' : 'primary'}`}>
-                    {s.statut === 'planifiee' ? 'Planifiée' : s.statut === 'en_cours' ? 'En cours' : 'Réalisée'}
-                  </span>
+        <Card variant="role" title="Prochaines surveillances" icon={<Calendar className="w-4 h-4" />}>
+          <div className="space-y-3">
+            {prochainesSurveillances.map((s: any) => (
+              <div key={s.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-foreground" />
+                  <span className="capitalize text-foreground">{s.type?.replace(/_/g, ' ')}</span>
                 </div>
-              ))}
-            </div>
+                <span className="text-xs text-foreground">
+                  {s.date_debut ? new Date(s.date_debut).toLocaleDateString('fr-FR') : 'À planifier'}
+                </span>
+                <span className={`badge text-xs ${s.statut === 'en_cours' ? 'warning' : s.statut === 'realisee' ? 'success' : 'primary'}`}>
+                  {s.statut === 'planifiee' ? 'Planifiée' : s.statut === 'en_cours' ? 'En cours' : 'Réalisée'}
+                </span>
+              </div>
+            ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Écarts actifs (exploitant) */}
       {ecartsActifs.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header border-b border-border"><div className="card-title text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" />Écarts actifs ({ecartsActifs.length})</div></div>
-          <div className="card-content p-4">
-            <div className="space-y-2">
-              {ecartsActifs.map((e: any) => (
-                <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${e.niveau_risque === 'critique' ? 'bg-danger' : e.niveau_risque === 'eleve' ? 'bg-warning' : 'bg-primary'}`} />
-                    <span>{e.reference}</span>
-                    <span className="text-xs text-muted-foreground">{e.libelle?.substring(0, 50)}</span>
-                  </div>
-                  <span className={`badge text-xs ${e.statut === 'pac_attendu' ? 'warning' : e.statut === 'pac_accepte' ? 'primary' : e.statut === 'cloture' ? 'success' : 'outline'}`}>
-                    {e.statut === 'pac_attendu' ? 'PAC requis' : e.statut === 'pac_accepte' ? 'PAC accepté' : e.statut}
-                  </span>
+        <Card variant="role" title={`Écarts actifs (${ecartsActifs.length})`} icon={<AlertTriangle className="w-4 h-4" />}>
+          <div className="space-y-3">
+            {ecartsActifs.map((e: any) => (
+              <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${e.niveau_risque === 'critique' ? 'bg-danger' : e.niveau_risque === 'eleve' ? 'bg-warning' : 'bg-primary'}`} />
+                  <span className="text-foreground">{e.reference}</span>
+                  <span className="text-xs text-foreground">{e.libelle?.substring(0, 50)}</span>
                 </div>
-              ))}
-            </div>
+                <span className={`badge text-xs ${e.statut === 'pac_attendu' ? 'warning' : e.statut === 'pac_accepte' ? 'primary' : e.statut === 'cloture' ? 'success' : 'outline'}`}>
+                  {e.statut === 'pac_attendu' ? 'PAC requis' : e.statut === 'pac_accepte' ? 'PAC accepté' : e.statut}
+                </span>
+              </div>
+            ))}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   )

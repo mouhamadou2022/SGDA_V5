@@ -17,6 +17,7 @@ import {
   Globe,
   Activity,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -194,7 +195,7 @@ export function NiveauRisqueMatrix({ onNiveauChange, initialNotes, userRole }: N
           const isExpanded = expandedCritere === critere.id;
 
           return (
-            <div key={critere.id} className="card border border-border overflow-hidden">
+            <Card key={critere.id} className="border border-border overflow-hidden">
               {/* En-tête du critère */}
               <button
                 type="button"
@@ -257,7 +258,7 @@ export function NiveauRisqueMatrix({ onNiveauChange, initialNotes, userRole }: N
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
           );
         })}
       </div>

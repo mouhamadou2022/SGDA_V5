@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Save, Lock, CheckCircle2, AlertCircle, Calendar, FileText, Globe, Send, Mail, Phone, Check, X, AlertTriangle, Award } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import type { Certification } from '@/lib/store'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -82,21 +83,18 @@ export function Phase5({ certifId, phaseData, estActive, onUpdate, certification
     notification: form.notification_envoyee,
   }).filter(Boolean).length
 
+  const phaseBadge = !readOnly && isComplete ? <span className="badge success pulse">Prêt à finaliser</span> :
+    !readOnly && !isComplete ? <span className="badge warning">Informations manquantes</span> :
+    <span className="badge neutral">Lecture seule</span>
+
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="card">
-        <div className="card-header pb-3">
-          <h3 className="card-title flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {readOnly && <Lock className="h-4 w-4 text-muted" />}
-              <span>Phase 5 — Publication AIP et notification</span>
-              {!readOnly && isComplete && <span className="badge success pulse">Prêt à finaliser</span>}
-              {!readOnly && !isComplete && <span className="badge warning">Informations manquantes</span>}
-              {readOnly && <span className="badge neutral">Lecture seule</span>}
-            </div>
-          </h3>
-        </div>
-        <div className="card-content space-y-5">
+      <Card
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted" /> : undefined}
+        heading="Phase 5 — Publication AIP et notification"
+        badge={phaseBadge}
+      >
+        <div className="space-y-5">
 
           {/* Barre de progression */}
           <div className="space-y-2">
@@ -243,7 +241,7 @@ export function Phase5({ certifId, phaseData, estActive, onUpdate, certification
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

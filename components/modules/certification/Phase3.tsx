@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react'
 import { Save, Lock, CheckCircle2, AlertCircle, Users, Calendar, Eye, Link as LinkIcon, AlertTriangle } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -84,21 +85,18 @@ export function Phase3({ certifId, phaseData, estActive, onUpdate }: Phase3Props
 
   const inputClass = readOnly ? `form-input bg-muted/30 cursor-not-allowed ${focusClass}` : `form-input ${focusClass}`
 
+  const phaseBadge = !readOnly && isComplete ? <span className="badge success pulse">Prêt à clôturer</span> :
+    !readOnly && !isComplete ? <span className="badge warning">Informations manquantes</span> :
+    <span className="badge neutral">Lecture seule</span>
+
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="card">
-        <div className="card-header pb-3">
-          <h3 className="card-title flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {readOnly && <Lock className="h-4 w-4 text-muted" />}
-              <span>Phase 3 — Vérification sur Site</span>
-              {!readOnly && isComplete && <span className="badge success pulse">Prêt à clôturer</span>}
-              {!readOnly && !isComplete && <span className="badge warning">Informations manquantes</span>}
-              {readOnly && <span className="badge neutral">Lecture seule</span>}
-            </div>
-          </h3>
-        </div>
-        <div className="card-content space-y-5">
+      <Card
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted" /> : undefined}
+        heading="Phase 3 — Vérification sur Site"
+        badge={phaseBadge}
+      >
+        <div className="space-y-5">
 
           {/* Surveillance liée */}
           <div className="form-field">
@@ -254,7 +252,7 @@ export function Phase3({ certifId, phaseData, estActive, onUpdate }: Phase3Props
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

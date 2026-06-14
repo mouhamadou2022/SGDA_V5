@@ -30,6 +30,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
@@ -155,7 +156,7 @@ function EcartCard({
   };
 
   return (
-    <div className="card border-border mb-2 overflow-hidden">
+    <Card className="mb-2 overflow-hidden">
       <div
         className="flex items-center justify-between p-3 cursor-pointer hover:bg-role-primary-soft transition-colors"
         onClick={() => setExpanded(!expanded)}
@@ -227,7 +228,7 @@ function EcartCard({
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -881,19 +882,17 @@ export default function SurveillanceEcartsRedaction({
 
   if (isSigned) {
     return (
-      <div className="card border-success bg-success/10" data-role={userRole}>
-        <div className="card-content p-6 text-center">
-          <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-success-800 mb-2">Document des écarts signé</h3>
-          <p className="text-small text-success-600">Tous les écarts ont été rédigés et le document est signé.</p>
-          <div className="flex justify-center gap-3 mt-4">
-            <button onClick={() => onSave?.(ecarts)} className="btn btn-secondary gap-2">
-              <Download className="w-4 h-4" />
-              Exporter les écarts
-            </button>
-          </div>
+      <Card variant="level" levelColor="success" className="border-success bg-success/10 text-center" data-role={userRole}>
+        <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-success-800 mb-2">Document des écarts signé</h3>
+        <p className="text-small text-success-600">Tous les écarts ont été rédigés et le document est signé.</p>
+        <div className="flex justify-center gap-3 mt-4">
+          <button onClick={() => onSave?.(ecarts)} className="btn btn-secondary gap-2">
+            <Download className="w-4 h-4" />
+            Exporter les écarts
+          </button>
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -901,49 +900,47 @@ export default function SurveillanceEcartsRedaction({
     <div className="space-y-6" data-role={userRole} data-module="ecarts-redaction">
       
       {/* En-tête avec infos surveillance */}
-      <div className="card border-l-4 border-l-danger bg-gradient-to-r from-danger/10 to-danger/5">
-        <div className="card-content p-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-danger" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Aérodrome</p>
-                  <p className="font-bold text-sm">{aerodrome?.nom} ({aerodrome?.code_oaci})</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-danger" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Période</p>
-                  <p className="text-sm">
-                    {surveillance ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} → {surveillance ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-danger" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Équipe</p>
-                  <p className="text-sm">{surveillance?.equipe_ids?.length || 0} inspecteur(s)</p>
-                </div>
+      <Card variant="level" levelColor="danger" className="bg-gradient-to-r from-danger/10 to-danger/5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-danger" />
+              <div>
+                <p className="text-xs text-muted-foreground">Aérodrome</p>
+                <p className="font-bold text-sm">{aerodrome?.nom} ({aerodrome?.code_oaci})</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="progress w-32 h-2">
-                <div className={`progress-bar ${getProgressBarColorDynamic(progression)}`} style={{ width: `${progression}%` }} />
+            <div className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-danger" />
+              <div>
+                <p className="text-xs text-muted-foreground">Période</p>
+                <p className="text-sm">
+                  {surveillance ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} → {surveillance ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
+                </p>
               </div>
-              <span className="text-sm font-medium">{progression}%</span>
-              {lastSaved && (
-                <span className="text-xs text-muted-foreground">
-                  Sauvegardé à {lastSaved.toLocaleTimeString()}
-                </span>
-              )}
-              <IaAssistant onQuestion={handleAskAssistant} isAsking={isAskingAssistant} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-danger" />
+              <div>
+                <p className="text-xs text-muted-foreground">Équipe</p>
+                <p className="text-sm">{surveillance?.equipe_ids?.length || 0} inspecteur(s)</p>
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-4">
+            <div className="progress w-32 h-2">
+              <div className={`progress-bar ${getProgressBarColorDynamic(progression)}`} style={{ width: `${progression}%` }} />
+            </div>
+            <span className="text-sm font-medium">{progression}%</span>
+            {lastSaved && (
+              <span className="text-xs text-muted-foreground">
+                Sauvegardé à {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
+            <IaAssistant onQuestion={handleAskAssistant} isAsking={isAskingAssistant} />
+          </div>
         </div>
-      </div>
+      </Card>
 
       {/* Réponse assistant IA */}
       {iaAnswer && (
@@ -961,52 +958,55 @@ export default function SurveillanceEcartsRedaction({
 
       {/* Liste des écarts existants (s'ils viennent du store) */}
       {ecartsExistants && ecartsExistants.length > 0 && (
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-success/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
+        <Card
+          variant="level" levelColor="success"
+          heading={
+            <div className="flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-success" />
               Écarts déjà rédigés ({ecartsExistants.length})
             </div>
+          }
+        >
+          <div className="max-h-[300px] overflow-y-auto space-y-2">
+            {ecartsExistants.map(ecart => (
+              <EcartCard
+                key={ecart.id}
+                ecart={ecart}
+                onEdit={handleModifierEcart}
+                onDelete={handleSupprimerEcart}
+                onViewDetails={setSelectedEcartDetails}
+                readOnly={readOnly}
+              />
+            ))}
           </div>
-          <div className="card-content p-3 max-h-[300px] overflow-y-auto">
-            <div className="space-y-2">
-              {ecartsExistants.map(ecart => (
-                <EcartCard
-                  key={ecart.id}
-                  ecart={ecart}
-                  onEdit={handleModifierEcart}
-                  onDelete={handleSupprimerEcart}
-                  onViewDetails={setSelectedEcartDetails}
-                  readOnly={readOnly}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Grille items — NS/NV (standard) ou PAOE (SGS) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Colonne gauche: Items à traiter */}
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
-              <Target className="w-4 h-4 text-role-primary" />
-              {isAllSGSDomain
-                ? <>Éléments PAOE non conformes <span className="badge warning text-[10px]">SGS</span></>
-                : 'Items NS/NV à traiter'
-              }
-              <span className="badge outline text-xs">{itemsRestantsCount} restant(s)</span>
+        <Card
+          icon={<Target className="w-4 h-4 text-role-primary" />}
+          heading={
+            <div className="w-full">
+              <div className="flex items-center gap-2">
+                {isAllSGSDomain
+                  ? <>Éléments PAOE non conformes <span className="badge warning text-[10px]">SGS</span></>
+                  : 'Items NS/NV à traiter'
+                }
+                <span className="badge outline text-xs">{itemsRestantsCount} restant(s)</span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {isAllSGSDomain
+                  ? 'Éléments évalués Absent, Présent ou Approprié — sélectionnez pour créer un écart SGS'
+                  : 'Sélectionnez une ou plusieurs questions pour créer un écart'
+                }
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {isAllSGSDomain
-                ? 'Éléments évalués Absent, Présent ou Approprié — sélectionnez pour créer un écart SGS'
-                : 'Sélectionnez une ou plusieurs questions pour créer un écart'
-              }
-            </p>
-          </div>
-          <div className="card-content p-4 max-h-[500px] overflow-y-auto">
+          }
+        >
+          <div className="max-h-[500px] overflow-y-auto">
             {Object.keys(itemsByDomaine).length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <CheckCircle className="w-10 h-10 mx-auto mb-2 text-success" />
@@ -1090,20 +1090,17 @@ export default function SurveillanceEcartsRedaction({
               </div>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Colonne droite: Formulaire de saisie avec IA */}
-        <div className="card border-border">
-          <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-            <div className="card-title text-base flex items-center gap-2">
-              <PenLine className="w-4 h-4 text-role-primary" />
-              {editingId ? 'Modifier' : 'Nouvel'} écart
-              {selectedItems.length > 0 && (
-                <span className="badge primary text-[10px]">{selectedItems.length} item(s) sélectionné(s)</span>
-              )}
-            </div>
-          </div>
-          <div className="card-content p-4 space-y-4">
+        <Card
+          icon={<PenLine className="w-4 h-4 text-role-primary" />}
+          title={`${editingId ? 'Modifier' : 'Nouvel'} écart`}
+          badge={selectedItems.length > 0 ? (
+            <span className="badge primary text-[10px]">{selectedItems.length} item(s) sélectionné(s)</span>
+          ) : undefined}
+        >
+          <div className="space-y-4">
             
             {/* Suggestion IA */}
             {showIaSuggestion && selectedItems.length > 0 && (
@@ -1243,26 +1240,21 @@ export default function SurveillanceEcartsRedaction({
               )}
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Liste des écarts rédigés */}
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-base flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-role-primary" />
-              Écarts rédigés ({ecarts.length})
-            </div>
-            {stats.restants === 0 && ecarts.length > 0 && !readOnly && (
-              <button onClick={handleSigner} className="btn btn-success btn-sm gap-2">
-                <Send className="w-4 h-4" />
-                Signer les écarts
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="card-content p-4 max-h-[400px] overflow-y-auto">
+      <Card
+        icon={<FileText className="w-4 h-4 text-role-primary" />}
+        title={`Écarts rédigés (${ecarts.length})`}
+        badge={stats.restants === 0 && ecarts.length > 0 && !readOnly ? (
+          <button onClick={handleSigner} className="btn btn-success btn-sm gap-2">
+            <Send className="w-4 h-4" />
+            Signer les écarts
+          </button>
+        ) : undefined}
+      >
+        <div className="max-h-[400px] overflow-y-auto">
           {ecarts.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-30" />
@@ -1289,12 +1281,12 @@ export default function SurveillanceEcartsRedaction({
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* Récapitulatif des délais suggérés */}
       {formEcart.niveau && (
-        <div className="card border-border bg-role-primary-soft">
-          <div className="card-content p-3">
+        <Card className="bg-role-primary-soft">
+          <div className="p-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
               ⏰ Délais recommandés
             </p>
@@ -1313,7 +1305,7 @@ export default function SurveillanceEcartsRedaction({
               </div>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Note info */}

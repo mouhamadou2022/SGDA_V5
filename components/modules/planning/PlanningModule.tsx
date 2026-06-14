@@ -78,6 +78,7 @@ import {
   genererPlanningN1
 } from '@/lib/risque';
 import { riskEngine, getEcartTriggers, type EcartTrigger } from '@/lib/riskEngine';
+import { Card } from '@/components/ui/card';
 import { SuggestionFeedback } from '@/lib/store';
 import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
 
@@ -271,7 +272,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         e.mesures_atténuation?.some((m: any) => m.statut === 'en_retard')
       );
       const niveauAlerte = ({
-        CRITIQUE: 'critique', ELEVE: 'haute', MOYEN: 'moyen', FAIBLE: null
+        critique: 'critique', eleve: 'haute', moyen: 'moyen', faible: null
       } as Record<string, string | null>)[getRiskLevel(profil.score_global)] || null;
 
       // ── Utilise le moteur complet de surveillance continue ──
@@ -1548,7 +1549,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                 )}
 
                 {risqueData && risqueData.frequenceSuggestion && (
-                  <div className="card bg-primary/5 border border-primary/20">
+                  <Card className="bg-primary/5 border-primary/20">
                     <p className="text-xs font-semibold text-primary flex items-center gap-2">
                       <Target className="w-3.5 h-3.5" />
                       Analyse prédictive - Recommandations
@@ -1584,7 +1585,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                         </p>
                       </div>
                     </div>
-                  </div>
+                  </Card>
                 )}
                 
                 {aeroPlannings.filter((p: any) => {
@@ -1644,12 +1645,10 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           })}
 
           {planningsByAerodrome.length === 0 && (
-            <div className="card">
-              <div className="card-content py-12 text-center text-muted-foreground">
-                <CalendarDays className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                <p>Aucun planning trouvé pour les filtres sélectionnés</p>
-              </div>
-            </div>
+            <Card className="[&>div:last-child]:py-12 [&>div:last-child]:text-center">
+              <CalendarDays className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p className="text-muted-foreground">Aucun planning trouvé pour les filtres sélectionnés</p>
+            </Card>
           )}
         </div>
       )}
@@ -1674,20 +1673,16 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         </button>
       </div>
       <div className="p-6">
-          <div className="card border-primary mb-6 animate-fade-up">
-          <div className="card-header bg-gradient-to-r from-primary/10 to-transparent">
-            <div className="card-title flex items-center gap-2">
-              <Brain className="w-5 h-5 text-primary" />
-              Suggestions IA – Déclencheurs PAC & Écarts
-            </div>
-            <button 
-              onClick={() => setShowProactiveSuggestions(false)}
-              className="modal-close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="card-content">
+          <Card
+            icon={<Brain className="w-5 h-5 text-primary" />}
+            title="Suggestions IA – Déclencheurs PAC & Écarts"
+            badge={
+              <button onClick={() => setShowProactiveSuggestions(false)} className="modal-close">
+                <X className="w-4 h-4" />
+              </button>
+            }
+            className="border-primary mb-6 animate-fade-up"
+          >
             <div className="space-y-4">
               {aerodromesRisque
                 .filter(a => (a.ecartTriggers && a.ecartTriggers.length > 0) || a.niveauAlerte === 'critique' || a.niveauAlerte === 'haute')
@@ -1788,12 +1783,13 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                     <div className="space-y-2">
                       {aero.ecartTriggers?.slice(0, 10).map((trigger) => {
                         const typeLabel = trigger.typeSurveillanceSuggere === 'mise_oeuvre_pac' ? 'Vérification PAC' : trigger.typeSurveillanceSuggere === 'suivi_ecarts' ? 'Suivi écarts' : 'Audit complet';
-                        const urgenceColor = trigger.urgence === 'critique' ? 'border-l-danger bg-danger/5' : trigger.urgence === 'haute' ? 'border-l-warning bg-warning/5' : 'border-l-role-primary bg-muted/30';
+                        const getUrgenceVariant = trigger.urgence === 'critique' ? 'level' as const : trigger.urgence === 'haute' ? 'level' as const : 'role' as const;
+                        const getUrgenceLevelColor = trigger.urgence === 'critique' ? 'danger' as const : trigger.urgence === 'haute' ? 'warning' as const : undefined;
+                        const getUrgenceBg = trigger.urgence === 'critique' ? 'bg-danger/5' : trigger.urgence === 'haute' ? 'bg-warning/5' : 'bg-muted/30';
                         const statutBadge = trigger.ecart.statut === 'pac_attendu' ? 'badge warning' : trigger.ecart.statut === 'pac_accepte' ? 'badge primary' : trigger.ecart.statut === 'preuves_soumises' ? 'badge success' : 'badge outline';
 
                         return (
-                          <div key={trigger.ecart.id} className={`card border-l-4 ${urgenceColor}`}>
-                            <div className="card-content p-3">
+                          <Card key={trigger.ecart.id} variant={getUrgenceVariant} levelColor={getUrgenceLevelColor} className={`${getUrgenceBg} [&>div:last-child]:p-3`}>
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-mono text-sm font-semibold">{trigger.ecart.reference}</span>
@@ -1844,8 +1840,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                                   Ignorer
                                 </button>
                               </div>
-                            </div>
-                          </div>
+                          </Card>
                         );
                       })}
                     </div>
@@ -1859,8 +1854,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                         </p>
                         <div className="space-y-2">
                           {aero.suggestionsMaintien.map((s, idx) => (
-                            <div key={idx} className="card border-l-4 border-l-primary bg-primary/5">
-                              <div className="card-content p-3">
+                            <Card key={idx} variant="level" levelColor="primary" className="bg-primary/5 [&>div:last-child]:p-3">
                                 <div className="flex items-center justify-between flex-wrap gap-1 mb-1">
                                   <span className="text-xs font-medium">{s.raison}</span>
                                   <span className="badge outline text-xs">{s.confiance}%</span>
@@ -1876,8 +1870,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                                 <span className="text-xs text-muted-foreground mt-1 block">
                                   Source: {s.source === 'ecart_actif' ? 'Écart actif' : s.source === 'evenement_securite' ? 'Événement sécurité' : s.source === 'conformite_baisse' ? 'Conformité' : s.source === 'domaine_critique' ? 'Domaine critique' : s.source === 'historique' ? 'Historique' : s.source === 'lanceur_alerte' ? 'Lanceur alerte' : s.source}
                                 </span>
-                              </div>
-                            </div>
+                            </Card>
                           ))}
                         </div>
                       </div>
@@ -1889,16 +1882,14 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                         <p className="text-sm font-medium mb-2">Domaines à surveiller</p>
                         <div className="space-y-2">
                           {aero.domainesCritiques.map((d, idx) => (
-                            <div key={idx} className="card border-l-4 border-l-primary bg-primary/5">
-                              <div className="card-content p-3">
+                            <Card key={idx} variant="level" levelColor="primary" className="bg-primary/5 [&>div:last-child]:p-3">
                                 <div className="flex items-center justify-between">
                                   <span className={`badge text-xs ${d.score < 30 ? 'danger' : d.score < 60 ? 'warning' : 'primary'}`}>
                                     {d.domaine} (Score: {d.score})
                                   </span>
                                   <span className="text-xs text-muted-foreground">Seuil: {d.seuil}</span>
                                 </div>
-                              </div>
-                            </div>
+                            </Card>
                           ))}
                         </div>
                       </div>
@@ -1925,8 +1916,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Card>
       </div>
     </div>
           </div>
@@ -1992,7 +1982,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
 
       {/* Vue Tableau — groupé par aérodrome */}
       {viewMode === 'table' && (
-        <div className="card border-border overflow-hidden">
+        <Card className="overflow-hidden">
           <table className="table">
             <thead>
               <tr>
@@ -2074,7 +2064,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
               })}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
 
       {/* Vues modales */}

@@ -10,6 +10,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -177,29 +178,22 @@ export function EcartTimeline({ ecartId }: EcartTimelineProps) {
 
   if (!ecart) {
     return (
-      <div className="card">
-        <div className="card-content py-8 text-center text-muted-foreground">
-          Écart introuvable.
-        </div>
-      </div>
+      <Card className="text-center">
+        <p className="text-muted-foreground">Écart introuvable.</p>
+      </Card>
     );
   }
 
   const statutInfo = LABEL_STATUT[ecart.statut] ?? { label: ecart.statut, badgeClass: 'neutral' };
 
   return (
-    <div className="card">
-      <div className="card-header flex flex-row items-center justify-between space-y-0 pb-4">
-        <div className="card-title text-base font-semibold">
-          Historique — {ecart.reference}
+    <Card>
+        <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+          <span className="text-base font-semibold">Historique — {ecart.reference}</span>
+          <span className={`badge ${statutInfo.badgeClass}`}>{statutInfo.label}</span>
         </div>
-        <span className={`badge ${statutInfo.badgeClass}`}>{statutInfo.label}</span>
-      </div>
-
-      <div className="card-content">
         <div className="timeline">
           {historique.map((evt, index) => {
-            const Icone = ICONE_PAR_TYPE[evt.type];
             const couleur = COULEUR_PAR_TYPE[evt.type];
 
             return (
@@ -224,8 +218,7 @@ export function EcartTimeline({ ecartId }: EcartTimelineProps) {
             );
           })}
         </div>
-      </div>
-    </div>
+    </Card>
   );
 }
 

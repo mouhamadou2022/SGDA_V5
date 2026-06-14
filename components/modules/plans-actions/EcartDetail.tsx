@@ -16,6 +16,7 @@ import {
   ChevronRight,
   User,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { Ecart } from '@/lib/store';
 import { RappelSection } from './RappelSection';
@@ -250,8 +251,8 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
           <FileText className="w-4 h-4 text-blue-600" />
           Description de l&apos;écart
         </h3>
-        <div className="card">
-          <div className="card-content pt-4 space-y-3">
+        <Card>
+          <div className="space-y-3">
             <div>
               <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Libellé complet</span>
               <p className="text-sm text-gray-800 mt-1">{ecart.libelle}</p>
@@ -283,7 +284,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
               </div>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Section 2: Workflow PAC */}
@@ -292,8 +293,8 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
           <ChevronRight className="w-4 h-4 text-blue-600" />
           Workflow PAC
         </h3>
-        <div className="card">
-          <div className="card-content pt-4 space-y-3">
+        <Card>
+          <div className="space-y-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-gray-500">Progression</span>
               <span className="text-xs font-bold text-blue-700">{progressionPac}%</span>
@@ -317,7 +318,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
               );
             })}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* OACI Risk Trajectory — Bow-Tie Data-Driven */}
@@ -326,9 +327,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
         const traj = getRiskTrajectory(ecart)
         if (!traj) return null
         return (
-          <div className="card border-l-4 border-l-role-primary">
-            <div className="card-header pb-2"><div className="card-title text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-role-primary" />Trajectoire de risque (OACI Bow-Tie)</div></div>
-            <div className="card-content p-4">
+          <Card variant="role" icon={<AlertTriangle className="w-4 h-4 text-role-primary" />} title="Trajectoire de risque (OACI Bow-Tie)">
               <div className="flex items-center gap-2 flex-wrap">
                 {[
                   { label: 'Initial', cell: traj.initial, active: true },
@@ -351,8 +350,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
               </div>
               {ecart.justification_risque_ia && <p className="text-xs text-muted-foreground mt-2 italic">{ecart.justification_risque_ia}</p>}
               {(ecart as any).justification_risque_pac && <p className="text-xs text-muted-foreground mt-1 italic">{(ecart as any).justification_risque_pac}</p>}
-            </div>
-          </div>
+          </Card>
         )
       })()}
 
@@ -363,11 +361,9 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
             <ClipboardList className="w-4 h-4 text-blue-600" />
             Plan d&apos;Actions Correctives soumis
           </h3>
-          <div className="card">
-            <div className="card-content pt-4">
+          <Card>
               <PacActionsSection ecart={ecart} />
-            </div>
-          </div>
+          </Card>
         </div>
       )}
 

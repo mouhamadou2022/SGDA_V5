@@ -4,6 +4,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { AlertTriangle, Users, Calendar, BarChart3, ChevronDown, ChevronRight, X, Brain, Loader2, Sparkles } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import {
   BarChart,
   Bar,
@@ -191,46 +192,38 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
         </div>
       )}
 
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-small font-medium">Missions planifiées par inspecteur</div>
-        </div>
-        <div className="card-content">
-          {lignesCharge.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Aucun inspecteur trouvé</p>
-              <p className="text-xs">Vérifiez que des inspecteurs sont configurés dans l'application</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={Math.max(220, lignesCharge.length * 35)}>
-              <BarChart layout="vertical" data={dataChart} margin={{ top: 4, right: 20, left: 80, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="nom" tick={{ fontSize: 12 }} width={80} />
-                <Tooltip
-                  formatter={(value, name) => name === 'missions' ? [`${value} missions`, 'Missions'] : [`${value} jours`, 'Jours terrain']}
-                  contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
-                />
-                <Bar dataKey="missions" radius={[0, 4, 4, 0]}>
-                  {dataChart.map((entry, index) => (
-                    <Cell key={index} fill={entry.alerte ? '#ef4444' : 'var(--role-primary)'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-small font-medium flex items-center gap-2">
-            <Users className="h-4 w-4 text-role-primary" />
-            Détail par inspecteur ({lignesCharge.length})
+      <Card title="Missions planifiées par inspecteur">
+        {lignesCharge.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">Aucun inspecteur trouvé</p>
+            <p className="text-xs">Vérifiez que des inspecteurs sont configurés dans l'application</p>
           </div>
-        </div>
-        <div className="card-content p-0">
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(220, lignesCharge.length * 35)}>
+            <BarChart layout="vertical" data={dataChart} margin={{ top: 4, right: 20, left: 80, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
+              <XAxis type="number" tick={{ fontSize: 11 }} />
+              <YAxis type="category" dataKey="nom" tick={{ fontSize: 12 }} width={80} />
+              <Tooltip
+                formatter={(value, name) => name === 'missions' ? [`${value} missions`, 'Missions'] : [`${value} jours`, 'Jours terrain']}
+                contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
+              />
+              <Bar dataKey="missions" radius={[0, 4, 4, 0]}>
+                {dataChart.map((entry, index) => (
+                  <Cell key={index} fill={entry.alerte ? '#ef4444' : 'var(--role-primary)'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+
+      <Card
+        icon={<Users className="h-4 w-4 text-role-primary" />}
+        title={`Détail par inspecteur (${lignesCharge.length})`}
+        className="[&>div:last-child]:p-0"
+      >
           <div className="table-container">
             <table className="table">
               <thead>
@@ -276,8 +269,7 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
+      </Card>
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">

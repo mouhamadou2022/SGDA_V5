@@ -205,10 +205,12 @@ body[data-role="guest"] {
 }
 
 /* ── 6. RESET & BASE ─────────────────────────────────────── */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html {
@@ -1327,7 +1329,7 @@ input:checked + .form-toggle-slider:before {
 }
 
 .table th {
-  background: linear-gradient(to bottom, #fafafa, #f1f5f9);
+  background: linear-gradient(90deg, rgba(var(--role-primary-rgb), 0.15) 0%, transparent 100%);
   padding: var(--spacing-lg) var(--spacing-lg);
   text-align: left;
   font-weight: var(--font-weight-bold);
@@ -1338,18 +1340,45 @@ input:checked + .form-toggle-slider:before {
   border-bottom: 2px solid hsl(var(--border));
 }
 
+.table th:first-child {
+  border-left: 4px solid var(--role-primary);
+  padding-left: calc(var(--spacing-lg) - 4px);
+}
+
 .table td {
   padding: var(--spacing-lg) var(--spacing-lg);
   border-bottom: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--border));
   vertical-align: middle;
   transition: var(--transition-base);
   font-size: var(--font-size-sm);
   color: hsl(var(--foreground));
 }
 
+.table td:first-child {
+  border-left: 4px solid var(--role-primary);
+  padding-left: calc(var(--spacing-lg) - 4px);
+}
+
+.table td:last-child {
+  border-right: none;
+}
+
+.table th {
+  border-right: 1px solid hsl(var(--border));
+}
+
+.table th:last-child {
+  border-right: none;
+}
+
 .table tbody tr {
   transition: var(--transition-base);
   cursor: pointer;
+}
+
+.table tbody tr:nth-child(even) {
+  background: rgba(var(--role-primary-rgb), 0.03);
 }
 
 .table tbody tr:hover {
@@ -2818,11 +2847,17 @@ html.dark .table th {
   background: #0f172a;
   color: #94a3b8;
   border-bottom-color: #334155;
+  border-right-color: #334155;
 }
 
 html.dark .table td {
   border-bottom-color: #334155;
+  border-right-color: #334155;
   color: #e2e8f0;
+}
+
+html.dark .table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 html.dark .table tbody tr:hover {

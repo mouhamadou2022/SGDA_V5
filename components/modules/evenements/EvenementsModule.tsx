@@ -21,6 +21,7 @@ import {
 import EvenementWorkflow from './EvenementWorkflow'
 import EvenementRapport from './EvenementRapport'
 import { EvenementForm } from '@/components/forms/EvenementForm'
+import { Card } from '@/components/ui/card'
 
 interface EvenementsModuleProps {
   user?: { role?: string; aerodrome_id?: string; id?: string; prenom?: string; nom?: string }
@@ -448,8 +449,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
               {evts.map(evt => {
                 const badgeStatut = getBadgeStatut(evt.statut)
                 return (
-                  <div key={evt.id} className="card overflow-hidden border border-border/60 hover:border-role-primary/30 transition-colors border-l-4 border-l-role-primary">
-                    <div className="card-content p-4">
+                  <Card key={evt.id} variant="role" className="border-border/60 hover:border-role-primary/30 transition-colors" size="sm">
                       <div className="flex items-start justify-between flex-wrap gap-4">
                         <div className="flex items-start gap-3 flex-1">
                           {getIconeGravite(evt.gravite)}
@@ -490,18 +490,17 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
                           )}
                         </div>
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )
               })}
             </AccordionSection>
           )
         })}
         {Object.keys(evenementsParAerodrome).length === 0 && (
-          <div className="card p-8 text-center text-muted-foreground">
+          <Card size="lg" className="text-center">
             <AlertTriangle className="w-12 h-12 mx-auto mb-2 opacity-30" />
-            <p>Aucun événement trouvé</p>
-          </div>
+            <p className="text-muted-foreground">Aucun événement trouvé</p>
+          </Card>
         )}
       </AccordionGroup>
 

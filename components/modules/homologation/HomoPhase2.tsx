@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Save, Lock, Link as LinkIcon, Calendar, Users, FileText, AlertCircle } from 'lucide-react'
 import { useAppStore, Homologation } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -66,14 +67,12 @@ export function HomoPhase2({ homoId, phaseData, estActive, onUpdate, userRole = 
 
   return (
     <div className="space-y-4 animate-fade-in" data-role={userRole}>
-      <div className="card border-border border-l-4 border-l-role-primary">
-        <div className="card-header pb-3 bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-small font-semibold flex items-center gap-2">
-            {readOnly && <Lock className="h-4 w-4 text-muted-foreground" />}
-            Phase 2 — Vérification Terrain
-          </div>
-        </div>
-        <div className="card-content space-y-4">
+      <Card
+        variant="role"
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted-foreground" /> : undefined}
+        heading="Phase 2 — Vérification Terrain"
+      >
+        <div className="space-y-4">
           {/* Surveillance liée */}
           <div className="form-field">
             <label className="text-role-primary text-xs uppercase font-semibold flex items-center gap-1">
@@ -344,7 +343,7 @@ export function HomoPhase2({ homoId, phaseData, estActive, onUpdate, userRole = 
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

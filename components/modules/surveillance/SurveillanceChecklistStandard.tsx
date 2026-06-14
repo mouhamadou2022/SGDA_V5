@@ -7,6 +7,7 @@ import {
   Target, Brain, Sparkles, Shield,
   Zap, Check, ChevronDown, Eye, X,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
@@ -58,8 +59,8 @@ function SuggestionsBanner({ suggestions, onAcceptAll, onIgnore }: {
   const remaining = suggestions.filter(s => !accepted.includes(s.itemId));
   if (remaining.length === 0) return null;
   return (
-    <div className="card border-l-4 border-l-primary bg-primary/5 mb-4">
-      <button className="w-full flex items-center justify-between p-3" onClick={() => setExpanded(!expanded)}>
+    <Card variant="level" levelColor="primary" className="bg-primary/5 mb-4">
+      <button className="w-full flex items-center justify-between" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-blue-500" />
           <span className="font-semibold text-sm">Suggestions du système ({remaining.length})</span>
@@ -72,7 +73,7 @@ function SuggestionsBanner({ suggestions, onAcceptAll, onIgnore }: {
         </div>
       </button>
       {expanded && (
-        <div className="p-3 pt-0 space-y-2">
+        <div className="space-y-2">
           {remaining.map(s => (
             <div key={s.itemId} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center gap-3">
@@ -85,7 +86,7 @@ function SuggestionsBanner({ suggestions, onAcceptAll, onIgnore }: {
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -528,8 +529,7 @@ export function SurveillanceChecklistStandard({
   return (
     <div className="space-y-6" data-role={userRole} data-module="checklist-standard">
       {/* En-tête */}
-      <div className="card border-l-4 border-l-role-primary bg-gradient-to-r from-primary/10 to-primary/5">
-        <div className="card-content p-4">
+      <Card variant="role" className="bg-gradient-to-r from-primary/10 to-primary/5">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-3">
@@ -581,13 +581,11 @@ export function SurveillanceChecklistStandard({
               <p className="text-[10px] text-blue-400 mt-1">Les mesures d'atténuation seront ajoutées aux checklists de suivi.</p>
             </div>
           )}
-        </div>
-      </div>
+      </Card>
 
       {/* Bouton Évaluation SGS */}
       {domaines.some(d => d.nom === 'SGS') && !actualReadOnly && (
-        <div className="card border-l-4 border-l-role-primary bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-content p-4">
+        <Card variant="role" className="bg-gradient-to-r from-role-primary/5 to-transparent">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-3">
                 <Brain className="w-6 h-6 text-role-primary" />
@@ -616,15 +614,13 @@ export function SurveillanceChecklistStandard({
                 {sgsEvaluation ? 'Modifier l\'évaluation' : previousEvaluation ? 'Voir et ajuster les suggestions' : 'Évaluer le SGS'}
               </button>
             </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       <SuggestionsBanner suggestions={suggestions} onAcceptAll={handleAcceptAllSuggestions} onIgnore={handleIgnoreSuggestions} />
 
       {iaPrefilledCount > 0 && (
-        <div className="card border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30">
-          <div className="card-content p-3">
+        <Card variant="level" className="border-l-purple-500 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30">
             <div className="flex items-start gap-3">
               <div className="rounded-full bg-purple-100 dark:bg-purple-900/50 p-1.5 flex-shrink-0"><Brain className="w-4 h-4 text-purple-600" /></div>
               <div className="flex-1 min-w-0">
@@ -633,13 +629,11 @@ export function SurveillanceChecklistStandard({
               </div>
               <span className="badge text-[12px] bg-purple-100 text-purple-700 border-purple-200 flex-shrink-0">Suggestions IA</span>
             </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Stats conformité */}
-      <div className="card border-border overflow-hidden">
-        <div className="card-content p-4">
+      <Card className="overflow-hidden">
           {/* Compteurs SA/NS/NV/NA */}
           <div className="grid grid-cols-4 gap-3 mb-4">
             {([
@@ -678,8 +672,7 @@ export function SurveillanceChecklistStandard({
               </button>
             </div>
           </div>
-        </div>
-      </div>
+      </Card>
 
 
       {/* Checklist SGS-style table — rendu partagé */}
@@ -693,8 +686,7 @@ export function SurveillanceChecklistStandard({
 
       {/* Signature */}
       {!readOnly && !isSigned && (
-        <div className={`card border-2 border-dashed ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-blue-300 bg-blue-50 opacity-50'}`}>
-          <div className="card-content p-6 text-center">
+        <Card className={`border-2 border-dashed text-center ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-blue-300 bg-blue-50 opacity-50'}`}>
             <PenLine className={`h-12 w-12 mx-auto mb-4 ${stats.progression === 100 ? 'text-success' : 'text-blue-400'}`} />
             <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
             {stats.progression === 100 ? (
@@ -705,8 +697,7 @@ export function SurveillanceChecklistStandard({
             ) : (
               <p className="text-small text-blue-500">⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifiés</p>
             )}
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Modal évaluation SGS */}

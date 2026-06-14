@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Preview — Onglet Diagnostic (Charte rôle)</title>
+<style>
+  :root {
+    --bg-body: #f4f6f9;
+    --bg-card: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --danger: #ef4444;
+    --danger-soft: #fef2f2;
+    --warning: #f59e0b;
+    --primary: #3b82f6;  /* Approximation role-primary */
+    --primary-soft: #eff6ff;
+    --success: #22c55e;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background: var(--bg-body);
+    color: var(--text);
+    padding: 32px 16px;
+    line-height: 1.5;
+  }
+  .container { max-width: 800px; margin: 0 auto; }
+  .space-y-6 > * + * { margin-top: 24px; }
+
+  /* Card standard */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .card-content { padding: 20px 24px; }
+
+  /* Gradient header rôle */
+  .header-role {
+    background: linear-gradient(90deg, rgba(59,130,246,0.06) 0%, transparent 100%);
+  }
+
+  /* Bordures gauche */
+  .border-l-danger { border-left: 4px solid var(--danger); }
+  .border-l-warning { border-left: 4px solid var(--warning); }
+  .border-l-primary { border-left: 4px solid var(--primary); }
+  .border-l-success { border-left: 4px solid var(--success); }
+  .border-l-role    { border-left: 4px solid var(--primary); }
+
+  /* Badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .badge.danger { background: var(--danger); color: #fff; }
+  .badge.warning { background: var(--warning); color: #fff; }
+  .badge.primary { background: var(--primary); color: #fff; }
+  .badge.success { background: var(--success); color: #fff; }
+
+  /* Textes couleur */
+  .text-danger { color: var(--danger); }
+  .text-warning { color: var(--warning); }
+  .text-primary { color: var(--primary); }
+  .text-success { color: var(--success); }
+  .text-muted { color: var(--muted); }
+
+  /* Sous-carte critère */
+  .subcard {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--bg-card);
+  }
+  .subcard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .subcard-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .score { font-size: 0.9rem; font-weight: 700; }
+
+  /* Progress bar */
+  .progress-wrap {
+    width: 100%;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    margin: 10px 0;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.6s ease;
+  }
+  .bg-danger { background: var(--danger); }
+  .bg-warning { background: var(--warning); }
+  .bg-primary { background: var(--primary); }
+  .bg-success { background: var(--success); }
+
+  /* Muted box */
+  .muted-box {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    background: #f8fafc;
+  }
+
+  /* Grid */
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  @media (min-width: 640px) {
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  /* Alert Cygne Noir (seule carte avec fond pastel) */
+  .alert-critical {
+    background: var(--danger-soft) !important;
+    border-left: 4px solid var(--danger);
+  }
+  .animate-pulse { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse {
+    0%,100%{ opacity:1 }
+    50%{ opacity:.5 }
+  }
+
+  .mt-1 { margin-top: 4px; }
+  .mt-2 { margin-top: 8px; }
+  .mt-3 { margin-top: 12px; }
+  .mt-4 { margin-top: 16px; }
+  .mb-2 { margin-bottom: 8px; }
+  .space-y-2 > * + * { margin-top: 8px; }
+  .space-y-3 > * + * { margin-top: 12px; }
+  .space-y-4 > * + * { margin-top: 16px; }
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .gap-2 { gap: 8px; }
+  .gap-3 { gap: 12px; }
+  .gap-4 { gap: 16px; }
+  .ml-auto { margin-left: auto; }
+  .shrink-0 { flex-shrink: 0; }
+  .italic { font-style: italic; }
+  .font-mono { font-family: ui-monospace, monospace; }
+  .text-sm { font-size: 0.875rem; }
+  .text-xs { font-size: 0.75rem; }
+  .font-semibold { font-weight: 600; }
+  .font-bold { font-weight: 700; }
+  .leading-relaxed { line-height: 1.625; }
+</style>
+</head>
+<body>
+
+<div class="container space-y-6">
+
+  <!-- ===== DIAGNOSTIC DU NIVEAU DE RISQUE (niveau applicable) ===== -->
+  <div class="card border-l-danger">
+    <div class="card-header">
+      <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-danger"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Diagnostic du niveau de risque</span>
+        <span class="badge danger ml-auto">Critique — 22/100</span>
+      </div>
+    </div>
+    <div class="card-content">
+      <p class="text-sm text-muted">3 surveillances · 2 événements</p>
+    </div>
+  </div>
+
+  <!-- ===== DÉTAIL PAR CRITÈRE (pas de niveau global applicable → rôle) ===== -->
+  <div class="card border-l-role">
+    <div class="card-header header-role">
+      <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        <span>Détail par critère</span>
+      </div>
+    </div>
+    <div class="card-content space-y-4">
+
+      <!-- C1 -->
+      <div class="subcard border-l-danger">
+        <div class="subcard-header">
+          <div class="subcard-title">
+            C1 — Maturité SGS
+            <span class="badge danger">Critique</span>
+          </div>
+          <span class="score text-danger">15/100</span>
+        </div>
+        <div><span class="text-sm font-semibold text-primary">N1 Absent</span></div>
+        <div class="progress-wrap"><div class="progress-bar bg-danger" style="width:15%"></div></div>
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-muted">Solidité du Système de Gestion de la Sécurité.</p>
+          <span class="text-xs text-muted font-mono">pondération 20%</span>
+        </div>
+      </div>
+
+      <!-- C2 -->
+      <div class="subcard border-l-warning">
+        <div class="subcard-header">
+          <div class="subcard-title">
+            C2 — Efficacité PAC
+            <span class="badge warning">Élevé</span>
+          </div>
+          <span class="score text-warning">45/100</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar bg-warning" style="width:45%"></div></div>
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-muted">Taux de mise en œuvre et efficacité des Plans d'Actions Correctives.</p>
+          <span class="text-xs text-muted font-mono">pondération 25%</span>
+        </div>
+      </div>
+
+      <!-- C3 -->
+      <div class="subcard border-l-primary">
+        <div class="subcard-header">
+          <div class="subcard-title">
+            C3 — Conformité technique
+            <span class="badge primary">Moyen</span>
+          </div>
+          <span class="score text-primary">62/100</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar bg-primary" style="width:62%"></div></div>
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-muted">Respect des exigences réglementaires.</p>
+          <span class="text-xs text-muted font-mono">pondération 20%</span>
+        </div>
+      </div>
+
+      <!-- C4 -->
+      <div class="subcard border-l-warning">
+        <div class="subcard-header">
+          <div class="subcard-title">
+            C4 — Charge critique non résolue
+            <span class="badge warning">Élevé</span>
+          </div>
+          <span class="score text-warning">38/100</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar bg-warning" style="width:38%"></div></div>
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-muted">Volume d'écarts critiques et majeurs en souffrance.</p>
+          <span class="text-xs text-muted font-mono">pondération 20%</span>
+        </div>
+      </div>
+
+      <!-- C5 -->
+      <div class="subcard border-l-success">
+        <div class="subcard-header">
+          <div class="subcard-title">
+            C5 — Résilience & Historique
+            <span class="badge success">Faible</span>
+          </div>
+          <span class="score text-success">88/100</span>
+        </div>
+        <div class="progress-wrap"><div class="progress-bar bg-success" style="width:88%"></div></div>
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-muted">Historique d'incidents, capacité de résilience.</p>
+          <span class="text-xs text-muted font-mono">pondération 15%</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== FACTEURS INFRASTRUCTURE (pas de niveau applicable → rôle) ===== -->
+  <div class="card border-l-role">
+    <div class="card-header header-role">
+      <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>Facteurs infrastructure</span>
+      </div>
+    </div>
+    <div class="card-content">
+      <div class="grid-4">
+        <div>
+          <span class="text-sm text-muted">Type d'entité</span>
+          <p class="text-sm font-semibold mt-1">aerodrome</p>
+        </div>
+        <div>
+          <span class="text-sm text-muted">Horaires</span>
+          <p class="text-sm font-semibold mt-1">Jour</p>
+        </div>
+        <div>
+          <span class="text-sm text-muted">Type</span>
+          <p class="text-sm font-semibold mt-1">International</p>
+        </div>
+        <div>
+          <span class="text-sm text-muted">Catégorie SSLI</span>
+          <p class="text-sm font-semibold mt-1">4</p>
+        </div>
+      </div>
+      <p class="text-sm text-muted mt-4 leading-relaxed">
+        Aérodrome international : exigences renforcées (OACI Annexe 14), trafic plus dense, surveillance accrue.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== ANALYSE BAYÉSIENNE (pas de niveau global applicable → rôle) ===== -->
+  <div class="card border-l-role">
+    <div class="card-header header-role">
+      <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        <span>Analyse bayésienne</span>
+      </div>
+    </div>
+    <div class="card-content space-y-4">
+      <div class="grid-4">
+        <div class="muted-box">
+          <span class="text-sm text-muted">Probabilité a priori</span>
+          <p class="text-lg font-bold mt-1 text-warning">8 %</p>
+          <span class="badge warning mt-1">Élevé</span>
+          <p class="text-sm text-muted mt-2">Estimation initiale</p>
+        </div>
+        <div class="muted-box">
+          <span class="text-sm text-muted">Probabilité a posteriori</span>
+          <p class="text-lg font-bold mt-1 text-danger">22 %</p>
+          <span class="badge danger mt-1">Critique</span>
+          <p class="text-sm text-muted mt-2">Mise à jour données</p>
+        </div>
+      </div>
+      <p class="text-sm text-muted leading-relaxed">
+        La probabilité a posteriori (22 %) est supérieure à l'a priori (8 %) : les observations récentes indiquent une dégradation.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== ALERTE CYGNE NOIR (niveau applicable → danger) ===== -->
+  <div class="card alert-critical">
+    <div class="card-header">
+      <div class="card-title" style="color:var(--danger)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-pulse"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Alerte Cygne Noir</span>
+        <span class="badge danger ml-auto">CRITIQUE</span>
+      </div>
+    </div>
+    <div class="card-content">
+      <p class="text-sm" style="color:var(--danger); line-height:1.6">
+        Le modèle bayésien détecte un risque de type « cygne noir » — un événement rare mais à impact catastrophique pourrait survenir. Renforcement urgent de la surveillance recommandé.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== SCÉNARIO PIRE CAS (niveau applicable → danger) ===== -->
+  <div class="card border-l-danger">
+    <div class="card-header">
+      <div class="card-title" style="color:var(--danger)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Scénario pire cas : Déroutement d'urgence</span>
+        <span class="badge danger ml-auto">Critique</span>
+      </div>
+    </div>
+    <div class="card-content space-y-4">
+      <p class="text-sm text-muted leading-relaxed">
+        En cas de dégradation simultanée C1 et C4, le risque de fermeture partielle de l'aérodrome passe à 35 %.
+      </p>
+      <div class="grid-3">
+        <div class="muted-box">
+          <span class="text-sm text-muted">Score projeté</span>
+          <p class="text-lg font-bold mt-1 text-danger">18/100</p>
+        </div>
+        <div class="muted-box">
+          <span class="text-sm text-muted">Probabilité</span>
+          <p class="text-lg font-bold mt-1 text-foreground">35.0 %</p>
+        </div>
+        <div class="muted-box">
+          <span class="text-sm text-muted">Intervalle de confiance</span>
+          <p class="text-sm mt-1 text-foreground">[12.5% – 58.3%]</p>
+        </div>
+      </div>
+      <div>
+        <span class="text-sm font-semibold">Actions recommandées :</span>
+        <ul class="mt-2 space-y-1">
+          <li class="text-sm text-muted flex gap-2"><span class="text-danger shrink-0">•</span><span>Auditer immédiatement le SGS</span></li>
+          <li class="text-sm text-muted flex gap-2"><span class="text-danger shrink-0">•</span><span>Programmer surveillance renforcée sous 7 jours</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== FORCE DE DÉPENDANCE (pas de niveau applicable → rôle) ===== -->
+  <div class="card border-l-role">
+    <div class="card-header header-role">
+      <div class="card-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <span>Force de dépendance</span>
+      </div>
+    </div>
+    <div class="card-content space-y-3">
+      <div class="flex items-center gap-4">
+        <div style="flex:1">
+          <div class="progress-wrap"><div class="progress-bar bg-warning" style="width:55%"></div></div>
+        </div>
+        <span class="text-sm font-bold text-warning">55 %</span>
+      </div>
+      <p class="text-sm text-muted leading-relaxed">
+        Corrélation modérée : les domaines sont partiellement liés en situation de stress.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

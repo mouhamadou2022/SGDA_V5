@@ -7,6 +7,7 @@ import {
   CheckCircle, Mail, AlertCircle, Info, Upload,
   X, Eye, Trash2, FileText, Calendar, Tag, Activity,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import type { Aerodrome } from '@/lib/store';
@@ -85,9 +86,11 @@ export default function SurveillanceLettre({
 
   if (!surveillance) {
     return (
-      <div className="card p-8 text-center animate-fade-in">
-        <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-        <p className="text-small">Surveillance introuvable.</p>
+      <div className="animate-fade-in">
+        <Card className="text-center">
+          <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-small">Surveillance introuvable.</p>
+        </Card>
       </div>
     );
   }
@@ -185,14 +188,11 @@ export default function SurveillanceLettre({
       )}
 
       {/* ── Métadonnées surveillance ── */}
-      <div className="card border-border animate-fade-in" style={{ animationDelay: '100ms' }}>
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent py-3">
-          <div className="card-title text-sm flex items-center gap-2">
-            <Activity className="w-4 h-4 text-role-primary" />
-            Informations de la surveillance
-          </div>
-        </div>
-        <div className="card-content p-4">
+      <div className="animate-fade-in" style={{ animationDelay: '100ms' }}>
+        <Card
+          icon={<Activity className="w-4 h-4 text-role-primary" />}
+          title="Informations de la surveillance"
+        >
           <div className="grid grid-cols-2 gap-4">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center flex-shrink-0">
@@ -243,7 +243,7 @@ export default function SurveillanceLettre({
               </div>
             </div>
           </div>
-        </div>
+      </Card>
       </div>
 
       {/* ── Modale upload ── */}

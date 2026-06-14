@@ -10,6 +10,7 @@ const FREQUENCE_BASE: Record<NiveauRisque, number> = {
   eleve: 4,
   moyen: 2,
   faible: 1,
+  tres_faible: 0.5,
 }
 
 // Valeur par défaut

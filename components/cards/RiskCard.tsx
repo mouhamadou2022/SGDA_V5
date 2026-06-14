@@ -5,6 +5,7 @@
 
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
+import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, Activity, Eye, Brain } from 'lucide-react'
 
 interface Props {
@@ -26,15 +27,15 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
     return 'badge danger'
   }
   const getBorderClr = () => {
-    if (score >= 80) return 'border-l-success'
-    if (score >= 60) return 'border-l-primary'
-    if (score >= 30) return 'border-l-warning'
-    return 'border-l-danger'
+    if (score >= 80) return 'success' as const
+    if (score >= 60) return 'primary' as const
+    if (score >= 30) return 'warning' as const
+    return 'danger' as const
   }
 
   const tendance = profil.tendance || 'stable'
   const TendanceIcon = tendance === 'hausse' ? TrendingUp : tendance === 'baisse' ? TrendingDown : Minus
-  const tendanceClr = tendance === 'hausse' ? 'text-success' : tendance === 'baisse' ? 'text-danger' : 'text-muted-foreground'
+  const tendanceClr = tendance === 'hausse' ? 'text-success' : tendance === 'baisse' ? 'text-danger' : 'text-foreground'
   const tendanceLabel = tendance === 'hausse' ? 'Amélioration' : tendance === 'baisse' ? 'Dégradation' : 'Stable'
 
   const criteres = [
@@ -54,7 +55,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
   }
 
   if (compact) return (
-    <div className={`card p-3 hover:shadow-md transition-shadow cursor-pointer border-l-4 ${getBorderClr()}`} onClick={onView}>
+    <Card variant="level" levelColor={getBorderClr()} interactive size="sm" onClick={onView}>
       <div className="flex items-center justify-between mb-1">
         <span className="code-oaci-badge text-xs">{aerodromeCode}</span>
         <div className="flex items-center gap-1">
@@ -63,34 +64,27 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         </div>
       </div>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Score</span>
+        <span className="text-foreground">Score</span>
         <span className={`font-bold ${getScoreClr(score)}`}>{score}/100</span>
       </div>
       <div className="progress h-1.5 mt-1"><div className="progress-bar" style={{ width: `${score}%` }} /></div>
-    </div>
+    </Card>
   )
 
   return (
-    <div className={`card hover:shadow-lg transition-shadow cursor-pointer border-l-4 ${getBorderClr()}`} onClick={onView}>
-      <div className="card-header border-b border-border">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="w-9 h-9 rounded-lg bg-role-primary-soft flex items-center justify-center">
-            <Activity className="w-5 h-5 text-role-primary" />
-          </div>
-          <span className="code-oaci-badge text-sm">{aerodromeCode}</span>
-          {aerodromeName && <span className="font-semibold text-sm truncate max-w-[140px]">{aerodromeName}</span>}
-          <span className={`badge text-xs ml-auto ${getNiveauBadge()}`}>{profil.niveau}</span>
-        </div>
-      </div>
-
-      <div className="card-content p-4 space-y-3">
+    <Card variant="level" levelColor={getBorderClr()} interactive onClick={onView}
+      icon={<Activity className="w-5 h-5 text-role-primary" />}
+      title={aerodromeName ? `${aerodromeCode} — ${aerodromeName}` : aerodromeCode}
+      badge={<span className={`badge text-xs ${getNiveauBadge()}`}>{profil.niveau}</span>}
+    >
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">Score global</p>
+            <p className="text-xs text-foreground">Score global</p>
             <span className={`text-2xl font-bold ${getScoreClr(score)}`}>{score}/100</span>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Tendance</p>
+            <p className="text-xs text-foreground">Tendance</p>
             <span className="flex items-center gap-1 text-xs">
               <TendanceIcon className={`w-3.5 h-3.5 ${tendanceClr}`} />
               <span className={tendanceClr}>{tendanceLabel}</span>
@@ -100,7 +94,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
 
         {/* C1-C5 mini radar */}
         <div>
-          <p className="text-xs text-muted-foreground mb-1.5">Critères C1-C5</p>
+          <p className="text-xs text-foreground mb-1.5">Critères C1-C5</p>
           <div className="grid grid-cols-5 gap-1">
             {criteres.map(({ k, label, isMaturite }) => {
               const v = (profil as any)[k] as number
@@ -108,7 +102,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
               const clrTxt = v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'
               return (
                 <div key={k} className="text-center" title={criteres.find(c => c.k === k)?.full}>
-                  <span className="text-[9px] text-muted-foreground block mb-0.5">{label}</span>
+                  <span className="text-[9px] text-foreground block mb-0.5">{label}</span>
                   <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5">
                     <div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} />
                   </div>
@@ -122,9 +116,9 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         </div>
 
         {/* Prédictions */}
-        <div className="grid grid-cols-2 gap-2 text-xs bg-role-primary-soft/20 rounded-md p-2">
-          <div><p className="text-muted-foreground">Prédiction 3 mois</p><p className={`font-semibold ${getScoreClr(profil.prediction_3m)}`}>{profil.prediction_3m}/100</p></div>
-          <div><p className="text-muted-foreground">Prédiction 6 mois</p><p className={`font-semibold ${getScoreClr(profil.prediction_6m)}`}>{profil.prediction_6m}/100</p></div>
+        <div className="grid grid-cols-2 gap-2 text-xs bg-role-primary-soft/20 rounded-md p-3">
+          <div><p className="text-foreground">Prédiction 3 mois</p><p className={`font-semibold ${getScoreClr(profil.prediction_3m)}`}>{profil.prediction_3m}/100</p></div>
+          <div><p className="text-foreground">Prédiction 6 mois</p><p className={`font-semibold ${getScoreClr(profil.prediction_6m)}`}>{profil.prediction_6m}/100</p></div>
         </div>
 
         {/* Indicateurs */}
@@ -136,8 +130,8 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         </div>
       </div>
 
-      <div className="card-footer border-t border-border flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">MAJ: {profil.computed_at ? new Date(profil.computed_at).toLocaleDateString('fr-FR') : 'N/A'}</span>
+      <div className="flex items-center justify-between pt-4 mt-1 border-t border-border">
+        <span className="text-xs text-foreground">MAJ: {profil.computed_at ? new Date(profil.computed_at).toLocaleDateString('fr-FR') : 'N/A'}</span>
         <div className="flex gap-1">
           {profil.hmm_state && (
             <span className={`text-xs flex items-center gap-1 ${profil.hmm_state.currentStateName === 'critique' ? 'text-danger' : profil.hmm_state.currentStateName === 'dégradation' ? 'text-warning' : 'text-success'}`}>
@@ -147,6 +141,6 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
           {onView && <button className="action-button hover:text-role-primary" onClick={e => { e.stopPropagation(); onView() }} title="Voir détails"><Eye className="w-4 h-4" /></button>}
         </div>
       </div>
-    </div>
+    </Card>
   )
 }

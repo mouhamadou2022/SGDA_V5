@@ -114,7 +114,18 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
   const c4 = baselineC4(aerodrome)
   const c5 = baselineC5(aerodrome)
 
-  // C2 : dégradée par l'âge de l'aérodrome (pas d'écarts = risque latent croissant avec le temps)
+  // C2 dégradée dans le temps : si l'aérodrome existe depuis longtemps sans audit,
+  // le risque de retard PAC latent augmente
+  function degradeC2ParTemps(aerodrome: Aerodrome): number {
+    if (!aerodrome.created_at) return 100
+    const ageJours = (Date.now() - new Date(aerodrome.created_at).getTime()) / 86400000
+    if (ageJours < 90) return 100
+    if (ageJours < 180) return 92
+    if (ageJours < 365) return 82
+    if (ageJours < 730) return 68
+    return 50
+  }
+
   const c2 = degradeC2ParTemps(aerodrome)
 
   const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
@@ -129,26 +140,12 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
   const tendanceOffset = sgs >= 75 ? 2 : sgs <= 25 ? -4 : 0
   const tendance: ProfilRisque['tendance'] = sgs >= 75 ? 'hausse' : sgs <= 25 ? 'baisse' : 'stable'
 
-  // C2 dégradée dans le temps : si l'aérodrome existe depuis longtemps sans audit,
-  // le risque de retard PAC latent augmente
-  function degradeC2ParTemps(aerodrome: Aerodrome): number {
-    if (!aerodrome.created_at) return 100
-    const ageJours = (Date.now() - new Date(aerodrome.created_at).getTime()) / 86400000
-    if (ageJours < 90) return 100
-    if (ageJours < 180) return 92
-    if (ageJours < 365) return 82
-    if (ageJours < 730) return 68
-    return 50
-  }
-
-  const c2Reel = degradeC2ParTemps(aerodrome)
-
   const profil: ProfilRisque = {
     aerodrome_id: aerodrome.id,
     score_global: scoreGlobal,
     niveau,
     c1,
-    c2: c2Reel,
+    c2,
     c3, c4, c5,
     prediction_3m:  Math.min(100, Math.max(0, scoreGlobal + tendanceOffset)),
     infrastructure: {

@@ -4,6 +4,8 @@
 'use client'
 
 import { ProfilRisque, Ecart } from '@/lib/store'
+import { Card } from '@/components/ui/card'
+import { getRiskLevelFromCell5 } from '@/lib/risque'
 import { Target } from 'lucide-react'
 
 interface OACIMatrixSectionProps {
@@ -29,29 +31,20 @@ interface CellMeta {
   niveau: 'critique' | 'eleve' | 'moyen' | 'faible' | 'tres_faible'
 }
 
+const NIVEAU_CONFIG: Record<string, { color: string; bgClass: string; textClass: string }> = {
+  critique: { color: 'var(--color-danger)', bgClass: 'bg-danger', textClass: 'text-white' },
+  eleve: { color: 'var(--color-warning)', bgClass: 'bg-warning', textClass: 'text-white' },
+  moyen: { color: 'var(--color-neutral)', bgClass: 'bg-muted', textClass: 'text-foreground' },
+  faible: { color: 'var(--color-success)', bgClass: 'bg-success', textClass: 'text-white' },
+  tres_faible: { color: 'var(--color-primary)', bgClass: 'bg-primary', textClass: 'text-white' },
+}
+
 function getCellMeta(prob: number, grav: Gravite): CellMeta {
   const key = `${prob}${grav}` as CellKey
   const label = `${prob}${grav}`
-
-  // Matrice OACI 5×5 standard
-  // Rouge: 5A, 5B, 4A, 3A
-  if ((prob === 5 && (grav === 'A' || grav === 'B')) || (prob === 4 && grav === 'A') || (prob === 3 && grav === 'A')) {
-    return { key, prob, grav, label, color: 'var(--color-danger)', bgClass: 'bg-danger', textClass: 'text-white', niveau: 'critique' }
-  }
-  // Orange: 4B, 3B, 5C, 2A
-  if ((prob === 4 && grav === 'B') || (prob === 3 && grav === 'B') || (prob === 5 && grav === 'C') || (prob === 2 && grav === 'A')) {
-    return { key, prob, grav, label, color: 'var(--color-warning)', bgClass: 'bg-warning', textClass: 'text-white', niveau: 'eleve' }
-  }
-  // Jaune: 5D, 4C, 3C, 2B, 1A
-  if ((prob === 5 && grav === 'D') || (prob === 4 && grav === 'C') || (prob === 3 && grav === 'C') || (prob === 2 && grav === 'B') || (prob === 1 && grav === 'A')) {
-    return { key, prob, grav, label, color: 'var(--color-neutral)', bgClass: 'bg-muted', textClass: 'text-foreground', niveau: 'moyen' }
-  }
-  // Vert: 5E, 4D, 3D, 2C, 1B
-  if ((prob === 5 && grav === 'E') || (prob === 4 && grav === 'D') || (prob === 3 && grav === 'D') || (prob === 2 && grav === 'C') || (prob === 1 && grav === 'B')) {
-    return { key, prob, grav, label, color: 'var(--color-success)', bgClass: 'bg-success', textClass: 'text-white', niveau: 'faible' }
-  }
-  // Bleu: 4E, 3E, 2D, 2E, 1C, 1D, 1E
-  return { key, prob, grav, label, color: 'var(--color-primary)', bgClass: 'bg-primary', textClass: 'text-white', niveau: 'tres_faible' }
+  const niveau = getRiskLevelFromCell5(key)
+  const cfg = NIVEAU_CONFIG[niveau] || NIVEAU_CONFIG.tres_faible
+  return { key, prob, grav, label, ...cfg, niveau: niveau as CellMeta['niveau'] }
 }
 
 function resolveCellKey(ecart: Ecart): CellKey | null {
@@ -78,25 +71,20 @@ function deriveCellKeyFromProfil(profil: ProfilRisque): CellKey | null {
 }
 
 function getNiveauLabel(niveau: string): string {
-  switch (niveau) {
-    case 'critique': return 'Critique'
-    case 'eleve': return 'Élevé'
-    case 'moyen': return 'Moyen'
-    case 'faible': return 'Faible'
-    case 'tres_faible': return 'Très faible'
-    default: return niveau
+  const labels: Record<string, string> = {
+    critique: 'Critique', eleve: 'Élevé', moyen: 'Moyen',
+    faible: 'Faible', tres_faible: 'Très faible',
   }
+  return labels[niveau] || niveau
 }
 
 function getNiveauBadgeClass(niveau: string): string {
-  switch (niveau) {
-    case 'critique': return 'risk-badge critique'
-    case 'eleve': return 'risk-badge eleve'
-    case 'moyen': return 'risk-badge moyen'
-    case 'faible': return 'risk-badge faible'
-    case 'tres_faible': return 'badge neutral'
-    default: return 'badge neutral'
+  const classes: Record<string, string> = {
+    critique: 'risk-badge critique', eleve: 'risk-badge eleve',
+    moyen: 'risk-badge moyen', faible: 'risk-badge faible',
+    tres_faible: 'badge neutral',
   }
+  return classes[niveau] || 'badge neutral'
 }
 
 export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixSectionProps) {
@@ -132,7 +120,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Summary stats */}
       <div className="flex flex-wrap gap-3">
         {(['critique', 'eleve', 'moyen', 'faible', 'tres_faible'] as const).map((niveau) => {
@@ -147,7 +135,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
               className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-card shadow-sm"
             >
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-foreground">
                 {getNiveauLabel(niveau)}
               </span>
               <span className="text-sm font-bold text-foreground">
@@ -157,7 +145,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
           )
         })}
         {!hasAnyOaciData && (
-          <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1 px-3 py-2 text-xs text-foreground">
             <Target className="w-3 h-3" />
             Données OACI non renseignées — position estimée depuis le score global (C1-C5)
           </div>
@@ -165,22 +153,16 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
       </div>
 
       {/* OACI 5×5 Grid */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title flex items-center gap-2">
-            <Target className="w-4 h-4 text-danger" />
-            Matrice OACI 5×5
-          </h3>
-        </div>
-        <div className="card-content overflow-x-auto">
+      <Card variant="role" title="Matrice OACI 5×5" icon={<Target className="w-4 h-4" />}>
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse text-center text-xs">
             <thead>
               <tr>
-                <th className="p-2 text-muted-foreground font-medium w-16">Prob. ↓ / Grav. →</th>
+                <th className="p-2 text-foreground font-medium w-16">Prob. ↓ / Grav. →</th>
                 {GRAVITIES.map((g) => (
-                  <th key={g} className="p-2 text-muted-foreground font-bold text-sm">
+                  <th key={g} className="p-2 text-foreground font-bold text-sm">
                     {g}
-                    <div className="text-[10px] font-normal text-muted-foreground">
+                    <div className="text-[10px] font-normal text-foreground">
                       {g === 'A' ? 'Catastrophique' : g === 'B' ? 'Dangereux' : g === 'C' ? 'Majeur' : g === 'D' ? 'Significatif' : 'Négligeable'}
                     </div>
                   </th>
@@ -190,9 +172,9 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
             <tbody>
               {PROBABILITIES.map((prob) => (
                 <tr key={prob}>
-                  <td className="p-2 text-muted-foreground font-bold text-sm">
+                  <td className="p-2 text-foreground font-bold text-sm">
                     {prob}
-                    <div className="text-[10px] font-normal text-muted-foreground">
+                    <div className="text-[10px] font-normal text-foreground">
                       {prob === 5 ? 'Fréquent' : prob === 4 ? 'Occasionnel' : prob === 3 ? 'Rare' : prob === 2 ? 'Très rare' : 'Exceptionnel'}
                     </div>
                   </td>
@@ -238,7 +220,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
                 niveau === 'critique' ? 'A' : niveau === 'eleve' ? 'B' : niveau === 'moyen' ? 'D' : niveau === 'faible' ? 'D' : 'E'
               )
               return (
-                <div key={niveau} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div key={niveau} className="flex items-center gap-1.5 text-xs text-foreground">
                   <div className="w-3 h-3 rounded" style={{ backgroundColor: sampleMeta.color }} />
                   {getNiveauLabel(niveau)}
                 </div>
@@ -246,11 +228,11 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
             })}
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Ecarts grouped by OACI cell */}
       {hasAnyOaciData && cellMap.size > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Target className="w-4 h-4" />
             Écarts par cellule OACI
@@ -262,38 +244,22 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
               const grav = cellKey[1] as Gravite
               const meta = getCellMeta(prob, grav)
               return (
-                <div key={cellKey} className="card">
-                  <div className="card-header py-2">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white"
-                        style={{ backgroundColor: meta.color }}
-                      >
-                        {cellKey}
-                      </div>
-                      <span className={`${getNiveauBadgeClass(meta.niveau)} text-xs`}>
-                        {getNiveauLabel(meta.niveau)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{ecs.length} écart{ecs.length > 1 ? 's' : ''}</span>
-                    </div>
-                  </div>
-                  <div className="card-content py-2">
-                    <ul className="space-y-1.5">
-                      {ecs.map((ecart) => (
-                        <li key={ecart.id} className="text-xs">
-                          <span className="font-mono text-muted-foreground">{ecart.reference}</span>
-                          <span className="mx-1.5 text-muted-foreground">—</span>
-                          <span className="text-muted-foreground">{ecart.libelle}</span>
-                          {ecart.domaine && (
-                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground text-[10px]">
-                              {ecart.domaine}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
+                <Card key={cellKey} heading={<div className="flex items-center gap-2"><div className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: meta.color }}>{cellKey}</div><span className={`${getNiveauBadgeClass(meta.niveau)} text-xs`}>{getNiveauLabel(meta.niveau)}</span><span className="text-xs text-foreground">{ecs.length} écart{ecs.length > 1 ? 's' : ''}</span></div>}>
+                  <ul className="space-y-1.5">
+                    {ecs.map((ecart) => (
+                      <li key={ecart.id} className="text-xs">
+                        <span className="font-mono text-foreground">{ecart.reference}</span>
+                        <span className="mx-1.5 text-foreground">—</span>
+                        <span className="text-foreground">{ecart.libelle}</span>
+                        {ecart.domaine && (
+                          <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-muted/30 text-foreground text-[10px]">
+                            {ecart.domaine}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
               )
             })}
         </div>
@@ -301,30 +267,25 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
 
       {/* Fallback: show profil-derived OACI cell when no ecart data */}
       {!hasAnyOaciData && derivedCell && (
-        <div className="card">
-          <div className="card-header">
-            <h4 className="card-title">Position OACI estimée</h4>
-          </div>
-          <div className="card-content">
-            <p className="text-sm text-muted-foreground">
-              Aucun écart ne renseigne sa cellule OACI. La position ci-dessous est estimée depuis le score global (C1-C5) du profil.
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <div
-                className="w-8 h-8 rounded flex items-center justify-center text-sm font-bold text-white"
-                style={{ backgroundColor: getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).color }}
-              >
-                {derivedCell}
-              </div>
-              <span className={getNiveauBadgeClass(getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).niveau)}>
-                {getNiveauLabel(getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).niveau)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                (P={derivedCell[0]} = {getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 5 ? 'Fréquent' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 4 ? 'Occasionnel' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 3 ? 'Rare' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 2 ? 'Très rare' : 'Exceptionnel'}, G={derivedCell[1]})
-              </span>
+        <Card heading="Position OACI estimée">
+          <p className="text-sm text-foreground">
+            Aucun écart ne renseigne sa cellule OACI. La position ci-dessous est estimée depuis le score global (C1-C5) du profil.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center text-sm font-bold text-white"
+              style={{ backgroundColor: getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).color }}
+            >
+              {derivedCell}
             </div>
+            <span className={getNiveauBadgeClass(getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).niveau)}>
+              {getNiveauLabel(getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).niveau)}
+            </span>
+            <span className="text-xs text-foreground">
+              (P={derivedCell[0]} = {getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 5 ? 'Fréquent' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 4 ? 'Occasionnel' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 3 ? 'Rare' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 2 ? 'Très rare' : 'Exceptionnel'}, G={derivedCell[1]})
+            </span>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   )

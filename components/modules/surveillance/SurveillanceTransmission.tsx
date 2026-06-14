@@ -12,6 +12,7 @@ import {
   FileText,
   X,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -89,16 +90,14 @@ export default function SurveillanceTransmission({
 
         <div className="modal-body space-y-6 py-4">
           {/* En-tête */}
-          <div className="card bg-primary/10">
-            <div className="card-content p-4">
+          <Card className="bg-primary/10">
               <div className="flex items-center gap-3">
                 <div>
                   <p className="filter-label text-xs">Aérodrome</p>
                   <p className="font-bold text-small">{aerodrome?.nom} ({aerodrome?.code_oaci})</p>
                 </div>
               </div>
-            </div>
-          </div>
+          </Card>
 
           {/* Barre de progression */}
           <div className="space-y-2">
@@ -176,8 +175,7 @@ export default function SurveillanceTransmission({
           </div>
 
           {/* Récapitulatif des pièces jointes */}
-          <div className="card">
-            <div className="card-content p-4">
+          <Card>
               <p className="text-small font-medium mb-2">Documents transmis :</p>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-small">
@@ -201,8 +199,7 @@ export default function SurveillanceTransmission({
                   <span className={`badge ml-auto text-xs ${lettreSigneeDG ? 'success' : 'outline'}`}>{lettreSigneeDG ? '✓' : '—'}</span>
                 </div>
               </div>
-            </div>
-          </div>
+          </Card>
 
           {/* Actions */}
           <div className="form-actions">

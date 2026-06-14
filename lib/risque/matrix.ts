@@ -15,6 +15,13 @@ const MATRICE_CELLULES: Record<string, NiveauRisque> = {
   '5E': 'moyen', '4D': 'moyen', '3C': 'moyen', '2B': 'moyen', '1A': 'moyen',
 }
 
+const MATRICE_CELLULES_5: Record<string, NiveauRisque> = {
+  ...MATRICE_CELLULES,
+  '4E': 'faible', '3D': 'faible', '2C': 'faible', '1B': 'faible',
+  '3E': 'tres_faible', '2D': 'tres_faible', '2E': 'tres_faible',
+  '1C': 'tres_faible', '1D': 'tres_faible', '1E': 'tres_faible',
+}
+
 const COULEUR_PAR_DEFAUT = 'bg-green-500'
 const POIDS_NS = 1.0
 const POIDS_NV = 0.7
@@ -55,6 +62,10 @@ export function getMatrixCell(probabilite: NiveauProbabilite, gravite: NiveauGra
 
 export function getRiskLevelFromCell(cellule: string): NiveauRisque {
   return MATRICE_CELLULES[cellule] || 'faible'
+}
+
+export function getRiskLevelFromCell5(cellule: string): NiveauRisque {
+  return MATRICE_CELLULES_5[cellule] || 'tres_faible'
 }
 
 export function getCellColor(cellule: string): string {

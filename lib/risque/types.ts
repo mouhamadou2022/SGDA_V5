@@ -9,7 +9,7 @@
 
 export type NiveauProbabilite = 1 | 2 | 3 | 4 | 5
 export type NiveauGravite = 'A' | 'B' | 'C' | 'D' | 'E'
-export type NiveauRisque = 'critique' | 'eleve' | 'moyen' | 'faible'
+export type NiveauRisque = 'critique' | 'eleve' | 'moyen' | 'faible' | 'tres_faible'
 export type Tendance = 'hausse' | 'baisse' | 'stable'
 
 // ============================================================

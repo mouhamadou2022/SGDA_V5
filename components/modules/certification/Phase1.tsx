@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { Save, Lock, Upload, Eye, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -95,21 +96,18 @@ export function Phase1({ certifId, phaseData, estActive, onUpdate }: Phase1Props
     lettre: !!form.lettre_intent_url,
   }).filter(Boolean).length
 
+  const phaseBadge = !readOnly && isComplete ? <span className="badge success">Prêt à clôturer</span> :
+    !readOnly && !isComplete ? <span className="badge warning">Informations manquantes</span> :
+    <span className="badge neutral">Lecture seule</span>
+
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="card">
-        <div className="card-header pb-3">
-          <h3 className="card-title flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {readOnly && <Lock className="h-4 w-4 text-muted" />}
-              <span>Phase 1 — Expression d'Intérêt</span>
-              {!readOnly && isComplete && <span className="badge success">Prêt à clôturer</span>}
-              {!readOnly && !isComplete && <span className="badge warning">Informations manquantes</span>}
-              {readOnly && <span className="badge neutral">Lecture seule</span>}
-            </div>
-          </h3>
-        </div>
-        <div className="card-content space-y-5">
+      <Card
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted" /> : undefined}
+        heading="Phase 1 — Expression d'Intérêt"
+        badge={phaseBadge}
+      >
+        <div className="space-y-5">
 
           {/* Barre de progression */}
           <div className="space-y-2">
@@ -260,7 +258,7 @@ export function Phase1({ certifId, phaseData, estActive, onUpdate }: Phase1Props
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

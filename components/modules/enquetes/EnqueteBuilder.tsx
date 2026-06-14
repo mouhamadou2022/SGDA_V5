@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Card } from '@/components/ui/card'
 import { Enquete, QuestionEnquete } from '@/lib/store'
 import { Plus, Trash2, ArrowUp, ArrowDown, Eye, Save, Send, Star, Shield, Target, TrendingUp, X, AlertCircle, Calendar, ClipboardList } from 'lucide-react'
 
@@ -178,12 +179,8 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* En-tête de l'enquête avec contexte sécurité */}
-            <div className="card border-l-4 border-l-role-primary">
-              <div className="card-content p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-foreground">{enquete.titre}</h2>
-                  <span className={`badge ${criticiteInfo.badge}`}>{criticiteInfo.label}</span>
-                </div>
+            <Card variant="role" heading={<h2 className="text-xl font-bold">{enquete.titre}</h2>} badge={<span className={`badge ${criticiteInfo.badge}`}>{criticiteInfo.label}</span>}>
+              <div className="space-y-4">
                 
                 <p className="text-muted-foreground">{enquete.description}</p>
                 
@@ -225,13 +222,13 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
                   </p>
                 </div>
               </div>
-            </div>
+            </Card>
 
             {/* Questions */}
             <div className="space-y-4">
               {questions.map((q, idx) => (
-                <div key={q.id} className="card border-l-4 border-l-role-primary">
-                  <div className="card-content p-4 space-y-3">
+                <Card key={q.id} variant="role">
+                  <div className="space-y-3">
                     <div className="flex items-start gap-2">
                       <span className="text-sm font-medium text-muted-foreground">{idx + 1}.</span>
                       <div className="flex-1">
@@ -290,14 +287,14 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
                       )}
                     </div>
                   </div>
-                </div>
+                </Card>
               ))}
             </div>
 
             {questions.length === 0 && (
-              <div className="card p-8 text-center text-muted-foreground">
+              <Card className="text-center">
                 <p>Aucune question dans cette enquête.</p>
-              </div>
+              </Card>
             )}
           </div>
 
@@ -330,26 +327,20 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           
           {/* Résumé de l'enquête */}
-          <div className="card border-l-4 border-l-role-primary bg-gradient-to-r from-role-primary/5 to-transparent">
-            <div className="card-content p-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h3 className="font-semibold text-foreground">{enquete.titre}</h3>
-                <span className={`badge ${criticiteInfo.badge}`}>{criticiteInfo.label}</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{enquete.description}</p>
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {(enquete as any).date_debut ? new Date((enquete as any).date_debut).toLocaleDateString('fr-FR') : 'Date non définie'}
-                </span>
-                <span>→</span>
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {enquete.deadline ? new Date(enquete.deadline).toLocaleDateString('fr-FR') : 'Date non définie'}
-                </span>
-              </div>
+          <Card variant="role" heading={<h3 className="font-semibold">{enquete.titre}</h3>} badge={<span className={`badge ${criticiteInfo.badge}`}>{criticiteInfo.label}</span>} className="bg-gradient-to-r from-role-primary/5 to-transparent">
+            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{enquete.description}</p>
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {(enquete as any).date_debut ? new Date((enquete as any).date_debut).toLocaleDateString('fr-FR') : 'Date non définie'}
+              </span>
+              <span>→</span>
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {enquete.deadline ? new Date(enquete.deadline).toLocaleDateString('fr-FR') : 'Date non définie'}
+              </span>
             </div>
-          </div>
+          </Card>
 
           {/* Boutons ajouter question */}
           <div className="flex flex-wrap gap-2">
@@ -376,15 +367,16 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
           </div>
 
           {questions.length === 0 && (
-            <div className="card p-8 text-center text-muted-foreground">
+            <Card className="text-center">
               <p>Aucune question. Cliquez sur "+ [type]" pour ajouter une question.</p>
-            </div>
+            </Card>
           )}
 
           {/* Liste des questions */}
           <div className="space-y-3">
             {questions.map((q, idx) => (
-              <div key={q.id} className="card p-4 space-y-3">
+              <Card key={q.id}>
+                <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <span className="badge outline">{TYPE_LABELS[q.type as QuestionType] ?? q.type}</span>
                   <div className="flex gap-1 ml-auto">
@@ -453,8 +445,9 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
                       Ajouter une option
                     </button>
                   </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </Card>
             ))}
           </div>
         </div>

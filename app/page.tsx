@@ -468,20 +468,20 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
               </div>
 
               {/* ==================== COLONNE DROITE ==================== */}
-              <div className="flex items-center justify-center rounded-3xl p-6" style={{ backgroundColor: '#ecfeff' }}>
-                
+              <div className="relative flex items-center justify-center rounded-3xl p-6">
+
                 {/* Effet de lueur derrière la carte */}
                 <div className={`absolute -inset-6 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 rounded-3xl blur-2xl transition-opacity duration-500 ${isCardHovered ? 'opacity-100' : 'opacity-50'}`} />
-                
+
                 {/* Carte Glassmorphism premium */}
-                <div 
-                  className="relative w-full max-w-lg bg-white/[0.04] backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden transition-all duration-500 hover:shadow-role-glow"
+                <div
+                  className="relative w-full max-w-lg bg-[#0f172a]/90 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden transition-all duration-500 hover:shadow-role-glow"
                   onMouseEnter={() => setIsCardHovered(true)}
                   onMouseLeave={() => setIsCardHovered(false)}
                 >
                   
                   {/* En-tête avec motif aviation */}
-                  <div className="relative px-10 pt-12 pb-8 text-center border-b border-white/10">
+                  <div className="relative px-10 pt-12 pb-8 text-center border-b border-white/10 bg-gradient-to-b from-blue-500/15 via-indigo-500/5 to-transparent">
                     <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
                     <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-blue-500/10 blur-2xl" />
                     <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl" />
@@ -1026,15 +1026,12 @@ export default function Page() {
     try {
       const { data, error } = await loadInitialData(u.id, u.role)
       if (error) {
-        console.error('[Sync] Erreur chargement données:', error)
+        // Silencieux en production
       } else if (data) {
         const aeroCount = data.aerodromes?.length ?? 0
         const survCount = data.surveillances?.length ?? 0
         const ecartCount = data.ecarts?.length ?? 0
         const formCount = data.formations?.length ?? 0
-        const inspCount = data.inspecteurs?.length ?? 0
-        console.log(`[Sync] Données chargées — ${aeroCount} aérodromes, ${survCount} surveillances, ${ecartCount} écarts, ${formCount} formations, ${inspCount} inspecteurs`)
-        
         // Fusionner les inspecteurs existants (localStorage) avec ceux de Supabase
         const existingInspecteurs = useAppStore.getState().inspecteurs || []
         const supabaseInspecteurs = data.inspecteurs || []
@@ -1063,12 +1060,12 @@ export default function Page() {
            messages: data.messages && data.messages.length > 0 ? data.messages : existingMessages,
            apiKeys: data.apiKeys || [],
          })
-        if (aeroCount === 0) {
-          console.warn('[Sync] Aucun aérodrome trouvé dans Supabase — vérifiez la table v5_aerodromes')
-        }
-      }
-    } catch (err) {
-      console.error('[Sync] Erreur fatale synchronisation:', err)
+         if (aeroCount === 0) {
+           // Aucun aérodrome — silencieux en production
+         }
+       }
+     } catch (err) {
+       // Erreur silencieuse en production
     } finally {
       setSyncing(false)
     }

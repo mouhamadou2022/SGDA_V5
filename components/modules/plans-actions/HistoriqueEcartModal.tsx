@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import {
@@ -204,8 +205,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Informations de l'écart */}
-          <div className="card border-border bg-gradient-to-r from-role-primary/5 to-transparent">
-            <div className="card-content p-4">
+          <Card className="bg-gradient-to-r from-role-primary/5 to-transparent">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <span className="code-oaci-badge text-xs">{ecart.reference}</span>
@@ -224,8 +224,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                   </span>
                 </div>
               )}
-            </div>
-          </div>
+          </Card>
 
           {/* Timeline visuelle */}
           <div className="space-y-4">
@@ -355,11 +354,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
           </div>
 
           {/* Actions disponibles */}
-          <div className="card border-border">
-            <div className="card-header pb-2">
-              <div className="card-title text-sm">Actions disponibles</div>
-            </div>
-            <div className="card-content">
+          <Card title="Actions disponibles">
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => {
@@ -377,8 +372,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                   Exporter l'historique
                 </button>
               </div>
-            </div>
-          </div>
+        </Card>
         </div>
 
         <div className="modal-footer">

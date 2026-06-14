@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { ProfilRisque } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { Link2, AlertTriangle } from 'lucide-react'
 
 interface CorrelationSectionProps {
@@ -28,16 +29,17 @@ function computePearson(x: number[], y: number[]): number {
 
 function correlationColor(value: number): string {
   const absVal = Math.abs(value)
-  if (absVal < 0.3) return 'bg-danger/20 text-danger border border-danger/30'
+  // Low correlation = independence = good; high correlation = dependency = risk
+  if (absVal < 0.3) return 'bg-success/20 text-success border border-success/30'
   if (absVal < 0.6) return 'bg-warning/20 text-warning border border-warning/30'
-  return 'bg-success/20 text-success border border-success/30'
+  return 'bg-danger/20 text-danger border border-danger/30'
 }
 
 function correlationBarColor(value: number): string {
   const absVal = Math.abs(value)
-  if (absVal < 0.3) return 'var(--color-danger)'
+  if (absVal < 0.3) return 'var(--color-success)'
   if (absVal < 0.6) return 'var(--color-warning)'
-  return 'var(--color-success)'
+  return 'var(--color-danger)'
 }
 
 export function CorrelationSection({ profil }: CorrelationSectionProps) {
@@ -58,16 +60,10 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
   const copula = profil.copula_metrics
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <div className="card-title flex items-center gap-2">
-          <Link2 className="w-4 h-4 text-primary" />
-          Corrélations C1–C5
-        </div>
-      </div>
-      <div className="card-content space-y-4">
+    <Card variant="role" title="Corrélations C1–C5" icon={<Link2 className="w-4 h-4" />}>
+      <div className="space-y-5">
         {!matrix ? (
-          <p className="text-sm text-muted-foreground text-center py-4">
+          <p className="text-sm text-foreground text-center py-4">
             Données insuffisantes pour calculer les corrélations.
           </p>
         ) : (
@@ -77,7 +73,7 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
                 <tr>
                   <td className="w-8" />
                   {LABELS.map((l) => (
-                    <td key={l} className="text-center text-xs font-semibold text-muted-foreground px-1 pb-1">
+                    <td key={l} className="text-center text-xs font-semibold text-foreground px-1 pb-1">
                       {l}
                     </td>
                   ))}
@@ -86,7 +82,7 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
               <tbody>
                 {matrix.map((row, i) => (
                   <tr key={i}>
-                    <td className="text-xs font-semibold text-muted-foreground pr-2 text-right">
+                    <td className="text-xs font-semibold text-foreground pr-2 text-right">
                       {LABELS[i]}
                     </td>
                     {row.map((val, j) => {
@@ -147,13 +143,13 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
                 {copula.worstCaseDescription}
               </p>
               <div className="flex items-center gap-3 mt-1">
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-foreground">
                   Dépendance queue max:{' '}
                   <span className="font-mono font-semibold text-warning">
                     {(copula.maxTailDependence * 100).toFixed(0)}%
                   </span>
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-foreground">
                   Prob. pire cas:{' '}
                   <span className="font-mono font-semibold text-danger">
                     {copula.worstCaseProbability}%
@@ -164,6 +160,6 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
           </div>
         )}
       </div>
-    </div>
+    </Card>
   )
 }

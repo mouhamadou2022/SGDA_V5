@@ -16,12 +16,12 @@
 import { Aerodrome, Planning, ProfilRisque, Ecart } from './store';
 
 // Imports depuis les sous-modules pour éviter les duplications et la dépendance circulaire
-import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getCellColor } from './risque/matrix'
+import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor } from './risque/matrix'
 import { computeBaseFrequency, computeMultipliers, computeFinalFrequency as computeFinalFrequencyObj, suggestMissionType, applyMultipliers } from './risque/frequency'
 import { detectAllTriggers, computeTriggersImpact } from './risque/triggers'
 import { detectAllAggravators, computeAggravatorsMultiplier } from './risque/aggravators'
 // Re-exports pour que les consommateurs de '@/lib/risque' puissent y accéder
-export { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getCellColor }
+export { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor }
 export { computeBaseFrequency, computeMultipliers, suggestMissionType }
 export { computeFinalFrequencyObj }
 export { detectAllTriggers, computeTriggersImpact }

@@ -10,6 +10,7 @@ import { useAppStore, useHistoricalScores, ProfilRisque } from '@/lib/store'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
+import { Card } from '@/components/ui/card'
 
 import { SyntheseTab } from './SyntheseTab'
 import { DiagnosticTab } from './DiagnosticTab'
@@ -132,7 +133,7 @@ export function RisqueModule({ userRole }: Props) {
   }
 
   return (
-    <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="profil-risque">
+    <div className="space-y-8 animate-fade-up" data-role={userRole} data-module="profil-risque">
       <ModuleHeader
         icon={<Activity />}
         title="Profil de Risque"
@@ -150,11 +151,11 @@ export function RisqueModule({ userRole }: Props) {
       {/* KPIs globaux */}
       {stats && !selectedAerodromeId && (
         <div className="kpi-grid">
-          <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><BarChart3 className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label">Score moyen</div><div className={`kpi-value ${getScoreColor(stats.moyenne)}`}>{stats.moyenne}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-success-soft"><CheckCircle2 className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label">Excellents (≥80)</div><div className="kpi-value text-success">{stats.excellents}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Activity className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label">Critiques (&lt;30)</div><div className="kpi-value text-danger">{stats.critiques}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><TrendingUp className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label">En dégradation</div><div className="kpi-value text-warning">{stats.enDegradation}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-info-soft"><Shield className="w-5 h-5 text-info" /></div><div className="kpi-content"><div className="kpi-label">Total</div><div className="kpi-value">{stats.total}</div></div></div>
+          <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><BarChart3 className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Score moyen</div><div className={`kpi-value ${getScoreColor(stats.moyenne)}`}>{stats.moyenne}</div></div></div>
+          <div className="kpi-card"><div className="kpi-icon bg-success-soft"><CheckCircle2 className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Excellents (≥80)</div><div className="kpi-value text-success">{stats.excellents}</div></div></div>
+          <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Activity className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Critiques (&lt;30)</div><div className="kpi-value text-danger">{stats.critiques}</div></div></div>
+          <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><TrendingUp className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label text-foreground">En dégradation</div><div className="kpi-value text-warning">{stats.enDegradation}</div></div></div>
+          <div className="kpi-card"><div className="kpi-icon bg-info-soft"><Shield className="w-5 h-5 text-info" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Total</div><div className="kpi-value text-foreground">{stats.total}</div></div></div>
         </div>
       )}
 
@@ -177,34 +178,38 @@ export function RisqueModule({ userRole }: Props) {
             ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
           />
         ) : (
-          <div className="card border-border text-center py-12">
-            <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
-            <p className="text-muted-foreground">Profil de risque non calculé pour votre aérodrome</p>
-            <p className="text-xs text-muted-foreground mt-1">Contactez votre inspecteur ANACIM</p>
-          </div>
+          <Card>
+            <div className="text-center py-12">
+              <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="text-foreground">Profil de risque non calculé pour votre aérodrome</p>
+              <p className="text-xs text-foreground mt-1">Contactez votre inspecteur ANACIM</p>
+            </div>
+          </Card>
         )
       )}
 
       {/* Exploitant sans aérodrome */}
       {isExploitant && !selectedAerodromeId && !aerodromesAvecProfil.length && (
-        <div className="card border-border text-center py-12">
-          <MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" />
-          <p className="text-muted-foreground">Aucun aérodrome lié à votre compte</p>
-          <p className="text-xs text-muted-foreground mt-1">Contactez l'administrateur ANACIM</p>
-        </div>
+        <Card>
+          <div className="text-center py-12">
+            <MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" />
+            <p className="text-foreground">Aucun aérodrome lié à votre compte</p>
+            <p className="text-xs text-foreground mt-1">Contactez l'administrateur ANACIM</p>
+          </div>
+        </Card>
       )}
       {/* Grille de cartes d'aérodromes — pas pour les exploitants */}
       {!selectedAerodromeId && !isExploitant && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {aerodromesAvecProfil.length === 0 && (
-            <div className="col-span-3 text-center py-12 text-muted-foreground"><MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" /><p>Aucun aérodrome disponible</p></div>
+            <div className="col-span-3 text-center py-12 text-foreground"><MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" /><p>Aucun aérodrome disponible</p></div>
           )}
           {aerodromesAvecProfil.map(({ aerodrome, profil }) => {
             if (!profil) return (
-              <div key={aerodrome.id} className="card border-border border-l-4 border-l-muted cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleSelectAerodrome(aerodrome.id)}>
-                <div className="card-header border-b border-border"><div className="card-title flex items-center gap-2"><span className="code-oaci-badge text-xs">{aerodrome.code_oaci}</span><span className="font-semibold text-sm">{aerodrome.nom}</span></div></div>
-                <div className="card-content p-4 text-center"><p className="text-sm text-muted-foreground">Profil non calculé</p><p className="text-xs text-muted-foreground mt-1">Cliquez pour lancer le calcul</p></div>
-              </div>
+              <Card key={aerodrome.id} interactive onClick={() => handleSelectAerodrome(aerodrome.id)}>
+                <div className="flex items-center gap-2 mb-2"><span className="code-oaci-badge text-xs">{aerodrome.code_oaci}</span><span className="font-semibold text-sm text-foreground">{aerodrome.nom}</span></div>
+                <div className="text-center"><p className="text-sm text-foreground">Profil non calculé</p><p className="text-xs text-foreground mt-1">Cliquez pour lancer le calcul</p></div>
+              </Card>
             )
             return (
               <RiskCard
@@ -234,7 +239,7 @@ export function RisqueModule({ userRole }: Props) {
             <span className={`badge text-xs ${getNiveauBadgeCls(profil.score_global)}`}>
               {profil.niveau} ({profil.score_global}/100)
             </span>
-            {profil.tendance && <span className="text-xs text-muted-foreground">Tendance: {profil.tendance}</span>}
+            {profil.tendance && <span className="text-xs text-foreground">Tendance: {profil.tendance}</span>}
           </div>
 
           <div className="tabs">

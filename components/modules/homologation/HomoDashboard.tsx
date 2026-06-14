@@ -24,6 +24,7 @@ import {
   Cell,
 } from 'recharts'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { getPhaseStats } from '@/lib/homologationUtils'
 
 interface HomoDashboardProps {
@@ -111,14 +112,8 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
 
       {/* Taux de réussite */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card animate-fade-up" style={{ animationDelay: '0.2s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-medium flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-role-primary" />
-              Taux d'homologation
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.2s' }}>
+          <Card icon={<CheckCircle2 className="h-4 w-4 text-role-primary" />} title="Taux d'homologation">
             <div className="text-center">
               <div className="text-4xl font-bold text-role-primary mb-2">{stats.tauxReussite}%</div>
               <div className="progress h-2">
@@ -128,19 +123,13 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
                 {stats.homologues} aérodromes homologués sur {stats.total} éligibles
               </p>
             </div>
-          </div>
+          </Card>
         </div>
 
         {/* Bloc info phases bloquées */}
         {stats.blockedPhases > 0 && (
-          <div className="card animate-fade-up" style={{ animationDelay: '0.25s' }}>
-            <div className="card-header pb-2">
-              <div className="card-title text-sm font-medium flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-danger" />
-                Phases sans évolution
-              </div>
-            </div>
-            <div className="card-content">
+          <div className="animate-fade-up" style={{ animationDelay: '0.25s' }}>
+            <Card icon={<AlertCircle className="h-4 w-4 text-danger" />} title="Phases sans évolution" levelColor="danger">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-3xl font-bold text-danger">{stats.blockedPhases}</div>
@@ -148,7 +137,7 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
                 </div>
                 <span className="badge danger pulse">Action requise</span>
               </div>
-            </div>
+            </Card>
           </div>
         )}
       </div>
@@ -156,14 +145,8 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* BarChart - Homologations par phase */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.3s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <ClipboardList className="h-4 w-4 text-role-primary" />
-              Homologations en cours par phase
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.3s' }}>
+          <Card icon={<ClipboardList className="h-4 w-4 text-role-primary" />} title="Homologations en cours par phase">
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={stats.parPhase} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <XAxis dataKey="phase" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
@@ -183,18 +166,12 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
                 <Bar dataKey="count" name="En cours" fill={barColor} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
 
         {/* PieChart - Distribution des statuts */}
-        <div className="card animate-fade-up" style={{ animationDelay: '0.35s' }}>
-          <div className="card-header pb-2">
-            <div className="card-title text-sm font-semibold flex items-center gap-2">
-              <Scale className="h-4 w-4 text-role-primary" />
-              Distribution des statuts
-            </div>
-          </div>
-          <div className="card-content">
+        <div className="animate-fade-up" style={{ animationDelay: '0.35s' }}>
+          <Card icon={<Scale className="h-4 w-4 text-role-primary" />} title="Distribution des statuts">
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
@@ -222,7 +199,7 @@ export function HomoDashboard({ userRole }: HomoDashboardProps) {
                 />
               </PieChart>
             </ResponsiveContainer>
-          </div>
+          </Card>
         </div>
       </div>
     </div>

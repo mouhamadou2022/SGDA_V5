@@ -27,6 +27,7 @@ import {
   Brain,
   Loader2,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 
 interface InspecteurSuggeré {
   id: string;
@@ -493,14 +494,10 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
       )}
 
       {/* Charge de travail par inspecteur */}
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-base flex items-center gap-2">
-            <Briefcase className="w-4 h-4 text-role-primary" />
-            Charge de travail actuelle
-          </div>
-        </div>
-        <div className="card-content space-y-3">
+      <Card
+        icon={<Briefcase className="w-4 h-4 text-role-primary" />}
+        title="Charge de travail actuelle"
+      >
           {inspecteurs.map((insp) => {
             const charge = chargeParInspecteur[insp.id] ?? 0;
             const surcharge = charge > 15;
@@ -538,17 +535,14 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
               </div>
             );
           })}
-        </div>
-      </div>
+      </Card>
 
       {/* Plannings à assigner */}
       {planningsSansEquipe.length === 0 ? (
-        <div className="card border-success">
-          <div className="card-content py-12 text-center">
-            <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
-            <p className="text-muted-foreground">Tous les plannings ont une équipe assignée.</p>
-          </div>
-        </div>
+        <Card variant="level" levelColor="success" className="[&>div:last-child]:py-12 [&>div:last-child]:text-center">
+          <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
+          <p className="text-muted-foreground">Tous les plannings ont une équipe assignée.</p>
+        </Card>
       ) : (
         <div className="space-y-3">
           {planningsSansEquipe.map((planning) => {
@@ -571,18 +565,12 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
               }
             };
 
-            const getProfilClass = () => {
-              if (!profil) return '';
-              if (aDesMesuresEnRetard) return 'border-l-4 border-l-danger';
-              if (profil.score_global < 30) return 'border-l-4 border-l-danger';
-              if (aDesExemptions) return 'border-l-4 border-l-warning';
-              if (profil.tendance === 'baisse') return 'border-l-4 border-l-warning';
-              return '';
-            };
+            const cardLevelColor = profil ? (aDesMesuresEnRetard || profil.score_global < 30 ? 'danger' as const : aDesExemptions || profil.tendance === 'baisse' ? 'warning' as const : undefined) : undefined;
 
             return (
-              <div key={planning.id} className={`card border-border ${getProfilClass()} ${isAssigned ? 'border-success bg-success-soft/20' : ''}`}>
-                <div className="card-header pb-2">
+              <Card
+                key={planning.id}
+                heading={
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div className="flex items-center gap-3">
                       <button onClick={() => toggleExpand(planning.id)} className="action-button">
@@ -668,10 +656,13 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
                       )}
                     </div>
                   </div>
-                </div>
-
+                }
+                variant={cardLevelColor ? 'level' : 'default'}
+                levelColor={cardLevelColor}
+                className={isAssigned ? 'border-success bg-success-soft/20' : ''}
+              >
                 {isExpanded && (
-                  <div className="card-content pt-0">
+                  <div>
                     {/* Alerte si mesures en retard */}
                     {aDesMesuresEnRetard && (
                       <div className="alert alert-danger mb-3 p-2 text-sm">
@@ -751,7 +742,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>

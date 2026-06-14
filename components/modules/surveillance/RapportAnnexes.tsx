@@ -30,6 +30,7 @@ import {
   UserCheck,
   Clock,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Ecart, ProfilRisque, type PresenceEntry } from '@/lib/store';
 import { PresenceSheet } from './PresenceSheet';
@@ -1042,13 +1043,11 @@ export function RapportAnnexes({
       )}
 
       {expandedSections.length === 0 && (
-        <div className="card border-border">
-          <div className="card-content py-8 text-center text-muted-foreground">
-            <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">Aucune annexe sélectionnée</p>
-            <p className="text-xs mt-1">Cliquez sur "Tout déployer" pour afficher les annexes</p>
-          </div>
-        </div>
+        <Card className="text-center text-muted-foreground">
+          <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Aucune annexe sélectionnée</p>
+          <p className="text-xs mt-1">Cliquez sur "Tout déployer" pour afficher les annexes</p>
+        </Card>
       )}
     </div>
   );

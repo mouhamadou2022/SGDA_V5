@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { Save, Lock, FileText, Calendar, Users, AlertCircle } from 'lucide-react'
 import { useAppStore, Homologation } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 
 const DOCS_REQUIS_HOMO = [
   'Formulaire de demande d\'homologation',
@@ -75,14 +76,12 @@ export function HomoPhase1({ homoId, phaseData, estActive, onUpdate, userRole = 
 
   return (
     <div className="space-y-4 animate-fade-in" data-role={userRole}>
-      <div className="card border-border border-l-4 border-l-role-primary">
-        <div className="card-header pb-3 bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-small font-semibold flex items-center gap-2">
-            {readOnly && <Lock className="h-4 w-4 text-muted-foreground" />}
-            Phase 1 — Instruction du dossier
-          </div>
-        </div>
-        <div className="card-content space-y-4">
+      <Card
+        variant="role"
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted-foreground" /> : undefined}
+        heading="Phase 1 — Instruction du dossier"
+      >
+        <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-field">
               <label className="text-role-primary text-xs uppercase font-semibold flex items-center gap-1">
@@ -224,7 +223,7 @@ export function HomoPhase1({ homoId, phaseData, estActive, onUpdate, userRole = 
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

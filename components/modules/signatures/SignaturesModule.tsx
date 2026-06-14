@@ -21,6 +21,7 @@ import {
   Info,
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { SignatureSection } from './SignatureSection'
 
@@ -166,33 +167,33 @@ export default function SignaturesModule({ userRole, userId }: SignaturesModuleP
 
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card border-orange-200 bg-orange-50">
-          <div className="card-content pt-4 flex items-center gap-3">
+        <Card variant="level" levelColor="warning" className="bg-orange-50">
+          <div className="flex items-center gap-3">
             <Clock className="w-8 h-8 text-orange-500" />
             <div>
               <p className="text-xs text-orange-600 font-medium uppercase tracking-wide">Rapports à signer</p>
               <p className="text-2xl font-bold text-orange-700">{rapportsASigner.length}</p>
             </div>
           </div>
-        </div>
-        <div className="card border-blue-200 bg-blue-50">
-          <div className="card-content pt-4 flex items-center gap-3">
+        </Card>
+        <Card variant="level" levelColor="primary" className="bg-blue-50">
+          <div className="flex items-center gap-3">
             <FileText className="w-8 h-8 text-blue-500" />
             <div>
               <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">Lettres à signer</p>
               <p className="text-2xl font-bold text-blue-700">{lettresASigner.length}</p>
             </div>
           </div>
-        </div>
-        <div className="card border-green-200 bg-green-50">
-          <div className="card-content pt-4 flex items-center gap-3">
+        </Card>
+        <Card variant="level" levelColor="success" className="bg-green-50">
+          <div className="flex items-center gap-3">
             <CheckCircle2 className="w-8 h-8 text-green-500" />
             <div>
               <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Documents signés</p>
               <p className="text-2xl font-bold text-green-700">{documentsSigmes.length}</p>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Onglets */}
@@ -221,13 +222,11 @@ export default function SignaturesModule({ userRole, userId }: SignaturesModuleP
         {tab === 'pending' && (
           <div className="animate-fade-in space-y-3">
             {pendingItems.length === 0 ? (
-              <div className="card">
-                <div className="card-content py-12 text-center text-gray-400">
-                  <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Aucun document en attente</p>
-                  <p className="text-sm mt-1">Tous les documents ont été traités.</p>
-                </div>
-              </div>
+              <Card className="text-center">
+                <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">Aucun document en attente</p>
+                <p className="text-sm mt-1">Tous les documents ont été traités.</p>
+              </Card>
             ) : (
               pendingItems.map((doc) => (
                 <DocumentCard key={doc.id} doc={doc} onSign={() => setSelectedDoc(doc)} />
@@ -240,12 +239,10 @@ export default function SignaturesModule({ userRole, userId }: SignaturesModuleP
         {tab === 'signed' && (
           <div className="animate-fade-in space-y-3">
             {documentsSigmes.length === 0 ? (
-              <div className="card">
-                <div className="card-content py-12 text-center text-gray-400">
-                  <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p>Aucun document signé pour le moment.</p>
-                </div>
-              </div>
+              <Card className="text-center">
+                <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p>Aucun document signé pour le moment.</p>
+              </Card>
             ) : (
               documentsSigmes.map((doc) => (
                 <DocumentCard key={doc.id} doc={doc} signed />
@@ -314,52 +311,54 @@ function DocumentCard({
   signed?: boolean
 }) {
   return (
-    <div className={`card border ${signed ? 'border-green-200 bg-green-50/30' : 'border-orange-200 hover:border-orange-300 transition-colors'}`}>
-      <div className="card-content pt-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${signed ? 'bg-green-100' : 'bg-orange-100'}`}>
-              {doc.type === 'rapport'
-                ? <FileText className={`w-5 h-5 ${signed ? 'text-green-600' : 'text-orange-600'}`} />
-                : <PenLine className={`w-5 h-5 ${signed ? 'text-green-600' : 'text-orange-600'}`} />
-              }
-            </div>
-            <div>
-              <p className="font-semibold text-gray-900 text-sm">
-                {doc.type === 'rapport' ? 'Rapport de surveillance' : 'Lettre de surveillance'}
-              </p>
-              <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
-                <span className="flex items-center gap-1">
-                  <Plane className="w-3 h-3" />
-                  {doc.aerodromeCode} — {doc.aerodromeName}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {new Date(doc.dateDebut).toLocaleDateString('fr-FR')}
-                </span>
-                <span className="flex items-center gap-1">
-                  <User className="w-3 h-3" />
-                  {doc.inspecteurNom}
-                </span>
-              </div>
-            </div>
+    <Card
+      variant="level"
+      levelColor={signed ? "success" : "warning"}
+      className={signed ? "bg-green-50/30" : "hover:border-orange-300 transition-colors"}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${signed ? 'bg-green-100' : 'bg-orange-100'}`}>
+            {doc.type === 'rapport'
+              ? <FileText className={`w-5 h-5 ${signed ? 'text-green-600' : 'text-orange-600'}`} />
+              : <PenLine className={`w-5 h-5 ${signed ? 'text-green-600' : 'text-orange-600'}`} />
+            }
           </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {signed ? (
-              <span className="badge success text-xs flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                Signé
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">
+              {doc.type === 'rapport' ? 'Rapport de surveillance' : 'Lettre de surveillance'}
+            </p>
+            <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+              <span className="flex items-center gap-1">
+                <Plane className="w-3 h-3" />
+                {doc.aerodromeCode} — {doc.aerodromeName}
               </span>
-            ) : (
-              <button className="btn btn-primary btn-sm gap-1.5" onClick={onSign}>
-                <PenLine className="w-3.5 h-3.5" />
-                Signer
-              </button>
-            )}
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {new Date(doc.dateDebut).toLocaleDateString('fr-FR')}
+              </span>
+              <span className="flex items-center gap-1">
+                <User className="w-3 h-3" />
+                {doc.inspecteurNom}
+              </span>
+            </div>
           </div>
         </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {signed ? (
+            <span className="badge success text-xs flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              Signé
+            </span>
+          ) : (
+            <button className="btn btn-primary btn-sm gap-1.5" onClick={onSign}>
+              <PenLine className="w-3.5 h-3.5" />
+              Signer
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </Card>
   )
 }

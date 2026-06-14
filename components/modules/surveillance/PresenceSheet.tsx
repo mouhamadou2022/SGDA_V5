@@ -6,6 +6,7 @@ import {
   Users, UserPlus, Trash2, CheckCircle2, Download, Printer,
   Signature, Brain, Loader2, X,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { createPortal } from 'react-dom';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
@@ -112,17 +113,15 @@ export function PresenceSheet({
 
   if (isSigned) {
     return (
-      <div className="card border-success bg-success/10">
-        <div className="card-content p-6 text-center">
-          <CheckCircle2 className="h-12 w-12 text-success mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-success-800 mb-2">Fiche de présence signée</h3>
-          <p className="text-small text-success-600">{stats.signes}/{stats.total} signatures enregistrées</p>
-          <div className="flex justify-center gap-3 mt-4">
-            <button onClick={handleExportPDF} className="btn btn-secondary gap-2"><Download className="w-4 h-4" /> Télécharger PDF</button>
-            <button onClick={handlePrint} className="btn btn-secondary gap-2"><Printer className="w-4 h-4" /> Imprimer</button>
-          </div>
+      <Card variant="level" levelColor="success" className="bg-success/10 text-center">
+        <CheckCircle2 className="h-12 w-12 text-success mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-success-800 mb-2">Fiche de présence signée</h3>
+        <p className="text-small text-success-600">{stats.signes}/{stats.total} signatures enregistrées</p>
+        <div className="flex justify-center gap-3 mt-4">
+          <button onClick={handleExportPDF} className="btn btn-secondary gap-2"><Download className="w-4 h-4" /> Télécharger PDF</button>
+          <button onClick={handlePrint} className="btn btn-secondary gap-2"><Printer className="w-4 h-4" /> Imprimer</button>
         </div>
-      </div>
+      </Card>
     );
   }
 

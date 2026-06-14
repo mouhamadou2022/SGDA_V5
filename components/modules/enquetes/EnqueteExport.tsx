@@ -2,6 +2,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Card } from '@/components/ui/card'
 import { Download, FileText, FileJson, Filter, X } from 'lucide-react'
 
 interface EnqueteExportProps {
@@ -125,7 +126,7 @@ export function EnqueteExport({ enqueteId, userRole = 'inspector' }: EnqueteExpo
       </div>
 
       {/* Aperçu */}
-      <div className="card p-4">
+      <Card>
         <div className="flex items-center justify-between mb-3">
           <p className="font-medium text-small">Aperçu (5 premières lignes)</p>
           <p className="text-small text-muted-foreground">{filteredData.length} entrée(s) à exporter</p>
@@ -150,7 +151,7 @@ export function EnqueteExport({ enqueteId, userRole = 'inspector' }: EnqueteExpo
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
       <button onClick={handleDownload} disabled={filteredData.length === 0} className="btn btn-primary gap-2">
         <Download className="w-4 h-4" />

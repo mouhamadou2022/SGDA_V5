@@ -7,15 +7,16 @@ import { useMemo } from 'react'
 import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
+import { Card } from '@/components/ui/card'
 
 interface Props { profil: ProfilRisque }
 
 const CRITERES = [
   { key: 'c1' as const, label: 'C1 — Maturité SGS', court: 'C1', poids: 20, desc: 'Maturité & Culture SGS', impact: 'Fondation de la sécurité' },
-  { key: 'c2' as const, label: 'C2 — Efficacité PAC', court: 'C2', poids: 20, desc: 'Efficacité & Réactivité PAC', impact: 'Traitement des écarts' },
+  { key: 'c2' as const, label: 'C2 — Efficacité PAC', court: 'C2', poids: 25, desc: 'Efficacité & Réactivité PAC', impact: 'Traitement des écarts' },
   { key: 'c3' as const, label: 'C3 — Conformité technique', court: 'C3', poids: 20, desc: 'Conformité Technique', impact: 'Respect des normes' },
-  { key: 'c4' as const, label: 'C4 — Charge critique', court: 'C4', poids: 15, desc: 'Charge Critique Non Résolue', impact: 'Pression sur le système' },
-  { key: 'c5' as const, label: 'C5 — Résilience', court: 'C5', poids: 25, desc: 'Résilience & Historique Sécurité', impact: 'Capacité de récupération' },
+  { key: 'c4' as const, label: 'C4 — Charge critique', court: 'C4', poids: 20, desc: 'Charge Critique Non Résolue', impact: 'Pression sur le système' },
+  { key: 'c5' as const, label: 'C5 — Résilience', court: 'C5', poids: 15, desc: 'Résilience & Historique Sécurité', impact: 'Capacité de récupération' },
 ]
 
 function getScoreColor(s: number) { if (s >= 80) return 'text-success'; if (s >= 60) return 'text-primary'; if (s >= 30) return 'text-warning'; return 'text-danger' }
@@ -54,65 +55,64 @@ export function TendanceTable({ profil }: Props) {
     const sz = s === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'
     if (t === 'hausse') return <span className="flex items-center gap-1 text-success text-xs"><TrendingUp className={sz} />Hausse</span>
     if (t === 'baisse') return <span className="flex items-center gap-1 text-danger text-xs"><TrendingDown className={sz} />Baisse</span>
-    return <span className="flex items-center gap-1 text-muted-foreground text-xs"><Minus className={sz} />Stable</span>
+    return <span className="flex items-center gap-1 text-foreground text-xs"><Minus className={sz} />Stable</span>
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-muted-foreground">Score moyen</p><p className={`text-xl font-bold ${getScoreColor(stats.avg)}`}>{stats.avg}</p><p className="text-xs text-muted-foreground">/100</p></div>
-        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-muted-foreground">Écart-type</p><p className="text-xl font-bold">{stats.ecart}</p><p className="text-xs text-muted-foreground">dispersion</p></div>
+        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Score moyen</p><p className={`text-xl font-bold ${getScoreColor(stats.avg)}`}>{stats.avg}</p><p className="text-xs text-foreground">/100</p></div>
+        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Écart-type</p><p className="text-xl font-bold text-foreground">{stats.ecart}</p><p className="text-xs text-foreground">dispersion</p></div>
         <div className="bg-danger-soft rounded-xl p-3 text-center"><p className="text-xs text-danger">Critère min</p><p className="text-xl font-bold text-danger">{stats.min}</p><p className="text-xs text-danger">{stats.minC}</p></div>
         <div className="bg-success-soft rounded-xl p-3 text-center"><p className="text-xs text-success">Critère max</p><p className="text-xl font-bold text-success">{stats.max}</p><p className="text-xs text-success">{stats.maxC}</p></div>
       </div>
 
       {/* Tableau principal */}
-      <table className="table">
-        <thead><tr><th>Critère</th><th className="text-center">Poids</th><th>Score actuel</th><th className="text-center">Tendance</th><th className="text-center">Prédiction 3m</th><th className="text-center">Prédiction 6m</th><th className="text-center">Statut</th></tr></thead>
-        <tbody>
-          {data.map(row => (
-            <tr key={row.key} className="hover:bg-role-primary-soft transition-colors">
-              <td className="py-3"><div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg ${getScoreBg(row.score)} flex items-center justify-center font-bold text-sm ${getScoreColor(row.score)}`}>{row.court}</div><div><p className="font-medium text-sm">{row.label}</p><p className="text-xs text-muted-foreground">{row.desc}</p></div></div></td>
-              <td className="text-center"><span className="badge neutral text-xs">{row.poids}%</span></td>
-              <td><div className="space-y-1"><div className="flex items-center gap-2"><span className={`text-base font-bold ${getScoreColor(row.score)}`}>{row.score}</span><span className="text-xs text-muted-foreground">/100</span></div><div className="progress h-2"><div className={`progress-bar ${getProgressCls(row.score)}`} style={{ width: `${row.score}%` }} /></div></div></td>
-              <td className="text-center"><TendanceIcon t={row.tendance} s="md" /></td>
-              <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-muted-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div></td>
-              <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred6m.valeur)}`}>{row.pred6m.valeur}</span><div className="text-xs text-muted-foreground">IC: [{row.pred6m.intervalle[0]}–{row.pred6m.intervalle[1]}]</div></div></td>
-              <td className="text-center"><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span>{row.key === 'c1' && <> <span className="text-xs text-muted-foreground">({getSgsMaturiteLabel(row.score)})</span></>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-container">
+        <table className="table">
+          <thead><tr><th>Critère</th><th className="text-center">Poids</th><th>Score actuel</th><th className="text-center">Tendance</th><th className="text-center">Prédiction 3m</th><th className="text-center">Prédiction 6m</th><th className="text-center">Statut</th></tr></thead>
+          <tbody>
+            {data.map(row => (
+              <tr key={row.key} className="hover:bg-role-primary-soft transition-colors">
+                <td className="py-3"><div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg ${getScoreBg(row.score)} flex items-center justify-center font-bold text-sm ${getScoreColor(row.score)}`}>{row.court}</div><div><p className="font-medium text-sm text-foreground">{row.label}</p><p className="text-xs text-foreground">{row.desc}</p></div></div></td>
+                <td className="text-center"><span className="badge neutral text-xs">{row.poids}%</span></td>
+                <td><div className="space-y-1"><div className="flex items-center gap-2"><span className={`text-base font-bold ${getScoreColor(row.score)}`}>{row.score}</span><span className="text-xs text-foreground">/100</span></div><div className="progress h-2"><div className={`progress-bar ${getProgressCls(row.score)}`} style={{ width: `${row.score}%` }} /></div></div></td>
+                <td className="text-center"><TendanceIcon t={row.tendance} s="md" /></td>
+                <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div></td>
+                <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred6m.valeur)}`}>{row.pred6m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred6m.intervalle[0]}–{row.pred6m.intervalle[1]}]</div></div></td>
+                <td className="text-center"><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span>{row.key === 'c1' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(row.score)})</span></>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      {/* 📊 Interprétation + 🎯 Intervalles + ⚠️ Recommandations */}
+      {/* Interprétation + Intervalles + Recommandations */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-muted/20 rounded-xl p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">📊 Interprétation des tendances</p>
-          <div className="space-y-1.5 text-xs text-muted-foreground">
+        <Card variant="role" title="Interprétation des tendances" icon={<Info className="w-4 h-4" />}>
+          <div className="space-y-1.5 text-xs text-foreground">
             <div className="flex items-center gap-2"><TendanceIcon t="hausse" /><span>Amélioration prévue du critère</span></div>
             <div className="flex items-center gap-2"><TendanceIcon t="baisse" /><span>Dégradation prévue — action recommandée</span></div>
             <div className="flex items-center gap-2"><TendanceIcon t="stable" /><span>Situation stable, maintenir la surveillance</span></div>
           </div>
-        </div>
-        <div className="bg-muted/20 rounded-xl p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">🎯 Intervalles de confiance</p>
-          <p className="text-xs text-muted-foreground">Les IC (95%) représentent la fourchette probable d'évolution du score. Plus l'intervalle est large, plus l'incertitude est élevée. Prédictions basées sur la tendance historique.</p>
-        </div>
-        <div className="bg-muted/20 rounded-xl p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">⚠️ Recommandations</p>
+        </Card>
+        <Card variant="role" title="Intervalles de confiance" icon={<CheckCircle2 className="w-4 h-4" />}>
+          <p className="text-xs text-foreground">Les IC (95%) représentent la fourchette probable d'évolution du score. Plus l'intervalle est large, plus l'incertitude est élevée. Prédictions basées sur la tendance historique.</p>
+        </Card>
+        <Card variant="role" title="Recommandations" icon={<AlertTriangle className="w-4 h-4" />}>
           <div className="space-y-1 text-xs">
             {stats.min < 40 && <p className="text-warning">Prioriser l'amélioration du critère {stats.minC}</p>}
             {profil.tendance === 'baisse' && <p className="text-danger">Tendance baissière globale — renforcer la surveillance</p>}
             {Number(stats.ecart) > 20 && <p className="text-primary">Forte disparité entre critères — approche ciblée recommandée</p>}
             {stats.min >= 60 && profil.tendance !== 'baisse' && <p className="text-success">Profil équilibré — maintenir les bonnes pratiques</p>}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Légende des niveaux de risque */}
       <div className="flex items-center gap-3 flex-wrap text-xs pt-2 border-t border-border">
-        <span className="text-muted-foreground font-semibold">Légende :</span>
+        <span className="text-foreground font-semibold">Légende :</span>
         <span className="badge success">Excellent (≥80)</span>
         <span className="badge primary">Bon (60-79)</span>
         <span className="badge warning">Modéré (30-59)</span>

@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { ProfilRisque } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -18,7 +19,6 @@ import {
   Target,
   Activity,
   Gauge,
-  ThumbsUp,
 } from 'lucide-react'
 import { FeedbackSection } from './FeedbackSection'
 
@@ -42,28 +42,28 @@ interface RecommandationItem {
 const URGENCE_CONFIG: Record<Urgence, {
   label: string
   badgeClass: string
-  borderClass: string
+  levelColor: 'danger' | 'warning' | 'primary'
   iconClass: string
   bgClass: string
 }> = {
   critique: {
     label: 'CRITIQUE',
     badgeClass: 'badge danger pulse',
-    borderClass: 'border-l-4 border-l-danger',
+    levelColor: 'danger',
     iconClass: 'text-danger',
     bgClass: 'bg-danger/5',
   },
   haute: {
     label: 'HAUTE',
     badgeClass: 'badge warning',
-    borderClass: 'border-l-4 border-l-warning',
+    levelColor: 'warning',
     iconClass: 'text-warning',
     bgClass: 'bg-warning/5',
   },
   moyenne: {
     label: 'MOYENNE',
     badgeClass: 'badge primary',
-    borderClass: 'border-l-4 border-l-role-primary',
+    levelColor: 'primary',
     iconClass: 'text-role-primary',
     bgClass: 'bg-role-primary-soft',
   },
@@ -239,119 +239,111 @@ export function ActionsTab({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
 
       {/* Section ML — Carte Thompson Sampling */}
       {tsMetrics && (
-        <div className="card border-l-4 border-l-role-primary bg-gradient-to-r from-role-primary-soft/30 to-transparent">
-          <div className="card-content p-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center flex-shrink-0">
-                <Brain className="w-6 h-6 text-role-primary" />
+        <Card variant="role" title="IA — Thompson Sampling" icon={<Brain className="w-4 h-4" />}>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center flex-shrink-0">
+              <Brain className="w-6 h-6 text-role-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="badge primary">IA — Thompson Sampling</span>
+                <span className="text-xs text-foreground">
+                  Confiance: <strong className="text-role-primary">{tsMetrics.bestProbability}%</strong>
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge primary">IA — Thompson Sampling</span>
-                  <span className="text-xs text-muted-foreground">
-                    Confiance: <strong className="text-role-primary">{tsMetrics.bestProbability}%</strong>
-                  </span>
-                </div>
-                <p className="text-sm font-semibold text-foreground mt-2">
-                  Action recommandee par IA: {tsMetrics.recommendedAction}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Selectionnee par echantillonnage de Thompson parmi les actions disponibles, optimisant le compromis exploration/exploitation.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground mt-2">
+                Action recommandee par IA: {tsMetrics.recommendedAction}
+              </p>
+              <p className="text-xs text-foreground mt-1">
+                Selectionnee par echantillonnage de Thompson parmi les actions disponibles, optimisant le compromis exploration/exploitation.
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Section ML — Alerte HMM */}
       {hmmState?.isTransitioning && (
-        <div className="card border-l-4 border-l-danger bg-danger/5">
-          <div className="card-content p-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-danger/10 flex items-center justify-center flex-shrink-0">
-                <Zap className="w-6 h-6 text-danger" />
+        <Card variant="level" levelColor="danger" title="HMM — Transition silencieuse" icon={<Zap className="w-4 h-4" />}>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-danger/10 flex items-center justify-center flex-shrink-0">
+              <Zap className="w-6 h-6 text-danger" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="badge danger pulse">HMM — Transition silencieuse</span>
+                {hmmState.currentStateName && (
+                  <span className="text-xs text-foreground">
+                    Etat: <strong className="text-danger">{hmmState.currentStateName}</strong>
+                  </span>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge danger pulse">HMM — Transition silencieuse</span>
-                  {hmmState.currentStateName && (
-                    <span className="text-xs text-muted-foreground">
-                      Etat: <strong className="text-danger">{hmmState.currentStateName}</strong>
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-foreground mt-2">
-                  Action urgente: l&apos;aerodrome est en transition silencieuse vers un etat critique
-                  {hmmState.daysToCritical > 0 && (
-                    <> — agir avant J-{hmmState.daysToCritical}</>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Le modele de Markov cache detecte un changement d&apos;etat non visible par les indicateurs classiques. Risque de transition: {(hmmState.transitionRisk * 100).toFixed(1)}%.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground mt-2">
+                Action urgente: l&apos;aerodrome est en transition silencieuse vers un etat critique
+                {hmmState.daysToCritical > 0 && (
+                  <> — agir avant J-{hmmState.daysToCritical}</>
+                )}
+              </p>
+              <p className="text-xs text-foreground mt-1">
+                Le modele de Markov cache detecte un changement d&apos;etat non visible par les indicateurs classiques. Risque de transition: {(hmmState.transitionRisk * 100).toFixed(1)}%.
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Section ML — Alerte EVT (Extreme Value Theory) */}
       {extremeRisk?.isHeavyTailed && (
-        <div className="card border-l-4 border-l-warning bg-warning/5">
-          <div className="card-content p-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-6 h-6 text-warning" />
+        <Card variant="level" levelColor="warning" title="EVT — Risque extreme" icon={<AlertTriangle className="w-4 h-4" />}>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-warning" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="badge warning">EVT — Risque extreme</span>
+                <span className="text-xs text-foreground">
+                  Tail risk: <strong className="text-warning">{extremeRisk.tailRisk.toFixed(2)}</strong>
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge warning">EVT — Risque extreme</span>
-                  <span className="text-xs text-muted-foreground">
-                    Tail risk: <strong className="text-warning">{extremeRisk.tailRisk.toFixed(2)}</strong>
-                  </span>
-                </div>
-                <p className="text-sm font-semibold text-foreground mt-2">
-                  Preparer un plan d&apos;urgence — risque extreme identifie
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  La distribution des evenements presente une queue lourde. Maximum attendu a 12 mois: {extremeRisk.maxExpected12m.toFixed(1)}. Anticipez les scenarios extremes.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground mt-2">
+                Preparer un plan d&apos;urgence — risque extreme identifie
+              </p>
+              <p className="text-xs text-foreground mt-1">
+                La distribution des evenements presente une queue lourde. Maximum attendu a 12 mois: {extremeRisk.maxExpected12m.toFixed(1)}. Anticipez les scenarios extremes.
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Section ML — Alerte Survival (analyse de survie) */}
       {survivalMetrics && survivalMetrics.hazard90d > 0.5 && (
-        <div className="card border-l-4 border-l-warning bg-warning/5">
-          <div className="card-content p-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center flex-shrink-0">
-                <Clock className="w-6 h-6 text-warning" />
+        <Card variant="level" levelColor="warning" title="Survie — Risque a 90 jours" icon={<Clock className="w-4 h-4" />}>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center flex-shrink-0">
+              <Clock className="w-6 h-6 text-warning" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="badge warning">Survie — Risque a 90 jours</span>
+                <span className="text-xs text-foreground">
+                  Hazard: <strong className="text-warning">{(survivalMetrics.hazard90d * 100).toFixed(1)}%</strong>
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge warning">Survie — Risque a 90 jours</span>
-                  <span className="text-xs text-muted-foreground">
-                    Hazard: <strong className="text-warning">{(survivalMetrics.hazard90d * 100).toFixed(1)}%</strong>
-                  </span>
-                </div>
-                <p className="text-sm font-semibold text-foreground mt-2">
-                  Programmer une inspection dans les 90 jours
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  L&apos;analyse de survie indique un risque eleve d&apos;evenement dans les 90 prochains jours. Delai median estime: {survivalMetrics.medianDays} jours.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground mt-2">
+                Programmer une inspection dans les 90 jours
+              </p>
+              <p className="text-xs text-foreground mt-1">
+                L&apos;analyse de survie indique un risque eleve d&apos;evenement dans les 90 prochains jours. Delai median estime: {survivalMetrics.medianDays} jours.
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Recommandations priorisees classiques */}
@@ -369,36 +361,34 @@ export function ActionsTab({
             const config = URGENCE_CONFIG[rec.urgence]
             const RecIcon = rec.icon
             return (
-              <div key={rec.id} className={`card ${config.borderClass}`}>
-                <div className="card-content p-5">
-                  <div className="flex items-start gap-4">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${config.bgClass}`}>
-                      <RecIcon className={`w-5 h-5 ${config.iconClass}`} />
+              <Card key={rec.id} variant="level" levelColor={config.levelColor}>
+                <div className="flex items-start gap-4">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${config.bgClass}`}>
+                    <RecIcon className={`w-5 h-5 ${config.iconClass}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={config.badgeClass}>{config.label}</span>
+                      <span className="text-xs text-foreground">
+                        Score: <strong>{
+                          rec.id === 'global-critique' ? profil.score_global :
+                          rec.id === 'c1-sgs' ? profil.c1 :
+                          rec.id === 'c2-pac' ? profil.c2 :
+                          rec.id === 'c3-tech' ? profil.c3 :
+                          rec.id === 'c4-ecarts' ? profil.c4 :
+                          rec.id === 'c5-resilience' ? profil.c5 : '—'
+                        }/100</strong>
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={config.badgeClass}>{config.label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          Score: <strong>{
-                            rec.id === 'global-critique' ? profil.score_global :
-                            rec.id === 'c1-sgs' ? profil.c1 :
-                            rec.id === 'c2-pac' ? profil.c2 :
-                            rec.id === 'c3-tech' ? profil.c3 :
-                            rec.id === 'c4-ecarts' ? profil.c4 :
-                            rec.id === 'c5-resilience' ? profil.c5 : '—'
-                          }/100</strong>
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-foreground mt-2">
-                        {rec.titre}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {rec.description}
-                      </p>
-                    </div>
+                    <p className="text-sm font-semibold text-foreground mt-2">
+                      {rec.titre}
+                    </p>
+                    <p className="text-xs text-foreground mt-1">
+                      {rec.description}
+                    </p>
                   </div>
                 </div>
-              </div>
+              </Card>
             )
           })}
         </div>
@@ -406,30 +396,28 @@ export function ActionsTab({
 
       {/* Etat satisfaisant si aucune recommandation */}
       {recommandations.length === 0 && !tsMetrics && !hmmState?.isTransitioning && !extremeRisk?.isHeavyTailed && !(survivalMetrics && survivalMetrics.hazard90d > 0.5) && (
-        <div className="card card-glass text-center">
-          <div className="card-content py-12">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-success-soft flex items-center justify-center">
-                <CheckCircle2 className="w-8 h-8 text-success" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-success">Profil de risque satisfaisant</h3>
-                <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                  Aucune recommandation urgente detectee. Maintenez les bonnes pratiques et poursuivez la surveillance programmee.
-                </p>
-              </div>
+        <Card variant="role" title="Profil de risque satisfaisant" icon={<CheckCircle2 className="w-4 h-4" />}>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-success-soft flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-success" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-success">Profil de risque satisfaisant</h3>
+              <p className="text-sm text-foreground mt-1 max-w-md">
+                Aucune recommandation urgente detectee. Maintenez les bonnes pratiques et poursuivez la surveillance programmee.
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Barre d'actions */}
       <div className="flex items-center gap-3 flex-wrap pt-2">
 
-      {/* Feedback inspecteur sur les prédictions */}
-      <div className="mt-4">
-        <FeedbackSection aerodromeId={profil.aerodrome_id} userRole={userRole} />
-      </div>
+        {/* Feedback inspecteur sur les prédictions */}
+        <div className="mt-4">
+          <FeedbackSection aerodromeId={profil.aerodrome_id} userRole={userRole} />
+        </div>
         <button
           onClick={handleRecalculate}
           disabled={loading}

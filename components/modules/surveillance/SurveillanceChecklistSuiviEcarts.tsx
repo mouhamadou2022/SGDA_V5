@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { Card } from '@/components/ui/card';
 import {
   Save,
   FileText,
@@ -389,7 +390,7 @@ function SuggestionsBanner({
   if (remainingSuggestions.length === 0) return null;
   
   return (
-    <div className="card border-l-4 border-l-primary bg-primary/5 mb-4">
+    <Card variant="role" className="bg-primary/5 mb-4">
       <button
         className="w-full flex items-center justify-between p-4"
         onClick={() => setExpanded(!expanded)}
@@ -439,7 +440,7 @@ function SuggestionsBanner({
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -836,12 +837,10 @@ export function SurveillanceChecklistSuiviEcarts({
   
   if (!verification || !ecart) {
     return (
-      <div className="card border-border">
-        <div className="card-content py-12 text-center text-muted-foreground">
-          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-body">Aucun écart à suivre pour cette surveillance</p>
-        </div>
-      </div>
+      <Card className="text-center text-muted-foreground">
+        <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
+        <p className="text-body">Aucun écart à suivre pour cette surveillance</p>
+      </Card>
     );
   }
   
@@ -849,92 +848,88 @@ export function SurveillanceChecklistSuiviEcarts({
     <div className="space-y-6" data-role={userRole} data-module="checklist-suivi-ecarts">
       
       {/* En-tête */}
-      <div className="card border-l-4 border-l-warning bg-gradient-to-r from-warning/10 to-warning/5">
-        <div className="card-content p-4">
-          <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-warning-soft rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-warning" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">SUIVI DES ÉCARTS</p>
-                <p className="font-bold text-small">Vérification terrain des écarts non résolus</p>
-              </div>
+      <Card variant="level" levelColor="warning">
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-warning-soft rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-warning" />
             </div>
-            <div className="flex items-center gap-2">
-              {isOffline ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
-                  <WifiOff className="w-3 h-3" />
-                  Hors ligne
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200">
-                  <Wifi className="w-3 h-3" />
-                  En ligne
-                </span>
-              )}
-              {lastSaved && (
-                <span className="text-xs text-muted-foreground">
-                  Sauvegardé à {lastSaved.toLocaleTimeString()}
-                </span>
-              )}
+            <div>
+              <p className="text-xs text-muted-foreground">SUIVI DES ÉCARTS</p>
+              <p className="font-bold text-small">Vérification terrain des écarts non résolus</p>
             </div>
           </div>
-          
-          {/* Carte écart */}
-          <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="flex items-center gap-2 flex-wrap mb-2">
-              <span className="code-oaci-badge text-xs">{verification.ecart_reference}</span>
-              <span className={getEcartNiveauBadge()}>{verification.ecart_niveau}</span>
-              <span className={getStatutBadge()}>{getStatutLabel()}</span>
-            </div>
-            <p className="text-sm text-foreground mb-2">{verification.ecart_libelle}</p>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                Échéance: <span className="font-medium">{new Date(verification.date_echeance).toLocaleDateString('fr-FR')}</span>
+          <div className="flex items-center gap-2">
+            {isOffline ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                <WifiOff className="w-3 h-3" />
+                Hors ligne
               </span>
-              {verification.progression_pac !== undefined && (
-                <span className="flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  Progression PAC: <span className="font-medium">{verification.progression_pac}%</span>
-                </span>
-              )}
-            </div>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200">
+                <Wifi className="w-3 h-3" />
+                En ligne
+              </span>
+            )}
+            {lastSaved && (
+              <span className="text-xs text-muted-foreground">
+                Sauvegardé à {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
           </div>
         </div>
-      </div>
+        
+        {/* Carte écart */}
+        <div className="bg-white rounded-lg border border-gray-200 p-3">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <span className="code-oaci-badge text-xs">{verification.ecart_reference}</span>
+            <span className={getEcartNiveauBadge()}>{verification.ecart_niveau}</span>
+            <span className={getStatutBadge()}>{getStatutLabel()}</span>
+          </div>
+          <p className="text-sm text-foreground mb-2">{verification.ecart_libelle}</p>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              Échéance: <span className="font-medium">{new Date(verification.date_echeance).toLocaleDateString('fr-FR')}</span>
+            </span>
+            {verification.progression_pac !== undefined && (
+              <span className="flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" />
+                Progression PAC: <span className="font-medium">{verification.progression_pac}%</span>
+              </span>
+            )}
+          </div>
+        </div>
+      </Card>
       
       {/* Barre de progression */}
-      <div className="card border-border">
-        <div className="card-content p-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-small font-medium">Items: {stats.total}</span>
-                <div className="flex items-center gap-2">
-                  <span className="badge success text-[12px]">SA: {stats.sa}</span>
-                  <span className="badge danger text-[12px]">NS: {stats.ns}</span>
-                  <span className="badge warning text-[12px]">À vérifier: {stats.nv}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-small">Progression: {stats.progression}%</span>
-                <button type="button" onClick={() => onSave?.(verification)} className="btn btn-sm px-3 py-1 btn-secondary">
-                  <Save className="w-4 h-4" />
-                  Sauvegarder
-                </button>
+      <Card>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="text-small font-medium">Items: {stats.total}</span>
+              <div className="flex items-center gap-2">
+                <span className="badge success text-[12px]">SA: {stats.sa}</span>
+                <span className="badge danger text-[12px]">NS: {stats.ns}</span>
+                <span className="badge warning text-[12px]">À vérifier: {stats.nv}</span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="progress h-2 flex-1">
-                <div className="progress-bar progress-fill" style={{ '--pf': stats.progression } as React.CSSProperties} />
-              </div>
-              <span className="text-small font-medium w-12">{stats.progression}%</span>
+            <div className="flex items-center gap-4">
+              <span className="text-small">Progression: {stats.progression}%</span>
+              <button type="button" onClick={() => onSave?.(verification)} className="btn btn-sm px-3 py-1 btn-secondary">
+                <Save className="w-4 h-4" />
+                Sauvegarder
+              </button>
             </div>
           </div>
+          <div className="flex items-center gap-3">
+            <div className="progress h-2 flex-1">
+              <div className="progress-bar progress-fill" style={{ '--pf': stats.progression } as React.CSSProperties} />
+            </div>
+            <span className="text-small font-medium w-12">{stats.progression}%</span>
+          </div>
         </div>
-      </div>
+      </Card>
       
       {/* Suggestions */}
       <SuggestionsBanner
@@ -979,53 +974,43 @@ export function SurveillanceChecklistSuiviEcarts({
       })()}
       
       {/* Observations générales */}
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-base flex items-center gap-2">
-            <FileText className="w-4 h-4 text-role-primary" />
-            Observations générales
+      <Card icon={<FileText className="w-4 h-4 text-role-primary" />} title="Observations générales">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">
+              {verification.observations_generales || 'Aucune observation générale'}
+            </p>
           </div>
+          {!readOnly && !isSigned && (
+            <button
+              onClick={() => setObservationsModalOpen(true)}
+              className="action-button"
+              title="Modifier les observations"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+          )}
         </div>
-        <div className="card-content p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">
-                {verification.observations_generales || 'Aucune observation générale'}
-              </p>
-            </div>
-            {!readOnly && !isSigned && (
-              <button
-                onClick={() => setObservationsModalOpen(true)}
-                className="action-button"
-                title="Modifier les observations"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      </Card>
       
       {/* Signature */}
       {!readOnly && !isSigned && (
-        <div className={`card border-2 border-dashed ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-gray-300 bg-gray-50 opacity-50'}`}>
-          <div className="card-content p-6 text-center">
-            <PenLine className={`h-12 w-12 mx-auto mb-4 ${stats.progression === 100 ? 'text-success' : 'text-gray-400'}`} />
-            <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
-            {stats.progression === 100 ? (
-              <>
-                <p className="text-small text-gray-600 mb-4">✅ Tous les items sont vérifiés ({stats.progression}%)</p>
-                <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">
-                  Signer le suivi des écarts
-                </button>
-              </>
-            ) : (
-              <p className="text-small text-gray-500">
-                ⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifié(s)
-              </p>
-            )}
-          </div>
-        </div>
+        <Card className={`border-2 border-dashed text-center ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-gray-300 bg-gray-50 opacity-50'}`}>
+          <PenLine className={`h-12 w-12 mx-auto mb-4 ${stats.progression === 100 ? 'text-success' : 'text-gray-400'}`} />
+          <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
+          {stats.progression === 100 ? (
+            <>
+              <p className="text-small text-gray-600 mb-4">✅ Tous les items sont vérifiés ({stats.progression}%)</p>
+              <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">
+                Signer le suivi des écarts
+              </button>
+            </>
+          ) : (
+            <p className="text-small text-gray-500">
+              ⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifié(s)
+            </p>
+          )}
+        </Card>
       )}
       
       {/* Modal observations générales */}

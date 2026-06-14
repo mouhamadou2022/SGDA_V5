@@ -19,6 +19,7 @@ import {
   FileCheck2,
   Send,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore, Delegation } from '@/lib/store';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -221,34 +222,28 @@ export function ChefDashboard({
     );
 
   return (
-    <div className="card border-role-primary/30" data-module="chef-dashboard">
-      {/* ── En-tête ── */}
-      <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Users className="w-4 h-4 text-role-primary" />
-            <h3 className="font-semibold text-sm text-foreground">
-              Suivi des délégations
-            </h3>
-            <span className="badge outline text-xs">{transmis}/{total} transmis</span>
-            {toutTransmis && (
-              <span className="badge success text-xs">✓ Tout reçu</span>
-            )}
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="action-button"
-            disabled={isRefreshing}
-            title="Rafraîchir"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
+    <Card className="border-role-primary/30" data-module="chef-dashboard"
+      icon={<Users className="w-4 h-4 text-role-primary" />}
+      title="Suivi des délégations"
+      badge={<>
+        <span className="badge outline text-xs">{transmis}/{total} transmis</span>
+        {toutTransmis && (
+          <span className="badge success text-xs">✓ Tout reçu</span>
+        )}
+      </>}
+    >
+      <div className="flex items-center justify-end mb-3">
+        <button
+          onClick={handleRefresh}
+          className="action-button"
+          disabled={isRefreshing}
+          title="Rafraîchir"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
-      <div className="card-content p-4 space-y-4">
-
-        {/* ── KPIs ── */}
+      <div className="space-y-4">{/* ── KPIs ── */}
         <div className="grid grid-cols-3 gap-2">
           <div className="text-center p-2 bg-success/10 rounded-lg">
             <div className="text-xl font-bold text-success">{transmis}</div>
@@ -420,7 +415,7 @@ export function ChefDashboard({
         )}
 
       </div>
-    </div>
+    </Card>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { ThumbsUp, AlertTriangle, ThumbsDown, CheckCircle2 } from 'lucide-react'
 
 interface FeedbackSectionProps {
@@ -56,14 +57,8 @@ export function FeedbackSection({ aerodromeId, userRole }: FeedbackSectionProps)
   )
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <div className="card-title flex items-center gap-2">
-          <ThumbsUp className="w-4 h-4 text-primary" />
-          Évaluation de la précision
-        </div>
-      </div>
-      <div className="card-content space-y-3">
+    <Card variant="role" title="Évaluation de la précision" icon={<ThumbsUp className="w-4 h-4" />}>
+      <div className="space-y-4">
         {submittedRating ? (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/30">
             <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
@@ -73,15 +68,15 @@ export function FeedbackSection({ aerodromeId, userRole }: FeedbackSectionProps)
           </div>
         ) : !isInspector ? (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/20 border border-border">
-            <AlertTriangle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-sm text-muted-foreground">
+            <AlertTriangle className="w-4 h-4 text-foreground mt-0.5 shrink-0" />
+            <p className="text-sm text-foreground">
               Seuls les inspecteurs peuvent soumettre une évaluation de la précision des
               prédictions.
             </p>
           </div>
         ) : (
           <>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-foreground">
               Dans quelle mesure la prédiction de risque correspond-elle à la réalité terrain ?
             </p>
             <div className="flex flex-wrap gap-2">
@@ -99,6 +94,6 @@ export function FeedbackSection({ aerodromeId, userRole }: FeedbackSectionProps)
           </>
         )}
       </div>
-    </div>
+    </Card>
   )
 }

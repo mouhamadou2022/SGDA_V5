@@ -3,6 +3,7 @@
 
 import { useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { Download, TrendingUp, Users, Calendar, Star } from 'lucide-react'
 import {
   BarChart,
@@ -96,9 +97,9 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
     return (
       <div className="space-y-6 animate-fade-up" data-role={userRole}>
         <h2 className="heading-4 text-role-primary">{titre}</h2>
-        <div className="card p-8 text-center text-muted-foreground">
+        <Card className="text-center">
           Aucune réponse reçue pour cette enquête.
-        </div>
+        </Card>
       </div>
     )
   }
@@ -149,7 +150,7 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
 
       {/* Bar chart réponses par aérodrome */}
       {reponseParAerodrome.length > 0 && (
-        <div className="card p-4">
+        <Card>
           <p className="font-medium mb-4 text-role-primary">Réponses par aérodrome</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={reponseParAerodrome} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
@@ -159,11 +160,11 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
               <Bar dataKey="reponses" name="Réponses" fill="var(--role-primary)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+        </Card>
       )}
 
       {/* Distribution Likert */}
-      <div className="card p-4">
+      <Card>
         <p className="font-medium mb-4 text-role-primary">Distribution des scores C1</p>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={distributionLikert} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
@@ -173,10 +174,10 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
             <Bar dataKey="count" name="Réponses" fill="var(--success)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
       {/* Tableau */}
-      <div className="card p-4">
+      <Card>
         <p className="font-medium mb-3 text-role-primary">Détail des réponses</p>
         <div className="table-container overflow-x-auto">
           <table className="table text-sm">
@@ -209,7 +210,7 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
+import { Card } from '@/components/ui/card';
 
 // Store
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
@@ -297,13 +298,11 @@ function ArchiveView({
 
       {/* Résultats Archives */}
       {Object.keys(groupedByYear).length === 0 ? (
-        <div className="card">
-          <div className="card-content py-12 text-center text-muted-foreground">
+        <Card className="text-center text-muted-foreground">
             <Archive className="w-12 h-12 mx-auto mb-4 opacity-30" />
             <p className="text-body">Aucune surveillance archivée trouvée</p>
             <p className="text-small mt-2">Modifiez vos filtres pour élargir la recherche</p>
-          </div>
-        </div>
+        </Card>
       ) : (
         <div className="space-y-4">
           {Object.entries(groupedByYear).map(([year, yearSurveillances]) => {
@@ -334,58 +333,56 @@ function ArchiveView({
                       badges={<span className="badge outline">{aeroSurveillances.length} surveillance(s)</span>}
                     >
                       {aeroSurveillances.map(surveillance => (
-                        <div key={surveillance.id} className="card border-border mb-2">
-                                  <div className="card-content p-3">
-                                    <div className="flex items-start justify-between flex-wrap gap-3">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                                          <span className="badge outline">{getTypeLabel(surveillance.type)}</span>
-                                          <span className={getStatutBadge(surveillance.statut)}>
-                                            {getStatutLabel(surveillance.statut)}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {new Date(surveillance.date_debut).toLocaleDateString('fr-FR')} → {new Date(surveillance.date_fin).toLocaleDateString('fr-FR')}
-                                          </span>
-                                        </div>
-                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                          <span className="flex items-center gap-1">
-                                            <Users className="w-3 h-3" />
-                                            {surveillance.equipe_ids?.length || 0} inspecteur(s)
-                                          </span>
-                                          {surveillance.transmitted_at && (
-                                            <span className="flex items-center gap-1">
-                                              <Send className="w-3 h-3" />
-                                              Transmis le {new Date(surveillance.transmitted_at).toLocaleDateString('fr-FR')}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <button
-                                          onClick={() => onViewSurveillance(surveillance, 'rapport')}
-                                          className="action-button"
-                                          title="Voir le rapport"
-                                        >
-                                          <FileText className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          onClick={() => onViewSurveillance(surveillance, 'checklist')}
-                                          className="action-button"
-                                          title="Voir la checklist"
-                                        >
-                                          <ClipboardList className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          onClick={() => onViewSurveillance(surveillance, 'ecarts')}
-                                          className="action-button"
-                                          title="Voir les écarts"
-                                        >
-                                          <FileSignature className="w-4 h-4" />
-                                        </button>
-                                      </div>
-                                    </div>
+                  <Card key={surveillance.id} className="mb-2">
+                              <div className="flex items-start justify-between flex-wrap gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                                    <span className="badge outline">{getTypeLabel(surveillance.type)}</span>
+                                    <span className={getStatutBadge(surveillance.statut)}>
+                                      {getStatutLabel(surveillance.statut)}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(surveillance.date_debut).toLocaleDateString('fr-FR')} → {new Date(surveillance.date_fin).toLocaleDateString('fr-FR')}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Users className="w-3 h-3" />
+                                      {surveillance.equipe_ids?.length || 0} inspecteur(s)
+                                    </span>
+                                    {surveillance.transmitted_at && (
+                                      <span className="flex items-center gap-1">
+                                        <Send className="w-3 h-3" />
+                                        Transmis le {new Date(surveillance.transmitted_at).toLocaleDateString('fr-FR')}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => onViewSurveillance(surveillance, 'rapport')}
+                                    className="action-button"
+                                    title="Voir le rapport"
+                                  >
+                                    <FileText className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => onViewSurveillance(surveillance, 'checklist')}
+                                    className="action-button"
+                                    title="Voir la checklist"
+                                  >
+                                    <ClipboardList className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => onViewSurveillance(surveillance, 'ecarts')}
+                                    className="action-button"
+                                    title="Voir les écarts"
+                                  >
+                                    <FileSignature className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                          </Card>
                               ))}
                             </AccordionSubItem>
                           );
@@ -854,10 +851,10 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
               ))}
 
               {surveillancesByAerodrome.length === 0 && (
-                <div className="card p-12 text-center">
+                <Card className="text-center">
                   <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-30" />
                   <p className="text-body text-muted-foreground">Aucune surveillance active trouvée</p>
-                </div>
+                </Card>
               )}
             </AccordionGroup>
           )}

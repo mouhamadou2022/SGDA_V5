@@ -7,6 +7,7 @@ import React, { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { useAppStore, Planning, Ecart, Utilisateur } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { DOMAINES_SURVEILLANCE, getDomaineLabel } from '@/lib/domaines'
 import {
   Calendar, CheckCircle2, ClipboardList, Clock, FileText, History, LayoutGrid,
@@ -210,28 +211,26 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
             <div className="modal-body p-5 space-y-5">
 
               {/* Informations générales */}
-              <div className="card border-border">
-                <div className="card-content p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-role-primary" />
-                      <div><p className="text-xs text-muted-foreground">Aérodrome</p><p className="font-medium text-sm">{aerodrome?.code_oaci} - {aerodrome?.nom}</p></div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-role-primary" />
-                      <div><p className="text-xs text-muted-foreground">Période</p><p className="font-medium text-sm">{new Date(planning.date_debut).toLocaleDateString('fr-FR')} → {new Date(planning.date_fin).toLocaleDateString('fr-FR')}</p></div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-role-primary" />
-                      <div><p className="text-xs text-muted-foreground">Équipe</p><p className="font-medium text-sm">{planning.equipe_ids?.length || 0} inspecteur(s)</p></div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Target className="w-4 h-4 text-role-primary" />
-                      <div><p className="text-xs text-muted-foreground">Type</p><p className="font-medium text-sm capitalize">{planning.type?.replace(/_/g, ' ')}</p></div>
-                    </div>
+              <Card className="[&>div:last-child]:p-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-role-primary" />
+                    <div><p className="text-xs text-muted-foreground">Aérodrome</p><p className="font-medium text-sm">{aerodrome?.code_oaci} - {aerodrome?.nom}</p></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-role-primary" />
+                    <div><p className="text-xs text-muted-foreground">Période</p><p className="font-medium text-sm">{new Date(planning.date_debut).toLocaleDateString('fr-FR')} → {new Date(planning.date_fin).toLocaleDateString('fr-FR')}</p></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-role-primary" />
+                    <div><p className="text-xs text-muted-foreground">Équipe</p><p className="font-medium text-sm">{planning.equipe_ids?.length || 0} inspecteur(s)</p></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-role-primary" />
+                    <div><p className="text-xs text-muted-foreground">Type</p><p className="font-medium text-sm capitalize">{planning.type?.replace(/_/g, ' ')}</p></div>
                   </div>
                 </div>
-              </div>
+              </Card>
 
               {/* Onglets */}
               <div className="tabs">
@@ -245,12 +244,17 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
               {activeTab === 'profil' && profil && (
                 <div className="tab-content space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="card border-border"><div className="card-content p-3 text-center"><p className="text-xs text-muted-foreground">Score global</p><p className={`text-3xl font-bold ${getProfilColor()}`}>{profil.score_global}/100</p>{profil.niveau && <span className="badge mt-1">Niveau: {profil.niveau}</span>}</div></div>
-                    <div className="card border-border"><div className="card-content p-3 text-center"><p className="text-xs text-muted-foreground">Tendance</p><div className="flex items-center justify-center gap-1 mt-1">{getTendanceIcon()}<span className="text-lg font-medium capitalize">{profil.tendance || 'stable'}</span></div></div></div>
+                    <Card className="[&>div:last-child]:p-3 [&>div:last-child]:text-center">
+                      <p className="text-xs text-muted-foreground">Score global</p>
+                      <p className={`text-3xl font-bold ${getProfilColor()}`}>{profil.score_global}/100</p>
+                      {profil.niveau && <span className="badge mt-1">Niveau: {profil.niveau}</span>}
+                    </Card>
+                    <Card className="[&>div:last-child]:p-3 [&>div:last-child]:text-center">
+                      <p className="text-xs text-muted-foreground">Tendance</p>
+                      <div className="flex items-center justify-center gap-1 mt-1">{getTendanceIcon()}<span className="text-lg font-medium capitalize">{profil.tendance || 'stable'}</span></div>
+                    </Card>
                   </div>
-                  <div className="card border-border">
-                    <div className="card-header"><div className="card-title text-sm">Détail des critères</div></div>
-                    <div className="card-content space-y-3">
+                  <Card title="Détail des critères">
                       {[
                         { label: 'C1 - Maturité SGS', value: profil.c1 },
                         { label: 'C2 - Efficacité PAC', value: profil.c2 },
@@ -263,13 +267,21 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                           <div className="progress h-1.5"><div className={`progress-bar ${crit.value < 40 ? 'bg-danger' : crit.value < 60 ? 'bg-warning' : 'bg-success'}`} style={{ width: `${crit.value}%` }} /></div>
                         </div>
                       ))}
-                    </div>
-                  </div>
+                  </Card>
                   {profil.velocity_metrics && (
                     <div className="grid grid-cols-3 gap-3">
-                      <div className="card border-border"><div className="card-content p-2 text-center"><p className="text-xs text-muted-foreground">Vitesse</p><p className={`text-sm font-semibold ${profil.velocity_metrics.vitesse < 0 ? 'text-danger' : 'text-success'}`}>{profil.velocity_metrics.vitesse > 0 ? '+' : ''}{formatNumber(profil.velocity_metrics.vitesse, 1)} pts/mois</p></div></div>
-                      <div className="card border-border"><div className="card-content p-2 text-center"><p className="text-xs text-muted-foreground">Accélération</p><p className="text-sm font-semibold">{formatNumber(profil.velocity_metrics.acceleration, 1)}</p></div></div>
-                      <div className="card border-border"><div className="card-content p-2 text-center"><p className="text-xs text-muted-foreground">Volatilité</p><p className="text-sm font-semibold">{formatNumber(profil.velocity_metrics.volatilite, 1)}%</p></div></div>
+                      <Card className="[&>div:last-child]:p-2 [&>div:last-child]:text-center">
+                        <p className="text-xs text-muted-foreground">Vitesse</p>
+                        <p className={`text-sm font-semibold ${profil.velocity_metrics.vitesse < 0 ? 'text-danger' : 'text-success'}`}>{profil.velocity_metrics.vitesse > 0 ? '+' : ''}{formatNumber(profil.velocity_metrics.vitesse, 1)} pts/mois</p>
+                      </Card>
+                      <Card className="[&>div:last-child]:p-2 [&>div:last-child]:text-center">
+                        <p className="text-xs text-muted-foreground">Accélération</p>
+                        <p className="text-sm font-semibold">{formatNumber(profil.velocity_metrics.acceleration, 1)}</p>
+                      </Card>
+                      <Card className="[&>div:last-child]:p-2 [&>div:last-child]:text-center">
+                        <p className="text-xs text-muted-foreground">Volatilité</p>
+                        <p className="text-sm font-semibold">{formatNumber(profil.velocity_metrics.volatilite, 1)}%</p>
+                      </Card>
                     </div>
                   )}
                 </div>
@@ -282,20 +294,18 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                     <div className="text-center py-8 text-muted-foreground"><Clock className="w-8 h-8 mx-auto mb-2 opacity-30" /><p className="text-sm">Aucune surveillance antérieure</p></div>
                   ) : (
                     surveillancesPrecedentes.map(s => (
-                      <div key={s.id} className="card border-border">
-                        <div className="card-content p-3">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div><p className="text-sm font-medium capitalize">{s.type?.replace(/_/g, ' ')}</p><p className="text-xs text-muted-foreground">{new Date(s.date_debut).toLocaleDateString('fr-FR')} → {new Date(s.date_fin).toLocaleDateString('fr-FR')}</p></div>
-                            <span className={`badge ${s.statut === 'rapport_signe' ? 'success' : 'warning'}`}>{s.statut}</span>
-                          </div>
-                          {s.progression !== undefined && (
-                            <div className="mt-2">
-                              <div className="flex justify-between text-xs mb-1"><span>Progression</span><span>{s.progression}%</span></div>
-                              <div className="progress h-1"><div className="progress-bar" style={{ width: `${s.progression}%` }} /></div>
-                            </div>
-                          )}
+                      <Card key={s.id} className="[&>div:last-child]:p-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div><p className="text-sm font-medium capitalize">{s.type?.replace(/_/g, ' ')}</p><p className="text-xs text-muted-foreground">{new Date(s.date_debut).toLocaleDateString('fr-FR')} → {new Date(s.date_fin).toLocaleDateString('fr-FR')}</p></div>
+                          <span className={`badge ${s.statut === 'rapport_signe' ? 'success' : 'warning'}`}>{s.statut}</span>
                         </div>
-                      </div>
+                        {s.progression !== undefined && (
+                          <div className="mt-2">
+                            <div className="flex justify-between text-xs mb-1"><span>Progression</span><span>{s.progression}%</span></div>
+                            <div className="progress h-1"><div className="progress-bar" style={{ width: `${s.progression}%` }} /></div>
+                          </div>
+                        )}
+                      </Card>
                     ))
                   )}
                   {nbEcartsCritiques > 0 && (
@@ -330,39 +340,36 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                     </div>
                   </div>
                   {!isSgsPortee && (
-                    <div className="card border-border">
-                      <div className="card-header"><div className="card-title text-sm">Aperçu des items à vérifier</div></div>
-                      <div className="card-content">
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs font-semibold text-muted-foreground mb-2">Items standards (checklist RAS-14)</p>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div className="flex items-center gap-2"><span className="badge success text-xs">SA</span><span>Items satisfaisants (prédiction)</span></div>
-                              <div className="flex items-center gap-2"><span className="badge danger text-xs">NS</span><span>Non-conformités identifiées</span></div>
-                              <div className="flex items-center gap-2"><span className="badge warning text-xs">NV</span><span>Points à vérifier sur site</span></div>
+                    <Card title="Aperçu des items à vérifier">
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground mb-2">Items standards (checklist RAS-14)</p>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="flex items-center gap-2"><span className="badge success text-xs">SA</span><span>Items satisfaisants (prédiction)</span></div>
+                            <div className="flex items-center gap-2"><span className="badge danger text-xs">NS</span><span>Non-conformités identifiées</span></div>
+                            <div className="flex items-center gap-2"><span className="badge warning text-xs">NV</span><span>Points à vérifier sur site</span></div>
+                          </div>
+                        </div>
+                        {(checklistType === 'suivi' || checklistType === 'mixte') && (
+                          <div className="border-t border-border pt-2">
+                            <p className="text-xs font-semibold text-muted-foreground mb-2">Items de suivi des écarts</p>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-sm"><span>• Vérification état d'avancement des écarts</span><span className="badge warning">3 items</span></div>
+                              <div className="flex items-center justify-between text-sm"><span>• Validation des actions correctives</span><span className="badge warning">2 items</span></div>
                             </div>
                           </div>
-                          {(checklistType === 'suivi' || checklistType === 'mixte') && (
-                            <div className="border-t border-border pt-2">
-                              <p className="text-xs font-semibold text-muted-foreground mb-2">Items de suivi des écarts</p>
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between text-sm"><span>• Vérification état d'avancement des écarts</span><span className="badge warning">3 items</span></div>
-                                <div className="flex items-center justify-between text-sm"><span>• Validation des actions correctives</span><span className="badge warning">2 items</span></div>
-                              </div>
+                        )}
+                        {(checklistType === 'pac' || checklistType === 'mixte') && (
+                          <div className="border-t border-border pt-2">
+                            <p className="text-xs font-semibold text-muted-foreground mb-2">Items de mise en œuvre PAC</p>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-sm"><span>• Vérification des actions PAC</span><span className="badge warning">4 items</span></div>
+                              <div className="flex items-center justify-between text-sm"><span>• Évaluation efficacité des mesures</span><span className="badge warning">2 items</span></div>
                             </div>
-                          )}
-                          {(checklistType === 'pac' || checklistType === 'mixte') && (
-                            <div className="border-t border-border pt-2">
-                              <p className="text-xs font-semibold text-muted-foreground mb-2">Items de mise en œuvre PAC</p>
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between text-sm"><span>• Vérification des actions PAC</span><span className="badge warning">4 items</span></div>
-                                <div className="flex items-center justify-between text-sm"><span>• Évaluation efficacité des mesures</span><span className="badge warning">2 items</span></div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </Card>
                   )}
                   <div className="flex justify-end">
                     {!isSgsPortee && (
@@ -377,44 +384,40 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                 <div className="tab-content space-y-3">
                   <p className="text-sm text-muted-foreground">Attribuez chaque domaine à un inspecteur pour une répartition claire des tâches.</p>
                   {domainesList.map(({ code, label }) => (
-                    <div key={code} className="card border-border">
-                      <div className="card-content p-3">
-                        <div className="flex items-center justify-between flex-wrap gap-3">
-                          <div className="flex items-center gap-2">
-                            <span className="badge primary">{code}</span>
-                            <span className="text-xs text-muted-foreground">{label}</span>
-                            {delegations[code] && (
-                              <span className="badge success text-xs flex items-center gap-1"><CheckCircle2 className="w-2 h-2" />Assigné</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <select className="form-select text-sm py-3" value={delegations[code] || ''} onChange={(e) => setDelegations(prev => ({ ...prev, [code]: e.target.value }))}>
-                              <option value="">Non assigné</option>
-                              {inspecteursDisponibles.map(insp => (
-                                <option key={insp.id} value={insp.id}>{insp.prenom} {insp.nom} ({insp.service || 'Inspecteur'})</option>
-                              ))}
-                            </select>
-                            {delegations[code] && (
-                              <button onClick={() => setDelegations(prev => ({ ...prev, [code]: '' }))} className="btn btn-sm px-3 py-1 btn-danger"><X className="w-3 h-3" /></button>
-                            )}
-                          </div>
+                    <Card key={code} className="[&>div:last-child]:p-3">
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="badge primary">{code}</span>
+                          <span className="text-xs text-muted-foreground">{label}</span>
+                          {delegations[code] && (
+                            <span className="badge success text-xs flex items-center gap-1"><CheckCircle2 className="w-2 h-2" />Assigné</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select className="form-select text-sm py-3" value={delegations[code] || ''} onChange={(e) => setDelegations(prev => ({ ...prev, [code]: e.target.value }))}>
+                            <option value="">Non assigné</option>
+                            {inspecteursDisponibles.map(insp => (
+                              <option key={insp.id} value={insp.id}>{insp.prenom} {insp.nom} ({insp.service || 'Inspecteur'})</option>
+                            ))}
+                          </select>
+                          {delegations[code] && (
+                            <button onClick={() => setDelegations(prev => ({ ...prev, [code]: '' }))} className="btn btn-sm px-3 py-1 btn-danger"><X className="w-3 h-3" /></button>
+                          )}
                         </div>
                       </div>
-                    </div>
+                    </Card>
                   ))}
                   <p className="text-xs text-muted-foreground pt-2 border-t border-border">La délégation est optionnelle. Si vous ne déléguez pas, tous les inspecteurs pourront voir l'ensemble des domaines.</p>
                   {Object.keys(delegations).filter(d => delegations[d]).length > 0 && (
-                    <div className="card border-success bg-success/5">
-                      <div className="card-content p-3">
-                        <p className="text-xs font-semibold text-success mb-2">Résumé des délégations</p>
-                        <div className="space-y-1">
-                          {Object.entries(delegations).filter(([_, id]) => id).map(([code, id]) => {
-                            const inspecteur = inspecteursDisponibles.find(i => i.id === id)
-                            return <div key={code} className="flex items-center justify-between text-xs"><span className="font-medium">{code} - {getDomaineLabel(code)}</span><span className="text-gray-600">→ {inspecteur?.prenom} {inspecteur?.nom}</span></div>
-                          })}
-                        </div>
+                    <Card variant="level" levelColor="success" className="bg-success/5 [&>div:last-child]:p-3">
+                      <p className="text-xs font-semibold text-success mb-2">Résumé des délégations</p>
+                      <div className="space-y-1">
+                        {Object.entries(delegations).filter(([_, id]) => id).map(([code, id]) => {
+                          const inspecteur = inspecteursDisponibles.find(i => i.id === id)
+                          return <div key={code} className="flex items-center justify-between text-xs"><span className="font-medium">{code} - {getDomaineLabel(code)}</span><span className="text-gray-600">→ {inspecteur?.prenom} {inspecteur?.nom}</span></div>
+                        })}
                       </div>
-                    </div>
+                    </Card>
                   )}
                   <div className="flex justify-end">
                     <button className="btn btn-primary btn-sm gap-1" onClick={handleSaveDelegations}><Save className="w-3 h-3" />Enregistrer les délégations</button>

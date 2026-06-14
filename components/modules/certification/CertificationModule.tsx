@@ -33,6 +33,7 @@ import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/global
 import { useAppStore, Aerodrome, Certification, CertificationPhaseData, Planning } from '@/lib/store';
 import type { CertificationAnalysisResult } from '@/lib/ia/agents/certificationAgent';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
+import { Card } from '@/components/ui/card';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import { certificationAgent } from '@/lib/ia/agents/certificationAgent';
 import { checkExpiringCertifications, getPhaseStats } from '@/lib/certificationUtils';
@@ -157,123 +158,121 @@ function PhaseCard({
   const progress = getProgressValue();
 
   return (
-    <div className={`card ${isActive ? 'card-accent' : ''}`}>
-      <div className="card-content p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3 flex-1">
-            <div className={`kpi-icon !w-10 !h-10 ${isActive ? 'bg-role-primary-soft' : isCompleted ? 'bg-success/10' : 'bg-muted/30'}`}>
-              <Icon className={`h-5 w-5 ${isActive ? 'text-role-primary' : isCompleted ? 'text-success' : 'text-muted'}`} />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="font-medium text-foreground">
-                  Phase {phase} : {title}
-                </h4>
-                {isLocked && <Lock className="h-3 w-3 text-muted" />}
-              </div>
-              <p className="text-small text-muted">{description}</p>
-
-              <div className="flex flex-wrap gap-4 mt-2 text-xs">
-                {data?.date_reception && (
-                  <div className="flex items-center gap-1 text-muted">
-                    <Calendar className="h-3 w-3" />
-                    <span>Début: {new Date(data.date_reception).toLocaleDateString('fr-FR')}</span>
-                  </div>
-                )}
-                {data?.cloture_le && (
-                  <div className="flex items-center gap-1 text-success">
-                    <CheckCircle2 className="h-3 w-3" />
-                    <span>Clôturé: {new Date(data.cloture_le).toLocaleDateString('fr-FR')}</span>
-                  </div>
-                )}
-                {data?.responsable_nom && (
-                  <div className="flex items-center gap-1 text-muted">
-                    <User className="h-3 w-3" />
-                    <span>{data.responsable_nom}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-muted">Progression</span>
-                  <span className="text-foreground">{progress}%</span>
-                </div>
-                <div className="progress h-1.5">
-                  <div
-                    className={`progress-bar ${progress === 100 ? 'progress-faible' : progress >= 70 ? 'progress-moyen' : progress >= 40 ? 'progress-eleve' : 'progress-critique'}`}
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-
-              {docs.total > 0 && (
-                <div className="flex items-center gap-1 mt-2">
-                  <Paperclip className="h-3 w-3 text-muted" />
-                  <span className="text-xs text-muted">
-                    {docs.uploaded}/{docs.total} documents
-                  </span>
-                  {docs.uploaded < docs.total && (
-                    <span className="text-xs text-warning ml-1">({docs.total - docs.uploaded} manquant(s))</span>
-                  )}
-                </div>
-              )}
-
-              {getBlockedAlert()}
-
-              {lastActivity && (
-                <div className="flex items-center gap-1 mt-1 text-xs text-muted">
-                  <Clock className="h-3 w-3" />
-                  <span>Dernière activité: {lastActivity}</span>
-                </div>
-              )}
-            </div>
+    <Card variant={isActive ? "role" : "default"} size="sm">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-3 flex-1">
+          <div className={`kpi-icon !w-10 !h-10 ${isActive ? 'bg-role-primary-soft' : isCompleted ? 'bg-success/10' : 'bg-muted/30'}`}>
+            <Icon className={`h-5 w-5 ${isActive ? 'text-role-primary' : isCompleted ? 'text-success' : 'text-muted'}`} />
           </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-medium text-foreground">
+                Phase {phase} : {title}
+              </h4>
+              {isLocked && <Lock className="h-3 w-3 text-muted" />}
+            </div>
+            <p className="text-small text-muted">{description}</p>
 
-          <div className="flex flex-col items-end gap-3">
-            {getStatusBadge()}
-
-            <div className="flex items-center gap-1.5">
-              {!isLocked && !isCompleted && (
-                <>
-                  <button className="action-button" onClick={onView} title="Voir les détails">
-                    <Eye className="h-4 w-4" />
-                  </button>
-                  {(phase === 4 || phase === 3) && onManageExemptions && (
-                    <button className="action-button text-role-primary" onClick={onManageExemptions} title="Gérer les exemptions">
-                      <Shield className="h-4 w-4" />
-                    </button>
-                  )}
-                  {!(phase === 1 || phase === 2) && (
-                    <button className="action-button" onClick={onEdit} title="Modifier">
-                      <PenSquare className="h-4 w-4" />
-                    </button>
-                  )}
-                  {!(phase === 1 || phase === 2) && onDelete && (
-                    <button className="action-button hover:text-danger" onClick={onDelete} title="Réinitialiser la phase">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                  {onNotify && daysInactive > 30 && (
-                    <button className="action-button hover:text-warning" onClick={onNotify} title="Signaler un blocage">
-                      <AlertCircle className="h-4 w-4" />
-                    </button>
-                  )}
-                </>
+            <div className="flex flex-wrap gap-4 mt-2 text-xs">
+              {data?.date_reception && (
+                <div className="flex items-center gap-1 text-muted">
+                  <Calendar className="h-3 w-3" />
+                  <span>Début: {new Date(data.date_reception).toLocaleDateString('fr-FR')}</span>
+                </div>
               )}
-              {isCompleted && (
+              {data?.cloture_le && (
+                <div className="flex items-center gap-1 text-success">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Clôturé: {new Date(data.cloture_le).toLocaleDateString('fr-FR')}</span>
+                </div>
+              )}
+              {data?.responsable_nom && (
+                <div className="flex items-center gap-1 text-muted">
+                  <User className="h-3 w-3" />
+                  <span>{data.responsable_nom}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-muted">Progression</span>
+                <span className="text-foreground">{progress}%</span>
+              </div>
+              <div className="progress h-1.5">
+                <div
+                  className={`progress-bar ${progress === 100 ? 'progress-faible' : progress >= 70 ? 'progress-moyen' : progress >= 40 ? 'progress-eleve' : 'progress-critique'}`}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+
+            {docs.total > 0 && (
+              <div className="flex items-center gap-1 mt-2">
+                <Paperclip className="h-3 w-3 text-muted" />
+                <span className="text-xs text-muted">
+                  {docs.uploaded}/{docs.total} documents
+                </span>
+                {docs.uploaded < docs.total && (
+                  <span className="text-xs text-warning ml-1">({docs.total - docs.uploaded} manquant(s))</span>
+                )}
+              </div>
+            )}
+
+            {getBlockedAlert()}
+
+            {lastActivity && (
+              <div className="flex items-center gap-1 mt-1 text-xs text-muted">
+                <Clock className="h-3 w-3" />
+                <span>Dernière activité: {lastActivity}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end gap-3">
+          {getStatusBadge()}
+
+          <div className="flex items-center gap-1.5">
+            {!isLocked && !isCompleted && (
+              <>
                 <button className="action-button" onClick={onView} title="Voir les détails">
                   <Eye className="h-4 w-4" />
                 </button>
-              )}
-              {isLocked && !isCompleted && (
-                <div className="text-xs text-muted italic">Phase verrouillée</div>
-              )}
-            </div>
+                {(phase === 4 || phase === 3) && onManageExemptions && (
+                  <button className="action-button text-role-primary" onClick={onManageExemptions} title="Gérer les exemptions">
+                    <Shield className="h-4 w-4" />
+                  </button>
+                )}
+                {!(phase === 1 || phase === 2) && (
+                  <button className="action-button" onClick={onEdit} title="Modifier">
+                    <PenSquare className="h-4 w-4" />
+                  </button>
+                )}
+                {!(phase === 1 || phase === 2) && onDelete && (
+                  <button className="action-button hover:text-danger" onClick={onDelete} title="Réinitialiser la phase">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                {onNotify && daysInactive > 30 && (
+                  <button className="action-button hover:text-warning" onClick={onNotify} title="Signaler un blocage">
+                    <AlertCircle className="h-4 w-4" />
+                  </button>
+                )}
+              </>
+            )}
+            {isCompleted && (
+              <button className="action-button" onClick={onView} title="Voir les détails">
+                <Eye className="h-4 w-4" />
+              </button>
+            )}
+            {isLocked && !isCompleted && (
+              <div className="text-xs text-muted italic">Phase verrouillée</div>
+            )}
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1560,12 +1559,10 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
           })}
 
           {filteredAerodromes.length === 0 && (
-            <div className="card">
-              <div className="card-content py-12 text-center">
-                <Shield className="h-12 w-12 text-muted mx-auto mb-4" />
-                <p className="text-muted">Aucun aérodrome international trouvé</p>
-              </div>
-            </div>
+            <Card className="[&>div:last-child]:!py-12 [&>div:last-child]:!text-center">
+              <Shield className="h-12 w-12 text-muted mx-auto mb-4" />
+              <p className="text-muted">Aucun aérodrome international trouvé</p>
+            </Card>
           )}
         </AccordionGroup>
       )}

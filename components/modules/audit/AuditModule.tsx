@@ -11,6 +11,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
+import { Card } from '@/components/ui/card';
 import {
   FileSearch,
   Download,
@@ -317,7 +318,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             >
               <td>
                 <div className="flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-muted" />
+                  <Clock className="w-3 h-3 text-foreground" />
                   <span className="text-small text-foreground">
                     {new Date(log.date).toLocaleString('fr-FR')}
                   </span>
@@ -331,7 +332,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                   }`} />
                   <div>
                     <p className="font-medium text-foreground">{log.utilisateur_nom}</p>
-                    <p className="text-xs text-muted">{log.utilisateur_role}</p>
+                    <p className="text-xs text-foreground">{log.utilisateur_role}</p>
                   </div>
                 </div>
               </td>
@@ -350,7 +351,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
               <td>
                 <div>
                   <p className="font-mono text-xs text-foreground">{log.entite_id}</p>
-                  <p className="text-xs text-muted">{log.entite_nom || '-'}</p>
+                  <p className="text-xs text-foreground">{log.entite_nom || '-'}</p>
                 </div>
               </td>
               <td>
@@ -393,16 +394,16 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
       </table>
 
       {filteredLogs.length > 100 && (
-        <div className="p-4 text-center text-small text-muted border-t border-border">
+        <div className="p-4 text-center text-small text-foreground border-t border-border">
           Affichage des 100 premiers résultats sur {filteredLogs.length}
         </div>
       )}
 
       {filteredLogs.length === 0 && (
-        <div className="p-12 text-center text-muted">
+        <div className="p-12 text-center text-foreground">
           <FileSearch className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-body">Aucun log trouvé</p>
-          <p className="text-xs text-muted mt-1">Modifiez vos filtres pour élargir la recherche</p>
+          <p className="text-body text-foreground">Aucun log trouvé</p>
+          <p className="text-xs text-foreground mt-1">Modifiez vos filtres pour élargir la recherche</p>
         </div>
       )}
     </div>
@@ -412,75 +413,74 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
   const renderCompactView = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {filteredLogs.slice(0, 50).map((log) => (
-        <div
+        <Card
           key={log.id}
-          className="card cursor-pointer hover:shadow-role-glow transition-all border-l-4 border-l-role-primary"
+          variant="role"
+          className="cursor-pointer hover:shadow-role-glow transition-all"
           onClick={() => {
             setSelectedLog(log);
             setActiveTab('details');
             setShowDetails(true);
           }}
         >
-          <div className="card-content p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center">
-                  {getActionIcon(log.action)}
-                </div>
-                <div>
-                  <p className="text-xs font-mono text-muted">{log.entite_id}</p>
-                  <p className="text-xs font-medium">{log.utilisateur_nom}</p>
-                </div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center">
+                {getActionIcon(log.action)}
               </div>
-              <span className={getActionBadge(log.action)}>
-                {getActionLabel(log.action)}
-              </span>
+              <div>
+                <p className="text-xs font-mono text-foreground">{log.entite_id}</p>
+                <p className="text-xs font-medium text-foreground">{log.utilisateur_nom}</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted mt-2">
-              <Clock className="w-3 h-3" />
-              <span>{new Date(log.date).toLocaleString('fr-FR')}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              {getModuleIcon(log.module)}
-              <span className="text-xs">{getModuleLabel(log.module)}</span>
-              <code className="code-oaci-badge text-[10px] ml-auto">{log.ip || '-'}</code>
-            </div>
-            {/* Actions dans la vue compacte */}
-            <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-border" onClick={(e) => e.stopPropagation()}>
-              <button 
-                className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
-                onClick={() => handleEdit(log)}
-                title="Modifier"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-              <button 
-                className="action-button danger hover:bg-danger/10 transition-all duration-200"
-                onClick={() => handleDelete(log)}
-                title="Supprimer"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-              <button 
-                className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
-                onClick={() => {
-                  setSelectedLog(log);
-                  setActiveTab('details');
-                  setShowDetails(true);
-                }}
-                title="Voir détails"
-              >
-                <Eye className="w-3 h-3" />
-              </button>
-            </div>
+            <span className={getActionBadge(log.action)}>
+              {getActionLabel(log.action)}
+            </span>
           </div>
-        </div>
+          <div className="flex items-center gap-2 text-xs text-foreground mt-2">
+            <Clock className="w-3 h-3" />
+            <span>{new Date(log.date).toLocaleString('fr-FR')}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            {getModuleIcon(log.module)}
+            <span className="text-xs text-foreground">{getModuleLabel(log.module)}</span>
+            <code className="code-oaci-badge text-[10px] ml-auto">{log.ip || '-'}</code>
+          </div>
+          {/* Actions dans la vue compacte */}
+          <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-border" onClick={(e) => e.stopPropagation()}>
+            <button 
+              className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
+              onClick={() => handleEdit(log)}
+              title="Modifier"
+            >
+              <Edit3 className="w-3 h-3" />
+            </button>
+            <button 
+              className="action-button danger hover:bg-danger/10 transition-all duration-200"
+              onClick={() => handleDelete(log)}
+              title="Supprimer"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+            <button 
+              className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
+              onClick={() => {
+                setSelectedLog(log);
+                setActiveTab('details');
+                setShowDetails(true);
+              }}
+              title="Voir détails"
+            >
+              <Eye className="w-3 h-3" />
+            </button>
+          </div>
+        </Card>
       ))}
 
       {filteredLogs.length === 0 && (
-        <div className="col-span-full p-12 text-center text-muted">
+        <div className="col-span-full p-12 text-center text-foreground">
           <FileSearch className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-body">Aucun log trouvé</p>
+          <p className="text-body text-foreground">Aucun log trouvé</p>
         </div>
       )}
     </div>
@@ -509,10 +509,10 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     >
       {selectedLog && (
         <>
-          <p className="text-body">
+          <p className="text-body text-foreground">
             Êtes-vous sûr de vouloir supprimer cette entrée d'audit ?
           </p>
-          <p className="text-small text-muted-foreground mt-2">
+          <p className="text-small text-foreground mt-2">
             ID: <span className="font-mono">{selectedLog.entite_id}</span><br />
             Action: {getActionLabel(selectedLog.action)}<br />
             Date: {new Date(selectedLog.date).toLocaleString('fr-FR')}
@@ -608,56 +608,48 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
           <div className="kpi-icon bg-role-primary-soft">
             <FileSearch className="w-5 h-5 text-role-primary" />
           </div>
-          <div className="kpi-label">Total événements</div>
-          <div className="kpi-value">{stats.total}</div>
+          <div className="kpi-label text-foreground">Total événements</div>
+          <div className="kpi-value text-foreground">{stats.total}</div>
         </div>
 
         <div className="kpi-card">
           <div className="kpi-icon bg-primary-soft">
             <Users className="w-5 h-5 text-primary" />
           </div>
-          <div className="kpi-label">Utilisateurs actifs</div>
-          <div className="kpi-value">{stats.utilisateursActifs}</div>
+          <div className="kpi-label text-foreground">Utilisateurs actifs</div>
+          <div className="kpi-value text-foreground">{stats.utilisateursActifs}</div>
         </div>
 
         <div className="kpi-card">
           <div className="kpi-icon bg-teal-soft">
             <Eye className="w-5 h-5 text-teal" />
           </div>
-          <div className="kpi-label">Consultations</div>
-          <div className="kpi-value">{stats.parAction.consultation || 0}</div>
+          <div className="kpi-label text-foreground">Consultations</div>
+          <div className="kpi-value text-foreground">{stats.parAction.consultation || 0}</div>
         </div>
 
         <div className="kpi-card">
           <div className="kpi-icon bg-danger-soft">
             <AlertTriangle className="w-5 h-5 text-danger" />
           </div>
-          <div className="kpi-label">Actions critiques</div>
+          <div className="kpi-label text-foreground">Actions critiques</div>
           <div className="kpi-value text-danger">{stats.actionsCritiques}</div>
           {stats.actionsCritiques > 0 && (
-            <div className="kpi-trend down pulse text-[10px]">⚠️ Surveiller</div>
+            <div className="kpi-trend down pulse text-[10px] text-foreground">⚠️ Surveiller</div>
           )}
         </div>
       </div>
 
       {/* Graphique d'activité */}
       {showActivityChart && chartData.length > 0 && (
-        <div className="card animate-fade-up" style={{ animationDelay: '0.05s' }}>
-          <div className="card-header pb-2">
-            <h3 className="card-title text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-role-primary" />
-              Activité des 7 derniers jours
-            </h3>
-          </div>
-          <div className="card-content">
-            <BarChart
-              data={chartData}
-              xKey="date"
-              bars={[{ key: 'activités', name: 'Actions' }]}
-              height={200}
-            />
-          </div>
-        </div>
+        <Card variant="role" title="Activité des 7 derniers jours" icon={<TrendingUp className="h-4 w-4" />} className="animate-fade-up" style={{ animationDelay: '0.05s' } as any}>
+          <BarChart
+            data={chartData}
+            xKey="date"
+            bars={[{ key: 'activités', name: 'Actions' }]}
+            height={200}
+          />
+        </Card>
       )}
 
       {/* Barre d'outils - Style harmonisé avec AerodromesModule */}
@@ -665,13 +657,13 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
         <div className="flex flex-wrap items-center gap-3">
           {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground" />
             <input
               type="text"
               placeholder="Rechercher (utilisateur, entité, IP...)"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground ${focusClass}`}
+              className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-foreground ${focusClass}`}
             />
           </div>
 
@@ -801,12 +793,12 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                 <div className="form-grid grid-cols-2 gap-4">
                   <div className="form-field">
                     <label className="filter-label">Date et heure</label>
-                    <p className="text-body font-medium">{new Date(selectedLog.date).toLocaleString('fr-FR')}</p>
+                    <p className="text-body font-medium text-foreground">{new Date(selectedLog.date).toLocaleString('fr-FR')}</p>
                   </div>
                   <div className="form-field">
                     <label className="filter-label">Utilisateur</label>
-                    <p className="text-body font-medium">{selectedLog.utilisateur_nom}</p>
-                    <p className="text-xs text-muted">{selectedLog.utilisateur_role}</p>
+                    <p className="text-body font-medium text-foreground">{selectedLog.utilisateur_nom}</p>
+                    <p className="text-xs text-foreground">{selectedLog.utilisateur_role}</p>
                   </div>
                   <div className="form-field">
                     <label className="filter-label">Action</label>
@@ -816,11 +808,11 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                   </div>
                   <div className="form-field">
                     <label className="filter-label">Module</label>
-                    <p className="text-body">{getModuleLabel(selectedLog.module)}</p>
+                    <p className="text-body text-foreground">{getModuleLabel(selectedLog.module)}</p>
                   </div>
                   <div className="form-field">
                     <label className="filter-label">Type d'entité</label>
-                    <p className="text-body">{selectedLog.entite_type}</p>
+                    <p className="text-body text-foreground">{selectedLog.entite_type}</p>
                   </div>
                   <div className="form-field">
                     <label className="filter-label">ID entité</label>
@@ -828,7 +820,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                   </div>
                   <div className="form-field">
                     <label className="filter-label">Nom entité</label>
-                    <p className="text-body">{selectedLog.entite_nom || '-'}</p>
+                    <p className="text-body text-foreground">{selectedLog.entite_nom || '-'}</p>
                   </div>
                   <div className="form-field">
                     <label className="filter-label">IP</label>
@@ -836,14 +828,14 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                   </div>
                   <div className="col-span-2 form-field">
                     <label className="filter-label">User Agent</label>
-                    <p className="text-small text-muted truncate">{selectedLog.user_agent || '-'}</p>
+                    <p className="text-small text-foreground truncate">{selectedLog.user_agent || '-'}</p>
                   </div>
                 </div>
 
                 {selectedLog.details && (
                   <div className="form-field">
                     <label className="filter-label">Détails supplémentaires</label>
-                    <pre className="bg-role-primary-soft p-3 rounded-xl text-xs overflow-auto max-h-40 font-mono">
+                    <pre className="bg-role-primary-soft p-3 rounded-xl text-xs overflow-auto max-h-40 font-mono text-foreground">
                       {JSON.stringify(selectedLog.details, null, 2)}
                     </pre>
                   </div>
@@ -853,7 +845,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
 
             {activeTab === 'raw' && (
               <div className="animate-fade-in">
-                <pre className="bg-role-primary-soft p-4 rounded-xl text-xs overflow-auto max-h-96 font-mono">
+                <pre className="bg-role-primary-soft p-4 rounded-xl text-xs overflow-auto max-h-96 font-mono text-foreground">
                   {JSON.stringify(selectedLog, null, 2)}
                 </pre>
               </div>

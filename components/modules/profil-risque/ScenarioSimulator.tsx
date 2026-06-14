@@ -1,6 +1,5 @@
 // components/modules/profil-risque/ScenarioSimulator.tsx
 // Simulateur what-if avec sliders interactifs, suggestions IA, sauvegarde/chargement
-// Utilise les classes CSS globales (.card, .card-header, .badge, .progress, etc.)
 
 'use client'
 
@@ -12,6 +11,7 @@ import {
   Lightbulb, ArrowRight, CheckCircle2, AlertCircle, X, Minus
 } from 'lucide-react'
 import { useAppStore, ProfilRisque } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { calculateGlobalScore } from '@/lib/risque'
 
 interface Props { profil: ProfilRisque; aerodromeName: string; userRole: string }
@@ -97,20 +97,19 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold">Simulateur de Scénarios</h2><p className="text-xs text-muted-foreground">{aerodromeName} — Analyse what-if</p></div></div>
+        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold text-foreground">Simulateur de Scénarios</h2><p className="text-xs text-foreground">{aerodromeName} — Analyse what-if</p></div></div>
         <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions IA</button>
       </div>
 
       {showSuggestions && (
-        <div className="card border-role-primary/30">
-          <div className="card-header pb-2 bg-role-primary-soft"><div className="card-title text-sm font-semibold flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Scénarios IA</div><button className="btn btn-ghost btn-sm p-0 w-7 h-7" onClick={() => setShowSuggestions(false)}><X className="w-4 h-4" /></button></div>
-          <div className="card-content space-y-2">
+        <Card heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Scénarios IA</div><button className="btn btn-ghost btn-sm p-0 w-7 h-7" onClick={() => setShowSuggestions(false)}><X className="w-4 h-4" /></button></div>}>
+          <div className="space-y-2">
             {suggestions.map(s => (
               <div key={s.id} className="p-3 rounded-xl border border-border hover:border-role-primary/30 cursor-pointer" onClick={() => handleApplySuggestion(s)}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2 flex-wrap"><h4 className="text-sm font-semibold">{s.titre}</h4><span className={`badge text-xs ${s.probabiliteSucces >= 70 ? 'success' : s.probabiliteSucces >= 50 ? 'warning' : 'neutral'}`}>{s.probabiliteSucces}% succès</span></div>
-                    <p className="text-xs text-muted-foreground mt-1">{s.description}</p>
+                    <div className="flex items-center gap-2 flex-wrap"><h4 className="text-sm font-semibold text-foreground">{s.titre}</h4><span className={`badge text-xs ${s.probabiliteSucces >= 70 ? 'success' : s.probabiliteSucces >= 50 ? 'warning' : 'neutral'}`}>{s.probabiliteSucces}% succès</span></div>
+                    <p className="text-xs text-foreground mt-1">{s.description}</p>
                     <div className="flex items-center gap-3 mt-1 text-xs"><span className="text-success font-medium">+{s.gainEstime} pts</span><span className={s.effort === 'faible' ? 'text-success' : s.effort === 'moyen' ? 'text-warning' : 'text-danger'}>{s.effort === 'faible' ? 'Facile' : s.effort === 'moyen' ? 'Moyen' : 'Difficile'}</span><span className="text-primary">ROI {s.roi}x</span></div>
                   </div>
                   <ArrowRight className="w-4 h-4 text-role-primary shrink-0" />
@@ -118,63 +117,65 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Actuel */}
-        <div className="card">
-          <div className="card-header pb-3"><div className="card-title text-sm font-semibold flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-primary animate-pulse" />Scénario actuel</div></div>
-          <div className="card-content space-y-4">
-            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(profil.score_global)}`}>{profil.score_global}</span><span className="text-muted-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(profil.score_global)}`}>{getNiveauLabel(profil.score_global)}</span></div></div>
+        <Card variant="role" title="Scénario actuel" icon={<span className="w-2 h-2 rounded-full bg-primary animate-pulse" />}>
+          <div className="space-y-5">
+            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(profil.score_global)}`}>{profil.score_global}</span><span className="text-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(profil.score_global)}`}>{getNiveauLabel(profil.score_global)}</span></div></div>
             <div className="space-y-0">
-              {CRITERES.map(c => { const v = profil[c.key]; return (<div key={c.key} className="flex items-center justify-between py-2 border-b border-border last:border-b-0"><div className="flex items-center gap-2"><span className="text-xs">{c.label}</span><span className="badge neutral text-xs">{c.poids}%</span></div><div className="flex items-center gap-2"><div className="progress w-20 h-1.5"><div className={`progress-bar ${v >= 80 ? 'bg-success' : v >= 60 ? 'bg-primary' : v >= 30 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${v}%` }} /></div><span className={`text-xs font-semibold ${getNiveauColor(v)} w-8 text-right`}>{v}</span></div></div>) })}
+              {CRITERES.map(c => { const v = profil[c.key]; return (<div key={c.key} className="flex items-center justify-between py-2 border-b border-border last:border-b-0"><div className="flex items-center gap-2"><span className="text-xs text-foreground">{c.label}</span><span className="badge neutral text-xs">{c.poids}%</span></div><div className="flex items-center gap-2"><div className="progress w-20 h-1.5"><div className={`progress-bar ${v >= 80 ? 'bg-success' : v >= 60 ? 'bg-primary' : v >= 30 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${v}%` }} /></div><span className={`text-xs font-semibold ${getNiveauColor(v)} w-8 text-right`}>{v}</span></div></div>) })}
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Simulé */}
-        <div className="card border-role-primary/30">
-          <div className="card-header pb-3 bg-role-primary-soft"><div className="flex items-center justify-between w-full"><div className="card-title text-sm font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-role-primary" />Scénario simulé</div><button onClick={() => { setSimC1(profil.c1); setSimC2(profil.c2); setSimC3(profil.c3); setSimC4(profil.c4); setSimC5(profil.c5) }} className="btn btn-ghost btn-sm text-xs" disabled={isReadOnly}><RotateCcw className="w-3 h-3" /></button></div></div>
-          <div className="card-content space-y-4">
-            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}</span><span className="text-muted-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(scoreSimule)}`}>{getNiveauLabel(scoreSimule)}</span></div></div>
+        <Card variant="role" heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-role-primary" />Scénario simulé</div><button onClick={() => { setSimC1(profil.c1); setSimC2(profil.c2); setSimC3(profil.c3); setSimC4(profil.c4); setSimC5(profil.c5) }} className="btn btn-ghost btn-sm text-xs" disabled={isReadOnly}><RotateCcw className="w-3 h-3" /></button></div>}>
+          <div className="space-y-5">
+            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}</span><span className="text-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(scoreSimule)}`}>{getNiveauLabel(scoreSimule)}</span></div></div>
             <div className="space-y-2 max-h-[320px] overflow-y-auto">
               {CRITERES.map(c => {
                 const delta = simValues[c.key] - profil[c.key]
                 return (<div key={c.key} className="space-y-1 py-2 border-b border-border last:border-b-0">
-                  <div className="flex items-center justify-between"><span className="text-sm font-medium">{c.label}</span><div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Actuel: {profil[c.key]}</span><span className="text-base font-bold w-8 text-right">{simValues[c.key]}</span>{delta !== 0 && <span className={`badge text-xs ${delta > 0 ? 'success' : 'danger'}`}>{delta > 0 ? '+' : ''}{delta}</span>}</div></div>
+                  <div className="flex items-center justify-between"><span className="text-sm font-medium text-foreground">{c.label}</span><div className="flex items-center gap-2"><span className="text-xs text-foreground">Actuel: {profil[c.key]}</span><span className="text-base font-bold w-8 text-right text-foreground">{simValues[c.key]}</span>{delta !== 0 && <span className={`badge text-xs ${delta > 0 ? 'success' : 'danger'}`}>{delta > 0 ? '+' : ''}{delta}</span>}</div></div>
                   <input type="range" value={simValues[c.key]} onChange={e => setters[c.key](Number(e.target.value))} min={0} max={100} step={5} className="w-full h-2 rounded-lg cursor-pointer accent-role-primary" disabled={isReadOnly} />
                 </div>)
               })}
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Intreprétation */}
-      <div className={`card ${deltaScore > 0 ? 'border-success/30 bg-success-soft/30' : deltaScore < 0 ? 'border-danger/30 bg-danger-soft/30' : 'border-border'}`}>
-        <div className="card-content p-4 space-y-3">
+      <Card variant={deltaScore > 0 ? 'alert' : deltaScore < 0 ? 'alert' : 'default'} alertBg={deltaScore > 0 ? 'success' : deltaScore < 0 ? 'danger' : 'none'}>
+        <div className="space-y-3">
           <div className="flex items-center gap-2">
-            {deltaScore > 0 ? <TrendingUp className="w-5 h-5 text-success" /> : deltaScore < 0 ? <TrendingDown className="w-5 h-5 text-danger" /> : <Minus className="w-5 h-5 text-muted-foreground" />}
-            <p className="text-sm font-semibold">Interprétation</p>
+            {deltaScore > 0 ? <TrendingUp className="w-5 h-5 text-success" /> : deltaScore < 0 ? <TrendingDown className="w-5 h-5 text-danger" /> : <Minus className="w-5 h-5 text-foreground" />}
+            <p className="text-sm font-semibold text-foreground">Interprétation</p>
           </div>
-          {deltaScore !== 0 ? (<><p className="text-sm">Ce scénario <span className={`font-semibold ${deltaScore > 0 ? 'text-success' : 'text-danger'}`}>{deltaScore > 0 ? 'améliorerait' : 'dégraderait'}</span> le profil de <span className="font-semibold">{getNiveauLabel(profil.score_global)}</span> {(profil.score_global >= 80 && deltaScore > 0) || (profil.score_global < 30 && deltaScore < 0) ? '' : `à ${getNiveauLabel(scoreSimule)}`} (<span className={`font-bold ${deltaScore > 0 ? 'text-success' : 'text-danger'}`}>{deltaScore > 0 ? '+' : ''}{deltaScore} pts</span>).</p>
-          <div className="grid grid-cols-5 gap-2 text-xs">{CRITERES.map(c => { const d = simValues[c.key] - profil[c.key]; if (d === 0) return null; return <div key={c.key} className={`${d > 0 ? 'text-success' : 'text-danger'}`}>{c.key.toUpperCase()} {d > 0 ? '+' : ''}{d}</div> })}</div></>) : <p className="text-sm text-muted-foreground">Valeurs identiques au scénario actuel.</p>}
+          {deltaScore !== 0 ? (<><p className="text-sm text-foreground">Ce scénario <span className={`font-semibold ${deltaScore > 0 ? 'text-success' : 'text-danger'}`}>{deltaScore > 0 ? 'améliorerait' : 'dégraderait'}</span> le profil de <span className="font-semibold text-foreground">{getNiveauLabel(profil.score_global)}</span> {(profil.score_global >= 80 && deltaScore > 0) || (profil.score_global < 30 && deltaScore < 0) ? '' : `à ${getNiveauLabel(scoreSimule)}`} (<span className={`font-bold ${deltaScore > 0 ? 'text-success' : 'text-danger'}`}>{deltaScore > 0 ? '+' : ''}{deltaScore} pts</span>).</p>
+          <div className="grid grid-cols-5 gap-2 text-xs">{CRITERES.map(c => { const d = simValues[c.key] - profil[c.key]; if (d === 0) return null; return <div key={c.key} className={`${d > 0 ? 'text-success' : 'text-danger'}`}>{c.key.toUpperCase()} {d > 0 ? '+' : ''}{d}</div> })}</div></>) : <p className="text-sm text-foreground">Valeurs identiques au scénario actuel.</p>}
         </div>
-      </div>
+      </Card>
 
       {/* Actions */}
       {!isReadOnly && (<div className="flex flex-wrap items-center gap-3">
         <button onClick={() => { setSimC1(profil.c1); setSimC2(profil.c2); setSimC3(profil.c3); setSimC4(profil.c4); setSimC5(profil.c5) }} className="btn btn-secondary btn-sm gap-2"><RotateCcw className="w-4 h-4" />Réinitialiser</button>
         <button onClick={() => { setDialogOpen(true); setNomScenario(''); setSaveError('') }} className="btn btn-sm gap-2 bg-role-primary hover:bg-role-primary/80 text-white"><Save className="w-4 h-4" />Sauvegarder</button>
-        {scenarios.length > 0 && <button className="text-xs text-muted-foreground underline" onClick={() => setListOpen(v => !v)}>{scenarios.length} sauvegardé(s) {listOpen ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />}</button>}
+        {scenarios.length > 0 && <button className="text-xs text-foreground underline" onClick={() => setListOpen(v => !v)}>{scenarios.length} sauvegardé(s) {listOpen ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />}</button>}
       </div>)}
 
       {/* Scénarios sauvegardés */}
-      {listOpen && scenarios.length > 0 && (<div className="card"><div className="card-header pb-2"><div className="card-title text-xs font-semibold text-muted-foreground uppercase">Sauvegardés ({scenarios.length}/8)</div></div><div className="card-content space-y-2 max-h-64 overflow-y-auto">{scenarios.map(s => (<div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border hover:border-role-primary/30 hover:bg-role-primary-soft cursor-pointer group" onClick={() => handleLoad(s)}><div className="flex-1"><p className="text-sm font-medium">{s.nom}</p><div className="flex items-center gap-2 mt-1 text-xs"><span className={getNiveauColor(s.scoreSimule)}>{s.scoreSimule}/100</span><span className="text-muted-foreground">{new Date(s.createdAt).toLocaleDateString('fr-FR')}</span></div></div><button onClick={e => { e.stopPropagation(); handleDelete(s.id) }} className="btn btn-ghost btn-sm p-0 w-8 h-8 text-muted-foreground hover:text-danger opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button></div>))}</div></div>)}
+      {listOpen && scenarios.length > 0 && (<Card variant="role" title={`Sauvegardés (${scenarios.length}/8)`}>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {scenarios.map(s => (<div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border hover:border-role-primary/30 hover:bg-role-primary-soft cursor-pointer group" onClick={() => handleLoad(s)}><div className="flex-1"><p className="text-sm font-medium text-foreground">{s.nom}</p><div className="flex items-center gap-2 mt-1 text-xs"><span className={getNiveauColor(s.scoreSimule)}>{s.scoreSimule}/100</span><span className="text-foreground">{new Date(s.createdAt).toLocaleDateString('fr-FR')}</span></div></div><button onClick={e => { e.stopPropagation(); handleDelete(s.id) }} className="btn btn-ghost btn-sm p-0 w-8 h-8 text-foreground hover:text-danger opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button></div>))}
+        </div>
+      </Card>)}
 
       {/* Save dialog */}
-      {mounted && dialogOpen && createPortal(<div className="modal-overlay" onClick={() => setDialogOpen(false)}><div className="modal-content max-w-md" onClick={e => e.stopPropagation()}><div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary"><div className="modal-header border-b border-border"><div className="modal-title flex items-center gap-2"><Save className="w-4 h-4 text-role-primary" />Nommer le scénario</div><button className="modal-close" onClick={() => setDialogOpen(false)}><X className="w-4 h-4" /></button></div><div className="modal-body space-y-4 py-4"><input type="text" value={nomScenario} onChange={e => { setNomScenario(e.target.value); setSaveError('') }} placeholder="Ex: Amélioration C2 et C4" className="form-input w-full" maxLength={60} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave() }} />{saveError && <p className="text-xs text-danger">{saveError}</p>}<div className={`rounded-xl p-3 ${scoreSimule >= 80 ? 'bg-success-soft' : scoreSimule >= 60 ? 'bg-primary-soft' : scoreSimule >= 30 ? 'bg-warning-soft' : 'bg-danger-soft'}`}><div className="flex justify-between"><span className="text-xs text-muted-foreground">Score</span><span className={`text-lg font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}/100</span></div><div className="grid grid-cols-5 gap-1 mt-2 text-center text-xs font-mono"><span>C1:{simC1}</span><span>C2:{simC2}</span><span>C3:{simC3}</span><span>C4:{simC4}</span><span>C5:{simC5}</span></div></div></div><div className="modal-footer border-t border-border gap-2"><button className="btn btn-secondary btn-sm" onClick={() => setDialogOpen(false)}>Annuler</button><button className="btn btn-sm bg-role-primary hover:bg-role-primary/80 text-white" onClick={handleSave}>Sauvegarder</button></div></div></div></div>, document.body)}
+      {mounted && dialogOpen && createPortal(<div className="modal-overlay" onClick={() => setDialogOpen(false)}><div className="modal-content max-w-md" onClick={e => e.stopPropagation()}><div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary"><div className="modal-header border-b border-border"><div className="modal-title flex items-center gap-2"><Save className="w-4 h-4 text-role-primary" />Nommer le scénario</div><button className="modal-close" onClick={() => setDialogOpen(false)}><X className="w-4 h-4" /></button></div><div className="modal-body space-y-4 py-4"><input type="text" value={nomScenario} onChange={e => { setNomScenario(e.target.value); setSaveError('') }} placeholder="Ex: Amélioration C2 et C4" className="form-input w-full" maxLength={60} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave() }} />{saveError && <p className="text-xs text-danger">{saveError}</p>}<div className={`rounded-xl p-3 ${scoreSimule >= 80 ? 'bg-success-soft' : scoreSimule >= 60 ? 'bg-primary-soft' : scoreSimule >= 30 ? 'bg-warning-soft' : 'bg-danger-soft'}`}><div className="flex justify-between"><span className="text-xs text-foreground">Score</span><span className={`text-lg font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}/100</span></div><div className="grid grid-cols-5 gap-1 mt-2 text-center text-xs font-mono text-foreground"><span>C1:{simC1}</span><span>C2:{simC2}</span><span>C3:{simC3}</span><span>C4:{simC4}</span><span>C5:{simC5}</span></div></div></div><div className="modal-footer border-t border-border gap-2"><button className="btn btn-secondary btn-sm" onClick={() => setDialogOpen(false)}>Annuler</button><button className="btn btn-sm bg-role-primary hover:bg-role-primary/80 text-white" onClick={handleSave}>Sauvegarder</button></div></div></div></div>, document.body)}
     </div>
   )
 }

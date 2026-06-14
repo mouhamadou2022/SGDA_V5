@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { Save, Lock, CheckCircle2, FileText, Calendar, Users, AlertCircle, Clock } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import type { Homologation } from '@/lib/store'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -74,14 +75,12 @@ export function HomoPhase3({ homoId, phaseData, estActive, onUpdate, homologatio
 
   return (
     <div className="space-y-4 animate-fade-in" data-role={userRole}>
-      <div className="card border-border border-l-4 border-l-role-primary">
-        <div className="card-header pb-3 bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-small font-semibold flex items-center gap-2">
-            {readOnly && <Lock className="h-4 w-4 text-muted-foreground" />}
-            Phase 3 — Décision d'Homologation
-          </div>
-        </div>
-        <div className="card-content space-y-4">
+      <Card
+        variant="role"
+        icon={readOnly ? <Lock className="h-4 w-4 text-muted-foreground" /> : undefined}
+        heading="Phase 3 — Décision d'Homologation"
+      >
+        <div className="space-y-4">
           <div className="form-field">
             <label className="text-role-primary text-xs uppercase font-semibold flex items-center gap-1">
               <FileText className="h-3 w-3" />
@@ -313,7 +312,7 @@ export function HomoPhase3({ homoId, phaseData, estActive, onUpdate, homologatio
             </button>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

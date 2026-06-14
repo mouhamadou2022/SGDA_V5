@@ -9,6 +9,7 @@ import {
   Save, X, TrendingUp, Brain, Upload, Eye, PenLine, Calendar, MapPin, Users,
   Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import {
   SGS_COMPOSANTES,
   PAOE_LABELS,
@@ -188,7 +189,7 @@ function PreuveModal({ isOpen, onClose, questionRef, preuves, onAddPreuve, onRem
                 <p className="text-xs font-semibold text-muted-foreground mb-2">{preuves.length} preuve(s) jointe(s)</p>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
                   {preuves.map(p => (
-                    <div key={p.id} className="card-compact flex items-center gap-2 p-2">
+                    <div key={p.id} className="flex items-center gap-2 p-2">
                       <div className="w-7 h-7 rounded bg-role-gradient flex items-center justify-center flex-shrink-0">
                         <FileText className="w-3.5 h-3.5 text-white" />
                       </div>
@@ -383,7 +384,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
         </div>
       )}
 
-      <div className="card-content p-0">
+      <div className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -1131,29 +1132,25 @@ export function SGSEvaluationModal({
               const { score: compScore, niveauGlobal: compNiveau } = computeSGSComposanteScore(elements);
 
               return (
-                <div key={compDef.id} className="mb-4 card border-border overflow-hidden">
+                <Card key={compDef.id} className="mb-4 overflow-hidden [&>div:last-child]:p-0">
                   <div
-                    className={`card-header cursor-pointer transition-colors ${isExpanded ? 'bg-role-primary/5' : 'bg-gray-50'} hover:bg-role-primary-soft`}
+                    className={`flex items-center gap-3 px-7 py-5 border-b border-border cursor-pointer transition-colors ${isExpanded ? 'bg-role-primary/5' : 'bg-gray-50'} hover:bg-role-primary-soft`}
                     onClick={() => toggleComposante(compDef.id)}
                   >
-                    <div className="card-title text-sm flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-role-primary" />
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[13px] font-bold bg-role-primary text-white">{compDef.id}</span>
-                        <div>
-                          <p className="font-semibold">{compDef.label}</p>
-                          <p className="text-xs text-muted-foreground">Poids: {Math.round(compDef.poids * 100)}% — {compDef.elements.length} éléments</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`${getPAOEBadgeClass(compNiveau)} font-semibold`}>{compScore}% — {getNiveauLabel(compNiveau)}</span>
-                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      </div>
+                    <Shield className="w-5 h-5 text-role-primary shrink-0" />
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[13px] font-bold bg-role-primary text-white shrink-0">{compDef.id}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{compDef.label}</p>
+                      <p className="text-xs text-muted-foreground">Poids: {Math.round(compDef.poids * 100)}% — {compDef.elements.length} éléments</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`${getPAOEBadgeClass(compNiveau)} font-semibold text-sm`}>{compScore}% — {getNiveauLabel(compNiveau)}</span>
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </div>
                   </div>
 
                   {isExpanded && (
-                    <div className="card-content p-3 border-t border-border">
+                    <div className="p-3 border-t border-border">
                       {compDef.elements.map(elemDef => {
                         const questions = questionsByElement[elemDef.id] || elemDef.questions;
                         const isElementExpanded = expandedElements.has(elemDef.id);
@@ -1202,7 +1199,7 @@ export function SGSEvaluationModal({
                       })}
                     </div>
                   )}
-                </div>
+                </Card>
               );
             })}
 

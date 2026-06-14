@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, type Utilisateur } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
+import { Card } from '@/components/ui/card';
 import { ROLES } from '@/lib/config';
 import { UtilisateurForm } from '@/components/forms/UtilisateurForm';
 import { FormShell } from '@/components/ui/FormShell';
@@ -328,9 +329,8 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
 
       {/* Vue Liste */}
       {viewMode === 'liste' && (
-        <div className="card">
-          <div className="card-content p-0">
-            <div className="table-container">
+        <Card>
+          <div className="table-container">
               <table className="table">
                 <thead>
                   <tr>
@@ -438,8 +438,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+          </Card>
       )}
 
       {/* Vue Grille */}
@@ -449,9 +448,12 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
             const aerodrome = aerodromes.find(a => a.id === user.aerodrome_id);
 
             return (
-              <div key={user.id} className="card hover:shadow-lg transition-shadow border-l-4 border-l-role-primary">
-                <div className="card-header pb-2">
-                  <div className="flex items-start justify-between">
+              <Card
+                key={user.id}
+                variant="role"
+                className="hover:shadow-lg transition-shadow"
+                heading={
+                  <div className="flex items-start justify-between w-full">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-role-gradient flex items-center justify-center text-white font-bold text-lg shrink-0">
                         {getInitials(user.prenom, user.nom)}
@@ -461,10 +463,10 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                         <p className="text-xs text-gray-500">{user.email}</p>
                       </div>
                     </div>
-                    {getRoleBadge(user.role)}
                   </div>
-                </div>
-                <div className="card-content p-3 space-y-3">
+                }
+                badge={getRoleBadge(user.role)}
+              >
                   {user.telephone && (
                     <div className="flex items-center gap-2 text-small">
                       <Phone className="w-4 h-4 text-gray-400" />
@@ -524,8 +526,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                </div>
-              </div>
+              </Card>
             );
           })}
         </div>

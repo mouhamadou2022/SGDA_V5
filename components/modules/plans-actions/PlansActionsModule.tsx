@@ -11,6 +11,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useOptimizedStore, useGlobalDebounce, useGlobalTransition } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
+import { Card } from '@/components/ui/card'
 import { getProcessusActifs } from '@/lib/processus'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection'
@@ -397,8 +398,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       />
 
       {/* Assistant IA - Zone de chat rapide */}
-      <div className="card border-primary/20 bg-primary-soft/30">
-        <div className="card-content p-3">
+      <Card className="border-primary/20 bg-primary-soft/30">
           <div className="flex items-center gap-2 mb-2">
             <Brain className="w-4 h-4 text-role-primary" />
             <span className="text-sm font-medium">Assistant IA - Posez une question</span>
@@ -426,8 +426,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               <p className="text-sm text-gray-700">{iaAnswer}</p>
             </div>
           )}
-        </div>
-      </div>
+      </Card>
 
       {/* KPIs enrichis */}
       <div className="kpi-grid">
@@ -462,14 +461,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       {/* Analyses avancées (toggle) */}
       {showAnalytics && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-up">
-          <div className="card border-info">
-            <div className="card-header pb-2">
-              <div className="card-title text-small flex items-center gap-2">
-                <Shield className="w-4 h-4 text-info" />
-                Risque de cascade (Hawkes) - {aerodromeId ? 'Aérodrome sélectionné' : 'Analyse globale'}
-              </div>
-            </div>
-            <div className="card-content">
+          <Card icon={<Shield className="w-4 h-4 text-info" />} title={`Risque de cascade (Hawkes) - ${aerodromeId ? 'Aérodrome sélectionné' : 'Analyse globale'}`} className="border-info">
               {aerodromeId ? (
                 <>
                   <p className="text-2xl font-bold text-info">{statsAvancees.risqueCascade}%</p>
@@ -484,16 +476,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               ) : (
                 <p className="text-sm text-muted-foreground">Sélectionnez un aérodrome pour voir l'analyse de cascade</p>
               )}
-            </div>
-          </div>
-          <div className="card border-warning">
-            <div className="card-header pb-2">
-              <div className="card-title text-small flex items-center gap-2">
-                <Target className="w-4 h-4 text-warning" />
-                Priorisation dynamique
-              </div>
-            </div>
-            <div className="card-content">
+          </Card>
+          <Card variant="level" levelColor="warning" icon={<Target className="w-4 h-4 text-warning" />} title="Priorisation dynamique">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Critique</span>
                 <span className="text-sm font-bold text-danger">{statsAvancees.critiquesAvecProfil}</span>
@@ -505,8 +489,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               <p className="text-xs text-muted-foreground mt-2">
                 Basé sur score risque aérodrome + tendance + C4
               </p>
-            </div>
-          </div>
+          </Card>
         </div>
       )}
 
@@ -809,13 +792,11 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 )
               })}
             {sortedEcarts.filter(e => e.prioriteDynamique === 'critique' || e.statut === 'en_retard').length === 0 && (
-              <div className="card">
-                <div className="card-content py-12 text-center">
+              <Card className="text-center">
                   <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
                   <p className="text-muted-foreground">Aucun écart urgent ou critique</p>
                   <p className="text-xs text-muted-foreground mt-1">Tous les écarts sont sous contrôle</p>
-                </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -887,10 +868,10 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                       </div>
                     ))}
                     {aeroEcarts.length === 0 && (
-                      <div className="card p-8 text-center">
+                      <Card className="text-center">
                         <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
                         <p className="text-muted-foreground">Tous les écarts de ce processus sont clôturés</p>
-                      </div>
+                      </Card>
                     )}
                   </AccordionSection>
                 )

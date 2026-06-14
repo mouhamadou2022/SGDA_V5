@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { Card } from '@/components/ui/card';
 import {
   Save,
   FileText,
@@ -630,7 +631,7 @@ function SuggestionsBanner({
   const title = type === 'action_pac' ? 'Prédictions intelligentes' : 'Suggestions d\'efficacité';
   
   return (
-    <div className="card border-l-4 border-l-primary bg-primary/5 mb-4">
+    <Card variant="role" className="bg-primary/5 mb-4">
       <button
         className="w-full flex items-center justify-between p-4"
         onClick={() => setExpanded(!expanded)}
@@ -679,7 +680,7 @@ function SuggestionsBanner({
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -1333,15 +1334,13 @@ export function SurveillanceChecklistPAC({
   
   if (!checklistData) {
     return (
-      <div className="card border-border">
-        <div className="card-content py-12 text-center text-muted-foreground">
-          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-body">Aucun élément à vérifier</p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Aucun PAC actif ni exemption avec mesures actives
-          </p>
-        </div>
-      </div>
+      <Card className="text-center text-muted-foreground">
+        <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
+        <p className="text-body">Aucun élément à vérifier</p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Aucun PAC actif ni exemption avec mesures actives
+        </p>
+      </Card>
     );
   }
   
@@ -1352,182 +1351,176 @@ export function SurveillanceChecklistPAC({
     <div className="space-y-6" data-role={userRole} data-module="checklist-pac">
       
       {/* En-tête */}
-      <div className="card border-l-4 border-l-success bg-gradient-to-r from-success/10 to-success/5">
-        <div className="card-content p-4">
-          <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-success-soft rounded-lg">
-                <ClipboardList className="w-5 h-5 text-success" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  {hasPACItems && hasMesureItems 
-                    ? 'VÉRIFICATION MIXTE' 
-                    : hasPACItems 
-                      ? 'MISE EN ŒUVRE PAC' 
-                      : 'MESURES D\'ATTÉNUATION'}
-                </p>
-                <p className="font-bold text-small">
-                  {hasPACItems && hasMesureItems 
-                    ? 'Vérification des actions PAC et mesures d\'atténuation'
-                    : hasPACItems 
-                      ? 'Vérification terrain des actions correctives'
-                      : 'Suivi des mesures d\'atténuation des exemptions'}
-                </p>
-              </div>
+      <Card variant="level" levelColor="success">
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-success-soft rounded-lg">
+              <ClipboardList className="w-5 h-5 text-success" />
             </div>
-            <div className="flex items-center gap-2">
-              {isOffline ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
-                  <WifiOff className="w-3 h-3" />
-                  Hors ligne
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200">
-                  <Wifi className="w-3 h-3" />
-                  En ligne
-                </span>
-              )}
-              {lastSaved && (
-                <span className="text-xs text-muted-foreground">
-                  Sauvegardé à {lastSaved.toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-          </div>
-          
-          {/* Alertes exemptions actives */}
-          {(checklistData.exemptions_actives && checklistData.exemptions_actives.length > 0) && (
-            <div className="alert alert-warning mb-4">
-              <AlertTriangle className="alert-icon" />
-              <div className="alert-content">
-                <p className="font-medium">⚠️ Exemptions actives détectées</p>
-                <p className="text-sm mt-1">
-                  Cet aérodrome bénéficie d'exemption(s) active(s) : 
-                  {checklistData.exemptions_actives.map(e => ` ${e.reference}`).join(', ')}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Les mesures d'atténuation associées ont été automatiquement ajoutées à cette checklist.
-                </p>
-              </div>
-            </div>
-          )}
-          
-          {/* Informations */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-success" />
-              <div>
-                <p className="text-xs text-muted-foreground">Aérodrome</p>
-                <p className="font-medium">{checklistData.aerodrome_nom}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-success" />
-              <div>
-                <p className="text-xs text-muted-foreground">Date de vérification</p>
-                <p className="font-medium">{new Date().toLocaleDateString('fr-FR')}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Info écart si présent */}
-          {checklistData.ecart_concerne && (
-            <div className="border-t border-success/20 pt-3 mt-2">
-              <p className="text-xs text-muted-foreground mb-2">Écart concerné</p>
-              <div className="p-3 bg-white rounded-lg border border-gray-200">
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="code-oaci-badge text-[12px]">{checklistData.ecart_concerne.reference}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium border ${checklistData.ecart_concerne.niveau === 'critique' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
-                    {checklistData.ecart_concerne.niveau}
-                  </span>
-                </div>
-                <p className="text-sm text-foreground">{checklistData.ecart_concerne.libelle}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Barre de progression */}
-      <div className="card border-border">
-        <div className="card-content p-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-small font-medium">Total: {stats.total}</span>
-                <div className="flex items-center gap-2">
-                  <span className="badge success text-[12px]">SA: {stats.sa}</span>
-                  <span className="badge danger text-[12px]">NS: {stats.ns}</span>
-                  <span className="badge warning text-[12px]">À vérifier: {stats.nv}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-small">Progression: {stats.progression}%</span>
-                <button type="button" onClick={() => onSave?.(checklistData)} className="btn btn-sm px-3 py-1 btn-secondary">
-                  <Save className="w-4 h-4" />
-                  Sauvegarder
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="progress h-2 flex-1">
-                <div className="progress-bar progress-fill" style={{ '--pf': stats.progression } as React.CSSProperties} />
-              </div>
-              <span className="text-small font-medium w-12">{stats.progression}%</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Statut de clôture de l'écart */}
-      {ecartClosureStatus && ecartClosureStatus.totalActions > 0 && (
-        <div className={`card border-2 ${ecartClosureStatus.decision === 'cloturable' ? 'border-success bg-success/5' : ecartClosureStatus.decision === 'non_cloturable' ? 'border-danger bg-danger/5' : ecartClosureStatus.decision === 'conditionnelle' ? 'border-warning bg-warning/5' : 'border-gray-300 bg-gray-50'}`}>
-          <div className="card-content p-4">
-            <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
-              <div className="flex items-center gap-2">
-                <Shield className={`w-5 h-5 ${ecartClosureStatus.decision === 'cloturable' ? 'text-success' : ecartClosureStatus.decision === 'non_cloturable' ? 'text-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'text-warning' : 'text-gray-400'}`} />
-                <h3 className="font-semibold text-sm">Statut de clôture de l'écart</h3>
-              </div>
-              <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold border ${ecartClosureStatus.decision === 'cloturable' ? 'bg-success text-success-foreground border-success' : ecartClosureStatus.decision === 'non_cloturable' ? 'bg-danger text-danger-foreground border-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'bg-warning text-warning-foreground border-warning' : 'bg-gray-200 text-gray-700 border-gray-300'}`}>
-                {ecartClosureStatus.decision === 'cloturable' ? '✅ ÉCART CLÔTURABLE' : ecartClosureStatus.decision === 'non_cloturable' ? '🔴 NON CLÔTURABLE' : ecartClosureStatus.decision === 'conditionnelle' ? '🟠 CLÔTURE CONDITIONNELLE' : '⚪ EN ATTENTE'}
-              </span>
-            </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
-              <div className="text-center p-2 bg-white rounded-lg border">
-                <p className="text-xs text-muted-foreground">Total actions</p>
-                <p className="text-xl font-bold">{ecartClosureStatus.totalActions}</p>
-              </div>
-              <div className="text-center p-2 bg-success/10 rounded-lg border border-success/20">
-                <p className="text-xs text-muted-foreground">Validées</p>
-                <p className="text-xl font-bold text-success">{ecartClosureStatus.actionsValidees}</p>
-              </div>
-              <div className="text-center p-2 bg-warning/10 rounded-lg border border-warning/20">
-                <p className="text-xs text-muted-foreground">Partielles</p>
-                <p className="text-xl font-bold text-warning">{ecartClosureStatus.actionsPartielles}</p>
-              </div>
-              <div className="text-center p-2 bg-danger/10 rounded-lg border border-danger/20">
-                <p className="text-xs text-muted-foreground">Non validées</p>
-                <p className="text-xl font-bold text-danger">{ecartClosureStatus.actionsNonValidees}</p>
-              </div>
-              <div className="text-center p-2 bg-gray-100 rounded-lg border">
-                <p className="text-xs text-muted-foreground">Non évaluées</p>
-                <p className="text-xl font-bold">{ecartClosureStatus.actionsNonEvaluees}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Score agrégé</p>
-                <p className="text-2xl font-bold">{ecartClosureStatus.scoreAgrege}%</p>
-              </div>
-              <p className={`text-sm font-medium ${ecartClosureStatus.decision === 'non_cloturable' ? 'text-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'text-warning' : 'text-muted-foreground'}`}>
-                {ecartClosureStatus.message}
+            <div>
+              <p className="text-xs text-muted-foreground">
+                {hasPACItems && hasMesureItems 
+                  ? 'VÉRIFICATION MIXTE' 
+                  : hasPACItems 
+                    ? 'MISE EN ŒUVRE PAC' 
+                    : 'MESURES D\'ATTÉNUATION'}
+              </p>
+              <p className="font-bold text-small">
+                {hasPACItems && hasMesureItems 
+                  ? 'Vérification des actions PAC et mesures d\'atténuation'
+                  : hasPACItems 
+                    ? 'Vérification terrain des actions correctives'
+                    : 'Suivi des mesures d\'atténuation des exemptions'}
               </p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            {isOffline ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                <WifiOff className="w-3 h-3" />
+                Hors ligne
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200">
+                <Wifi className="w-3 h-3" />
+                En ligne
+              </span>
+            )}
+            {lastSaved && (
+              <span className="text-xs text-muted-foreground">
+                Sauvegardé à {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
+        
+        {/* Alertes exemptions actives */}
+        {(checklistData.exemptions_actives && checklistData.exemptions_actives.length > 0) && (
+          <div className="alert alert-warning mb-4">
+            <AlertTriangle className="alert-icon" />
+            <div className="alert-content">
+              <p className="font-medium">⚠️ Exemptions actives détectées</p>
+              <p className="text-sm mt-1">
+                Cet aérodrome bénéficie d'exemption(s) active(s) : 
+                {checklistData.exemptions_actives.map(e => ` ${e.reference}`).join(', ')}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Les mesures d'atténuation associées ont été automatiquement ajoutées à cette checklist.
+              </p>
+            </div>
+          </div>
+        )}
+        
+        {/* Informations */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-5 h-5 text-success" />
+            <div>
+              <p className="text-xs text-muted-foreground">Aérodrome</p>
+              <p className="font-medium">{checklistData.aerodrome_nom}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-success" />
+            <div>
+              <p className="text-xs text-muted-foreground">Date de vérification</p>
+              <p className="font-medium">{new Date().toLocaleDateString('fr-FR')}</p>
+            </div>
+          </div>
+        </div>
+        
+        {/* Info écart si présent */}
+        {checklistData.ecart_concerne && (
+          <div className="border-t border-success/20 pt-3 mt-2">
+            <p className="text-xs text-muted-foreground mb-2">Écart concerné</p>
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span className="code-oaci-badge text-[12px]">{checklistData.ecart_concerne.reference}</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium border ${checklistData.ecart_concerne.niveau === 'critique' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                  {checklistData.ecart_concerne.niveau}
+                </span>
+              </div>
+              <p className="text-sm text-foreground">{checklistData.ecart_concerne.libelle}</p>
+            </div>
+          </div>
+        )}
+      </Card>
+      
+      {/* Barre de progression */}
+      <Card>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="text-small font-medium">Total: {stats.total}</span>
+              <div className="flex items-center gap-2">
+                <span className="badge success text-[12px]">SA: {stats.sa}</span>
+                <span className="badge danger text-[12px]">NS: {stats.ns}</span>
+                <span className="badge warning text-[12px]">À vérifier: {stats.nv}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-small">Progression: {stats.progression}%</span>
+              <button type="button" onClick={() => onSave?.(checklistData)} className="btn btn-sm px-3 py-1 btn-secondary">
+                <Save className="w-4 h-4" />
+                Sauvegarder
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="progress h-2 flex-1">
+              <div className="progress-bar progress-fill" style={{ '--pf': stats.progression } as React.CSSProperties} />
+            </div>
+            <span className="text-small font-medium w-12">{stats.progression}%</span>
+          </div>
+        </div>
+      </Card>
+      
+      {/* Statut de clôture de l'écart */}
+      {ecartClosureStatus && ecartClosureStatus.totalActions > 0 && (
+        <Card className={`border-2 ${ecartClosureStatus.decision === 'cloturable' ? 'border-success bg-success/5' : ecartClosureStatus.decision === 'non_cloturable' ? 'border-danger bg-danger/5' : ecartClosureStatus.decision === 'conditionnelle' ? 'border-warning bg-warning/5' : 'border-gray-300 bg-gray-50'}`}>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <Shield className={`w-5 h-5 ${ecartClosureStatus.decision === 'cloturable' ? 'text-success' : ecartClosureStatus.decision === 'non_cloturable' ? 'text-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'text-warning' : 'text-gray-400'}`} />
+              <h3 className="font-semibold text-sm">Statut de clôture de l'écart</h3>
+            </div>
+            <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold border ${ecartClosureStatus.decision === 'cloturable' ? 'bg-success text-success-foreground border-success' : ecartClosureStatus.decision === 'non_cloturable' ? 'bg-danger text-danger-foreground border-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'bg-warning text-warning-foreground border-warning' : 'bg-gray-200 text-gray-700 border-gray-300'}`}>
+              {ecartClosureStatus.decision === 'cloturable' ? '✅ ÉCART CLÔTURABLE' : ecartClosureStatus.decision === 'non_cloturable' ? '🔴 NON CLÔTURABLE' : ecartClosureStatus.decision === 'conditionnelle' ? '🟠 CLÔTURE CONDITIONNELLE' : '⚪ EN ATTENTE'}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+            <div className="text-center p-2 bg-white rounded-lg border">
+              <p className="text-xs text-muted-foreground">Total actions</p>
+              <p className="text-xl font-bold">{ecartClosureStatus.totalActions}</p>
+            </div>
+            <div className="text-center p-2 bg-success/10 rounded-lg border border-success/20">
+              <p className="text-xs text-muted-foreground">Validées</p>
+              <p className="text-xl font-bold text-success">{ecartClosureStatus.actionsValidees}</p>
+            </div>
+            <div className="text-center p-2 bg-warning/10 rounded-lg border border-warning/20">
+              <p className="text-xs text-muted-foreground">Partielles</p>
+              <p className="text-xl font-bold text-warning">{ecartClosureStatus.actionsPartielles}</p>
+            </div>
+            <div className="text-center p-2 bg-danger/10 rounded-lg border border-danger/20">
+              <p className="text-xs text-muted-foreground">Non validées</p>
+              <p className="text-xl font-bold text-danger">{ecartClosureStatus.actionsNonValidees}</p>
+            </div>
+            <div className="text-center p-2 bg-gray-100 rounded-lg border">
+              <p className="text-xs text-muted-foreground">Non évaluées</p>
+              <p className="text-xl font-bold">{ecartClosureStatus.actionsNonEvaluees}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground">Score agrégé</p>
+              <p className="text-2xl font-bold">{ecartClosureStatus.scoreAgrege}%</p>
+            </div>
+            <p className={`text-sm font-medium ${ecartClosureStatus.decision === 'non_cloturable' ? 'text-danger' : ecartClosureStatus.decision === 'conditionnelle' ? 'text-warning' : 'text-muted-foreground'}`}>
+              {ecartClosureStatus.message}
+            </p>
+          </div>
+        </Card>
       )}
       
       {/* Suggestions PAC */}
@@ -1556,19 +1549,14 @@ export function SurveillanceChecklistPAC({
         return (
           <div className="space-y-6">
             {itemsParDomaine.map((groupe: DomaineItems<ItemVerification>) => (
-              <div key={groupe.domaine} className="card border-border overflow-hidden">
-                <div className="card-header bg-gradient-to-r from-blue-600/5 to-transparent">
-                  <div className="card-title text-base flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-8 h-7 rounded-md text-[13px] font-bold bg-blue-600 text-white">
-                      {groupe.domaine}
-                    </span>
-                    <span className="text-sm font-medium">{groupe.domaineLabel}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                      {groupe.items.length} item(s)
-                    </span>
-                  </div>
-                </div>
-                <div className="card-content p-4 space-y-4">
+              <Card key={groupe.domaine} className="overflow-hidden"
+                heading={<div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-8 h-7 rounded-md text-[13px] font-bold bg-blue-600 text-white">{groupe.domaine}</span>
+                  <span className="text-sm font-medium">{groupe.domaineLabel}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{groupe.items.length} item(s)</span>
+                </div>}
+              >
+                <div className="space-y-4">
                   {groupe.items.map((item, idx) => (
                     <ItemCard
                       key={item.id}
@@ -1583,60 +1571,50 @@ export function SurveillanceChecklistPAC({
                     />
                   ))}
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         );
       })()}
       
       {/* Observations générales */}
-      <div className="card border-border">
-        <div className="card-header bg-gradient-to-r from-role-primary/5 to-transparent">
-          <div className="card-title text-base flex items-center gap-2">
-            <FileText className="w-4 h-4 text-role-primary" />
-            Observations générales
+      <Card icon={<FileText className="w-4 h-4 text-role-primary" />} title="Observations générales">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">
+              {checklistData.observations_generales || 'Aucune observation générale'}
+            </p>
           </div>
+          {!readOnly && !isSigned && (
+            <button
+              onClick={() => setObservationsModalOpen(true)}
+              className="btn btn-sm px-3 py-1 btn-ghost"
+              title="Modifier les observations"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+          )}
         </div>
-        <div className="card-content p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">
-                {checklistData.observations_generales || 'Aucune observation générale'}
-              </p>
-            </div>
-            {!readOnly && !isSigned && (
-              <button
-                onClick={() => setObservationsModalOpen(true)}
-                className="btn btn-sm px-3 py-1 btn-ghost"
-                title="Modifier les observations"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      </Card>
       
       {/* Signature */}
       {!readOnly && !isSigned && (
-        <div className={`card border-2 border-dashed ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-gray-300 bg-gray-50 opacity-50'}`}>
-          <div className="card-content p-6 text-center">
-            <PenLine className={`h-12 w-12 mx-auto mb-4 ${stats.progression === 100 ? 'text-success' : 'text-gray-400'}`} />
-            <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
-            {stats.progression === 100 ? (
-              <>
-                <p className="text-small text-gray-600 mb-4">✅ Tous les items sont vérifiés ({stats.progression}%)</p>
-                <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">
-                  Signer la vérification
-                </button>
-              </>
-            ) : (
-              <p className="text-small text-gray-500">
-                ⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifié(s)
-              </p>
-            )}
-          </div>
-        </div>
+        <Card className={`border-2 border-dashed text-center ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-gray-300 bg-gray-50 opacity-50'}`}>
+          <PenLine className={`h-12 w-12 mx-auto mb-4 ${stats.progression === 100 ? 'text-success' : 'text-gray-400'}`} />
+          <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
+          {stats.progression === 100 ? (
+            <>
+              <p className="text-small text-gray-600 mb-4">✅ Tous les items sont vérifiés ({stats.progression}%)</p>
+              <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">
+                Signer la vérification
+              </button>
+            </>
+          ) : (
+            <p className="text-small text-gray-500">
+              ⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifié(s)
+            </p>
+          )}
+        </Card>
       )}
       
       {/* Modal observations générales */}

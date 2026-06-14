@@ -7,6 +7,7 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { AlertTriangle, Clock, FileText, RefreshCw, Shield, CheckCircle2, TrendingDown } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 interface AlertItem { id: string; message: string; type: 'danger' | 'warning' | 'info'; icon: React.ElementType; action?: string; actionLabel?: string }
 
@@ -142,33 +143,17 @@ export function AlertCard({ role, aerodromeId, onAction }: Props) {
   }, [surveillances, ecarts, profilsRisque, recalibrationAlerts, plannings, user, role, aerodromeId])
 
   if (alerts.length === 0) return (
-    <div className="card border-l-4 border-l-success">
-      <div className="card-header pb-2">
-        <div className="card-title text-sm font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-success" />
-          Alertes en temps réel
-          <span className="badge success text-xs ml-1">Aucune</span>
-        </div>
+    <Card variant="level" levelColor="success" title="Alertes en temps réel" icon={<CheckCircle2 className="w-4 h-4 text-success" />} badge={<span className="badge success text-xs">Aucune</span>} headerGradient={false}>
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-success-soft">
+        <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+        <span className="text-sm">Aucune alerte — tout est à jour</span>
       </div>
-      <div className="card-content">
-        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-success-soft">
-          <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-          <span className="text-sm">Aucune alerte — tout est à jour</span>
-        </div>
-      </div>
-    </div>
+    </Card>
   )
 
   return (
-    <div className="card border-l-4 border-l-danger">
-      <div className="card-header pb-2">
-        <div className="card-title text-sm font-semibold flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-danger" />
-          Alertes en temps réel
-          <span className="badge danger text-xs ml-1">{alerts.length} active{alerts.length > 1 ? 's' : ''}</span>
-        </div>
-      </div>
-      <div className="card-content space-y-2">
+    <Card variant="level" levelColor="danger" title="Alertes en temps réel" icon={<AlertTriangle className="w-4 h-4 text-danger" />} badge={<span className="badge danger text-xs">{alerts.length} active{alerts.length > 1 ? 's' : ''}</span>} headerGradient={false}>
+      <div className="space-y-2">
         {alerts.map(alert => (
           <div key={alert.id}
             className={`flex items-center justify-between gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${
@@ -189,6 +174,6 @@ export function AlertCard({ role, aerodromeId, onAction }: Props) {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
