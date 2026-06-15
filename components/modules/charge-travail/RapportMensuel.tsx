@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
-import { Printer, Download, TrendingUp, TrendingDown, Calendar, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Printer, Download, TrendingUp, TrendingDown, Calendar, Users, CheckCircle2, AlertCircle, Filter } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -152,9 +153,8 @@ export function RapportMensuel({ userRole }: RapportMensuelProps) {
         </div>
       </div>
 
-      <div className="filters-panel">
-        <div className="p-4">
-          <div className="flex flex-wrap items-end gap-4">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
+        <div className="flex flex-wrap items-end gap-4">
             <div className="form-field">
               <label className="filter-label">Mois</label>
               <select className={`form-select ${focusClass} w-36`} style={selectStyle} value={mois} onChange={e => setMois(e.target.value)}>
@@ -168,8 +168,7 @@ export function RapportMensuel({ userRole }: RapportMensuelProps) {
               </select>
             </div>
           </div>
-        </div>
-      </div>
+      </Card>
 
       <div className="kpi-grid">
         <div className="kpi-card animate-fade-up" style={{ animationDelay: '0.05s' }}>
@@ -281,7 +280,7 @@ export function RapportMensuel({ userRole }: RapportMensuelProps) {
               <p className="text-xs text-muted">Taux de réalisation minimum (à surveiller)</p>
             </div>
           </div>
-        </div>
+          </div>
       </div>
     </div>
   );

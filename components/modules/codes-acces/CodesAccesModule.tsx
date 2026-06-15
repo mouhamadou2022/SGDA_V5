@@ -26,7 +26,9 @@ import {
   Shield,
   Trash2,
   AlertTriangle,
+  Filter,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore, type CodeAcces } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { codeAccesUtils } from '@/lib/codeAccesUtils';
@@ -310,7 +312,7 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
       </div>
 
       {/* Barre d'outils - Style harmonisé */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
@@ -360,7 +362,7 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
             <span className="hidden sm:inline">Exporter</span>
           </button>
         </div>
-      </div>
+      </Card>
 
       {/* Tableau des codes */}
       <div className="table-container">

@@ -2,7 +2,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Search, Eye, Download, Calendar, MapPin } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, Eye, Download, Calendar, MapPin, Filter } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore, type Certification, type Homologation } from '@/lib/store';
 import ArchiveViewer from './ArchiveViewer';
 
@@ -100,7 +101,7 @@ export function ArchiveAccordion({ items, type, onRestore }: ArchiveAccordionPro
   return (
     <div className="space-y-4">
       {/* Filtres */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -149,7 +150,7 @@ export function ArchiveAccordion({ items, type, onRestore }: ArchiveAccordionPro
             </button>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* Résultats */}
       {groupedItems.length === 0 ? (

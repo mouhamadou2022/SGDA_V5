@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { Card } from '@/components/ui/card'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Message } from '@/lib/store'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
@@ -11,7 +12,7 @@ import type { Utilisateur } from '@/lib/store'
 import {
   Mail, MessageSquare, Send, Inbox, FileText,
   Paperclip, Download, Trash2, Archive, Star,
-  Search, Users, Building, Clock, Reply, Forward, Plus
+  Search, Users, Building, Clock, Reply, Forward, Plus, Filter
 } from 'lucide-react'
 import { ComposeMessage } from './ComposeMessage'
 import type { AuthUser } from '@/lib/auth'
@@ -210,7 +211,7 @@ export function MessagerieModule({ user: userProp }: { user: AuthUser }) {
       />
 
       {/* Barre d'outils - Style view-toggle comme PlanningModule */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           
           {/* Groupe CANAL - Style view-toggle avec icône + texte */}
@@ -299,7 +300,7 @@ export function MessagerieModule({ user: userProp }: { user: AuthUser }) {
             />
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Grille des messages */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -4,13 +4,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
+import { Card } from '@/components/ui/card';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Plane, Search, Grid3x3, List, Map, Plus, Eye, PenSquare,
   Trash2, Download, Shield, Scale, AlertTriangle, Clock,
-  MapPin, X, QrCode, Loader2,
+  MapPin, X, QrCode, Loader2, Filter,
 } from 'lucide-react';
 import { useAppStore, type Aerodrome } from '@/lib/store';
 import { toast } from '@/lib/toast';
@@ -449,7 +450,7 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
 
       {/* ── Barre de filtres ──────────────────────────────────────────────── */}
       {!isOperator && (
-        <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+        <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
           <div className="flex flex-wrap items-center gap-3">
             {/* Recherche */}
             <div className="flex-1 min-w-[200px] relative">
@@ -522,7 +523,7 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
 
             <button className="action-button" title="Exporter"><Download className="w-4 h-4"/></button>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* ── Vue principale ────────────────────────────────────────────────── */}

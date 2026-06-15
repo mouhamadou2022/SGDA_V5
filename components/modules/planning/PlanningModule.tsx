@@ -39,6 +39,7 @@ import {
   Shield,
   Target,
   Info,
+  Filter,
   PlayCircle,
   Edit2,
   Trash2,
@@ -1208,7 +1209,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       </div>
 
       {/* Barre d'outils */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md space-y-3">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-2">
            <div className="view-toggle">
              {viewButtons.map((view) => {
@@ -1479,7 +1480,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* Vue Liste */}
       {viewMode === 'list' && (

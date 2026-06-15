@@ -46,7 +46,9 @@ import {
   LayoutList,
   Target,
   PenSquare,
+  Filter,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { kitUtils } from '@/lib/kitUtils';
@@ -1402,7 +1404,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       {/* Contenu Documents */}
       {sousTab === 'documents' && (<>
       {/* Barre d'outils */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1458,9 +1460,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             <button className={viewMode === 'grille' ? 'active' : ''} onClick={() => setViewMode('grille')}>
               <Grid3x3 className="w-4 h-4" /> Grille
             </button>
+            </div>
           </div>
-        </div>
-      </div>
+      </Card>
 
       {/* Vue Liste avec accordéons maison */}
       {viewMode === 'liste' && (

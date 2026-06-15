@@ -32,6 +32,7 @@ import {
   BarChart3,
 
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore } from '@/lib/store';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
@@ -412,7 +413,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
           </div>
 
           {/* Filtres — une seule ligne, style Planning */}
-          <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md animate-fade-up" style={{ animationDelay: '0.3s' }}>
+          <Card className="border-primary/20 bg-primary-soft/30 animate-fade-up" style={{ animationDelay: '0.3s' }} icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap items-center gap-3">
               {/* Période */}
               <select
@@ -475,7 +476,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
                 </button>
               )}
             </div>
-          </div>
+          </Card>
 
           {/* Sections par statut */}
           {tachesMaCharge.length === 0 ? (
@@ -590,7 +591,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
           </div>
 
           {/* Filtres équipe — une seule ligne, style Planning */}
-          <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md animate-fade-up" style={{ animationDelay: '0.25s' }}>
+          <Card className="border-primary/20 bg-primary-soft/30 animate-fade-up" style={{ animationDelay: '0.25s' }} icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap items-center gap-3">
               <select
                 className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
@@ -676,7 +677,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
                 </button>
               )}
             </div>
-          </div>
+          </Card>
 
           {/* Cartes inspecteurs */}
           <div className="space-y-4">

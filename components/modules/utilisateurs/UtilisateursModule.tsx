@@ -245,7 +245,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
       </div>
 
       {/* Barre d'outils */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
@@ -325,7 +325,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
             </button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Vue Liste */}
       {viewMode === 'liste' && (

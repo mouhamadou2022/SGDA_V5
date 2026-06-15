@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
+import { Card } from '@/components/ui/card';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   GraduationCap,
@@ -1035,8 +1036,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
         </div>
       </div>
 
-      {/* Barre d'outils */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1106,7 +1106,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             </button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Vue Calendrier */}
       {viewMode === 'calendrier' && (

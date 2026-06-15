@@ -377,8 +377,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
       {viewMode === 'liste' && (
         <>
 
-      {/* Barre d'outils - Une seule ligne */}
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -427,7 +426,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
             <option value="cloture">Clôturé</option>
           </select>
         </div>
-      </div>
+      </Card>
 
       {/* Liste des événements par aérodrome */}
       <AccordionGroup spacing="sm">

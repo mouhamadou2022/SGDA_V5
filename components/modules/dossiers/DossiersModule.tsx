@@ -33,7 +33,9 @@ import {
   Calendar,
   List,
   Archive,
+  Filter,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore, type Dossier } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { dossierUtils } from '@/lib/dossierUtils';
@@ -842,7 +844,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
       {activeTab === 'actifs' && (
         <>
           {/* Barre d'outils */}
-          <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex-1 min-w-[240px] relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -917,11 +919,11 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                   <FolderOpen className="w-4 h-4" />
                   Grille
                 </button>
-              </div>
             </div>
           </div>
+        </Card>
 
-          {/* Vue Liste avec catégories */}
+        {/* Vue Liste avec catégories */}
           {viewMode === 'liste' && (
             <AccordionGroup spacing="lg">
               {CATEGORIES_DOSSIERS.map(cat => {
@@ -1151,7 +1153,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
       {activeTab === 'archives' && (
         <div className="space-y-4">
           {/* Barre de filtres Archives */}
-          <div className="card p-4 space-y-4">
+          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap gap-3 items-center">
               {/* Recherche */}
               <div className="flex-1 min-w-[200px] relative">
@@ -1234,7 +1236,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                 {filteredArchives.length} dossier(s) archivé(s)
               </span>
             </div>
-          </div>
+          </Card>
 
           {/* Message si aucun résultat */}
           {filteredArchives.length === 0 && (

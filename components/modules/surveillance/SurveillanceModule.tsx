@@ -237,7 +237,7 @@ function ArchiveView({
       </div>
 
       {/* Filtres Archive */}
-      <div className="filters-panel">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres archive">
         <div className="flex flex-wrap items-center gap-3">
           {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
@@ -294,7 +294,7 @@ function ArchiveView({
             <X className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      </Card>
 
       {/* Résultats Archives */}
       {Object.keys(groupedByYear).length === 0 ? (
@@ -675,7 +675,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
       {ongletPrincipal === 'actives' && (
         <>
           {/* Filtres */}
-          <div className="filters-panel">
+          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres">
             <div className="flex flex-wrap items-center gap-3">
                {/* Filtre Aérodrome */}
                <select
@@ -770,7 +770,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                 </button>
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* VUE LISTE - Groupée par aérodrome (accordéon) */}
           {viewMode === 'list' && (

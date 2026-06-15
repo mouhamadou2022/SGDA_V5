@@ -76,8 +76,7 @@ export function EnqueteExport({ enqueteId, userRole = 'inspector' }: EnqueteExpo
     <div className="space-y-6 animate-fade-up" data-role={userRole}>
       <h2 className="heading-4">Export des données</h2>
 
-      {/* Options */}
-      <div className="filters-panel p-4 space-y-4">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Options d'export">
         <div className="space-y-2">
           <p className="text-small font-medium">Format d'export</p>
           <div className="flex gap-4">
@@ -123,7 +122,7 @@ export function EnqueteExport({ enqueteId, userRole = 'inspector' }: EnqueteExpo
             <input type="date" className={`form-input w-full ${focusClass}`} value={dateFin} onChange={(e) => setDateFin(e.target.value)} />
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Aperçu */}
       <Card>

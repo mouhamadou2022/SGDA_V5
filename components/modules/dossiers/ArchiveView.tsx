@@ -13,6 +13,7 @@ import {
   Search,
   Filter,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
 
 interface ArchiveViewProps {
@@ -153,7 +154,7 @@ export function ArchiveView({ onRestore }: ArchiveViewProps) {
   return (
     <div className="space-y-4">
       {/* Barre de filtres */}
-      <div className="card p-4 space-y-4">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap gap-3 items-center">
           {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
@@ -253,7 +254,7 @@ export function ArchiveView({ onRestore }: ArchiveViewProps) {
             {dossiersFiltres.length} dossier(s) archivé(s)
           </span>
         </div>
-      </div>
+      </Card>
 
       {/* Accordéon par année */}
       <div className="space-y-3">

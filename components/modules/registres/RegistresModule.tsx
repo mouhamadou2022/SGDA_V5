@@ -50,6 +50,7 @@ import {
   Mail,
   UserCheck,
   Printer,
+  Filter,
 } from 'lucide-react';
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
 import type { TrainingNeedsAnalysisResult } from '@/lib/ia/agents/registreAgent';
@@ -2237,7 +2238,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
       
       {/* Barre d'outils - UNE SEULE LIGNE */}
       {showFilters && (
-        <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+        <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
           <div className="flex flex-wrap items-center gap-3">
             {/* Recherche */}
             {activeTab === 'documents' && (
@@ -2296,9 +2297,9 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
               <Download className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </Card>
       )}
-      
+
       {/* Sous-onglets — même design que CertificationModule */}
       <div className="tabs-container border-b border-border">
         <div className="tabs flex gap-1 overflow-x-auto">

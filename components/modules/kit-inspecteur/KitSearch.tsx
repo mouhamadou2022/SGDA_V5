@@ -2,7 +2,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, X, FileText, Download, Eye } from 'lucide-react'
+import { Search, X, FileText, Download, Eye, Filter } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 import { useAppStore } from '@/lib/store'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -55,7 +56,7 @@ function KitSearch({ onSelect, userRole = 'inspector' }: KitSearchProps) {
 
   return (
     <div className="space-y-4 animate-fade-up" data-role={userRole}>
-      <div className="filters-panel p-4 bg-background border border-border rounded-xl shadow-md">
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -94,9 +95,9 @@ function KitSearch({ onSelect, userRole = 'inspector' }: KitSearchProps) {
               <X className="w-3 h-3" />
               Réinitialiser
             </button>
-          )}
+            )}
         </div>
-      </div>
+      </Card>
 
       {docs.length === 0 ? (
         <div className="card p-12 text-center text-muted-foreground">
