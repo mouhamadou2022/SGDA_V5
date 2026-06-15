@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { AlertTriangle, CheckCircle2, Lightbulb, Calendar, User, FileText, Sparkles, TrendingUp } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 const PLANNING_PERIODE = ['T1 2026', 'T2 2026', 'T3 2026', 'T4 2026', 'T1 2027']
 
@@ -127,15 +128,9 @@ export function FormationSuggestions({ userRole }: Props) {
             const plan = planningParInsp[ins.id]
             if (!plan) return null
             return (
-              <div key={ins.id} className="card overflow-hidden border-border">
-                <div className="card-header bg-role-primary-soft">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-role-primary" />
-                    <span className="font-semibold">{ins.prenom} {ins.nom}</span>
-                    <span className="text-xs text-muted-foreground">{ins.service}</span>
-                  </div>
-                </div>
-                <div className="card-content">
+              <Card key={ins.id} className="overflow-hidden border-border"
+                heading={<div className="flex items-center gap-2"><User className="w-4 h-4 text-role-primary" /><span className="font-semibold">{ins.prenom} {ins.nom}</span><span className="text-xs text-muted-foreground">{ins.service}</span></div>}
+              >
                   <table className="table table-compact w-full">
                     <thead><tr><th>Période</th><th>Formation</th><th>Priorité</th></tr></thead>
                     <tbody>
@@ -148,8 +143,7 @@ export function FormationSuggestions({ userRole }: Props) {
                       ))}
                     </tbody>
                   </table>
-                </div>
-              </div>
+              </Card>
             )
           })}
           {Object.keys(planningParInsp).length === 0 && (

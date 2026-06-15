@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Calendar, AlertTriangle, CheckCircle2, X } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 
@@ -54,12 +55,12 @@ export function EcheanceAlert({ userRole }: Props) {
 
   if (alertes.length === 0 || nonResolus.length === 0) {
     return (
-      <div className="card p-6 border-success bg-success-soft animate-fade-in">
+      <Card variant="alert" alertBg="success" className="animate-fade-in">
         <div className="flex items-center gap-3">
           <CheckCircle2 className="h-8 w-8 text-success" />
           <div><p className="font-semibold text-success">Toutes les formations sont à jour</p><p className="text-small text-muted-foreground">Aucune échéance critique.</p></div>
         </div>
-      </div>
+      </Card>
     )
   }
 

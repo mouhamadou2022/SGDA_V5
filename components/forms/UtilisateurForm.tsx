@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
-  Mail, Phone, Save, X,
+  Mail, Phone, Save, X, Camera,
   AlertCircle, CheckCircle2,
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
@@ -51,7 +51,8 @@ export function UtilisateurForm({
   const utilisateurs = useAppStore(s => s.utilisateurs);
   const aerodromes = useAppStore(s => s.aerodromes);
   const addUtilisateur = useAppStore(s => s.addUtilisateur);
-  const updateUtilisateur = useAppStore(s => s.updateUtilisateur)
+  const updateUtilisateur = useAppStore(s => s.updateUtilisateur);
+  const updateInspecteur = useAppStore(s => s.updateInspecteur)
 
   const [formData, setFormData] = useState({
     prenom: '',
@@ -69,6 +70,7 @@ export function UtilisateurForm({
     superieur_id: '',
     notifications_email: true,
     notifications_sms: false,
+    photo_url: '',
   })
 
   const activeTab = activeTabProp
@@ -114,12 +116,41 @@ export function UtilisateurForm({
             poste: (u as any).poste || '',
             superieur_id: (u as any).superieur_id || '',
             statut: (u as any).statut || 'actif',
-           notifications_email: u.notifications_email ?? true,
-           notifications_sms: u.notifications_sms ?? false,
-         })
+            notifications_email: u.notifications_email ?? true,
+            notifications_sms: u.notifications_sms ?? false,
+            photo_url: (u as any).photo_url || '',
+          })
        }
      }
    }, [mode, utilisateurId, utilisateursMap])
+
+  const handlePhotoUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const max = 400;
+          let w = img.width, h = img.height;
+          if (w > h) { if (w > max) { h *= max / w; w = max; } }
+          else { if (h > max) { w *= max / h; h = max; } }
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, w, h);
+          setFormData(prev => ({ ...prev, photo_url: canvas.toDataURL('image/jpeg', 0.7) }));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
 
   const validerFormulaire = (): boolean => {
     const newErrors: Record<string, string> = {}
@@ -153,9 +184,18 @@ export function UtilisateurForm({
         statut: formData.statut,
         notifications_email: formData.notifications_email,
         notifications_sms: formData.notifications_sms,
+        photo_url: formData.photo_url || undefined,
         ...(mode === 'creation' && { mot_de_passe: formData.mot_de_passe }),
         updated_at: new Date().toISOString(),
       }
+      // Sync photo to linked inspecteur
+      if (formData.photo_url && mode === 'modification') {
+        const user = utilisateursMap.get(utilisateurId!)
+        if (user?.inspecteur_id) {
+          updateInspecteur(user.inspecteur_id, { photo: formData.photo_url } as any)
+        }
+      }
+
       if (mode === 'creation') {
         let authId: string | undefined
         try {
@@ -248,6 +288,30 @@ export function UtilisateurForm({
           <div className="form-field">
             <label htmlFor="telephone" className={labelClass}><Phone className="w-4 h-4 inline mr-1 text-role-primary" />Téléphone</label>
             <input id="telephone" value={formData.telephone} onChange={e => setFormData({ ...formData, telephone: e.target.value })} placeholder="+221 77 123 45 67" className={`form-input ${focusClass}`} />
+          </div>
+        </div>
+
+        <div className="space-y-4 mt-6">
+          <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">Photo passeport</p>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-full bg-blue-950 flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden">
+              {formData.photo_url ? (
+                <img src={formData.photo_url} alt="photo" className="w-full h-full object-cover" />
+              ) : (
+                formData.prenom?.[0]?.toUpperCase() || formData.nom?.[0]?.toUpperCase() || '?'
+              )}
+            </div>
+            <div>
+              <button type="button" onClick={handlePhotoUpload} className="btn btn-secondary gap-2 text-sm">
+                <Camera className="w-4 h-4" />{formData.photo_url ? 'Changer la photo' : 'Ajouter une photo'}
+              </button>
+              {formData.photo_url && (
+                <button type="button" onClick={() => setFormData(prev => ({ ...prev, photo_url: '' }))} className="btn btn-ghost text-danger text-sm ml-2">
+                  <X className="w-4 h-4 inline mr-1" />Supprimer
+                </button>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">Format JPG/PNG. La photo sera redimensionnée à 400px max.</p>
+            </div>
           </div>
         </div>
 

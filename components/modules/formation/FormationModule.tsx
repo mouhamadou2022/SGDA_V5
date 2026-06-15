@@ -41,10 +41,13 @@ import {
   Sparkles,
   List,
   Grid3x3,
+  PieChart,
 } from 'lucide-react';
+import { PieChart as FormationPieChart } from '@/components/ui/charts/PieChart';
 import { CompetenceMatrix } from './CompetenceMatrix';
 import { EcheanceAlert } from './EcheanceAlert';
 import { FormationSuggestions } from './FormationSuggestions';
+import { DeleteConfirmationDialog } from '@/components/ui/DeleteConfirmationDialog';
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Formation, Inspecteur, Competence } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
@@ -128,6 +131,8 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const [showForm, setShowForm] = useState(false);
   const [showInspecteurForm, setShowInspecteurForm] = useState(false);
   const [showInspecteurFiche, setShowInspecteurFiche] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingInspecteurId, setDeletingInspecteurId] = useState<string | null>(null);
   const [showMatriceModal, setShowMatriceModal] = useState(false);
   const [selectedInspecteur, setSelectedInspecteur] = useState<string | null>(null);
   const [selectedFormation, setSelectedFormation] = useState<string | null>(null);
@@ -554,13 +559,20 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     });
   };
 
-  const handleDeleteInspecteur = async (id: string) => {
-    if (!window.confirm('Supprimer cet inspecteur ? Son compte utilisateur sera également supprimé.')) return;
+  const handleDeleteInspecteur = (id: string) => {
+    setDeletingInspecteurId(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDeleteInspecteur = async () => {
+    if (!deletingInspecteurId) return;
     try {
-      await deleteInspecteur(id);
+      await deleteInspecteur(deletingInspecteurId);
     } catch (err) {
       console.error('Erreur suppression inspecteur:', err);
     }
+    setShowDeleteConfirm(false);
+    setDeletingInspecteurId(null);
   };
 
   const handleDeleteExpiree = async (f: Formation) => {
@@ -924,6 +936,103 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     </FormShell>
   );
 
+  const InspecteurFicheModal = () => {
+    const ins = inspecteurs.find(i => i.id === selectedInspecteur);
+    if (!ins) return null;
+    const formationCount = formations.filter(f => f.participants?.includes(ins.id)).length;
+    const statutColors: Record<string, string> = { en_service: 'text-success', en_conge: 'text-warning', en_mission: 'text-info', absent: 'text-danger' };
+    const domaine = DOMAINES_COMPETENCE.find(d => d.id === ins.domaine_principal);
+    return (
+      <FormShell
+        open={showInspecteurFiche && !!mounted}
+        onClose={() => { setShowInspecteurFiche(false); setSelectedInspecteur(null); }}
+        title="Fiche inspecteur"
+        icon={Eye}
+        size="lg"
+        dataRole={userRole}
+      >
+        <div className="space-y-6">
+          {/* Profil header */}
+          <div className="flex items-center gap-5 p-5 bg-gradient-to-r from-blue-950/5 to-transparent rounded-2xl border border-border/50">
+            <div className="w-20 h-20 rounded-full bg-blue-950 flex items-center justify-center text-white text-2xl font-bold shrink-0 overflow-hidden ring-4 ring-blue-950/10">
+              {ins.photo ? (
+                <img src={ins.photo} alt="" className="w-full h-full object-cover" />
+              ) : (
+                getInitials(ins.prenom, ins.nom)
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-xl font-bold tracking-tight">{ins.prenom} {ins.nom}</h3>
+              <p className="text-sm text-muted-foreground">{ins.matricule || '—'}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className="badge primary text-[10px]">{getNiveauLabel(ins.type)}</span>
+                {domaine && <span className="badge outline text-[10px]">{domaine.label.split(' (')[0]}</span>}
+                <span className={`text-[11px] font-medium capitalize ${statutColors[ins.statut] || 'text-muted-foreground'}`}>
+                  {ins.statut.replace(/_/g, ' ')}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Coordonnées */}
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Coordonnées</p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Email', value: ins.email },
+                { label: 'Téléphone', value: ins.telephone },
+                { label: 'Service', value: ins.service?.replace(/_/g, ' ') },
+              ].map(item => (
+                <div key={item.label} className="p-3 bg-role-primary-soft rounded-xl">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{item.label}</p>
+                  <p className="text-sm font-medium truncate">{item.value || '—'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Activité */}
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Activité</p>
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: 'Formations', value: formationCount, icon: '🎓' },
+                { label: 'Compétences', value: ins.competences?.length || 0, icon: '⭐' },
+                { label: 'Domaine', value: domaine?.label.split(' (')[0] || '—' },
+                { label: 'Statut', value: ins.statut.replace(/_/g, ' ') },
+              ].map(item => (
+                <div key={item.label} className="p-3 bg-role-primary-soft rounded-xl">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{item.label}</p>
+                  <p className="text-sm font-medium truncate">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Compétences */}
+          {ins.competences && ins.competences.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Compétences</p>
+              <div className="grid grid-cols-2 gap-2">
+                {ins.competences.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-role-primary-soft">
+                    <span className="text-sm font-medium">{c.domaine}</span>
+                    <div className="flex items-center gap-1">
+                      {[1,2,3,4,5].map(n => (
+                        <div key={n} className={`w-2 h-2 rounded-full ${n <= c.niveau ? 'bg-role-primary' : 'bg-border'}`} />
+                      ))}
+                      <span className="text-[10px] text-muted-foreground ml-1">{c.niveau}/5</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </FormShell>
+    );
+  };
+
   const FormationActions = ({ f }: { f: Formation }) => {
     const expiree = estExpiree(f);
     return (
@@ -1149,12 +1258,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
               const premierJour = new Date(m.year, m.index, 1).getDay();
 
               return (
-                <div key={key} className="card border-border">
-                  <div className="card-header">
-                    <div className="card-title text-sm">{m.label}</div>
-                    <span className="badge outline">{monthFormations.length} formation(s)</span>
-                  </div>
-                  <div className="card-content p-3">
+                <Card key={key} className="border-border" title={m.label} badge={<span className="badge outline">{monthFormations.length} formation(s)</span>}>
                     {/* En-tête des jours */}
                     <div className="grid grid-cols-7 gap-1 mb-2">
                       {['Di','Lu','Ma','Me','Je','Ve','Sa'].map(j => (
@@ -1228,8 +1332,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                         })}
                       </div>
                     )}
-                  </div>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -1238,11 +1341,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
       {/* Vue Matrice */}
       {viewMode === 'matrice' && (
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title text-lg">Matrice de compétences</div>
-          </div>
-          <div className="card-content">
+        <Card title="Matrice de compétences" size="lg">
             <div className="table-container">
               <table className="table">
                 <thead>
@@ -1296,8 +1395,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+        </Card>
       )}
 
       {/* Vue Liste avec accordéons par inspecteur > type */}
@@ -1309,7 +1407,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             const isExpanded = expandedInspectors[ins.id] !== false;
 
             return (
-              <div key={ins.id} className="card overflow-hidden border-border">
+              <Card key={ins.id} className="overflow-hidden border-border">
                 {/* Header inspecteur */}
                 <div
                   role="button"
@@ -1366,8 +1464,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                             {grouped.planifiees.map((f: Formation) => {
                               const expiree = estExpiree(f);
                               return (
-                                <div key={f.id} className={`card border-border ${expiree ? 'border-l-4 border-l-danger' : 'hover:shadow-role-glow'} transition-all`}>
-                                  <div className="card-content p-3">
+                                <Card key={f.id} variant={expiree ? 'level' : undefined} levelColor={expiree ? 'danger' : undefined} className={expiree ? 'border-l-danger' : 'hover:shadow-role-glow'}>
                                     <div className="flex items-start justify-between flex-wrap gap-3">
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -1386,8 +1483,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                                       </div>
                                       <FormationActions f={f} />
                                     </div>
-                                  </div>
-                                </div>
+                                </Card>
                               );
                             })}
                           </div>
@@ -1408,8 +1504,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                         {expandedTypes[`en_cours-${ins.id}`] !== false && (
                           <div className="space-y-2 pl-4">
                             {grouped.en_cours.map((f: Formation) => (
-                              <div key={f.id} className="card border-border hover:shadow-role-glow transition-all border-l-4 border-l-warning">
-                                <div className="card-content p-3">
+                              <Card key={f.id} variant="level" levelColor="warning" className="hover:shadow-role-glow">
                                   <div className="flex items-start justify-between flex-wrap gap-3">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -1426,8 +1521,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                                     </div>
                                     <FormationActions f={f} />
                                   </div>
-                                </div>
-                              </div>
+                              </Card>
                             ))}
                           </div>
                         )}
@@ -1447,8 +1541,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                         {expandedTypes[`terminee-${ins.id}`] !== false && (
                           <div className="space-y-2 pl-4">
                             {grouped.terminees.map((f: Formation) => (
-                              <div key={f.id} className="card border-border hover:shadow-role-glow transition-all border-l-4 border-l-success">
-                                <div className="card-content p-3">
+                              <Card key={f.id} variant="level" levelColor="success" className="hover:shadow-role-glow">
                                   <div className="flex items-start justify-between flex-wrap gap-3">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -1472,8 +1565,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                                     </div>
                                     <FormationActions f={f} />
                                   </div>
-                                </div>
-                              </div>
+                              </Card>
                             ))}
                           </div>
                         )}
@@ -1481,7 +1573,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                     )}
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -1496,7 +1588,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             const isExpanded = expandedInspectors[ins.id] !== false;
 
             return (
-              <div key={ins.id} className="card overflow-hidden border-border">
+              <Card key={ins.id} className="overflow-hidden border-border">
                 <button
                   className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-role-primary/5 to-transparent border-b border-border hover:bg-role-primary/10 transition-all cursor-pointer"
                   onClick={() => toggleInspector(ins.id)}
@@ -1551,14 +1643,14 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                               {section.data.map((f: Formation) => {
                                 const expiree = estExpiree(f);
                                 return (
-                                  <div key={f.id} className={`card hover:shadow-role-glow transition-all ${expiree ? 'border-l-4 border-l-danger' : ''}`}>
-                                    <div className={`card-header pb-2 ${section.key === 'planifiee' ? 'bg-primary-soft' : section.key === 'en_cours' ? 'bg-warning-soft' : 'bg-success-soft'}`}>
-                                      <div className="card-title text-xs flex items-center justify-between">
+                                  <Card key={f.id} size="sm" className={`hover:shadow-role-glow transition-all ${expiree ? 'border-l-4 border-l-danger' : ''}`}
+                                    heading={
+                                      <div className="flex items-center justify-between w-full text-xs">
                                         <span className="flex items-center gap-1"><section.icon className="w-3 h-3" />{getTypeBadge(f.type)}</span>
                                         {expiree && <span className="badge danger text-[8px]">Échue</span>}
                                       </div>
-                                    </div>
-                                    <div className="card-content p-2 space-y-2">
+                                    }
+                                  >
                                       <p className="code-oaci-badge text-[10px]">{f.reference}</p>
                                       <p className="text-xs font-medium line-clamp-1">{f.titre}</p>
                                       <div className="text-[10px] text-muted-foreground space-y-1">
@@ -1569,8 +1661,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                                       <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
                                         <FormationActions f={f} />
                                       </div>
-                                    </div>
-                                  </div>
+                                  </Card>
                                 );
                               })}
                             </div>
@@ -1580,7 +1671,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                     })}
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -1597,12 +1688,89 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <div className="kpi-card"><div className="kpi-icon"><BarChart3 className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.budgetTotal.toLocaleString()} F</div><div className="kpi-label">Budget</div></div></div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2"><CompetenceMatrix userRole={userRole} /></div>
-            <div className="lg:col-span-1"><div className="card"><div className="card-header"><h3 className="card-title">Inspecteurs</h3></div>
-              <div className="card-content space-y-2">{listeInspecteurs.slice(0, 6).map(ins => (
-                <button key={ins.id} className="w-full text-left p-2 rounded-lg hover:bg-role-primary-soft transition-colors" onClick={() => setActiveModule('utilisateurs')}>
-                  <span className="text-sm font-medium">{ins.prenom} {ins.nom}</span></button>
-              ))}</div></div></div>
+            <div className="lg:col-span-2">
+              <Card title="Formations à venir / en cours" icon={<Calendar className="w-4 h-4" />}>
+                {(() => {
+                  const upcoming = listeFormations
+                    .filter(f => f.statut === 'planifiee' || f.statut === 'en_cours')
+                    .sort((a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime())
+                    .slice(0, 5);
+                  return upcoming.length > 0 ? (
+                    <div className="space-y-3">
+                      {upcoming.map(f => (
+                        <div key={f.id} className="flex items-start justify-between p-3 rounded-lg bg-role-primary-soft/50 hover:bg-role-primary-soft transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="code-oaci-badge text-xs">{f.reference}</span>
+                              <span className={getStatutBadge(f.statut).className}>{getStatutBadge(f.statut).label}</span>
+                            </div>
+                            <p className="text-sm font-medium truncate">{f.titre}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {f.date ? new Date(f.date).toLocaleDateString('fr-FR') : '-'} &bull; {f.duree_heures}h
+                            </p>
+                          </div>
+                          <FormationActions f={f} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">Aucune formation à venir</p>
+                  );
+                })()}
+              </Card>
+            </div>
+            <div className="lg:col-span-1">
+              <Card title="Exécution des formations" icon={<PieChart className="w-4 h-4" />}>
+                <FormationPieChart
+                  data={[
+                    { name: 'Planifié', value: stats.planifiees },
+                    { name: 'En cours', value: stats.enCours },
+                    { name: 'Terminé', value: stats.terminees },
+                    { name: 'En retard', value: stats.enRetard },
+                  ]}
+                  nameKey="name"
+                  valueKey="value"
+                  height={280}
+                  colors={['#3b82f6', '#f59e0b', '#10b981', '#ef4444']}
+                />
+              </Card>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <Card title="Inspecteurs" icon={<Users className="w-4 h-4" />}>
+                {listeInspecteurs.slice(0, 6).map(ins => {
+                  const domaine = DOMAINES_COMPETENCE.find(d => d.id === ins.domaine_principal);
+                  return (
+                    <div key={ins.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-role-primary-soft transition-colors">
+                      <div className="w-9 h-9 rounded-full bg-blue-950 flex items-center justify-center text-white font-semibold text-xs shrink-0">
+                        {getInitials(ins.prenom, ins.nom)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{ins.prenom} {ins.nom}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {getNiveauLabel(ins.type)}{domaine ? ` · ${domaine.label.split(' (')[0]}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button className="action-button" onClick={() => { handleViewInspecteur(ins.id); }} title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button className="action-button" onClick={() => { handleEditInspecteur(ins); }} title="Modifier">
+                          <PenSquare className="w-4 h-4" />
+                        </button>
+                        <button className="action-button danger" onClick={() => { handleDeleteInspecteur(ins.id); }} title="Supprimer">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+            </div>
+            <div className="lg:col-span-2">
+              <EcheanceAlert userRole={userRole} />
+            </div>
           </div>
           <div className="flex justify-end pt-2">
             <button className="btn btn-secondary gap-2" onClick={() => {
@@ -1651,8 +1819,8 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       })()}
       {/* Modales */}
       {showForm && FormationFormModal()}
-      {/* showInspecteurForm retiré — inspecteurs gérés via Utilisateurs */}
-{/* InspecteurFiche retiré */}
+      {showInspecteurForm && InspecteurFormModal()}
+      {showInspecteurFiche && InspecteurFicheModal()}
 
       {/* Modal Exécuter */}
       <FormShell
@@ -1790,6 +1958,20 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
           </div>
         </div>
       </FormShell>
+
+      <DeleteConfirmationDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        onConfirm={handleConfirmDeleteInspecteur}
+        title="Supprimer l'inspecteur"
+        description="Cette action est irréversible. Le compte utilisateur, les formations et les données associées seront également supprimés."
+        itemName={deletingInspecteurId ? `${inspecteurs.find(i => i.id === deletingInspecteurId)?.prenom} ${inspecteurs.find(i => i.id === deletingInspecteurId)?.nom}` : undefined}
+        warnings={[
+          "Le compte utilisateur sera définitivement supprimé",
+          "L'inspecteur sera retiré des formations planifiées/en cours",
+          "L'inspecteur sera retiré des équipes de surveillance"
+        ]}
+      />
     </div>
   );
 }

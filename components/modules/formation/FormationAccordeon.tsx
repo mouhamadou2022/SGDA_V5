@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { Card } from '@/components/ui/card'
 import {
   GraduationCap,
   Calendar,
@@ -117,7 +118,7 @@ export function FormationAccordeon({ userRole }: FormationAccordeonProps) {
 
   if (listeInspecteurs.length === 0) {
     return (
-      <div className="card p-8 text-center text-muted-foreground animate-fade-up" data-role={userRole}>
+      <div className="text-center py-12 text-muted-foreground animate-fade-up" data-role={userRole}>
         Aucun inspecteur enregistré.
       </div>
     )
@@ -167,8 +168,7 @@ export function FormationAccordeon({ userRole }: FormationAccordeonProps) {
               const { cls: statutCls, label: statutLabel } = getStatutBadge(f.statut);
 
               return (
-                <div key={f.id} className="card border-border hover:shadow-role-glow transition-all">
-                  <div className="card-content p-4">
+                <Card key={f.id} className="border-border hover:shadow-role-glow transition-all">
                     <div className="flex items-start gap-3">
                       <div className="p-2 rounded-lg bg-role-primary-soft shrink-0">
                         <GraduationCap className="w-4 h-4 text-role-primary" />
@@ -233,8 +233,7 @@ export function FormationAccordeon({ userRole }: FormationAccordeonProps) {
                         </button>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  </Card>
               );
             })}
 
