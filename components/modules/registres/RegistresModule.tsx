@@ -73,7 +73,7 @@ interface RegistreModuleProps {
 }
 
 type ViewMode = 'liste' | 'grille';
-type TabType = 'dashboard' | 'certifications' | 'homologations' | 'surveillances' | 'ecarts' | 'evenements' | 'formations' | 'documents';
+type TabType = 'dashboard' | 'certifications' | 'homologations' | 'surveillances' | 'ecarts' | 'evenements' | 'formations' | 'documents' | 'dossiers';
 
 const TAB_CONFIG: { id: TabType; label: string; icon: React.ElementType; description: string }[] = [
   { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, description: 'Vue d\'ensemble du registre' },
@@ -84,6 +84,7 @@ const TAB_CONFIG: { id: TabType; label: string; icon: React.ElementType; descrip
   { id: 'evenements', label: 'Événements', icon: AlertCircle, description: 'Incidents et accidents clôturés' },
   { id: 'formations', label: 'Formations', icon: GraduationCap, description: 'Formations des inspecteurs' },
   { id: 'documents', label: 'Documents', icon: FileText, description: 'Décrets, notes, lettres officielles' },
+  { id: 'dossiers', label: 'Dossiers', icon: ClipboardList, description: 'Dossiers techniques et instructions archivés' },
 ];
 
 // Types d'entrées pour les badges
@@ -95,6 +96,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; badgeClass: string }> =
   ecart: { label: 'Écart', badgeClass: 'badge danger' },
   formation: { label: 'Formation', badgeClass: 'badge teal' },
   document: { label: 'Document', badgeClass: 'badge neutral' },
+  dossier: { label: 'Dossier', badgeClass: 'badge primary' },
 };
 
 // Badge de risque
@@ -1736,16 +1738,17 @@ function FormationsTab() {
 // ============================================================
 // SOUS-ONGLET: DOCUMENTS
 // ============================================================
-function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails }: { 
+function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails, filterType }: { 
   viewMode: ViewMode; 
   searchTerm: string; 
   selectedYear: string;
   onViewDetails: (entry: RegistreEntry) => void;
+  filterType?: string;
 }) {
   const registreEntries = useAppStore((s) => s.registreEntries);
   
   const documentEntries = useMemo(() => {
-    let entries = (registreEntries || []).filter(e => e.type === 'document');
+    let entries = (registreEntries || []).filter(e => e.type === (filterType || 'document'));
     
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -2001,6 +2004,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
     evenements: registreEntries?.filter(e => e.type === 'evenement').length || 0,
     formations: registreEntries?.filter(e => e.type === 'formation').length || 0,
     documents: registreEntries?.filter(e => e.type === 'document').length || 0,
+    dossiers: registreEntries?.filter(e => e.type === 'dossier').length || 0,
   }), [registreEntries]);
   
   const handleIACommand = async () => {
@@ -2124,6 +2128,16 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
             onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
           />
         );
+      case 'dossiers':
+        return (
+          <DocumentsTab
+            viewMode={viewMode}
+            searchTerm={searchTerm}
+            selectedYear={selectedYear}
+            onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
+            filterType="dossier"
+          />
+        );
       default:
         return null;
     }
@@ -2131,7 +2145,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
   
   const showFilters = activeTab !== 'dashboard';
   const showYearFilter = activeTab !== 'dashboard' && activeTab !== 'certifications' && activeTab !== 'homologations';
-  const showAerodromeFilter = ['certifications', 'homologations', 'surveillances', 'ecarts', 'evenements'].includes(activeTab);
+  const showAerodromeFilter = ['certifications', 'homologations', 'surveillances', 'ecarts', 'evenements', 'dossiers'].includes(activeTab);
   
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="registre">
@@ -2315,6 +2329,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
               case 'evenements':     count = stats.evenements;      break;
               case 'formations':     count = stats.formations;      break;
               case 'documents':      count = stats.documents;       break;
+              case 'dossiers':       count = stats.dossiers;        break;
             }
             return (
               <button

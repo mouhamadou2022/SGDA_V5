@@ -34,6 +34,7 @@ import {
   List,
   Archive,
   Filter,
+  Send,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore, type Dossier } from '@/lib/store';
@@ -42,6 +43,7 @@ import { dossierUtils } from '@/lib/dossierUtils';
 import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import { DossierForm } from '@/components/forms/DossierForm';
+import { DossierCard } from '@/components/cards/DossierCard';
 
 interface DossiersModuleProps {
   userRole: string;
@@ -161,6 +163,10 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   const deleteDossier = useAppStore(s => s.deleteDossier);
   const archiverDossierAutomatique = useAppStore(s => s.archiverDossierAutomatique);
   const restaurerDossier = useAppStore(s => s.restaurerDossier);
+  const addAssignment = useAppStore(s => s.addAssignment);
+  const updateAssignment = useAppStore(s => s.updateAssignment);
+  const reassignAssignment = useAppStore(s => s.reassignAssignment);
+  const addAssignmentFeedback = useAppStore(s => s.addAssignmentFeedback);
 
   // États
   const [activeTab, setActiveTab] = useState<'actifs' | 'archives'>('actifs');
@@ -182,6 +188,13 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   const [viewMode, setViewMode] = useState<'liste' | 'grille'>('liste');
   const [mounted, setMounted] = useState(false);
 
+  // Par défaut, l'inspecteur ne voit que ses dossiers
+  useEffect(() => {
+    if (!mounted || !user) return;
+    if (userRole === 'inspector') {
+      setFilters(prev => ({ ...prev, inspecteur: user.id }));
+    }
+  }, [mounted, user, userRole]);
 
   // États pour Archives
   const [archiveSearchTerm, setArchiveSearchTerm] = useState('');
@@ -271,7 +284,11 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
 
       if (filters.categorie !== 'tous' && d.categorie !== filters.categorie) return false;
       if (filters.service !== 'tous' && d.service_assigne !== filters.service) return false;
-      if (filters.inspecteur !== 'tous' && d.inspecteur_id !== filters.inspecteur) return false;
+      if (filters.inspecteur !== 'tous') {
+        const matchesOld = d.inspecteur_id === filters.inspecteur;
+        const matchesNew = d.assignments?.some(a => a.inspecteur_id === filters.inspecteur);
+        if (!matchesOld && !matchesNew) return false;
+      }
       if (filters.statut !== 'tous' && d.statut !== filters.statut) return false;
 
       if (filters.urgence !== 'tous') {
@@ -605,13 +622,44 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     </FormShell>
   );
 
-  const DetailsModal = () => (
+  const DetailsModal = () => {
+    const d = selectedDossier
+    const [feedbackText, setFeedbackText] = useState('')
+    const [feedbackAssignmentId, setFeedbackAssignmentId] = useState('')
+    const [reassignTarget, setReassignTarget] = useState<{ id: string; nom: string } | null>(null)
+    const [reassignMotif, setReassignMotif] = useState('')
+    const [reassignDossierId, setReassignDossierId] = useState('')
+    const [reassignAssignmentId, setReassignAssignmentId] = useState('')
+
+    const handleChefFeedback = () => {
+      if (!feedbackText.trim() || !feedbackAssignmentId || !d) return
+      addAssignmentFeedback(d.id, feedbackAssignmentId, {
+        auteur_id: user?.id || '',
+        auteur_nom: user?.nom || 'Chef',
+        role: 'chef',
+        type: 'info',
+        message: feedbackText,
+      })
+      setFeedbackText('')
+      setFeedbackAssignmentId('')
+    }
+
+    const handleReassign = () => {
+      if (!reassignTarget || !reassignMotif.trim() || !reassignDossierId || !reassignAssignmentId) return
+      reassignAssignment(reassignDossierId, reassignAssignmentId, reassignTarget.id, reassignTarget.nom, reassignMotif)
+      setReassignTarget(null)
+      setReassignMotif('')
+      setReassignDossierId('')
+      setReassignAssignmentId('')
+    }
+
+    return (
     <FormShell
-      open={!!mounted && showDetails && !!selectedDossier}
+      open={!!mounted && showDetails && !!d}
       onClose={() => setShowDetails(false)}
-      title="Détails du dossier"
+      title={`Détails — ${d?.reference || ''}`}
       icon={FolderOpen}
-      size="3xl"
+      size="4xl"
       dataRole={userRole}
       footer={
         <button className="btn btn-secondary" onClick={() => setShowDetails(false)}>
@@ -619,70 +667,144 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
         </button>
       }
     >
-      <div className="tab-content space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-small text-muted">Référence</p>
-            <p className="font-mono font-medium">{selectedDossier?.reference}</p>
-          </div>
-          <div>
-            <p className="text-small text-muted">Catégorie</p>
-            <p>{CATEGORIES_DOSSIERS.find(c => c.id === selectedDossier?.categorie)?.label}</p>
-          </div>
-          <div>
-            <p className="text-small text-muted">Date création</p>
-            <p>{selectedDossier?.created_at && new Date(selectedDossier.created_at).toLocaleDateString('fr-FR')}</p>
-          </div>
-          <div>
-            <p className="text-small text-muted">Date limite</p>
-            <p className="font-medium">{selectedDossier?.date_limite && new Date(selectedDossier.date_limite).toLocaleDateString('fr-FR')}</p>
+      <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+        {/* Infos générales */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Référence', value: d?.reference },
+            { label: 'Catégorie', value: CATEGORIES_DOSSIERS.find(c => c.id === d?.categorie)?.label },
+            { label: 'Date création', value: d?.created_at && new Date(d.created_at).toLocaleDateString('fr-FR') },
+            { label: 'Date limite', value: d?.date_limite && new Date(d.date_limite).toLocaleDateString('fr-FR') },
+          ].map(row => (
+            <div key={row.label}>
+              <p className="text-xs text-muted-foreground">{row.label}</p>
+              <p className="font-medium">{row.value || '—'}</p>
+            </div>
+          ))}
+          <div className="col-span-2">
+            <p className="text-xs text-muted-foreground">Titre</p>
+            <p className="font-medium">{d?.titre}</p>
           </div>
           <div className="col-span-2">
-            <p className="text-small text-muted">Titre</p>
-            <p className="font-medium">{selectedDossier?.titre}</p>
+            <p className="text-xs text-muted-foreground">Statut</p>
+            <span className={getCouleurStatut(d?.statut || '')}>{getLibelleStatut(d?.statut || '')}</span>
           </div>
-          {selectedDossier?.instructions && (
-            <div className="col-span-2">
-              <p className="text-small text-muted">Instructions</p>
-              <p className="text-small">{selectedDossier.instructions}</p>
-            </div>
-          )}
-          <div>
-            <p className="text-small text-muted">Progression</p>
-            <div className="flex items-center gap-2">
-              <div className="progress w-32 h-2">
-                <div className="progress-bar" style={{ width: `${selectedDossier?.progression}%` }} />
-              </div>
-              <span>{selectedDossier?.progression}%</span>
-            </div>
-          </div>
-          <div>
-            <p className="text-small text-muted">Statut</p>
-            <span className={getCouleurStatut(selectedDossier?.statut || '')}>
-              {getLibelleStatut(selectedDossier?.statut || '')}
-            </span>
-          </div>
-          {selectedDossier?.statut === 'en_cours' && selectedDossier?.inspecteur_id === user?.id && (
-            <div className="col-span-2 pt-3 border-t border-border">
-              <button className="btn btn-sm gap-1.5" style={{ background: '#f59e0b', color: 'white' }}
-                onClick={() => setShowExtendModal(true)}>
-                <Clock className="w-3.5 h-3.5" />
-                Demander une extension de délai
-              </button>
-              {selectedDossier.extensions && selectedDossier.extensions.length > 0 && (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {selectedDossier.extensions.length} extension(s) déjà accordée(s)
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Extension historique */}
-        {selectedDossier?.extensions && selectedDossier.extensions.length > 0 && (
-          <div className="space-y-2 mt-2">
+        {d?.instructions && (
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase mb-1">Instructions</p>
+            <p className="text-sm bg-role-primary-soft/30 p-3 rounded-lg">{d.instructions}</p>
+          </div>
+        )}
+
+        {/* Assignments */}
+        {d?.assignments && d.assignments.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-role-primary uppercase flex items-center gap-1">
+              <User className="w-3 h-3" /> Assignations ({d.assignments.length})
+            </p>
+            {d.assignments.map(a => (
+              <div key={a.id} className="border border-border rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-role-primary text-white flex items-center justify-center text-[10px] font-bold">
+                      {a.inspecteur_nom.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </div>
+                    <span className="font-medium text-sm">{a.inspecteur_nom}</span>
+                  </div>
+                  <span className={`${a.statut === 'termine' || a.statut === 'valide' ? 'badge success' : a.statut === 'accuse' || a.statut === 'en_cours' ? 'badge primary' : 'badge neutral'} text-xs`}>
+                    {a.statut.replace(/_/g, ' ')}
+                  </span>
+                </div>
+
+                {/* Barre progression */}
+                <div className="flex items-center gap-2">
+                  <div className="progress flex-1 h-1.5">
+                    <div className="progress-bar" style={{ width: `${a.progression}%` }} />
+                  </div>
+                  <span className="text-xs font-medium">{a.progression}%</span>
+                </div>
+
+                {/* Feedback chef */}
+                <div className="flex gap-1">
+                  <input value={feedbackAssignmentId === a.id ? feedbackText : ''}
+                    onChange={e => { setFeedbackAssignmentId(a.id); setFeedbackText(e.target.value) }}
+                    onFocus={() => setFeedbackAssignmentId(a.id)}
+                    placeholder={`Feedback pour ${a.inspecteur_nom}...`}
+                    className="form-input text-xs flex-1" />
+                  <button onClick={() => { setFeedbackAssignmentId(a.id); handleChefFeedback() }}
+                    disabled={feedbackAssignmentId !== a.id || !feedbackText.trim()}
+                    className="btn btn-primary btn-xs gap-1">
+                    <Send className="w-3 h-3" /> Envoyer
+                  </button>
+                </div>
+
+                {/* Réassigner */}
+                {a.statut !== 'termine' && a.statut !== 'valide' && (
+                  <div className="pt-1">
+                    {reassignAssignmentId === a.id && reassignDossierId === d.id ? (
+                      <div className="flex gap-1 items-center">
+                        <select value={reassignTarget?.id || ''}
+                          onChange={e => {
+                            const u = utilisateurs?.find((u: any) => u.id === e.target.value)
+                            setReassignTarget(u ? { id: u.id, nom: `${u.prenom} ${u.nom}` } : null)
+                          }}
+                          className="form-select text-xs flex-1" style={{ backgroundPosition: 'right 0.4rem center' }}>
+                          <option value="">Nouvel inspecteur...</option>
+                          {utilisateurs?.filter((u: any) => ['inspector', 'admin'].includes(u.role) && u.id !== a.inspecteur_id).map((u: any) => (
+                            <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
+                          ))}
+                        </select>
+                        <input value={reassignMotif}
+                          onChange={e => setReassignMotif(e.target.value)}
+                          placeholder="Motif..." className="form-input text-xs flex-1" />
+                        <button onClick={handleReassign} disabled={!reassignTarget || !reassignMotif.trim()}
+                          className="btn btn-warning btn-xs gap-1">
+                          <User className="w-3 h-3" /> Réassigner
+                        </button>
+                        <button onClick={() => { setReassignAssignmentId(''); setReassignDossierId(''); }}
+                          className="btn btn-ghost btn-xs">Annuler</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setReassignAssignmentId(a.id); setReassignDossierId(d.id); }}
+                        className="btn btn-ghost btn-xs text-warning gap-1">
+                        <User className="w-3 h-3" /> Réassigner
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Feedbacks existants */}
+                {a.feedbacks.length > 0 && (
+                  <div className="space-y-1 pt-1 border-t border-border">
+                    {a.feedbacks.map((fb, i) => (
+                      <div key={i} className={`text-xs p-2 rounded-lg ${fb.role === 'chef' ? 'bg-primary-soft' : 'bg-role-primary-soft/50'}`}>
+                        <span className="font-semibold">{fb.auteur_nom}</span>
+                        <span className="text-muted-foreground"> — {fb.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Extensions */}
+        {d && d.statut !== 'termine' && d.statut !== 'archive' && (
+          <div className="pt-2">
+            <button onClick={() => setShowExtendModal(true)}
+              className="btn btn-sm gap-1.5" style={{ background: '#f59e0b', color: 'white' }}>
+              <Clock className="w-3.5 h-3.5" />
+              Demander une extension de délai
+            </button>
+          </div>
+        )}
+        {d?.extensions && d.extensions.length > 0 && (
+          <div className="space-y-2">
             <p className="text-xs font-semibold text-role-primary uppercase">Extensions de délai</p>
-            {selectedDossier.extensions.map((ext, i) => (
+            {d.extensions.map((ext, i) => (
               <div key={i} className="flex items-center justify-between p-2 bg-warning/10 rounded-lg text-sm">
                 <span>+{ext.jours} jours — {ext.motif}</span>
                 <span className="text-xs text-muted-foreground">{new Date(ext.date).toLocaleDateString('fr-FR')}</span>
@@ -692,14 +814,15 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
         )}
       </div>
     </FormShell>
-  );
+    )
+  };
 
   const ExtendModal = () => {
     const localFocus = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
     const handleExtend = () => {
       if (!selectedDossier || !extMotif.trim()) return
       extendreDossier(selectedDossier.id, { date: new Date().toISOString(), jours: extJours, motif: extMotif }, user?.nom)
-      addNotification({ user_id: selectedDossier.inspecteur_id, type: 'success', title: 'Délai étendu', message: `Délai du dossier ${selectedDossier.reference} étendu de ${extJours} jours.`, canal: 'in_app' })
+      addNotification({ user_id: selectedDossier.inspecteur_id || selectedDossier.assignments?.[0]?.inspecteur_id || user?.id || '', type: 'success', title: 'Délai étendu', message: `Délai du dossier ${selectedDossier.reference} étendu de ${extJours} jours.`, canal: 'in_app' })
       setShowExtendModal(false)
       setExtMotif('')
     }
@@ -1062,84 +1185,20 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
           {/* Vue Grille */}
           {viewMode === 'grille' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredDossiers.map(dossier => {
-                const aerodrome = aerodromes.find(a => a.id === dossier.aerodrome_id);
-                const delai = getDelaiIndicator(dossier.date_limite);
-                const DelaiIcon = delai.icon;
-                const cat = CATEGORIES_DOSSIERS.find(c => c.id === dossier.categorie);
-
+              {filteredDossiers.map(d => {
+                const aerodrome = aerodromes.find(a => a.id === d.aerodrome_id);
                 return (
-                  <div key={dossier.id} className="card hover:shadow-role-glow transition-all">
-                    <div className="card-header pb-2 bg-role-primary-soft">
-                      <div className="card-title text-sm flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getIconeCategorie(dossier.categorie, "w-4 h-4 text-role-primary")}
-                          <span>{cat?.label}</span>
-                        </div>
-                        <span className="badge outline text-[10px]">
-                          {dossier.reference}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="card-content p-3">
-                      <p className="font-medium text-body mb-2 line-clamp-2">{dossier.titre}</p>
-                      
-                      {aerodrome && (
-                        <p className="text-small text-muted mb-2">
-                          {aerodrome.code_oaci} - {aerodrome.nom}
-                        </p>
-                      )}
-
-                      <div className="space-y-2 mt-3">
-                        <div className="flex items-center justify-between text-small">
-                          <span className="text-muted">Progression</span>
-                          <span>{dossier.progression}%</span>
-                        </div>
-                        <div className="progress h-1">
-                          <div className="progress-bar" style={{ width: `${dossier.progression}%` }} />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-3">
-                        <span className={`${delai.className} flex items-center gap-1`}>
-                          <DelaiIcon className="w-3 h-3" />
-                          {delai.label}
-                        </span>
-                        <span className={getCouleurStatut(dossier.statut)}>
-                          {getLibelleStatut(dossier.statut)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border">
-                        <div className="flex items-center gap-1 text-small text-muted">
-                          <User className="w-3 h-3" />
-                          Inspecteur
-                        </div>
-                        <div className="flex gap-1">
-                          <button 
-                            className="action-button h-7 w-7 p-0"
-                            onClick={() => {
-                              setSelectedDossier(dossier);
-                              setShowDetails(true);
-                            }}
-                          >
-                            <Eye className="w-3 h-3" />
-                          </button>
-                          {dossier.statut !== 'termine' && (
-                            <button 
-                              className="action-button h-7 w-7 p-0 text-success"
-                              onClick={() => handleMarquerTermine(dossier.id)}
-                            >
-                              <CheckCircle2 className="w-3 h-3" />
-                            </button>
-                          )}
-                          <button className="action-button h-7 w-7 p-0">
-                            <Download className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <DossierCard
+                    key={d.id}
+                    dossier={d}
+                    aerodrome={aerodrome}
+                    userRole={userRole}
+                    onViewDetails={() => { setSelectedDossier(d); setShowDetails(true); }}
+                    onViewHistory={() => { setSelectedDossier(d); setShowHistorique(true); }}
+                    onMarkComplete={d.statut !== 'termine' ? () => handleMarquerTermine(d.id) : undefined}
+                    onEdit={() => {}}
+                    onDelete={() => {}}
+                  />
                 );
               })}
             </div>

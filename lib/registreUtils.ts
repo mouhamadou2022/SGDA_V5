@@ -198,6 +198,156 @@ export const registreUtils = {
   },
 
   /**
+   * Crée une entrée de registre à partir d'un dossier archivé
+   */
+  fromDossier(dossier: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
+    const allFichiers: { nom: string; url: string; taille: number; type: string }[] = []
+    const fichiersSource = dossier.fichiers || []
+    fichiersSource.forEach((f: any) => {
+      allFichiers.push({ nom: f.nom, url: f.url, taille: f.taille || 0, type: f.type || 'application/pdf' })
+    })
+    const assignments = dossier.assignments || []
+    assignments.forEach((a: any) => {
+      ;(a.preuves || []).forEach((p: any) => {
+        allFichiers.push({ nom: p.nom, url: p.url, taille: p.taille || 0, type: p.type || 'application/pdf' })
+      })
+    })
+
+    const inspecteursNoms = assignments.map((a: any) => a.inspecteur_nom).join(', ') || 'Non assigné'
+
+    return {
+      aerodrome_id: dossier.aerodrome_id,
+      type: 'dossier',
+      reference: dossier.reference,
+      date_entree: dossier.archived_at || dossier.updated_at,
+      objet: `Dossier: ${dossier.titre}`,
+      description: `Dossier ${dossier.categorie} — Traité par ${inspecteursNoms} — ${dossier.instructions || 'Aucune instruction'}`,
+      lien_id: dossier.id,
+      lien_type: 'dossier',
+      signataire_id: dossier.created_by,
+      signataire_nom: '',
+      fichiers: allFichiers,
+      statut: 'valide',
+      created_by: dossier.created_by,
+    }
+  },
+
+  /**
+   * Convertit un dossier archivé en RegistreEntry (nouveau store)
+   * avec timeline complète et tous les fichiers
+   */
+  toRegistreEntryFromDossier(dossier: any, aerodrome?: any): Omit<RegistreEntry, 'id' | 'created_at'> {
+    const fichiers: { nom: string; url: string }[] = []
+    const fichiersSource = dossier.fichiers || []
+    fichiersSource.forEach((f: any) => {
+      fichiers.push({ nom: f.nom, url: f.url })
+    })
+
+    const assignments = dossier.assignments || []
+    const timeline: RegistreEntry['timeline'] = []
+
+    // Étape globale : création du dossier
+    if (dossier.created_at) {
+      timeline.push({
+        id: crypto.randomUUID(),
+        etape: 'Création du dossier',
+        date: dossier.created_at,
+        acteur: dossier.created_by || 'Système',
+        acteur_role: 'chef',
+        details: `Dossier ${dossier.reference} créé`,
+      })
+    }
+
+    // Parcourir chaque assignment pour construire la timeline
+    assignments.forEach((a: any) => {
+      ;(a.historique || []).forEach((h: any) => {
+        timeline.push({
+          id: crypto.randomUUID(),
+          etape: h.action,
+          date: h.date,
+          acteur: a.inspecteur_nom,
+          acteur_role: 'inspecteur',
+          details: h.details,
+        })
+      })
+
+      // Feedbacks
+      ;(a.feedbacks || []).forEach((fb: any) => {
+        timeline.push({
+          id: crypto.randomUUID(),
+          etape: `Feedback ${fb.role === 'chef' ? 'chef' : 'inspecteur'}: ${fb.type}`,
+          date: fb.date,
+          acteur: fb.auteur_nom,
+          acteur_role: fb.role || 'inspecteur',
+          details: fb.message,
+        })
+      })
+
+      // Réassignation si existante
+      if (a.reassigne_de) {
+        timeline.push({
+          id: crypto.randomUUID(),
+          etape: 'Réassignation',
+          date: a.reassigne_de.date,
+          acteur: a.reassigne_de.from_inspecteur_nom,
+          acteur_role: 'inspecteur',
+          details: `Réassigné à ${a.inspecteur_nom} — Motif: ${a.reassigne_de.motif}`,
+        })
+      }
+
+      // Collaborateurs
+      ;(a.collaborateurs || []).forEach((c: any) => {
+        timeline.push({
+          id: crypto.randomUUID(),
+          etape: 'Collaboration',
+          date: c.date,
+          acteur: c.inspecteur_nom,
+          acteur_role: 'inspecteur',
+          details: `Sollicité par ${a.inspecteur_nom} — ${c.motif}`,
+        })
+      })
+
+      // Précharger les preuves comme fichiers de la timeline
+      ;(a.preuves || []).forEach((p: any) => {
+        fichiers.push({ nom: p.nom, url: p.url })
+      })
+    })
+
+    // Étape finale : archivage
+    if (dossier.archived_at) {
+      timeline.push({
+        id: crypto.randomUUID(),
+        etape: 'Archivage',
+        date: dossier.archived_at,
+        acteur: 'Système',
+        acteur_role: 'chef',
+        details: 'Dossier archivé automatiquement',
+      })
+    }
+
+    // Trier la timeline par date
+    timeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+    const inspecteursNoms = assignments.map((a: any) => a.inspecteur_nom).join(', ') || 'Non assigné'
+
+    return {
+      type: 'dossier',
+      reference: dossier.reference,
+      titre: `Dossier ${dossier.reference} — ${dossier.titre}`,
+      description: `${dossier.categorie} — Traité par ${inspecteursNoms}${dossier.instructions ? ` — ${dossier.instructions}` : ''}`,
+      date_entree: dossier.archived_at || dossier.updated_at || new Date().toISOString(),
+      aerodrome_id: dossier.aerodrome_id,
+      fichiers,
+      timeline,
+      statut: 'valide',
+      auto_generated: true,
+      source_id: dossier.id,
+      source_type: 'dossier',
+      created_by: dossier.created_by || '',
+    }
+  },
+
+  /**
    * Filtre les registres par période
    */
   filterByPeriode(registres: EntreeRegistre[], debut: Date, fin: Date): EntreeRegistre[] {
@@ -252,7 +402,8 @@ export const registreUtils = {
       'certification': 'bg-green-100 text-green-800',
       'homologation': 'bg-teal-100 text-teal-800',
       'ecart': 'bg-red-100 text-red-800',
-      'exploitation': 'bg-gray-100 text-gray-800'
+      'exploitation': 'bg-gray-100 text-gray-800',
+      'dossier': 'bg-role-primary-soft text-role-primary'
     }
     return couleurs[type] || 'bg-gray-100 text-gray-800'
   }

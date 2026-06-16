@@ -1,15 +1,12 @@
-// components/forms/DossierForm.tsx
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef, useCallback, useReducer, memo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react'
 import {
   FolderOpen, FileText, Upload, X, Calendar,
-  User, Briefcase, AlertCircle, Save, Trash2, Clock, CheckCircle2, AlertTriangle,
+  User, AlertCircle, Save, Clock, AlertTriangle, Plus, Trash2, CheckCircle2,
 } from 'lucide-react'
-import { useAppStore, type Dossier, type Aerodrome, type Utilisateur } from '@/lib/store'
+import { useAppStore, type Aerodrome, type Utilisateur, type DossierAssignment } from '@/lib/store'
 import { dossierUtils } from '@/lib/dossierUtils'
-
-type DossierFile = NonNullable<Dossier['fichiers']>[number]
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -26,7 +23,6 @@ interface DossierFormProps {
   onSuccess?: () => void
   onCancel?: () => void
   userRole: string
-  onProgressChange?: (n: number) => void
 }
 
 const CATEGORIES = [
@@ -50,111 +46,33 @@ const URGENCE = [
   { id: 'critique', label: 'Critique', color: 'text-danger', bg: 'bg-danger/10', icon: AlertTriangle },
 ]
 
-const PROGRESSION_STEPS = [0, 25, 50, 75, 100] as const
-
-interface FormState {
-  titre: string
-  categorie: string
-  aerodrome_id: string
-  demandeur_nom: string
-  demandeur_organisation: string
-  demandeur_contact: string
-  service_assigne: string
-  inspecteur_id: string
-  instructions: string
-  date_limite: string
-  urgence: string
-  fichiers: File[]
-  preuves: File[]
-  existingFichiers: Dossier['fichiers']
-  existingPreuves: Dossier['fichiers']
-  progression: 0 | 25 | 50 | 75 | 100
-  statut: 'en_attente' | 'en_cours' | 'termine' | 'archive'
-}
-
-const EMPTY_STATE: FormState = {
-  titre: '',
-  categorie: 'reglementaire',
-  aerodrome_id: '',
-  demandeur_nom: '',
-  demandeur_organisation: '',
-  demandeur_contact: '',
-  service_assigne: 'securite_aerodromes',
-  inspecteur_id: '',
-  instructions: '',
-  date_limite: '',
-  urgence: 'normale',
-  fichiers: [],
-  preuves: [],
-  existingFichiers: [],
-  existingPreuves: [],
-  progression: 0,
-  statut: 'en_attente',
-}
-
-type FormAction =
-  | { type: 'SET'; field: keyof FormState; value: unknown }
-  | { type: 'SET_MANY'; payload: Partial<FormState> }
-  | { type: 'ADD_FICHIERS'; files: File[] }
-  | { type: 'REMOVE_FICHIER'; idx: number }
-  | { type: 'ADD_PREUVES'; files: File[] }
-  | { type: 'REMEMBER_PREUVE'; idx: number }
-  | { type: 'REMOVE_EXISTING_FICHIER'; idx: number }
-  | { type: 'REMOVE_EXISTING_PREUVE'; idx: number }
-  | { type: 'SET_PROGRESSION'; value: 0 | 25 | 50 | 75 | 100 }
-  | { type: 'RESET' }
-
-function formReducer(state: FormState, action: FormAction): FormState {
-  switch (action.type) {
-    case 'SET':
-      return { ...state, [action.field]: action.value }
-    case 'SET_MANY':
-      return { ...state, ...action.payload }
-    case 'ADD_FICHIERS':
-      return { ...state, fichiers: [...state.fichiers, ...action.files] }
-    case 'REMOVE_FICHIER':
-      return { ...state, fichiers: state.fichiers.filter((_, i) => i !== action.idx) }
-    case 'ADD_PREUVES':
-      return { ...state, preuves: [...state.preuves, ...action.files] }
-    case 'REMEMBER_PREUVE':
-      return { ...state, preuves: state.preuves.filter((_, i) => i !== action.idx) }
-    case 'REMOVE_EXISTING_FICHIER':
-      return { ...state, existingFichiers: state.existingFichiers.filter((_, i) => i !== action.idx) }
-    case 'REMOVE_EXISTING_PREUVE':
-      return { ...state, existingPreuves: state.existingPreuves.filter((_, i) => i !== action.idx) }
-    case 'SET_PROGRESSION': {
-      const p = action.value
-      const s = p === 100 ? 'termine' as const : (p > 0 ? 'en_cours' as const : state.statut)
-      return { ...state, progression: p, statut: s }
-    }
-    case 'RESET':
-      return { ...EMPTY_STATE, aerodrome_id: state.aerodrome_id }
-    default:
-      return state
-  }
-}
-
 export const DossierForm = memo(function DossierForm({
-  mode, dossierId, aerodromeId, onSuccess, onCancel, userRole, onProgressChange
+  mode, dossierId, aerodromeId, onSuccess, onCancel, userRole
 }: DossierFormProps) {
   const addDossier = useAppStore(s => s.addDossier)
   const updateDossier = useAppStore(s => s.updateDossier)
-  const archiverDossierAutomatique = useAppStore(s => s.archiverDossierAutomatique)
+  const addAssignment = useAppStore(s => s.addAssignment)
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user)
 
-  const [state, dispatch] = useReducer(formReducer, EMPTY_STATE, () => ({
-    ...EMPTY_STATE, aerodrome_id: aerodromeId || '',
-  }))
-
-  const [activeTab, setActiveTab] = useState('informations')
+  const [titre, setTitre] = useState('')
+  const [categorie, setCategorie] = useState('reglementaire')
+  const [aerodromeIdState, setAerodromeIdState] = useState(aerodromeId || '')
+  const [demandeurNom, setDemandeurNom] = useState('')
+  const [demandeurOrg, setDemandeurOrg] = useState('')
+  const [demandeurContact, setDemandeurContact] = useState('')
+  const [serviceAssigne, setServiceAssigne] = useState('securite_aerodromes')
+  const [instructions, setInstructions] = useState('')
+  const [dateLimite, setDateLimite] = useState('')
+  const [urgence, setUrgence] = useState('normale')
+  const [fichiers, setFichiers] = useState<File[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const onProgressRef = useRef(onProgressChange)
-  onProgressRef.current = onProgressChange
+  // Assignation multiple
+  const [selectedInspecteurs, setSelectedInspecteurs] = useState<{ id: string; nom: string }[]>([])
+  const [pendingInspecteurId, setPendingInspecteurId] = useState('')
 
-  // ── Store data via refs (pas de subscription → pas de cascade re-render) ──
   const [aerodromes, setAerodromes] = useState<Aerodrome[]>([])
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([])
 
@@ -169,126 +87,96 @@ export const DossierForm = memo(function DossierForm({
     return unsub
   }, [])
 
-  // ── Chargement du dossier en modification ──
-  const formInitRef = useRef(false)
+  // Chargement en modification
   useEffect(() => {
-    if (mode !== 'modification' || !dossierId) { formInitRef.current = false; return }
-    if (formInitRef.current) return
+    if (mode !== 'modification' || !dossierId) return
     const d = useAppStore.getState().dossiers?.find(d => d.id === dossierId)
     if (!d) return
-    dispatch({ type: 'SET_MANY', payload: {
-      titre: d.titre || '',
-      categorie: d.categorie || 'reglementaire',
-      aerodrome_id: d.aerodrome_id || '',
-      demandeur_nom: d.demandeur?.nom || '',
-      demandeur_organisation: d.demandeur?.organisation || '',
-      demandeur_contact: d.demandeur?.contact || '',
-      service_assigne: d.service_assigne || 'securite_aerodromes',
-      inspecteur_id: d.inspecteur_id || '',
-      instructions: d.instructions || '',
-      date_limite: d.date_limite?.split('T')[0] || '',
-      urgence: (d as any).urgence || 'normale',
-      existingFichiers: d.fichiers || [],
-      existingPreuves: (d as any).preuves || [],
-      progression: d.progression || 0,
-      statut: d.statut || 'en_attente',
-    }})
-    formInitRef.current = true
+    setTitre(d.titre || '')
+    setCategorie(d.categorie || 'reglementaire')
+    setAerodromeIdState(d.aerodrome_id || '')
+    setDemandeurNom(d.demandeur?.nom || '')
+    setDemandeurOrg(d.demandeur?.organisation || '')
+    setDemandeurContact(d.demandeur?.contact || '')
+    setServiceAssigne(d.service_assigne || 'securite_aerodromes')
+    setInstructions(d.instructions || '')
+    setDateLimite(d.date_limite?.split('T')[0] || '')
+    setUrgence((d as any).urgence || 'normale')
+    if (d.assignments?.length) {
+      setSelectedInspecteurs(d.assignments.map((a: DossierAssignment) => ({ id: a.inspecteur_id, nom: a.inspecteur_nom })))
+    }
   }, [mode, dossierId])
 
-  // ── Suggestion délai ──
+  const inspecteursDisponibles = utilisateurs?.filter((u: Utilisateur) =>
+    ['inspector', 'admin'].includes(u.role) &&
+    !selectedInspecteurs.some(s => s.id === u.id)
+  ) || []
+  const inspecteursDejaAssignes = utilisateurs?.filter((u: Utilisateur) =>
+    selectedInspecteurs.some(s => s.id === u.id)
+  ) || []
+
+  const handleAjouterInspecteur = () => {
+    if (!pendingInspecteurId) return
+    const u = utilisateurs.find(u => u.id === pendingInspecteurId)
+    if (!u) return
+    setSelectedInspecteurs(prev => [...prev, { id: u.id, nom: `${u.prenom} ${u.nom}` }])
+    setPendingInspecteurId('')
+  }
+
+  const handleRetirerInspecteur = (id: string) => {
+    setSelectedInspecteurs(prev => prev.filter(s => s.id !== id))
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return
+    const all = Array.from(e.target.files)
+    const valid = all.filter(f => f.size <= 10 * 1024 * 1024)
+    setFichiers(prev => [...prev, ...valid])
+  }
+
+  const handleRemoveFile = (idx: number) => {
+    setFichiers(prev => prev.filter((_, i) => i !== idx))
+  }
+
   const getDelaiSuggere = useMemo(() => {
-    const cat = CATEGORIES.find(c => c.id === state.categorie)
-    if (!cat) return null
     const base: Record<string, number> = {
       reglementaire: 30, technique: 45, operationnel: 30,
       surveillance: 60, formation: 90, financier: 45,
     }
-    let d = base[state.categorie] || 45
-    if (state.urgence === 'critique') d = Math.floor(d * 0.3)
-    else if (state.urgence === 'haute') d = Math.floor(d * 0.5)
-    else if (state.urgence === 'basse') d = Math.floor(d * 1.3)
+    let d = base[categorie] || 45
+    if (urgence === 'critique') d = Math.floor(d * 0.3)
+    else if (urgence === 'haute') d = Math.floor(d * 0.5)
+    else if (urgence === 'basse') d = Math.floor(d * 1.3)
     return d
-  }, [state.categorie, state.urgence])
+  }, [categorie, urgence])
 
   useEffect(() => {
-    if (mode === 'creation' && getDelaiSuggere && !state.date_limite) {
+    if (mode === 'creation' && getDelaiSuggere && !dateLimite) {
       const date = new Date()
       date.setDate(date.getDate() + getDelaiSuggere)
-      dispatch({ type: 'SET', field: 'date_limite', value: date.toISOString().split('T')[0] })
+      setDateLimite(date.toISOString().split('T')[0])
     }
   }, [mode, getDelaiSuggere]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Style memoïsé (empêche les mises à jour DOM inutiles) ──
-  const progressBarStyle = useMemo(() => ({ width: `${state.progression}%` }), [state.progression])
-  const progress = useMemo(() => {
-    const required = ['titre', 'date_limite', 'inspecteur_id']
-    const filled = required.filter(k => {
-      const v = (state as Record<string, unknown>)[k]
-      return v !== null && v !== undefined && v !== ''
-    })
-    return Math.round((filled.length / required.length) * 100)
-  }, [state.titre, state.date_limite, state.inspecteur_id])
-
-  useEffect(() => { onProgressRef.current?.(progress) }, [progress])
-
-  // ── Indicateur délai ──
-  const delai = useMemo(() => {
-    if (!state.date_limite) return null
-    const { jours, couleur } = dossierUtils.getDelaiRestant(state.date_limite)
-    const variant = couleur === 'rouge' ? 'danger' : couleur === 'orange' ? 'warning' : 'success'
-    return { jours, variant }
-  }, [state.date_limite])
-
-  // ── Callbacks stables ──
-  const setField = useCallback((field: keyof FormState, value: unknown) => {
-    dispatch({ type: 'SET', field, value })
-  }, [])
-
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return
-    const all = Array.from(e.target.files)
-    const valid = all.filter(f => f.size <= 10 * 1024 * 1024)
-    const invalid = all.filter(f => f.size > 10 * 1024 * 1024)
-    if (invalid.length) alert(`${invalid.length} fichier(s) dépassent 10 Mo`)
-    dispatch({ type: 'ADD_FICHIERS', files: valid })
-  }, [])
-
-  const handlePreuvesUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return
-    const all = Array.from(e.target.files)
-    const valid = all.filter(f => f.size <= 10 * 1024 * 1024)
-    const invalid = all.filter(f => f.size > 10 * 1024 * 1024)
-    if (invalid.length) alert(`${invalid.length} fichier(s) dépassent 10 Mo`)
-    dispatch({ type: 'ADD_PREUVES', files: valid })
-  }, [])
-
-  const handleProgressionChange = useCallback((val: number) => {
-    const p = Math.min(100, Math.max(0, val)) as 0 | 25 | 50 | 75 | 100
-    dispatch({ type: 'SET_PROGRESSION', value: p })
-  }, [])
-
-  const validerFormulaire = useCallback((): boolean => {
+  const validerFormulaire = (): boolean => {
     const e: Record<string, string> = {}
-    if (!state.titre.trim()) e.titre = 'Le titre est requis'
-    if (!state.date_limite) e.date_limite = 'La date limite est requise'
-    if (!state.inspecteur_id) e.inspecteur_id = "L'inspecteur est requis"
-    if (state.date_limite) {
-      const d = new Date(state.date_limite)
+    if (!titre.trim()) e.titre = 'Le titre est requis'
+    if (!dateLimite) e.dateLimite = 'La date limite est requise'
+    if (selectedInspecteurs.length === 0) e.inspecteurs = 'Ajoutez au moins un inspecteur'
+    if (dateLimite) {
+      const d = new Date(dateLimite)
       const t = new Date(); t.setHours(0, 0, 0, 0)
-      if (d < t) e.date_limite = 'La date limite doit être future'
-    }
-    if (state.progression === 100 && state.preuves.length === 0 && state.existingPreuves.length === 0) {
-      e.preuves = 'Ajoutez les preuves de traitement avant de finaliser'
+      if (d < t) e.dateLimite = 'La date limite doit être future'
     }
     setErrors(e)
     return Object.keys(e).length === 0
-  }, [state])
+  }
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validerFormulaire()) { setActiveTab('suivi'); return }
+    if (!validerFormulaire()) return
     setIsSubmitting(true)
+
     try {
       const uploadFiles = async (files: File[]) =>
         Promise.all(files.map(f => ({
@@ -299,64 +187,78 @@ export const DossierForm = memo(function DossierForm({
           date_upload: new Date().toISOString(),
         })))
 
-      const newFichiers = await uploadFiles(state.fichiers)
-      const newPreuves = await uploadFiles(state.preuves)
-      const tousFichiers = [...state.existingFichiers, ...newFichiers]
-      const toutesPreuves = [...state.existingPreuves, ...newPreuves]
-
-      const historiqueEntry = {
-        date: new Date().toISOString(),
-        action: mode === 'creation' ? 'Création du dossier' : 'Modification du dossier',
-        utilisateur: user?.id || 'system',
-      }
+      const newFichiers = await uploadFiles(fichiers)
+      const urgenceMeta = URGENCE.find(u => u.id === urgence) || URGENCE[1]
 
       if (mode === 'creation') {
+        const newId = crypto.randomUUID()
+        const now = new Date().toISOString()
+
         addDossier({
-          titre: state.titre,
+          titre,
           reference: dossierUtils.genererReference(new Date().getFullYear(), Math.floor(Math.random() * 9999)),
-          categorie: state.categorie as Dossier['categorie'],
-          aerodrome_id: state.aerodrome_id || undefined,
-          demandeur: state.demandeur_nom ? { nom: state.demandeur_nom, organisation: state.demandeur_organisation, contact: state.demandeur_contact } : undefined,
-          service_assigne: state.service_assigne as Dossier['service_assigne'],
-          inspecteur_id: state.inspecteur_id,
-          instructions: state.instructions,
-          date_instruction: new Date().toISOString(),
-          date_limite: state.date_limite,
-          fichiers: tousFichiers,
-          preuves: toutesPreuves,
-          progression: state.progression,
-          statut: state.statut,
-          urgence: state.urgence,
+          categorie: categorie as any,
+          aerodrome_id: aerodromeIdState || undefined,
+          demandeur: demandeurNom ? { nom: demandeurNom, organisation: demandeurOrg, contact: demandeurContact } : undefined,
+          service_assigne: serviceAssigne as any,
+          inspecteur_id: selectedInspecteurs[0]?.id,
+          instructions,
+          date_instruction: now,
+          date_limite: dateLimite,
+          fichiers: newFichiers,
+          progression: 0,
+          statut: 'en_attente',
+          urgence,
+          preuve_traitement: undefined,
+          extensions: [],
+          assignments: [],
+          archived_at: null,
+          created_by: user?.id || '',
+          updated_at: now,
+          created_at: now,
         } as any)
+
+        // Créer les assignments pour chaque inspecteur sélectionné
+        const store = useAppStore.getState()
+        const newDossier = store.dossiers?.find(d => d.reference && d.created_by === user?.id)
+        const dossierArr = store.dossiers || []
+        const createdDossier = dossierArr[dossierArr.length - 1]
+        if (createdDossier) {
+          selectedInspecteurs.forEach(ins => {
+            store.addAssignment(createdDossier.id, {
+              inspecteur_id: ins.id,
+              inspecteur_nom: ins.nom,
+              statut: 'attribue',
+              progression: 0,
+            })
+            store.addNotification({
+              user_id: ins.id, type: 'info', title: 'Nouveau dossier assigné',
+              message: `Dossier "${titre}" vous a été assigné (${createdDossier.reference})`,
+              canal: 'in_app',
+            })
+          })
+        }
 
         addNotification({
           user_id: user?.id || '', type: 'success', title: 'Dossier créé',
-          message: `Dossier ${state.titre} créé avec succès`, canal: 'in_app',
+          message: `Dossier ${titre} créé avec ${selectedInspecteurs.length} assignation(s)`, canal: 'in_app',
         })
       } else if (dossierId) {
-        const store = useAppStore.getState()
-        const dossier = store.dossiers?.find(d => d.id === dossierId)
-        const historique = [...(dossier?.historique || []), { ...historiqueEntry }]
         updateDossier(dossierId, {
-          ...state as any,
-          fichiers: tousFichiers,
-          preuves: toutesPreuves,
-          historique,
-          updated_at: new Date().toISOString(),
-        })
+          titre,
+          categorie: categorie as any,
+          aerodrome_id: aerodromeIdState || undefined,
+          demandeur: demandeurNom ? { nom: demandeurNom, organisation: demandeurOrg, contact: demandeurContact } : undefined,
+          service_assigne: serviceAssigne as any,
+          instructions,
+          date_limite: dateLimite,
+          fichiers: newFichiers,
+          urgence,
+        } as any)
 
         addNotification({
           user_id: user?.id || '', type: 'info', title: 'Dossier modifié',
-          message: `Dossier ${state.titre} mis à jour`, canal: 'in_app',
-        })
-      }
-
-      // Auto-archivage si 100% + preuves
-      if (state.progression === 100 && (toutesPreuves.length > 0) && dossierId) {
-        archiverDossierAutomatique(dossierId)
-        addNotification({
-          user_id: user?.id || '', type: 'success', title: 'Dossier archivé',
-          message: `Dossier ${state.titre} terminé et archivé automatiquement`, canal: 'in_app',
+          message: `Dossier ${titre} mis à jour`, canal: 'in_app',
         })
       }
 
@@ -370,370 +272,241 @@ export const DossierForm = memo(function DossierForm({
     } finally {
       setIsSubmitting(false)
     }
-  }, [state, mode, dossierId, user, addDossier, updateDossier, archiverDossierAutomatique, addNotification, validerFormulaire, onSuccess])
+  }
 
-  // ── UI ──
-  const TABS = [
-    { id: 'informations', label: 'Informations', icon: FileText },
-    { id: 'documents', label: 'Documents', icon: Upload },
-    { id: 'suivi', label: 'Suivi', icon: AlertCircle },
-  ]
-
-  const urgenceMeta = URGENCE.find(u => u.id === state.urgence) || URGENCE[1]
+  const urgenceMeta = URGENCE.find(u => u.id === urgence) || URGENCE[1]
   const UrgenceIcon = urgenceMeta.icon
 
   return (
     <div className="form-container" data-role={userRole}>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="space-y-6">
         {/* Barre d'urgence */}
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg mb-4 ${urgenceMeta.bg}`}>
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${urgenceMeta.bg}`}>
           <UrgenceIcon className={`w-4 h-4 ${urgenceMeta.color}`} />
           <span className={`text-xs font-semibold ${urgenceMeta.color}`}>
             Urgence {urgenceMeta.label}
           </span>
-          {delai && (
-            <span className={`ml-auto text-xs font-medium text-${delai.variant}`}>
-              {delai.jours < 0 ? `Délai dépassé de ${Math.abs(delai.jours)}j` : `${delai.jours}j restants`}
+          {dateLimite && (
+            <span className="ml-auto text-xs font-medium text-muted-foreground">
+              {new Date(dateLimite).toLocaleDateString('fr-FR')}
             </span>
           )}
         </div>
 
-        {/* Tabs */}
-        <div className="tabs mb-6">
-          {TABS.map(tab => {
-            const TabIcon = tab.icon
-            return (
-              <button key={tab.id} type="button"
-                className={`tab${activeTab === tab.id ? ' active' : ''}`}
-                onClick={() => setActiveTab(tab.id)}
+        {/* Informations générales */}
+        <div className="space-y-4">
+          <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
+            Informations générales
+          </p>
+
+          <div className="form-field">
+            <label className={labelClass}>Titre du dossier *</label>
+            <input value={titre}
+              onChange={e => setTitre(e.target.value)}
+              placeholder="Ex: Demande d'avis technique - GOBD"
+              className={`form-input ${focusClass}${errors.titre ? ' border-danger' : ''}`}
+            />
+            {errors.titre && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.titre}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="form-field">
+              <label className={labelClass}>Catégorie</label>
+              <select value={categorie}
+                onChange={e => setCategorie(e.target.value)}
+                className={`form-select ${focusClass}`} style={selectStyle}
               >
-                <TabIcon className="w-4 h-4 mr-2 inline" />{tab.label}
-              </button>
-            )
-          })}
+                {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="form-field">
+              <label className={labelClass}>Urgence</label>
+              <select value={urgence}
+                onChange={e => setUrgence(e.target.value)}
+                className={`form-select ${focusClass}`} style={selectStyle}
+              >
+                {URGENCE.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="form-field">
+              <label className={labelClass}>Aérodrome concerné</label>
+              <select value={aerodromeIdState}
+                onChange={e => setAerodromeIdState(e.target.value)}
+                className={`form-select ${focusClass}`} style={selectStyle}
+              >
+                <option value="">N/A - Dossier général</option>
+                {aerodromes?.map((a: Aerodrome) => (
+                  <option key={a.id} value={a.id}>{a.code_oaci} - {a.nom}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-field">
+              <label className={labelClass}>Service assigné</label>
+              <select value={serviceAssigne}
+                onChange={e => setServiceAssigne(e.target.value)}
+                className={`form-select ${focusClass}`} style={selectStyle}
+              >
+                {SERVICES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Demandeur (optionnel) */}
+          <div className="p-3 bg-role-primary-soft rounded-lg space-y-4">
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide">
+              Demandeur (si avis technique)
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="form-field">
+                <label className={labelClass}>Nom</label>
+                <input value={demandeurNom}
+                  onChange={e => setDemandeurNom(e.target.value)}
+                  placeholder="Nom du demandeur"
+                  className={`form-input ${focusClass}`}
+                />
+              </div>
+              <div className="form-field">
+                <label className={labelClass}>Organisation</label>
+                <input value={demandeurOrg}
+                  onChange={e => setDemandeurOrg(e.target.value)}
+                  placeholder="Organisation"
+                  className={`form-input ${focusClass}`}
+                />
+              </div>
+              <div className="form-field">
+                <label className={labelClass}>Contact</label>
+                <input value={demandeurContact}
+                  onChange={e => setDemandeurContact(e.target.value)}
+                  placeholder="Email/Téléphone"
+                  className={`form-input ${focusClass}`}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="form-field">
+            <label className={labelClass}>Instructions particulières</label>
+            <textarea value={instructions}
+              onChange={e => setInstructions(e.target.value)}
+              placeholder="Directives de traitement, priorités..." rows={3}
+              className={`form-textarea ${focusClass}`}
+            />
+          </div>
+
+          <div className="form-field">
+            <label className={labelClass}>
+              <Calendar className="w-4 h-4 inline mr-1" />Date limite de traitement *
+            </label>
+            <input type="date" value={dateLimite}
+              onChange={e => setDateLimite(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className={`form-input ${focusClass}${errors.dateLimite ? ' border-danger' : ''}`}
+            />
+            {errors.dateLimite && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.dateLimite}</p>}
+            {getDelaiSuggere && !dateLimite && (
+              <p className="field-description text-info">Délai suggéré: {getDelaiSuggere} jours</p>
+            )}
+          </div>
         </div>
 
-        {/* ── INFORMATIONS ── */}
-        <div className={activeTab === 'informations' ? 'space-y-4 animate-fade-in' : 'hidden'}>
-          <div className="space-y-4">
-            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
-              Informations générales
-            </p>
+        {/* Assignation des inspecteurs */}
+        <div className="space-y-4">
+          <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
+            <User className="w-3 h-3 inline mr-1" />Assignation des inspecteurs
+          </p>
 
-            <div className="form-field">
-              <label className={labelClass}>Titre du dossier *</label>
-              <input value={state.titre}
-                onChange={e => setField('titre', e.target.value)}
-                placeholder="Ex: Demande d'avis technique - GOBD"
-                className={`form-input ${focusClass}${errors.titre ? ' border-danger' : ''}`}
-              />
-              {errors.titre && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.titre}</p>}
-            </div>
-
-            <div className="form-grid grid-cols-2 gap-4">
-              <div className="form-field">
-                <label className={labelClass}>Catégorie</label>
-                <select value={state.categorie}
-                  onChange={e => setField('categorie', e.target.value)}
-                  className={`form-select ${focusClass}`} style={selectStyle}
-                >
-                  {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
-              </div>
-              <div className="form-field">
-                <label className={labelClass}>Urgence</label>
-                <select value={state.urgence}
-                  onChange={e => setField('urgence', e.target.value)}
-                  className={`form-select ${focusClass}`} style={selectStyle}
-                >
-                  {URGENCE.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="form-grid grid-cols-2 gap-4">
-              <div className="form-field">
-                <label className={labelClass}>Aérodrome concerné</label>
-                <select value={state.aerodrome_id}
-                  onChange={e => setField('aerodrome_id', e.target.value)}
-                  className={`form-select ${focusClass}`} style={selectStyle}
-                >
-                  <option value="">N/A - Dossier général</option>
-                  {aerodromes?.map((a: Aerodrome) => (
-                    <option key={a.id} value={a.id}>{a.code_oaci} - {a.nom}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-field">
-                <label className={labelClass}>
-                  Service assigné *
-                </label>
-                <select value={state.service_assigne}
-                  onChange={e => setField('service_assigne', e.target.value)}
-                  className={`form-select ${focusClass}`} style={selectStyle}
-                >
-                  {SERVICES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="p-3 bg-role-primary-soft rounded-lg space-y-4">
-              <p className="text-xs font-semibold text-role-primary uppercase tracking-wide">
-                Demandeur (si avis technique)
-              </p>
-              <div className="form-grid grid-cols-3 gap-4">
-                {[
-                  { field: 'demandeur_nom' as const, label: 'Nom', placeholder: 'Nom du demandeur' },
-                  { field: 'demandeur_organisation' as const, label: 'Organisation', placeholder: 'Organisation' },
-                  { field: 'demandeur_contact' as const, label: 'Contact', placeholder: 'Email/Téléphone' },
-                ].map(f => (
-                  <div className="form-field" key={f.field}>
-                    <label className={labelClass}>{f.label}</label>
-                    <input value={state[f.field]}
-                      onChange={e => setField(f.field, e.target.value)}
-                      placeholder={f.placeholder}
-                      className={`form-input ${focusClass}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-field">
-              <label className={labelClass}>
-                Inspecteur assigné *
-              </label>
-              <select value={state.inspecteur_id}
-                onChange={e => setField('inspecteur_id', e.target.value)}
-                className={`form-select ${focusClass}${errors.inspecteur_id ? ' border-danger' : ''}`}
-                style={selectStyle}
+          {/* Sélecteur */}
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 form-field">
+              <label className={labelClass}>Ajouter un inspecteur</label>
+              <select value={pendingInspecteurId}
+                onChange={e => setPendingInspecteurId(e.target.value)}
+                className={`form-select ${focusClass}`} style={selectStyle}
               >
-                <option value="">Sélectionner</option>
-                {utilisateurs?.filter((u: Utilisateur) => ['inspector', 'admin'].includes(u.role)).map((u: Utilisateur) => (
+                <option value="">Sélectionner...</option>
+                {inspecteursDisponibles.map((u: Utilisateur) => (
                   <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
                 ))}
               </select>
-              {errors.inspecteur_id && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.inspecteur_id}</p>}
             </div>
-
-            <div className="form-field">
-              <label className={labelClass}>Instructions particulières</label>
-              <textarea value={state.instructions}
-                onChange={e => setField('instructions', e.target.value)}
-                placeholder="Directives de traitement, priorités..." rows={3}
-                className={`form-textarea ${focusClass}`}
-              />
-              <p className="field-description">Précisez les instructions pour le traitement du dossier</p>
-            </div>
-
-            <div className="form-field">
-              <label className={labelClass}>
-                <Calendar className="w-4 h-4" />Date limite de traitement *
-              </label>
-              <input type="date" value={state.date_limite}
-                onChange={e => setField('date_limite', e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className={`form-input ${focusClass}${errors.date_limite ? ' border-danger' : ''}`}
-              />
-              {errors.date_limite && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.date_limite}</p>}
-              {getDelaiSuggere && !state.date_limite && (
-                <p className="field-description text-info">💡 Délai suggéré: {getDelaiSuggere} jours</p>
-              )}
-            </div>
+            <button type="button" onClick={handleAjouterInspecteur}
+              disabled={!pendingInspecteurId}
+              className="btn btn-primary btn-sm h-10 gap-1"
+            >
+              <Plus className="w-4 h-4" /> Ajouter
+            </button>
           </div>
-        </div>
+          {errors.inspecteurs && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.inspecteurs}</p>}
 
-        {/* ── DOCUMENTS ── */}
-        <div className={activeTab === 'documents' ? 'space-y-4 animate-fade-in' : 'hidden'}>
-          <div className="space-y-4">
-            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
-              Documents du dossier
-            </p>
-
-            {state.existingFichiers.length > 0 && (
-              <div className="space-y-2">
-                <label className={labelClass}>Fichiers déjà joints</label>
-                {state.existingFichiers.map((f: DossierFile, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-role-primary-soft rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-role-primary" />
-                      <div>
-                        <p className="font-medium text-sm">{f.nom}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(f.date_upload).toLocaleDateString('fr-FR')} • {Math.round(f.taille / 1024)} Ko
-                        </p>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => dispatch({ type: 'REMOVE_EXISTING_FICHIER', idx })}
-                      className="btn btn-ghost btn-sm text-danger">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="form-field">
-              <label className={labelClass}>Ajouter des fichiers</label>
-              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
-                <input type="file" multiple onChange={handleFileUpload}
-                  className="hidden" id="dossier-files"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
-                />
-                <label htmlFor="dossier-files" className="cursor-pointer flex flex-col items-center gap-3">
-                  <Upload className="w-10 h-10 text-muted-foreground" />
-                  <span className="text-sm font-medium">Cliquez pour ajouter des fichiers</span>
-                  <span className="text-xs text-muted-foreground">PDF, Word, Excel, images (max 10 Mo)</span>
-                </label>
-              </div>
-            </div>
-
-            {state.fichiers.length > 0 && (
-              <div className="space-y-2">
-                <label className={labelClass}>Nouveaux fichiers</label>
-                {state.fichiers.map((file: File, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-role-primary-soft rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-role-primary" />
-                      <div>
-                        <p className="font-medium text-sm">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} Ko</p>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => dispatch({ type: 'REMOVE_FICHIER', idx })}
-                      className="btn btn-ghost btn-sm text-danger">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── SUIVI ── */}
-        <div className={activeTab === 'suivi' ? 'space-y-4 animate-fade-in' : 'hidden'}>
-          <div className="space-y-6">
-            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
-              Suivi du dossier
-            </p>
-
-            {/* Barre de progression */}
+          {/* Liste des assignés */}
+          {selectedInspecteurs.length > 0 && (
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className={labelClass}>Progression</label>
-                <span className="text-sm font-bold">{state.progression}%</span>
-              </div>
-              <div className="progress h-2">
-                <div className="progress-bar" style={progressBarStyle} />
-              </div>
-              <div className="flex justify-between gap-2 mt-2">
-                {PROGRESSION_STEPS.map(val => (
-                  <button key={val} type="button"
-                    onClick={() => handleProgressionChange(val)}
-                    className={`flex-1 text-xs py-1.5 rounded font-medium transition-all ${
-                      state.progression === val ? 'btn-primary shadow-md' : 'btn-secondary'
-                    }`}
-                  >
-                    {val}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Preuves à 100% */}
-            {state.progression === 100 && (
-              <div className="p-4 rounded-lg border-2 border-success/30 bg-success/5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-success" />
-                  <span className="text-sm font-semibold text-success">Dossier terminé — Preuves requises</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Ajoutez les preuves de traitement (rapport d'évaluation, lettre de transmission, etc.)
-                  pour finaliser et archiver automatiquement le dossier.
-                </p>
-
-                {state.existingPreuves.length > 0 && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium">Preuves déjà fournies</label>
-                    {state.existingPreuves.map((f: DossierFile, idx: number) => (
-                      <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-success" />
-                          <span className="text-sm">{f.nom}</span>
-                        </div>
-                        <button type="button" onClick={() => dispatch({ type: 'REMOVE_EXISTING_PREUVE', idx })}
-                          className="btn btn-ghost btn-xs text-danger">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="form-field">
-                  <label className="text-xs font-medium">Ajouter des preuves</label>
-                  <input type="file" multiple onChange={handlePreuvesUpload}
-                    className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-success file:text-white hover:file:bg-success/90 cursor-pointer"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  />
-                </div>
-
-                {state.preuves.map((f: File, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-success" />
-                      <span className="text-sm">{f.name}</span>
+              <label className={labelClass}>Inspecteurs assignés ({selectedInspecteurs.length})</label>
+              {selectedInspecteurs.map(ins => (
+                <div key={ins.id} className="flex items-center justify-between p-3 bg-role-primary-soft rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-role-primary text-white flex items-center justify-center text-xs font-bold">
+                      {ins.nom.split(' ').map(n => n[0]).join('').slice(0, 2)}
                     </div>
-                    <button type="button" onClick={() => dispatch({ type: 'REMEMBER_PREUVE', idx })}
-                      className="btn btn-ghost btn-xs text-danger">
-                      <X className="w-3 h-3" />
-                    </button>
+                    <div>
+                      <p className="font-medium text-sm">{ins.nom}</p>
+                      <p className="text-xs text-muted-foreground">En attente d&apos;accusé réception</p>
+                    </div>
                   </div>
-                ))}
-
-                {errors.preuves && (
-                  <p className="field-error text-xs"><AlertTriangle className="w-3 h-3 inline mr-1" />{errors.preuves}</p>
-                )}
-              </div>
-            )}
-
-            {/* Statut */}
-            <div className="form-field">
-              <label className={labelClass}>Statut</label>
-              <select value={state.statut}
-                onChange={e => setField('statut', e.target.value)}
-                className={`form-select ${focusClass}`} style={selectStyle}
-              >
-                <option value="en_attente">En attente</option>
-                <option value="en_cours">En cours</option>
-                <option value="termine">Terminé</option>
-                <option value="archive">Archivé</option>
-              </select>
-            </div>
-
-            {/* Délai */}
-            {delai && (
-              <div className={`alert alert-${delai.variant} flex items-center gap-2`}>
-                <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium">
-                    {delai.jours < 0
-                      ? `Délai dépassé de ${Math.abs(delai.jours)} jour(s)`
-                      : `Délai: ${delai.jours} jour(s) restant(s)`
-                    }
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Échéance: {new Date(state.date_limite).toLocaleDateString('fr-FR')}
-                  </p>
+                  <button type="button" onClick={() => handleRetirerInspecteur(ins.id)}
+                    className="btn btn-ghost btn-sm text-danger">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Fichiers */}
+        <div className="space-y-4">
+          <p className="text-xs font-semibold text-role-primary uppercase tracking-wide pb-2 border-b border-border">
+            <FileText className="w-3 h-3 inline mr-1" />Documents du dossier
+          </p>
+
+          <div className="form-field">
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+              <input type="file" multiple onChange={handleFileUpload}
+                className="hidden" id="dossier-files"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+              />
+              <label htmlFor="dossier-files" className="cursor-pointer flex flex-col items-center gap-3">
+                <Upload className="w-10 h-10 text-muted-foreground" />
+                <span className="text-sm font-medium">Cliquez pour ajouter des fichiers</span>
+                <span className="text-xs text-muted-foreground">PDF, Word, Excel, images (max 10 Mo)</span>
+              </label>
+            </div>
           </div>
+
+          {fichiers.length > 0 && (
+            <div className="space-y-2">
+              {fichiers.map((file, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 bg-role-primary-soft rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-role-primary" />
+                    <span className="font-medium text-sm">{file.name}</span>
+                    <span className="text-xs text-muted-foreground">({(file.size / 1024).toFixed(1)} Ko)</span>
+                  </div>
+                  <button type="button" onClick={() => handleRemoveFile(idx)}
+                    className="btn btn-ghost btn-sm text-danger">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
-        <div className="form-actions">
+        <div className="flex gap-2 pt-4 border-t border-border">
           <button type="button" onClick={onCancel} disabled={isSubmitting} className="btn btn-secondary">
             <X className="w-4 h-4 mr-2 inline" />Annuler
           </button>

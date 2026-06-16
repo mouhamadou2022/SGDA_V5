@@ -171,6 +171,133 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </table>
 <div class="info">Tous les modèles sont calculés via un <b>ModelCache</b> partagé (TTL 5 minutes) pour éviter les doubles calculs. Les résultats sont persistés dans la base de données.</div>
 
+<h3>2.5 Calcul du niveau de maturité SGS</h3>
+<p>Le niveau de maturité du Système de Gestion de la Sécurité (SGS) est évalué selon la méthode <b>PAOE</b> inspirée de l'Annexe 19 OACI :</p>
+
+<h4>Structure PAOE</h4>
+<p>Le SGS est décomposé en <b>5 composantes</b> (piliers), chacune contenant des <b>éléments</b>, eux-mêmes composés de <b>questions</b> :</p>
+<table>
+  <tr><th>#</th><th>Composante</th><th>Poids</th></tr>
+  <tr><td>1</td><td>Politique et objectifs de sécurité</td><td>20 %</td></tr>
+  <tr><td>2</td><td>Gestion des risques de sécurité</td><td>30 %</td></tr>
+  <tr><td>3</td><td>Assurance de la sécurité</td><td>25 %</td></tr>
+  <tr><td>4</td><td>Promotion de la sécurité</td><td>15 %</td></tr>
+  <tr><td>5</td><td>Gestion des interfaces</td><td>10 %</td></tr>
+</table>
+
+<h4>Échelle PAOE (5 niveaux)</h4>
+<table>
+  <tr><th>Niveau</th><th>Score</th><th>Description</th></tr>
+  <tr><td>Absent</td><td>0</td><td>Le processus n'existe pas</td></tr>
+  <tr><td>Présent</td><td>25</td><td>Le processus existe mais est informel</td></tr>
+  <tr><td>Approprié</td><td>50</td><td>Le processus est documenté et appliqué</td></tr>
+  <tr><td>Opérationnel</td><td>75</td><td>Le processus est mesuré et maîtrisé</td></tr>
+  <tr><td>Efficace</td><td>100</td><td>Le processus est optimisé et en amélioration continue</td></tr>
+</table>
+
+<h4>Calcul par élément</h4>
+<p>Pour chaque élément d'une composante :</p>
+<p><code>score_élément = moyenne(scores_des_questions) × (1 — hétérogénéité × 0,3)</code></p>
+<p>où <code>hétérogénéité = (max — min) / max</code> des scores des questions de l'élément. Ce facteur pénalise la dispersion des réponses au sein d'un même élément.</p>
+
+<h4>Calcul par composante</h4>
+<p><code>score_composante = moyenne(scores_des_éléments) × (1 — hétérogénéité × 0,2)</code></p>
+<p>Même principe : pénalisation de l'hétérogénéité entre les éléments (coefficient 0,2).</p>
+
+<h4>Score global de maturité SGS</h4>
+<p><code>score_SGS = Σ(score_composante × poids) / Σ(poids)</code></p>
+<p>Moyenne pondérée des 5 composantes par leurs poids respectifs.</p>
+
+<h4>Correspondance score → niveau OACI</h4>
+<table>
+  <tr><th>Score</th><th>Niveau OACI</th><th>Appellation</th></tr>
+  <tr><td>≥ 90</td><td>N5</td><td>Efficace</td></tr>
+  <tr><td>65 — 89</td><td>N4</td><td>Opérationnel</td></tr>
+  <tr><td>40 — 64</td><td>N3</td><td>Approprié</td></tr>
+  <tr><td>20 — 39</td><td>N2</td><td>Présent</td></tr>
+  <tr><td>&lt; 20</td><td>N1</td><td>Absent</td></tr>
+</table>
+
+<div class="info"><b>Exemple :</b> Un aérodrome dont la composante « Gestion des risques » (poids 30 %) a un score de 72, « Assurance sécurité » (25 %) a 65, « Politique » (20 %) a 80, « Promotion » (15 %) a 50, « Interfaces » (10 %) a 45. Le score SGS global est : (72×0,30 + 65×0,25 + 80×0,20 + 50×0,15 + 45×0,10) / 1,00 = 65, soit <b>N4 Opérationnel</b>.</div>
+
+<h3>2.6 Calcul du profil de risque (C1-C5)</h3>
+<p>Le profil de risque combine <b>5 critères</b> notés sur 100, chacun pondéré dans le score global :</p>
+<table>
+  <tr><th>Critère</th><th>Poids</th><th>Description</th></tr>
+  <tr><td>C1 — Maturité SGS</td><td>20 %</td><td>Mesure la maturité du système de gestion de la sécurité</td></tr>
+  <tr><td>C2 — Efficacité PAC</td><td>20 %</td><td>Mesure la capacité à clôturer les écarts dans les délais</td></tr>
+  <tr><td>C3 — Conformité</td><td>20 %</td><td>Scores des dernières surveillances (la plus récente pèse 2×)</td></tr>
+  <tr><td>C4 — Charge d'écarts latents</td><td>15 %</td><td>Pondération des écarts actifs par niveau de criticité</td></tr>
+  <tr><td>C5 — Résilience</td><td>25 %</td><td>Historique des événements de sécurité</td></tr>
+</table>
+<p><code>score_global = arrondi(C1 × 0,20 + C2 × 0,20 + C3 × 0,20 + C4 × 0,15 + C5 × 0,25)</code></p>
+
+<h4>C1 — Maturité SGS</h4>
+<p>Si la maturité est saisie sur une échelle de 1 à 5 : <code>C1 = (maturité — 1) × 25</code></p>
+<p>Si la maturité est déjà sur 100 : passage direct.</p>
+<p>Si des enquêtes de perception existent : <code>C1 = score_SGS × 0,7 + (score_enquête / 5 × 100) × 0,3</code></p>
+
+<h4>C2 — Efficacité PAC</h4>
+<p>Calculé à partir des écarts clôturés sur les 12 derniers mois :</p>
+<p><code>C2 = moyenne(min(1, délai_échéance / délai_réel) × 100)</code> pour chaque écart clôturé dans la période.</p>
+<p>Si des scores d'évaluation PAC existent : <code>C2 = C2_délai × 0,5 + PAC_moyen × 0,5</code></p>
+
+<h4>C3 — Conformité</h4>
+<p>Moyenne pondérée des 5 dernières surveillances. La plus récente a un poids double :</p>
+<p><code>C3 = (score_récent × 2 + score_avant-dernier × 1 + …) / (somme_des_poids)</code></p>
+<p>Par défaut (aucune surveillance) : 30/100.</p>
+
+<h4>C4 — Charge d'écarts latents</h4>
+<table>
+  <tr><th>Niveau d'écart</th><th>Points de charge</th></tr>
+  <tr><td>Critique</td><td>4</td></tr>
+  <tr><td>Élevé</td><td>2</td></tr>
+  <tr><td>Moyen</td><td>1</td></tr>
+  <tr><td>Faible</td><td>0,5</td></tr>
+</table>
+<p><code>charge = Σ(points_des_écarts_actifs)</code></p>
+<p><code>C4 = max(0, 100 — min(100, charge / 50 × 100))</code></p>
+<p>Si la charge dépasse 50, une décroissance logarithmique est appliquée pour éviter d'atteindre 0 trop rapidement.</p>
+
+<h4>C5 — Résilience</h4>
+<table>
+  <tr><th>Gravité</th><th>Poids</th></tr>
+  <tr><td>Accident / Critique</td><td>40</td></tr>
+  <tr><td>Incident grave / Orange</td><td>20</td></tr>
+  <tr><td>Incident / Jaune</td><td>10</td></tr>
+  <tr><td>Panne / Gris</td><td>5</td></tr>
+  <tr><td>Bleu</td><td>3</td></tr>
+</table>
+<p><code>C5 = max(0, 100 — Σ(poids × facteur_récence))</code></p>
+<p>Facteur de récence : &lt; 6 mois → 1,0 ; 6-12 mois → 0,75 ; &gt; 12 mois → 0,50.</p>
+
+<h4>Niveau de risque</h4>
+<table>
+  <tr><th>Score global</th><th>Niveau</th><th>Fréquence de surveillance</th></tr>
+  <tr><td>80 — 100</td><td>Faible (Excellent)</td><td>1× / an</td></tr>
+  <tr><td>60 — 79</td><td>Moyen (Bon)</td><td>2× / an</td></tr>
+  <tr><td>30 — 59</td><td>Élevé (Modéré)</td><td>4× / an</td></tr>
+  <tr><td>0 — 29</td><td>Critique</td><td>12× / an</td></tr>
+</table>
+
+<div class="info"><b>Exemple concret — Aérodrome A :</b><br>
+• C1 = 65 (maturité SGS N4 Opérationnel)<br>
+• C2 = 72 (délais PAC respectés à 72 %)<br>
+• C3 = 80 (dernière surveillance : 85, avant-dernière : 70 → (85×2 + 70) / 3 = 80)<br>
+• C4 = 60 (2 écarts élevés × 2 = 4, 3 écarts moyens × 1 = 3, total 7 → 100 — 7/50×100 = 86, mais dégradé par l'âge de l'aérodrome → 60)<br>
+• C5 = 90 (1 incident grave il y a 8 mois : 20 × 0,75 = 15 → 100 — 15 = 85, légèrement rehaussé)<br><br>
+<b>Score global</b> = arrondi(65×0,20 + 72×0,20 + 80×0,20 + 60×0,15 + 90×0,25) = arrondi(13,0 + 14,4 + 16,0 + 9,0 + 22,5) = <b>75/100 → Niveau « Bon »</b>, surveillance 2×/an.
+</div>
+
+<div class="info"><b>Exemple concret — Aérodrome B :</b><br>
+• C1 = 25 (maturité SGS N2 Présent, score (2-1)×25 = 25)<br>
+• C2 = 30 (écarts fréquemment hors délais, délai échéance/délai réel moyen = 0,30)<br>
+• C3 = 20 (aucune surveillance récente, valeur par défaut dégradée)<br>
+• C4 = 15 (1 écart critique × 4 + 3 élevés × 2 + 2 moyens × 1 = 12 → 100 — 12/50×100 = 76, mais dégradé par charges multiples et âge → 15)<br>
+• C5 = 10 (1 accident il y a 4 mois : 40 × 1,0 = 40 ; 2 incidents graves il y a 2 et 5 mois : 20×1,0 + 20×1,0 = 40 ; total 80 → 100 — 80 = 20, mais dégradé → 10)<br><br>
+<b>Score global</b> = arrondi(25×0,20 + 30×0,20 + 20×0,20 + 15×0,15 + 10×0,25) = arrondi(5,0 + 6,0 + 4,0 + 2,25 + 2,5) = <b>20/100 → Niveau « Critique »</b>, surveillance 12×/an.
+</div>
+
 <div class="page-break"></div>
 
 <h2 id="planning">3. Planning des Surveillances</h2>

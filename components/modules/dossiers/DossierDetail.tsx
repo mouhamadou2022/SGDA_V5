@@ -163,21 +163,20 @@ function formatDate(iso: string): string {
 // ─── Composant ────────────────────────────────────────────────────────────────
 
 export function DossierDetail({ dossierId, onClose }: DossierDetailProps) {
-  const ecarts = useAppStore((s) => s.ecarts);
+  const dossiers = useAppStore((s) => s.dossiers);
   const aerodromes = useAppStore((s) => s.aerodromes);
-  const surveillances = useAppStore((s) => s.surveillances);
 
-  const ecart = useMemo(
-    () => ecarts.find((e) => e.id === dossierId) ?? null,
-    [ecarts, dossierId]
+  const dossier = useMemo(
+    () => dossiers?.find((d) => d.id === dossierId) ?? null,
+    [dossiers, dossierId]
   );
 
   const aerodrome = useMemo(
-    () => aerodromes.find((a) => a.id === ecart?.aerodrome_id),
-    [aerodromes, ecart]
+    () => aerodromes.find((a) => a.id === dossier?.aerodrome_id),
+    [aerodromes, dossier]
   );
 
-  const titre = ecart ? `Dossier — ${ecart.reference}` : `Dossier ${dossierId}`;
+  const titre = dossier ? `Dossier — ${dossier.reference}` : `Dossier ${dossierId}`;
 
   return (
     <div className="flex flex-col h-full" data-role="inspector">
@@ -193,9 +192,9 @@ export function DossierDetail({ dossierId, onClose }: DossierDetailProps) {
               </p>
             )}
           </div>
-          {ecart && (
+          {dossier && (
             <span className="badge neutral text-xs">
-              {ecart.statut.replace(/_/g, ' ')}
+              {dossier.statut.replace(/_/g, ' ')}
             </span>
           )}
         </div>
@@ -215,17 +214,17 @@ export function DossierDetail({ dossierId, onClose }: DossierDetailProps) {
 
         {/* ─── Infos générales ─── */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 animate-fade-in">
-          {ecart ? (
+          {dossier ? (
             <div className="grid grid-cols-2 gap-4 text-body">
               {[
-                { label: 'Référence', value: ecart.reference },
-                { label: 'Réf. réglementaire', value: ecart.ref_reglementaire },
-                { label: 'Niveau de risque', value: ecart.niveau_risque },
-                { label: 'Statut', value: ecart.statut.replace(/_/g, ' ') },
-                { label: 'Délai PAC', value: ecart.delai_pac?.slice(0, 10) ?? '—' },
-                { label: 'Délai régularisation', value: ecart.delai_regularisation?.slice(0, 10) ?? '—' },
-                { label: 'Créé le', value: ecart.created_at.slice(0, 10) },
-                { label: 'Mis à jour le', value: ecart.updated_at.slice(0, 10) },
+                { label: 'Référence', value: dossier.reference },
+                { label: 'Catégorie', value: dossier.categorie },
+                { label: 'Service assigné', value: dossier.service_assigne.replace(/_/g, ' ') },
+                { label: 'Statut', value: dossier.statut.replace(/_/g, ' ') },
+                { label: 'Date instruction', value: dossier.date_instruction?.slice(0, 10) ?? '—' },
+                { label: 'Date limite', value: dossier.date_limite?.slice(0, 10) ?? '—' },
+                { label: 'Créé le', value: dossier.created_at.slice(0, 10) },
+                { label: 'Mis à jour le', value: dossier.updated_at.slice(0, 10) },
               ].map((row) => (
                 <div key={row.label} className="space-y-1">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{row.label}</p>
@@ -233,14 +232,20 @@ export function DossierDetail({ dossierId, onClose }: DossierDetailProps) {
                 </div>
               ))}
               <div className="col-span-2 space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Libellé</p>
-                <p className="font-medium">{ecart.libelle}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Titre</p>
+                <p className="font-medium">{dossier.titre}</p>
               </div>
+              {dossier.instructions && (
+                <div className="col-span-2 space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Instructions</p>
+                  <p className="font-medium">{dossier.instructions}</p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="card p-8 text-center text-muted-foreground">
               <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-warning" />
-              <p>Dossier simulé — ID : {dossierId}</p>
+              <p>Dossier introuvable — ID : {dossierId}</p>
               <p className="text-xs mt-1">Les informations détaillées ne sont pas disponibles.</p>
             </div>
           )}

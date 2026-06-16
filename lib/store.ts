@@ -1288,7 +1288,7 @@ export interface Conversation {
 export interface EntreeRegistre {
   id: string
   aerodrome_id?: string
-  type: 'formation' | 'evenement' | 'surveillance' | 'certification' | 'homologation' | 'ecart' | 'exploitation'
+  type: 'formation' | 'evenement' | 'surveillance' | 'certification' | 'homologation' | 'ecart' | 'exploitation' | 'dossier'
   reference: string
   date_entree: string
   objet: string
@@ -1316,6 +1316,56 @@ export interface DossierExtension {
   superieur_nom?: string
 }
 
+export interface DossierFeedback {
+  id: string
+  auteur_id: string
+  auteur_nom: string
+  role: 'chef' | 'inspecteur'
+  type: 'accuse' | 'info' | 'demande_modification' | 'validation' | 'retour_travail'
+  message: string
+  date: string
+}
+
+export interface DossierCollaborateur {
+  inspecteur_id: string
+  inspecteur_nom: string
+  motif: string
+  date: string
+}
+
+export interface DossierAssignment {
+  id: string
+  inspecteur_id: string
+  inspecteur_nom: string
+  statut: 'attribue' | 'accuse' | 'en_cours' | 'en_validation' | 'valide' | 'termine'
+  progression: 0 | 25 | 50 | 75 | 100
+  date_attribution: string
+  accuse_reception?: {
+    date: string
+    commentaire: string
+  }
+  feedbacks: DossierFeedback[]
+  collaborateurs: DossierCollaborateur[]
+  reassigne_de?: {
+    from_inspecteur_id: string
+    from_inspecteur_nom: string
+    date: string
+    motif: string
+  }
+  preuves: {
+    nom: string
+    url: string
+    taille: number
+    type: string
+    date_upload: string
+  }[]
+  historique: {
+    date: string
+    action: string
+    details?: string
+  }[]
+}
+
 export interface Dossier {
   id: string
   aerodrome_id?: string
@@ -1328,11 +1378,11 @@ export interface Dossier {
     contact: string
   }
   service_assigne: 'securite_aerodromes' | 'normes_aerodromes'
-  inspecteur_id: string
+  inspecteur_id?: string
   instructions?: string
   date_instruction: string
   date_limite: string
-  date_limite_initiale?: string  // vérouillée après imputation
+  date_limite_initiale?: string
   fichiers: {
     nom: string
     url: string
@@ -1344,13 +1394,14 @@ export interface Dossier {
   progression: 0 | 25 | 50 | 75 | 100
   preuve_traitement?: string
   extensions?: DossierExtension[]
-  statut: 'en_cours' | 'en_attente' | 'termine' | 'archive'
+  statut: 'en_attente' | 'en_cours' | 'termine' | 'archive'
   historique: {
     date: string
     action: string
     utilisateur: string
     commentaire?: string
   }[]
+  assignments: DossierAssignment[]
   archived_at?: string | null
   created_at: string
   updated_at: string
@@ -1935,13 +1986,19 @@ interface DossierSlice {
   setDossiers: (dossiers: Dossier[]) => void
   setCurrentDossier: (dossier: Dossier | null) => void
   addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => void
-   updateDossier: (id: string, data: Partial<Dossier>) => void
-   extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => void
+  updateDossier: (id: string, data: Partial<Dossier>) => void
+  extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => void
   deleteDossier: (id: string) => void
   getDossiersByInspecteur: (inspecteurId: string) => Dossier[]
   getDossiersUrgents: () => Dossier[]
-  archiverDossierAutomatique: (dossierId: string) => void;
-  restaurerDossier: (dossierId: string) => void;
+  archiverDossierAutomatique: (dossierId: string) => void
+  restaurerDossier: (dossierId: string) => void
+  addAssignment: (dossierId: string, assignment: Omit<DossierAssignment, 'id' | 'date_attribution' | 'feedbacks' | 'collaborateurs' | 'preuves' | 'historique'>) => void
+  updateAssignment: (dossierId: string, assignmentId: string, data: Partial<DossierAssignment>) => void
+  reassignAssignment: (dossierId: string, assignmentId: string, newInspecteurId: string, newInspecteurNom: string, motif: string) => void
+  addAssignmentFeedback: (dossierId: string, assignmentId: string, feedback: Omit<DossierFeedback, 'id' | 'date'>) => void
+  addAssignmentCollaborateur: (dossierId: string, assignmentId: string, collaborateur: Omit<DossierCollaborateur, 'date'>) => void
+  accuserReceptionAssignment: (dossierId: string, assignmentId: string, commentaire: string) => void
 }
 
 interface FormationSlice {
@@ -3305,6 +3362,52 @@ getActiveAerodromes: () => {
             }
           })
         })
+        // Rappels automatiques pour les dossiers
+        const dossiersActifs = state.dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente')
+        dossiersActifs.forEach(dossier => {
+          const dateLimite = new Date(dossier.date_limite)
+          const joursRestants = Math.ceil((dateLimite.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
+          if (joursRestants < 0) {
+            const dejaNotifie = (dossier as any)._retard_notifie
+            if (!dejaNotifie) {
+              const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
+              assignes.forEach(a => {
+                get().addNotification({
+                  user_id: a.inspecteur_id, type: 'danger', title: 'Dossier en retard',
+                  message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
+                  canal: 'in_app',
+                })
+              })
+              if (dossier.created_by) {
+                get().addNotification({
+                  user_id: dossier.created_by, type: 'danger', title: 'Dossier en retard',
+                  message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
+                  canal: 'in_app',
+                })
+              }
+              set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, _retard_notifie: true } : d) }))
+            }
+          } else if (joursRestants <= 15 && joursRestants > 0) {
+            const seuils = [15, 7, 3]
+            seuils.forEach(seuil => {
+              if (joursRestants === seuil) {
+                const key = `_rappel_j${seuil}`
+                const dejaEnvoye = (dossier as any)[key]
+                if (!dejaEnvoye) {
+                  const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
+                  assignes.forEach(a => {
+                    get().addNotification({
+                      user_id: a.inspecteur_id, type: 'warning', title: `Échéance J-${seuil}`,
+                      message: `Dossier ${dossier.reference} — ${dossier.titre} : échéance dans ${seuil} jours`,
+                      canal: 'in_app',
+                    })
+                  })
+                  set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, [key]: true } : d) }))
+                }
+              }
+            })
+          }
+        })
       },
 
       marquerEcartEnRetard: (ecartId) => {
@@ -3623,13 +3726,18 @@ resetLearningData: () => {
 
      // Dans le create pour les dossiers
 archiverDossierAutomatique: (dossierId) =>
-  set((state) => ({
-    dossiers: state.dossiers.map((d) =>
-      d.id === dossierId && d.statut === 'termine'
-        ? { ...d, statut: 'archive', archived_at: new Date().toISOString() }
-        : d
-    ),
-  })),
+  set((state) => {
+    const dossier = state.dossiers.find((d) => d.id === dossierId)
+    if (!dossier || dossier.statut !== 'termine') return state
+    const now = new Date().toISOString()
+    const entry = registreUtils.toRegistreEntryFromDossier({ ...dossier, archived_at: now }, state.aerodromes.find(a => a.id === dossier.aerodrome_id))
+    return {
+      dossiers: state.dossiers.map((d) =>
+        d.id === dossierId ? { ...d, statut: 'archive', archived_at: now } : d
+      ),
+      registreEntries: [...(state.registreEntries || []), { ...entry, id: crypto.randomUUID(), created_at: now, timeline: entry.timeline || [] } as RegistreEntry],
+    }
+  }),
 
 restaurerDossier: (dossierId) =>
   set((state) => ({
@@ -3639,6 +3747,155 @@ restaurerDossier: (dossierId) =>
         : d
     ),
   })),
+
+addAssignment: (dossierId, assignment) => set((state) => {
+  const now = new Date().toISOString()
+  const newAssignment: DossierAssignment = {
+    id: crypto.randomUUID(),
+    ...assignment,
+    statut: 'attribue',
+    progression: 0,
+    date_attribution: now,
+    feedbacks: [],
+    collaborateurs: [],
+    preuves: [],
+    historique: [{ date: now, action: `Attribué à ${assignment.inspecteur_nom}`, details: '' }],
+  }
+  const auteur = state.user?.nom || 'Système'
+  return {
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? {
+            ...d,
+            assignments: [...(d.assignments || []), newAssignment],
+            historique: [...d.historique, { date: now, action: `Attribution à ${assignment.inspecteur_nom}`, utilisateur: auteur }],
+            updated_at: now,
+          }
+        : d
+    ),
+  }
+}),
+
+updateAssignment: (dossierId, assignmentId, data) => set((state) => ({
+  dossiers: state.dossiers.map(d =>
+    d.id === dossierId
+      ? {
+          ...d,
+          assignments: d.assignments.map(a =>
+            a.id === assignmentId ? { ...a, ...data, historique: [...a.historique, ...(data.historique || [])] } : a
+          ),
+          updated_at: new Date().toISOString(),
+        }
+      : d
+  ),
+})),
+
+reassignAssignment: (dossierId, assignmentId, newInspecteurId, newInspecteurNom, motif) => set((state) => {
+  const now = new Date().toISOString()
+  const auteur = state.user?.nom || 'Système'
+  return {
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? {
+            ...d,
+            assignments: d.assignments.map(a =>
+              a.id === assignmentId
+                ? {
+                    ...a,
+                    inspecteur_id: newInspecteurId,
+                    inspecteur_nom: newInspecteurNom,
+                    statut: 'attribue',
+                    progression: a.progression,
+                    reassigne_de: {
+                      from_inspecteur_id: a.inspecteur_id,
+                      from_inspecteur_nom: a.inspecteur_nom,
+                      date: now,
+                      motif,
+                    },
+                    historique: [...a.historique, { date: now, action: `Réassigné à ${newInspecteurNom}`, details: motif }],
+                    feedbacks: [...a.feedbacks, {
+                      id: crypto.randomUUID(),
+                      auteur_id: auteur,
+                      auteur_nom: auteur,
+                      role: 'chef',
+                      type: 'info',
+                      message: `Réassignation: ${motif}`,
+                      date: now,
+                    }],
+                  }
+                : a
+            ),
+            historique: [...d.historique, { date: now, action: `Réassignation du dossier à ${newInspecteurNom}`, utilisateur: auteur, commentaire: motif }],
+            updated_at: now,
+          }
+        : d
+    ),
+  }
+}),
+
+addAssignmentFeedback: (dossierId, assignmentId, feedback) => set((state) => {
+  const now = new Date().toISOString()
+  const newFeedback: DossierFeedback = { id: crypto.randomUUID(), date: now, ...feedback }
+  return {
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? {
+            ...d,
+            assignments: d.assignments.map(a =>
+              a.id === assignmentId
+                ? { ...a, feedbacks: [...a.feedbacks, newFeedback], historique: [...a.historique, { date: now, action: `Feedback: ${feedback.type}`, details: feedback.message }] }
+                : a
+            ),
+            updated_at: now,
+          }
+        : d
+    ),
+  }
+}),
+
+addAssignmentCollaborateur: (dossierId, assignmentId, collaborateur) => set((state) => {
+  const now = new Date().toISOString()
+  const newCollab: DossierCollaborateur = { date: now, ...collaborateur }
+  return {
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? {
+            ...d,
+            assignments: d.assignments.map(a =>
+              a.id === assignmentId
+                ? { ...a, collaborateurs: [...a.collaborateurs, newCollab], historique: [...a.historique, { date: now, action: `Collaboration: ${collaborateur.inspecteur_nom} sollicité`, details: collaborateur.motif }] }
+                : a
+            ),
+            updated_at: now,
+          }
+        : d
+    ),
+  }
+}),
+
+accuserReceptionAssignment: (dossierId, assignmentId, commentaire) => set((state) => {
+  const now = new Date().toISOString()
+  return {
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? {
+            ...d,
+            assignments: d.assignments.map(a =>
+              a.id === assignmentId
+                ? {
+                    ...a,
+                    statut: 'accuse',
+                    accuse_reception: { date: now, commentaire },
+                    historique: [...a.historique, { date: now, action: 'Accusé réception', details: commentaire }],
+                  }
+                : a
+            ),
+            updated_at: now,
+          }
+        : d
+    ),
+  }
+}),
 
       // ============================================================
       // IMPLÉMENTATION DES SLICES DANS LE STORE surveillance
@@ -4942,7 +5199,19 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       setDossiers: (dossiers) => set({ dossiers }),
       setCurrentDossier: (dossier) => set({ currentDossier: dossier }),
       addDossier: (dossier) => set((state) => ({
-        dossiers: [...state.dossiers, { ...dossier, id: crypto.randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), historique: [] } as Dossier]
+        dossiers: [...state.dossiers, {
+          ...dossier,
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          historique: [{
+            date: new Date().toISOString(),
+            action: 'Création du dossier',
+            utilisateur: state.user?.id || 'system',
+            commentaire: 'Dossier créé'
+          }],
+          assignments: dossier.assignments || []
+        } as Dossier]
       })),
       extendreDossier: (id, extension, superieurNom) => set((state) => ({
         dossiers: state.dossiers.map(d => {
@@ -4965,7 +5234,10 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         dossiers: state.dossiers.filter(d => d.id !== id),
         currentDossier: state.currentDossier?.id === id ? null : state.currentDossier,
       })),
-      getDossiersByInspecteur: (inspecteurId) => get().dossiers.filter(d => d.inspecteur_id === inspecteurId),
+      getDossiersByInspecteur: (inspecteurId) => get().dossiers.filter(d =>
+        d.inspecteur_id === inspecteurId ||
+        d.assignments?.some(a => a.inspecteur_id === inspecteurId)
+      ),
       getDossiersUrgents: () => get().dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente'),
 
       // ============================================================

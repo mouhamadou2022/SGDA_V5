@@ -48,20 +48,18 @@ export const dossierUtils = {
    * Calcule la progression automatique basée sur les actions
    */
   calculerProgressionAuto(dossier: Dossier): number {
+    // Si le dossier utilise le nouveau modèle assignments
+    if (dossier.assignments && dossier.assignments.length > 0) {
+      const total = dossier.assignments.reduce((sum, a) => sum + a.progression, 0)
+      return Math.round(total / dossier.assignments.length) as 0 | 25 | 50 | 75 | 100
+    }
+
+    // Fallback ancien modèle
     let progression = 0
-
-    // 25% si assigné
     if (dossier.inspecteur_id) progression += 25
-
-    // 25% si instructions présentes
     if (dossier.instructions) progression += 25
-
-    // 25% si fichiers traités
     if (dossier.fichiers.some(f => f.ocr_extracted)) progression += 25
-
-    // 25% si preuve fournie
     if (dossier.preuve_traitement) progression += 25
-
     return Math.min(100, progression) as 0 | 25 | 50 | 75 | 100
   },
 

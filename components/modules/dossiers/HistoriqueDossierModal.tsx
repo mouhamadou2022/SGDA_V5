@@ -1,8 +1,8 @@
-﻿// components/modules/dossiers/HistoriqueDossierModal.tsx
-'use client'
+﻿'use client'
 
 import { useAppStore } from '@/lib/store'
-import { X, Plus, Edit3, CheckCircle2, Trash2, Clock, User, FolderOpen, FileText } from 'lucide-react'
+import { FolderOpen, X, Plus, Edit3, CheckCircle2, Trash2, Clock, User, FileText } from 'lucide-react'
+import { FormShell } from '@/components/ui/FormShell'
 
 interface HistoriqueDossierModalProps {
   isOpen: boolean
@@ -43,63 +43,49 @@ export function HistoriqueDossierModal({ isOpen, onClose, dossierId, userRole }:
     })
   }
 
-  if (!isOpen || !dossier) return null
-
   return (
-    <div className="modal-overlay" data-role={userRole} onClick={onClose}>
-      <div className="modal-content max-w-3xl max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="modal-title">
-            <FolderOpen className="w-5 h-5 text-role-primary" />
-            Historique du dossier {dossier.reference}
-          </div>
-          <button className="modal-close" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="modal-body">
-          <div className="timeline max-h-[60vh] overflow-y-auto pr-2">
-            {dossier.historique && dossier.historique.length > 0 ? (
-              dossier.historique
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                .map((item, index) => (
-                  <div key={index} className="timeline-item">
-                    <div className={getCouleurAction(item.action)}>
-                      {getIconeAction(item.action)}
-                    </div>
-                    <div className="timeline-content">
-                      <div className="timeline-date">
-                        {formatDate(item.date)}
-                      </div>
-                      <div className="timeline-title">{item.action}</div>
-                      <div className="flex items-center gap-2 mt-1 text-small text-muted-foreground">
-                        <User className="w-3 h-3" />
-                        <span>{item.utilisateur}</span>
-                      </div>
-                      {item.commentaire && (
-                        <div className="mt-2 text-small bg-role-primary-soft p-3 rounded-xl">
-                          {item.commentaire}
-                        </div>
-                      )}
-                    </div>
+    <FormShell
+      open={isOpen && !!dossier}
+      onClose={onClose}
+      title={dossier ? `Historique — ${dossier.reference}` : 'Historique'}
+      icon={FolderOpen}
+      size="3xl"
+      dataRole={userRole}
+      footer={
+        <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
+      }
+    >
+      {dossier && dossier.historique && dossier.historique.length > 0 ? (
+        <div className="timeline max-h-[60vh] overflow-y-auto pr-2">
+          {dossier.historique
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .map((item, index) => (
+              <div key={index} className="timeline-item">
+                <div className={getCouleurAction(item.action)}>
+                  {getIconeAction(item.action)}
+                </div>
+                <div className="timeline-content">
+                  <div className="timeline-date">{formatDate(item.date)}</div>
+                  <div className="timeline-title">{item.action}</div>
+                  <div className="flex items-center gap-2 mt-1 text-small text-muted-foreground">
+                    <User className="w-3 h-3" />
+                    <span>{item.utilisateur}</span>
                   </div>
-                ))
-            ) : (
-              <div className="text-center py-8">
-                <Clock className="w-12 h-12 mx-auto mb-2 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">Aucun historique disponible</p>
+                  {item.commentaire && (
+                    <div className="mt-2 text-small bg-role-primary-soft p-3 rounded-xl">
+                      {item.commentaire}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
+            ))}
         </div>
-
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Fermer
-          </button>
+      ) : (
+        <div className="text-center py-8">
+          <Clock className="w-12 h-12 mx-auto mb-2 text-muted-foreground opacity-30" />
+          <p className="text-muted-foreground">Aucun historique disponible</p>
         </div>
-      </div>
-    </div>
+      )}
+    </FormShell>
   )
 }

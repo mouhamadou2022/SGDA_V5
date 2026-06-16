@@ -1,5 +1,5 @@
 -- SGDA v5 — SCHÉMA PRODUCTION
--- Généré le 2026-05-17 | Mis à jour le 2026-05-29
+-- Généré le 2026-05-17 | Mis à jour le 2026-06-16
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
@@ -1769,7 +1769,13 @@ DO $$ BEGIN
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS created_at                timestamptz DEFAULT now();
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS updated_at                timestamptz DEFAULT now();
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS created_by                uuid;
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS assignments               jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS urgence                   varchar(10) DEFAULT 'normale';
 END $$;
+
+-- 13.H.2 DOSSIERS — index pour la recherche par inspecteur dans les assignments
+DROP INDEX IF EXISTS idx_dossiers_assignments_gin;
+CREATE INDEX IF NOT EXISTS idx_dossiers_assignments_gin ON dossiers USING GIN (assignments);
 
 -- 13.I FORMATIONS — colonnes manquantes
 DO $$ BEGIN
