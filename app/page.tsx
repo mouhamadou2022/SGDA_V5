@@ -1042,11 +1042,19 @@ export default function Page() {
         ]
         
          const existingMessages = useAppStore.getState().messages || []
+         // Fusionner les dossiers locaux (Zustand persist) avec ceux de Supabase
+         const existingDossiers = useAppStore.getState().dossiers || []
+         const existingDossierIds = new Set(existingDossiers.map(d => d.id))
+         const mergedDossiers = [
+           ...existingDossiers,
+           ...(data.dossiers || []).filter(d => !existingDossierIds.has(d.id))
+         ]
          useAppStore.setState({
-           aerodromes: data.aerodromes || [],
-           surveillances: data.surveillances || [],
-           ecarts: data.ecarts || [],
-           utilisateurs: data.utilisateurs || [],
+            aerodromes: data.aerodromes || [],
+            surveillances: data.surveillances || [],
+            ecarts: data.ecarts || [],
+            dossiers: mergedDossiers,
+            utilisateurs: data.utilisateurs || [],
            plannings: data.plannings || [],
            certifications: data.certifications || [],
            homologations: data.homologations || [],

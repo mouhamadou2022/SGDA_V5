@@ -41,11 +41,16 @@ export function DossierCard({
   const getDelaiIndicator = (dateLimite: string) => {
     const { jours } = dossierUtils.getDelaiRestant(dateLimite)
 
-    if (jours < 0) {
-      return { label: 'Expiré', className: 'badge danger', icon: AlertCircle }
+    if (jours <= 0) {
+      const overdue = Math.abs(jours)
+      return {
+        label: overdue > 0 ? `${overdue}j de retard` : 'Échéance aujourd\'hui',
+        className: 'badge danger',
+        icon: AlertCircle
+      }
     }
-    if (jours < 3) {
-      return { label: `${jours}j (Urgent)`, className: 'badge danger animate-pulse', icon: AlertTriangle }
+    if (jours === 1) {
+      return { label: 'Demain', className: 'badge danger animate-pulse', icon: AlertTriangle }
     }
     if (jours < 7) {
       return { label: `${jours}j`, className: 'badge warning', icon: Clock }
@@ -206,7 +211,7 @@ export function DossierCard({
         <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border">
           <div className="flex items-center gap-1">
             <User className="w-3 h-3 text-role-primary" />
-            <span>Inspecteur assigné</span>
+            <span>{dossier.assignments?.map((a: any) => a.inspecteur_nom).join(', ') || 'Inspecteur assigné'}</span>
           </div>
           <div className="flex items-center gap-1">
             {canManage && onEdit && (

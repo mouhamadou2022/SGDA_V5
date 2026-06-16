@@ -179,6 +179,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     urgence: 'tous'
   });
   const [showForm, setShowForm] = useState(false);
+  const [editingDossierId, setEditingDossierId] = useState<string | null>(null);
   const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showHistorique, setShowHistorique] = useState(false);
@@ -434,29 +435,30 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   const getDelaiIndicator = (dateLimite: string) => {
     const { jours } = dossierUtils.getDelaiRestant(dateLimite);
     
-    if (jours < 0) {
-      return { 
-        label: 'Expiré', 
+    if (jours <= 0) {
+      const overdue = Math.abs(jours);
+      return {
+        label: overdue > 0 ? `${overdue}j de retard` : 'Échéance aujourd\'hui',
         className: 'badge danger animate-pulse',
         icon: AlertCircle
       };
     }
-    if (jours < 3) {
-      return { 
-        label: `${jours}j (Urgent)`, 
+    if (jours === 1) {
+      return {
+        label: 'Demain',
         className: 'badge danger',
         icon: AlertTriangle
       };
     }
     if (jours < 7) {
-      return { 
-        label: `${jours}j`, 
+      return {
+        label: `${jours}j`,
         className: 'badge warning',
         icon: Clock
       };
     }
-    return { 
-      label: `${jours}j`, 
+    return {
+      label: `${jours}j`,
       className: 'badge success',
       icon: CheckCircle2
     };
@@ -575,6 +577,17 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     }
   };
 
+  const handleEditDossier = (dossier: Dossier) => {
+    setEditingDossierId(dossier.id);
+    setShowForm(true);
+  };
+
+  const handleDeleteDossier = (dossierId: string) => {
+    if (confirm('Supprimer ce dossier ? Cette action est irréversible.')) {
+      deleteDossier(dossierId);
+    }
+  };
+
   const toggleAnnee = (annee: string) => {
     setAnneesOuvertes((prev) => ({ ...prev, [annee]: !prev[annee] }));
   };
@@ -600,20 +613,24 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     backgroundRepeat: 'no-repeat'
   };
 
-  const handleCloseForm = useCallback(() => setShowForm(false), [])
+  const handleCloseForm = useCallback(() => {
+    setShowForm(false);
+    setEditingDossierId(null);
+  }, [])
 
   // Modales via FormShell
   const FormModal = () => (
     <FormShell
       open={!!mounted && showForm}
       onClose={handleCloseForm}
-      title="Nouveau dossier technique"
+      title={editingDossierId ? "Modifier le dossier" : "Nouveau dossier technique"}
       icon={FolderOpen}
       size="3xl"
       dataRole={userRole}
     >
       <DossierForm
-        mode="creation"
+        mode={editingDossierId ? "modification" : "creation"}
+        dossierId={editingDossierId || undefined}
         aerodromeId={aerodromeId}
         userRole={userRole}
         onSuccess={handleCloseForm}
@@ -1001,8 +1018,8 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                     onViewDetails={() => { setSelectedDossier(d); setShowDetails(true); }}
                     onViewHistory={() => { setSelectedDossier(d); setShowHistorique(true); }}
                     onMarkComplete={d.statut !== 'termine' ? () => handleMarquerTermine(d.id) : undefined}
-                    onEdit={() => {}}
-                    onDelete={() => {}}
+                    onEdit={() => handleEditDossier(d)}
+                    onDelete={() => handleDeleteDossier(d.id)}
                   />
                 );
               })}

@@ -8,6 +8,7 @@ import type {
   Aerodrome,
   Surveillance,
   Ecart,
+  Dossier,
   Utilisateur,
   Planning,
   Certification,
@@ -38,6 +39,7 @@ export interface InitialData {
   aerodromes: Aerodrome[]
   surveillances: Surveillance[]
   ecarts: Ecart[]
+  dossiers: Dossier[]
   utilisateurs: Utilisateur[]
   plannings: Planning[]
   certifications: Certification[]
@@ -64,6 +66,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       aerodromesRes,
       surveillancesRes,
       ecartsRes,
+      dossiersRes,
       utilisateursRes,
       planningsRes,
       certificationsRes,
@@ -81,6 +84,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
       supabase.from('ecarts').select('*').order('created_at', { ascending: false }),
+      supabase.from('dossiers').select('*').order('created_at', { ascending: false }),
       supabase.from('utilisateurs').select('*').order('nom'),
       supabase.from('plannings').select('*').order('date_debut', { ascending: false }),
       supabase.from('certifications').select('*'),
@@ -100,6 +104,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       aerodromesRes.error,
       surveillancesRes.error,
       ecartsRes.error,
+      dossiersRes.error,
       utilisateursRes.error,
       planningsRes.error,
       certificationsRes.error,
@@ -146,6 +151,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         aerodromes: aerodromes,
         surveillances: (surveillancesRes.data ?? []) as Surveillance[],
         ecarts: (ecartsRes.data ?? []) as Ecart[],
+        dossiers: (dossiersRes.data ?? []) as Dossier[],
         utilisateurs: (utilisateursRes.data ?? []) as Utilisateur[],
         plannings: (planningsRes.data ?? []) as Planning[],
         certifications: (certificationsRes.data ?? []) as Certification[],
@@ -1006,5 +1012,34 @@ export async function updateApiKey(id: string, payload: Partial<ApiKey>): Promis
 
 export async function deleteApiKey(id: string): Promise<DatastoreResult<null>> {
   const { error } = await supabase.from('api_keys').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOSSIERS
+// ─────────────────────────────────────────────────────────────
+
+export async function createDossier(payload: Partial<Dossier> & { titre: string; reference: string; statut: string }): Promise<DatastoreResult<Dossier>> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('dossiers')
+    .insert({ ...payload, created_at: payload.created_at || now, updated_at: now })
+    .select()
+    .single()
+  return { data: data as Dossier | null, error: error?.message ?? null }
+}
+
+export async function updateDossier(id: string, payload: Partial<Dossier>): Promise<DatastoreResult<Dossier>> {
+  const { data, error } = await supabase
+    .from('dossiers')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as Dossier | null, error: error?.message ?? null }
+}
+
+export async function deleteDossier(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('dossiers').delete().eq('id', id)
   return { data: null, error: error?.message ?? null }
 }

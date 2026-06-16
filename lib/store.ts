@@ -1985,15 +1985,15 @@ interface DossierSlice {
   currentDossier: Dossier | null
   setDossiers: (dossiers: Dossier[]) => void
   setCurrentDossier: (dossier: Dossier | null) => void
-  addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => void
-  updateDossier: (id: string, data: Partial<Dossier>) => void
+  addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => Promise<Dossier | undefined>
+  updateDossier: (id: string, data: Partial<Dossier>) => Promise<void>
   extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => void
-  deleteDossier: (id: string) => void
+  deleteDossier: (id: string) => Promise<void>
   getDossiersByInspecteur: (inspecteurId: string) => Dossier[]
   getDossiersUrgents: () => Dossier[]
   archiverDossierAutomatique: (dossierId: string) => void
   restaurerDossier: (dossierId: string) => void
-  addAssignment: (dossierId: string, assignment: Omit<DossierAssignment, 'id' | 'date_attribution' | 'feedbacks' | 'collaborateurs' | 'preuves' | 'historique'>) => void
+  addAssignment: (dossierId: string, assignment: Omit<DossierAssignment, 'id' | 'date_attribution' | 'feedbacks' | 'collaborateurs' | 'preuves' | 'historique'>) => Promise<void>
   updateAssignment: (dossierId: string, assignmentId: string, data: Partial<DossierAssignment>) => void
   reassignAssignment: (dossierId: string, assignmentId: string, newInspecteurId: string, newInspecteurNom: string, motif: string) => void
   addAssignmentFeedback: (dossierId: string, assignmentId: string, feedback: Omit<DossierFeedback, 'id' | 'date'>) => void
@@ -3748,7 +3748,7 @@ restaurerDossier: (dossierId) =>
     ),
   })),
 
-addAssignment: (dossierId, assignment) => set((state) => {
+addAssignment: async (dossierId, assignment) => {
   const now = new Date().toISOString()
   const newAssignment: DossierAssignment = {
     id: crypto.randomUUID(),
@@ -3761,20 +3761,37 @@ addAssignment: (dossierId, assignment) => set((state) => {
     preuves: [],
     historique: [{ date: now, action: `Attribué à ${assignment.inspecteur_nom}`, details: '' }],
   }
-  const auteur = state.user?.nom || 'Système'
-  return {
-    dossiers: state.dossiers.map(d =>
-      d.id === dossierId
-        ? {
-            ...d,
-            assignments: [...(d.assignments || []), newAssignment],
-            historique: [...d.historique, { date: now, action: `Attribution à ${assignment.inspecteur_nom}`, utilisateur: auteur }],
-            updated_at: now,
-          }
-        : d
-    ),
+  const auteur = get().user?.nom || 'Système'
+
+  set((state) => {
+    const dossier = state.dossiers.find(d => d.id === dossierId)
+    if (!dossier) return state
+    return {
+      dossiers: state.dossiers.map(d =>
+        d.id === dossierId
+          ? {
+              ...d,
+              assignments: [...(d.assignments || []), newAssignment],
+              historique: [...d.historique, { date: now, action: `Attribution à ${assignment.inspecteur_nom}`, utilisateur: auteur }],
+              updated_at: now,
+            }
+          : d
+      ),
+    }
+  })
+
+  // Persister les assignments dans Supabase
+  const updatedDossier = get().dossiers.find(d => d.id === dossierId)
+  if (updatedDossier) {
+    const result = await datastore.updateDossier(dossierId, {
+      assignments: updatedDossier.assignments,
+      updated_at: now,
+    } as any)
+    if (result.error) {
+      console.error('[store] Erreur persistance assignment Supabase:', result.error)
+    }
   }
-}),
+},
 
 updateAssignment: (dossierId, assignmentId, data) => set((state) => ({
   dossiers: state.dossiers.map(d =>
@@ -5198,21 +5215,41 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       currentDossier: null,
       setDossiers: (dossiers) => set({ dossiers }),
       setCurrentDossier: (dossier) => set({ currentDossier: dossier }),
-      addDossier: (dossier) => set((state) => ({
-        dossiers: [...state.dossiers, {
+      addDossier: async (dossier) => {
+        const now = new Date().toISOString()
+        const id = crypto.randomUUID()
+        const newDossier = {
           ...dossier,
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          id,
+          created_at: now,
+          updated_at: now,
           historique: [{
-            date: new Date().toISOString(),
+            date: now,
             action: 'Création du dossier',
-            utilisateur: state.user?.id || 'system',
+            utilisateur: get().user?.id || 'system',
             commentaire: 'Dossier créé'
           }],
           assignments: dossier.assignments || []
-        } as Dossier]
-      })),
+        } as Dossier
+
+        // Persister dans Supabase (avec l'id explicite pour cohérence avec les assignments)
+        const { created_at: __, updated_at: ___, historique: ____, ...payload } = newDossier
+        const result = await datastore.createDossier({
+          ...payload,
+          id,
+          created_at: now,
+          updated_at: now,
+          assignments: (newDossier as any).assignments || [],
+        })
+        if (result.error) {
+          console.error('[store] Erreur création dossier Supabase:', result.error)
+        }
+
+        set((state) => ({
+          dossiers: [...state.dossiers, newDossier]
+        }))
+        return newDossier
+      },
       extendreDossier: (id, extension, superieurNom) => set((state) => ({
         dossiers: state.dossiers.map(d => {
           if (d.id !== id) return d
@@ -5227,13 +5264,25 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           }
         })
       })),
-      updateDossier: (id, data) => set((state) => ({
-        dossiers: state.dossiers.map(d => d.id === id ? { ...d, ...data, updated_at: new Date().toISOString() } : d)
-      })),
-      deleteDossier: (id) => set((state) => ({
-        dossiers: state.dossiers.filter(d => d.id !== id),
-        currentDossier: state.currentDossier?.id === id ? null : state.currentDossier,
-      })),
+      updateDossier: async (id, data) => {
+        const result = await datastore.updateDossier(id, data)
+        if (result.error) {
+          console.error('[store] Erreur mise à jour dossier Supabase:', result.error)
+        }
+        set((state) => ({
+          dossiers: state.dossiers.map(d => d.id === id ? { ...d, ...data, updated_at: new Date().toISOString() } : d)
+        }))
+      },
+      deleteDossier: async (id) => {
+        const result = await datastore.deleteDossier(id)
+        if (result.error) {
+          console.error('[store] Erreur suppression dossier Supabase:', result.error)
+        }
+        set((state) => ({
+          dossiers: state.dossiers.filter(d => d.id !== id),
+          currentDossier: state.currentDossier?.id === id ? null : state.currentDossier,
+        }))
+      },
       getDossiersByInspecteur: (inspecteurId) => get().dossiers.filter(d =>
         d.inspecteur_id === inspecteurId ||
         d.assignments?.some(a => a.inspecteur_id === inspecteurId)

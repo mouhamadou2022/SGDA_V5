@@ -191,10 +191,9 @@ export const DossierForm = memo(function DossierForm({
       const urgenceMeta = URGENCE.find(u => u.id === urgence) || URGENCE[1]
 
       if (mode === 'creation') {
-        const newId = crypto.randomUUID()
         const now = new Date().toISOString()
 
-        addDossier({
+        const createdDossier = await addDossier({
           titre,
           reference: dossierUtils.genererReference(new Date().getFullYear(), Math.floor(Math.random() * 9999)),
           categorie: categorie as any,
@@ -218,14 +217,10 @@ export const DossierForm = memo(function DossierForm({
           created_at: now,
         } as any)
 
-        // Créer les assignments pour chaque inspecteur sélectionné
-        const store = useAppStore.getState()
-        const newDossier = store.dossiers?.find(d => d.reference && d.created_by === user?.id)
-        const dossierArr = store.dossiers || []
-        const createdDossier = dossierArr[dossierArr.length - 1]
         if (createdDossier) {
-          selectedInspecteurs.forEach(ins => {
-            store.addAssignment(createdDossier.id, {
+          const store = useAppStore.getState()
+          for (const ins of selectedInspecteurs) {
+            await store.addAssignment(createdDossier.id, {
               inspecteur_id: ins.id,
               inspecteur_nom: ins.nom,
               statut: 'attribue',
@@ -236,7 +231,7 @@ export const DossierForm = memo(function DossierForm({
               message: `Dossier "${titre}" vous a été assigné (${createdDossier.reference})`,
               canal: 'in_app',
             })
-          })
+          }
         }
 
         addNotification({
@@ -244,7 +239,7 @@ export const DossierForm = memo(function DossierForm({
           message: `Dossier ${titre} créé avec ${selectedInspecteurs.length} assignation(s)`, canal: 'in_app',
         })
       } else if (dossierId) {
-        updateDossier(dossierId, {
+        await updateDossier(dossierId, {
           titre,
           categorie: categorie as any,
           aerodrome_id: aerodromeIdState || undefined,
