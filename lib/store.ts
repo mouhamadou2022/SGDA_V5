@@ -1392,7 +1392,7 @@ export interface Dossier {
     date_upload: string
     ocr_extracted?: boolean
   }[]
-  progression: 0 | 25 | 50 | 75 | 100
+  progression: number
   preuve_traitement?: string
   extensions?: DossierExtension[]
   statut: 'en_attente' | 'en_cours' | 'termine' | 'archive'
@@ -1989,6 +1989,7 @@ interface DossierSlice {
   addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => Promise<Dossier | undefined>
   updateDossier: (id: string, data: Partial<Dossier>) => Promise<void>
   extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => Promise<void>
+  traiterExtension: (dossierId: string, extensionIndex: number, statut: 'approuve' | 'refuse', superieurNom?: string) => Promise<void>
   deleteDossier: (id: string) => Promise<void>
   getDossiersByInspecteur: (inspecteurId: string) => Dossier[]
   getDossiersUrgents: () => Dossier[]
@@ -3806,11 +3807,13 @@ updateAssignment: async (dossierId, assignmentId, data) => {
   const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
     a.id === assignmentId ? { ...a, ...data, historique: [...a.historique, ...(data.historique || [])] } : a
   ) || []
-  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  const total = updatedAssignments.reduce((s, a) => s + a.progression, 0)
+  const dossierProgression = Math.round(total / Math.max(updatedAssignments.length, 1))
+  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, progression: dossierProgression, updated_at: now } as any)
   if (result.error) console.error('[store] Erreur persistance updateAssignment:', result.error)
   set((state) => ({
     dossiers: state.dossiers.map(d =>
-      d.id === dossierId ? { ...d, assignments: updatedAssignments, updated_at: now } : d
+      d.id === dossierId ? { ...d, assignments: updatedAssignments, progression: dossierProgression, updated_at: now } : d
     ),
   }))
 },
@@ -3846,7 +3849,9 @@ reassignAssignment: async (dossierId, assignmentId, newInspecteurId, newInspecte
         }
       : a
   ) || []) as DossierAssignment[]
-  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  const total = updatedAssignments.reduce((s, a) => s + a.progression, 0)
+  const dossierProgression = Math.round(total / Math.max(updatedAssignments.length, 1))
+  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, progression: dossierProgression, updated_at: now } as any)
   if (result.error) console.error('[store] Erreur persistance reassignAssignment:', result.error)
   set((state) => {
     const dossier = state.dossiers.find(d => d.id === dossierId)
@@ -3857,6 +3862,7 @@ reassignAssignment: async (dossierId, assignmentId, newInspecteurId, newInspecte
           ? {
               ...d,
               assignments: updatedAssignments,
+              progression: dossierProgression,
               historique: [...d.historique, { date: now, action: `Réassignation du dossier à ${newInspecteurNom}`, utilisateur: auteur, commentaire: motif }],
               updated_at: now,
             }
@@ -3904,29 +3910,23 @@ addAssignmentCollaborateur: (dossierId, assignmentId, collaborateur) => set((sta
   }
 }),
 
-accuserReceptionAssignment: (dossierId, assignmentId, commentaire) => set((state) => {
+accuserReceptionAssignment: async (dossierId, assignmentId, commentaire) => {
+  const state = get()
   const now = new Date().toISOString()
-  return {
+  const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
+    a.id === assignmentId
+      ? { ...a, statut: 'accuse' as const, accuse_reception: { date: now, commentaire }, historique: [...a.historique, { date: now, action: 'Accusé réception', details: commentaire }] }
+      : a
+  ) || []
+  await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  set((state) => ({
     dossiers: state.dossiers.map(d =>
       d.id === dossierId
-        ? {
-            ...d,
-            assignments: d.assignments.map(a =>
-              a.id === assignmentId
-                ? {
-                    ...a,
-                    statut: 'accuse',
-                    accuse_reception: { date: now, commentaire },
-                    historique: [...a.historique, { date: now, action: 'Accusé réception', details: commentaire }],
-                  }
-                : a
-            ),
-            updated_at: now,
-          }
+        ? { ...d, assignments: updatedAssignments as any, updated_at: now }
         : d
     ),
-  }
-}),
+  }))
+},
 
       // ============================================================
       // IMPLÉMENTATION DES SLICES DANS LE STORE surveillance
@@ -5266,38 +5266,80 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       },
       extendreDossier: async (id, extension, superieurNom) => {
         const now = new Date().toISOString()
-        let newDateLimite = ''
+        const dossier = get().dossiers.find(d => d.id === id)
+        if (!dossier) return
+        const estApprouve = extension.statut === 'approuve'
+        const newDateLimite = estApprouve
+          ? new Date(new Date(dossier.date_limite).getTime() + extension.jours * 86400000).toISOString()
+          : dossier.date_limite
 
-        set((state) => {
-          const dossier = state.dossiers.find(d => d.id === id)
-          if (!dossier) return state
-          newDateLimite = new Date(new Date(dossier.date_limite).getTime() + extension.jours * 86400000).toISOString()
-          return {
-            dossiers: state.dossiers.map(d =>
-              d.id === id
-                ? {
-                    ...d,
-                    date_limite: newDateLimite,
-                    extensions: [...(d.extensions || []), { ...extension, statut: 'approuve', superieur_approbation: superieurNom || 'chef', date: now }],
-                    historique: [...d.historique, { date: now, action: `Extension de délai de ${extension.jours} jour(s) : ${extension.motif}`, utilisateur: state.user?.nom || 'Système' }],
-                    updated_at: now,
-                  }
-                : d
-            ),
-          }
-        })
+        set((state) => ({
+          dossiers: state.dossiers.map(d =>
+            d.id === id
+              ? {
+                  ...d,
+                  date_limite: newDateLimite,
+                  extensions: [...(d.extensions || []), { ...extension, superieur_approbation: estApprouve ? (superieurNom || 'chef') : undefined, date: now }],
+                  historique: [...d.historique, { date: now, action: `${estApprouve ? 'Extension' : 'Demande d\'extension'} de délai de ${extension.jours} jour(s) : ${extension.motif}`, utilisateur: state.user?.nom || 'Système' }],
+                  updated_at: now,
+                }
+              : d
+          ),
+        }))
 
         // Persister dans Supabase
-        const dossier = get().dossiers.find(d => d.id === id)
-        if (dossier) {
+        const updated = get().dossiers.find(d => d.id === id)
+        if (updated) {
           const result = await datastore.updateDossier(id, {
             date_limite: newDateLimite,
-            extensions: dossier.extensions,
+            extensions: updated.extensions,
             updated_at: now,
           } as any)
           if (result.error) {
             console.error('[store] Erreur persistance extension Supabase:', result.error)
           }
+        }
+      },
+
+      traiterExtension: async (dossierId, extensionIndex, statut, superieurNom) => {
+        const now = new Date().toISOString()
+        const dossier = get().dossiers.find(d => d.id === dossierId)
+        if (!dossier || !dossier.extensions?.[extensionIndex]) return
+        const ext = dossier.extensions[extensionIndex]
+        if (ext.statut !== 'en_attente') return
+
+        const estApprouve = statut === 'approuve'
+        const newDateLimite = estApprouve
+          ? new Date(new Date(dossier.date_limite).getTime() + ext.jours * 86400000).toISOString()
+          : dossier.date_limite
+
+        const updatedExtensions = dossier.extensions.map((e, i) =>
+          i === extensionIndex
+            ? { ...e, statut, superieur_approbation: superieurNom || 'chef' }
+            : e
+        )
+
+        set((state) => ({
+          dossiers: state.dossiers.map(d =>
+            d.id === dossierId
+              ? {
+                  ...d,
+                  date_limite: newDateLimite,
+                  extensions: updatedExtensions,
+                  historique: [...d.historique, { date: now, action: `Extension ${statut === 'approuve' ? 'approuvée' : 'refusée'} (${ext.jours}j) : ${ext.motif}`, utilisateur: state.user?.nom || 'Système' }],
+                  updated_at: now,
+                }
+              : d
+          ),
+        }))
+
+        const updatedDossier = get().dossiers.find(d => d.id === dossierId)
+        if (updatedDossier) {
+          await datastore.updateDossier(dossierId, {
+            date_limite: newDateLimite,
+            extensions: updatedExtensions,
+            updated_at: now,
+          } as any)
         }
       },
       updateDossier: async (id, data) => {
