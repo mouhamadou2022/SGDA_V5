@@ -11,7 +11,7 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   Plane, Search, Grid3x3, List, Map, Plus, Eye, PenSquare,
   Trash2, Download, Shield, Scale, AlertTriangle, Clock,
-  MapPin, X, QrCode, Loader2, Filter,
+  MapPin, X, QrCode, Loader2, Filter, Building2,
 } from 'lucide-react';
 import { useAppStore, type Aerodrome } from '@/lib/store';
 import { toast } from '@/lib/toast';
@@ -412,40 +412,22 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
 
       {/* ── KPIs ─────────────────────────────────────────────────────────── */}
       <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-icon bg-role-primary-soft"><Plane className="w-5 h-5 text-role-primary"/></div>
-          <div className="kpi-label">Total</div>
-          <div className="kpi-value">{stats.total}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-icon bg-neutral-soft"><Plane className="w-5 h-5 text-foreground" /></div>
-          <div className="kpi-label">Aérodromes</div>
-          <div className="kpi-value">{stats.aerodromes}</div>
-        </div>
-        {/* KPI hélistations — visible dès qu'il en existe au moins une */}
-        {(stats.helistations > 0 || !isOperator) && (
-          <div className="kpi-card">
-            <div className="kpi-icon bg-warning-soft"><span>🚁</span></div>
-            <div className="kpi-label">Hélistations / Mixtes</div>
-            <div className="kpi-value">{stats.helistations + stats.mixtes}</div>
+        {[
+          { icon: Plane,      bg: 'bg-role-primary-soft', color: 'text-role-primary', label: 'Total',              value: stats.total },
+          { icon: Building2,  bg: 'bg-neutral-soft',      color: 'text-foreground',   label: 'Aérodromes',        value: stats.aerodromes },
+          ...(stats.helistations > 0 || !isOperator ? [{
+            icon: Shield, bg: 'bg-warning-soft', color: 'text-warning', label: 'Hélistations / Mixtes', value: stats.helistations + stats.mixtes,
+          }] : []),
+          { icon: Shield,     bg: 'bg-success-soft',      color: 'text-success',       label: 'Certifiés',         value: stats.certifies },
+          { icon: Scale,      bg: 'bg-info-soft',         color: 'text-info',          label: 'Homologués',        value: stats.homologues },
+          { icon: AlertTriangle, bg: 'bg-danger-soft',    color: 'text-danger',        label: 'En alerte',          value: stats.enAlerte },
+        ].map((kpi, i) => (
+          <div key={i} className="kpi-card">
+            <div className={`kpi-icon ${kpi.bg}`}><kpi.icon className={`w-5 h-5 ${kpi.color}`} /></div>
+            <div className="kpi-label">{kpi.label}</div>
+            <div className={`kpi-value ${kpi.color}`}>{kpi.value}</div>
           </div>
-        )}
-
-        <div className="kpi-card">
-          <div className="kpi-icon bg-success-soft"><Shield className="w-5 h-5 text-success"/></div>
-          <div className="kpi-label">Certifiés</div>
-          <div className="kpi-value">{stats.certifies}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-icon bg-info-soft"><Scale className="w-5 h-5 text-info"/></div>
-          <div className="kpi-label">Homologués</div>
-          <div className="kpi-value">{stats.homologues}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-icon bg-danger-soft"><AlertTriangle className="w-5 h-5 text-danger"/></div>
-          <div className="kpi-label">En alerte</div>
-          <div className="kpi-value text-danger">{stats.enAlerte}</div>
-        </div>
+        ))}
       </div>
 
       {/* ── Barre de filtres ──────────────────────────────────────────────── */}

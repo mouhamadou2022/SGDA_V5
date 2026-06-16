@@ -1,5 +1,4 @@
 // components/cards/index.ts — Point d'import centralisé (R4: 1 seul barrel export)
-export { AerodromeCard } from './AerodromeCard'
 export { AlertCard } from './AlertCard'
 export { CompetenceCard } from './CompetenceCard'
 export { DossierCard } from './DossierCard'

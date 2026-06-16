@@ -5,7 +5,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { LazyLoad } from '@/lib/performance/globalOptimizer';
 import { z } from 'zod';
 import {
   Plane, MapPin, Ruler, Save, X, AlertCircle, Globe, Phone,
@@ -562,6 +561,16 @@ const AI_SECTIONS = [
       { key: 'heli_mtom', label: 'MTOM (tonnes)', icon: Weight },
       { key: 'heli_moyen_com', label: 'Moyen COM', icon: Radio },
       { key: 'heli_frequence_com', label: 'Fréquence COM', icon: Radio },
+      { key: 'heli_indicatif_rt', label: 'Indicatif R/T', icon: Radio },
+      { key: 'heli_identification', label: 'Identification', icon: Flag },
+      { key: 'heli_marque_distinctive', label: 'Marque distinctive', icon: Flag },
+      { key: 'heli_type_installation', label: "Type d'installation", icon: Building2 },
+      { key: 'heli_hauteur_maximale_ft', label: 'Hauteur max (pieds)', icon: ArrowUp },
+      { key: 'heli_hauteur_obstacle_ft', label: "Hauteur obstacle (pieds)", icon: Waves },
+      { key: 'heli_avitaillement', label: 'Avitaillement', icon: Fuel },
+      { key: 'heli_gpu', label: 'GPU', icon: Zap },
+      { key: 'heli_equipement_incendie', label: 'Équipement incendie', icon: Flame },
+      { key: 'heli_date_revision', label: 'Date révision', icon: CalendarDays },
     ],
   },
   {
@@ -596,6 +605,7 @@ function formatFieldValue(key: string, value: string | number): string {
     return labels[String(value)] || String(value);
   }
   if (key === 'horaires') return value === 'h24' ? 'H24' : 'Jour (08h–19h)';
+  if (key === 'heli_avitaillement' || key === 'heli_gpu') return value ? 'Oui' : 'Non';
   return String(value);
 }
 
@@ -795,6 +805,31 @@ const aerodromeSchema = z.object({
     nom:z.string(), poste:z.string(),
     email:z.string().email('Email invalide').or(z.literal('')), telephone:z.string(),
   })).optional(),
+}).superRefine((data, ctx) => {
+  if (data.statut_certification === 'certifie') {
+    if (!data.certifie_le) ctx.addIssue({ code: 'custom', path: ['certifie_le'], message: 'Date de certification requise' });
+    if (!data.numero_certificat) ctx.addIssue({ code: 'custom', path: ['numero_certificat'], message: 'Numéro de certificat requis' });
+  }
+  if (data.statut_certification === 'homologue') {
+    if (!data.homologue_le) ctx.addIssue({ code: 'custom', path: ['homologue_le'], message: "Date d'homologation requise" });
+    if (!data.numero_homologation) ctx.addIssue({ code: 'custom', path: ['numero_homologation'], message: "Numéro d'homologation requis" });
+  }
+  if ((data.type_entite === 'aerodrome' || data.type_entite === 'mixte') && data.piste_principale) {
+    if (!data.piste_principale.longueur || data.piste_principale.longueur < 100)
+      ctx.addIssue({ code: 'custom', path: ['piste_principale.longueur'], message: 'Longueur requise (min 100m)' });
+    if (!data.piste_principale.largeur || data.piste_principale.largeur < 10)
+      ctx.addIssue({ code: 'custom', path: ['piste_principale.largeur'], message: 'Largeur requise (min 10m)' });
+    if (!data.piste_principale.revetement)
+      ctx.addIssue({ code: 'custom', path: ['piste_principale.revetement'], message: 'Revêtement requis' });
+    if (!data.piste_principale.code_reference)
+      ctx.addIssue({ code: 'custom', path: ['piste_principale.code_reference'], message: 'Code référence requis' });
+  }
+  if ((data.type_entite === 'helistation' || data.type_entite === 'mixte') && data.helistation) {
+    if (!data.helistation.valeur_d)
+      ctx.addIssue({ code: 'custom', path: ['helistation.valeur_d'], message: 'Valeur D requise' });
+    if (data.helistation.cap === undefined || data.helistation.cap === null)
+      ctx.addIssue({ code: 'custom', path: ['helistation.cap'], message: 'Cap requis' });
+  }
 });
 
 type AerodromeFormData = z.infer<typeof aerodromeSchema>;
@@ -843,6 +878,7 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
 
   const [showRedirectModal, setShowRedirectModal] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<'certification'|'homologation'|null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ── Form ─────────────────────────────────────────────────────────────────
   const form = useForm<AerodromeFormData>({
@@ -1036,6 +1072,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
 
   // ── Navigation ───────────────────────────────────────────────────────────
   const handleNext = async () => {
+    if (isSubmitting) return;
     // Étape 2 (IA) — passage direct sans validation
     if (currentStep === 2) {
       setCompletedSteps(prev => new Set([...prev, 2]));
@@ -1052,71 +1089,27 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     scrollToTop();
   };
 
-  const handlePrev = () => { setError(null); setCurrentStep(prev => Math.max(prev-1, 1)); scrollToTop(); };
-  const handleStepClick = (id: number) => { setError(null); setCurrentStep(id); scrollToTop(); };
+  const handlePrev = () => { if (isSubmitting) return; setError(null); setCurrentStep(prev => Math.max(prev-1, 1)); scrollToTop(); };
+  const handleStepClick = (id: number) => { if (isSubmitting) return; setError(null); setCurrentStep(id); scrollToTop(); };
 
   // ── Soumission ───────────────────────────────────────────────────────────
   const onSubmit = async (data: AerodromeFormData) => {
+    if (isSubmitting) return;
     try {
+      setIsSubmitting(true);
       setLoading('aerodromeForm', true); setError(null);
-
-      // Validation conditionnelle selon le type d'entité
-      if (data.type_entite === 'aerodrome' || data.type_entite === 'mixte') {
-        if (!data.piste_principale?.longueur || data.piste_principale.longueur < 100) {
-          setError('La longueur de la piste est requise (min 100m)');
-          setCurrentStep(5);
-          return;
-        }
-        if (!data.piste_principale?.largeur || data.piste_principale.largeur < 10) {
-          setError('La largeur de la piste est requise (min 10m)');
-          setCurrentStep(5);
-          return;
-        }
-        if (!data.piste_principale?.revetement) {
-          setError('Le revêtement de la piste est requis');
-          setCurrentStep(5);
-          return;
-        }
-        if (!data.piste_principale?.code_reference) {
-          setError('Le code de référence de la piste est requis');
-          setCurrentStep(5);
-          return;
-        }
-      }
-
-      if (data.type_entite === 'helistation' || data.type_entite === 'mixte') {
-        if (!data.helistation?.valeur_d) {
-          setError('La valeur D (FATO) est requise');
-          setCurrentStep(5);
-          return;
-        }
-        if (data.helistation?.cap === undefined || data.helistation.cap === null) {
-          setError('Le cap de l\'hélistation est requis');
-          setCurrentStep(5);
-          return;
-        }
-      }
 
       const now = new Date().toISOString();
 
       // Nettoyage des données avant envoi à Supabase
       const cleanData: Record<string, unknown> = { ...data };
-      // Pour hélistation pure : ne pas envoyer piste_principale
-      if (data.type_entite === 'helistation') {
-        delete cleanData.piste_principale;
-      }
-      // Pour aérodrome pur : ne pas envoyer helistation
-      if (data.type_entite === 'aerodrome') {
-        delete cleanData.helistation;
-      }
-      // Supprimer les champs undefined/vides
+      if (data.type_entite === 'helistation') delete cleanData.piste_principale;
+      if (data.type_entite === 'aerodrome') delete cleanData.helistation;
       Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === undefined || cleanData[key] === '') delete cleanData[key];
       });
-      // Supprimer latitude/longitude (le formulaire utilise ces noms mais Supabase utilise lat/lon)
       delete cleanData.latitude;
       delete cleanData.longitude;
-      // Nettoyer les sous-objets
       if (cleanData.piste_principale && typeof cleanData.piste_principale === 'object') {
         const pp = cleanData.piste_principale as Record<string, unknown>;
         Object.keys(pp).forEach(k => { if (pp[k] === undefined || pp[k] === '') delete pp[k]; });
@@ -1152,6 +1145,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       setError(err instanceof Error ? err.message : 'Une erreur est survenue');
     } finally {
       setLoading('aerodromeForm', false);
+      setIsSubmitting(false);
     }
   };
 
@@ -1173,6 +1167,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       <StepIndicator currentStep={currentStep} completedSteps={completedSteps} typeEntite={watchTypeEntite as TypeEntiteAerodrome} onStepClick={handleStepClick}/>
 
       <form onSubmit={(e) => {
+  if (isSubmitting) return;
   e.preventDefault();
   if (currentStep === 6) {
     form.handleSubmit(onSubmit, onValidationError)(e);
@@ -1644,17 +1639,17 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         {/* ── Navigation ─────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between pt-4 border-t border-border mt-4">
           <div className="flex gap-2">
-            <button type="button" className="btn btn-secondary" onClick={onClose}><X className="w-4 h-4" />Annuler</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}><X className="w-4 h-4" />Annuler</button>
             {currentStep>1 && <button type="button" onClick={handlePrev} className="btn btn-secondary gap-2"><ChevronLeft className="w-4 h-4"/>Précédent</button>}
           </div>
           <div className="flex items-center gap-3">
   <span className="text-xs text-muted-foreground">Étape {currentStep} / {BASE_STEPS.length}</span>
   {currentStep < 6 ? (
-    <button type="button" onClick={handleNext} className="btn btn-primary gap-2">
+    <button type="button" onClick={handleNext} disabled={isSubmitting} className="btn btn-primary gap-2">
       Suivant <ChevronRight className="w-4 h-4"/>
     </button>
   ) : (
-    <button type="button" onClick={() => form.handleSubmit(onSubmit, onValidationError)()} className="btn btn-primary gap-2" disabled={aerodromeFormLoading}>
+    <button type="button" onClick={() => form.handleSubmit(onSubmit, onValidationError)()} className="btn btn-primary gap-2" disabled={aerodromeFormLoading || isSubmitting}>
       {aerodromeFormLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4"/>}
       {aerodromeFormLoading ? 'Enregistrement...' : (aerodrome ? 'Mettre à jour' : 'Créer')}
     </button>
@@ -1678,7 +1673,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
                   </h3>
                 </div>
               </div>
-              <button className="modal-close" onClick={() => { setShowRedirectModal(false); onSuccess(); }}><X className="w-4 h-4" /></button>
+              <button className="modal-close" onClick={() => { setShowRedirectModal(false); setIsSubmitting(false); onSuccess(); }}><X className="w-4 h-4" /></button>
             </div>
             <div className="modal-body space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -1688,7 +1683,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
               </p>
             </div>
             <div className="modal-footer flex justify-end gap-3">
-              <button type="button" className="btn btn-secondary" onClick={() => { setShowRedirectModal(false); onSuccess(); }}>
+              <button type="button" className="btn btn-secondary" onClick={() => { setShowRedirectModal(false); setIsSubmitting(false); onSuccess(); }}>
                 <X className="w-4 h-4" />
                 Rester ici
               </button>
