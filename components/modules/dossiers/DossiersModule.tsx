@@ -24,9 +24,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Upload,
-  History,
-  X,
-  MoreVertical,
   ChevronDown,
   ChevronRight,
   ArchiveRestore,
@@ -46,7 +43,7 @@ import { DossierCard } from '@/components/cards/DossierCard';
 import DetailsModal from './DetailsModal';
 
 interface DossiersModuleProps {
-  userRole: string;
+  userRole?: string;
   aerodromeId?: string;
 }
 
@@ -72,13 +69,16 @@ function DossierArchiveItem({
   onView,
   onRestore,
   onDelete,
+  userRole,
 }: {
   dossier: Dossier;
   aerodromes: { id: string; code_oaci: string; nom: string }[];
   onView: (d: Dossier) => void;
   onRestore: (id: string) => void;
   onDelete: (id: string) => void;
+  userRole?: string;
 }) {
+  const canManageArchive = ['admin', 'chef'].includes(userRole || '')
   const [showFiles, setShowFiles] = useState(false);
   const aerodrome = aerodromes?.find(a => a.id === dossier.aerodrome_id);
 
@@ -111,12 +111,16 @@ function DossierArchiveItem({
           <button onClick={() => onView(dossier)} className="action-button" title="Voir détails">
             <Eye className="w-4 h-4" />
           </button>
-          <button onClick={() => onRestore(dossier.id)} className="action-button text-success hover:bg-success-soft" title="Restaurer">
-            <ArchiveRestore className="w-4 h-4" />
-          </button>
-          <button onClick={() => onDelete(dossier.id)} className="action-button text-danger hover:bg-danger-soft" title="Supprimer définitivement">
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {canManageArchive && (
+            <>
+              <button onClick={() => onRestore(dossier.id)} className="action-button text-success hover:bg-success-soft" title="Restaurer">
+                <ArchiveRestore className="w-4 h-4" />
+              </button>
+              <button onClick={() => onDelete(dossier.id)} className="action-button text-danger hover:bg-danger-soft" title="Supprimer définitivement">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -151,11 +155,12 @@ function DossierArchiveItem({
   );
 }
 
-export default function DossiersModule({ userRole, aerodromeId }: DossiersModuleProps) {
+export default function DossiersModule({ userRole: _userRole, aerodromeId }: DossiersModuleProps) {
   const dossiers = useAppStore(s => s.dossiers);
   const aerodromes = useAppStore(s => s.aerodromes);
   const utilisateurs = useAppStore(s => s.utilisateurs);
   const user = useAppStore(s => s.user);
+  const userRole = user?.role || _userRole || '';
   const addDossier = useAppStore(s => s.addDossier);
   const updateDossier = useAppStore(s => s.updateDossier);
   const extendreDossier = useAppStore(s => s.extendreDossier);
@@ -180,9 +185,9 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   });
   const [showForm, setShowForm] = useState(false);
   const [editingDossierId, setEditingDossierId] = useState<string | null>(null);
-  const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
+  const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
+  const selectedDossier = useAppStore(s => selectedDossierId ? s.dossiers.find(d => d.id === selectedDossierId) || null : null);
   const [showDetails, setShowDetails] = useState(false);
-  const [showHistorique, setShowHistorique] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [extMotif, setExtMotif] = useState('');
   const [extJours, setExtJours] = useState<3 | 7 | 10>(7);
@@ -231,34 +236,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     });
   }, [dossiers, archiverDossierAutomatique]);
 
-  // Formulaire
-  const [formData, setFormData] = useState<{
-    titre: string;
-    categorie: Dossier['categorie'];
-    aerodrome_id: string;
-    demandeur_nom: string;
-    demandeur_organisation: string;
-    demandeur_contact: string;
-    service_assigne: Dossier['service_assigne'];
-    inspecteur_id: string;
-    instructions: string;
-    date_limite: string;
-    fichiers: File[];
-  }>({
-    titre: '',
-    categorie: 'reglementaire',
-    aerodrome_id: aerodromeId || '',
-    demandeur_nom: '',
-    demandeur_organisation: '',
-    demandeur_contact: '',
-    service_assigne: 'securite_aerodromes',
-    inspecteur_id: '',
-    instructions: '',
-    date_limite: '',
-    fichiers: []
-  });
-
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  // Formulaire géré par DossierForm — plus de state local
 
   const listeDossiers = dossiers ?? [];
 
@@ -464,93 +442,11 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     };
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFormData({
-        ...formData,
-        fichiers: [...formData.fichiers, ...Array.from(e.target.files)]
-      });
-    }
-  };
-
-  const validerFormulaire = (): boolean => {
-    const errors: Record<string, string> = {};
-
-    if (!formData.titre.trim()) errors.titre = "Le titre est requis";
-    if (!formData.date_limite) errors.date_limite = "La date limite est requise";
-    if (!formData.inspecteur_id) errors.inspecteur_id = "L'inspecteur est requis";
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validerFormulaire()) return;
-
-    const nouveauDossier = {
-      id: Date.now().toString(),
-      titre: formData.titre,
-      reference: dossierUtils.genererReference(new Date().getFullYear(), listeDossiers.length + 1),
-      categorie: formData.categorie,
-      aerodrome_id: formData.aerodrome_id || undefined,
-      demandeur: formData.demandeur_nom ? {
-        nom: formData.demandeur_nom,
-        organisation: formData.demandeur_organisation,
-        contact: formData.demandeur_contact
-      } : undefined,
-      service_assigne: formData.service_assigne,
-      inspecteur_id: formData.inspecteur_id,
-      instructions: formData.instructions,
-      date_instruction: new Date().toISOString(),
-      date_limite: formData.date_limite,
-      fichiers: formData.fichiers.map((f, idx) => ({
-        id: `file-${Date.now()}-${idx}`,
-        nom: f.name,
-        url: URL.createObjectURL(f),
-        taille: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
-        type: f.type.split('/').pop() || 'file',
-        date_upload: new Date().toISOString(),
-        ocr_extracted: false
-      })),
-      progression: 0,
-      statut: 'en_attente',
-      archived_at: null,
-      historique: [{
-        date: new Date().toISOString(),
-        action: 'Création du dossier',
-        utilisateur: user?.id || 'system',
-        commentaire: 'Dossier créé'
-      }],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      created_by: user?.id || ''
-    };
-
-    addDossier(nouveauDossier as unknown as Dossier);
-    setShowForm(false);
-    resetForm();
-  };
-
-  const resetForm = () => {
-    setFormData({
-      titre: '',
-      categorie: 'reglementaire',
-      aerodrome_id: aerodromeId || '',
-      demandeur_nom: '',
-      demandeur_organisation: '',
-      demandeur_contact: '',
-      service_assigne: 'securite_aerodromes',
-      inspecteur_id: '',
-      instructions: '',
-      date_limite: '',
-      fichiers: []
-    });
-    setFormErrors({});
-  };
+  const canManage = ['admin', 'chef'].includes(userRole)
+  const canCreate = ['admin', 'chef'].includes(userRole)
 
   const handleMarquerTermine = (dossierId: string) => {
+    if (!canManage) return
     updateDossier(dossierId, {
       progression: 100,
       statut: 'termine',
@@ -568,21 +464,25 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
   };
 
   const handleRestoreFromArchive = (dossierId: string) => {
+    if (!canManage) return
     restaurerDossier(dossierId);
   };
 
   const handleDeleteArchive = (dossierId: string) => {
+    if (!canManage) return
     if (confirm('Supprimer définitivement ce dossier ? Cette action est irréversible.')) {
       deleteDossier(dossierId);
     }
   };
 
   const handleEditDossier = (dossier: Dossier) => {
+    if (!canManage) return
     setEditingDossierId(dossier.id);
     setShowForm(true);
   };
 
   const handleDeleteDossier = (dossierId: string) => {
+    if (!canManage) return
     if (confirm('Supprimer ce dossier ? Cette action est irréversible.')) {
       deleteDossier(dossierId);
     }
@@ -669,27 +569,6 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
     )
   }
 
-  const HistoriqueModal = () => (
-    <FormShell
-      open={!!mounted && showHistorique}
-      onClose={() => setShowHistorique(false)}
-      title="Historique complet"
-      icon={History}
-      size="2xl"
-      dataRole={userRole}
-      footer={
-        <button className="btn btn-secondary" onClick={() => setShowHistorique(false)}>
-          Fermer
-        </button>
-      }
-    >
-      <div className="text-center py-8">
-        <Clock className="h-12 w-12 mx-auto mb-2 opacity-30 text-muted" />
-        <p className="text-muted">Fonctionnalité à venir</p>
-      </div>
-    </FormShell>
-  );
-
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="dossiers">
       
@@ -699,10 +578,12 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
         title="Dossiers techniques"
         description="Gestion des dossiers et instructions"
         actions={<div className="flex items-center gap-2">
-          <button onClick={() => setShowForm(true)} className="btn btn-primary gap-2">
-            <Plus className="w-4 h-4" />
-            Nouveau dossier
-          </button>
+          {canCreate && (
+            <button onClick={() => setShowForm(true)} className="btn btn-primary gap-2">
+              <Plus className="w-4 h-4" />
+              Nouveau dossier
+            </button>
+          )}
         </div>}
       />
 
@@ -939,7 +820,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                                   <td>
                                     <div className="flex items-center gap-1">
                                       <User className="w-3 h-3 text-muted" />
-                                      <span className="text-small">Inspecteur</span>
+                                      <span className="text-small">{dossier.assignments?.map((a: any) => a.inspecteur_nom).join(', ') || '—'}</span>
                                     </div>
                                   </td>
                                   <td>
@@ -964,18 +845,19 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                                       {getLibelleStatut(dossier.statut)}
                                     </span>
                                   </td>
-                                  <td className="text-right">
-                                    <div className="flex justify-end gap-2">
+                                   <td className="text-right">
+                                    <div className="flex justify-end gap-1">
                                       <button 
                                         className="action-button"
                                         onClick={() => {
-                                          setSelectedDossier(dossier);
+                                          setSelectedDossierId(dossier.id);
                                           setShowDetails(true);
                                         }}
+                                        title="Voir détails"
                                       >
                                         <Eye className="w-4 h-4" />
                                       </button>
-                                      {dossier.statut !== 'termine' && (
+                                      {canManage && dossier.statut !== 'termine' && (
                                         <button 
                                           className="action-button text-success"
                                           onClick={() => handleMarquerTermine(dossier.id)}
@@ -984,12 +866,24 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                                           <CheckCircle2 className="w-4 h-4" />
                                         </button>
                                       )}
-                                      <button className="action-button">
-                                        <PenSquare className="w-4 h-4" />
-                                      </button>
-                                      <button className="action-button">
-                                        <MoreVertical className="w-4 h-4" />
-                                      </button>
+                                      {canManage && (
+                                        <button 
+                                          className="action-button"
+                                          onClick={() => handleEditDossier(dossier)}
+                                          title="Modifier"
+                                        >
+                                          <PenSquare className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                      {canManage && (
+                                        <button 
+                                          className="action-button text-danger"
+                                          onClick={() => handleDeleteDossier(dossier.id)}
+                                          title="Supprimer"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -1015,8 +909,7 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                     dossier={d}
                     aerodrome={aerodrome}
                     userRole={userRole}
-                    onViewDetails={() => { setSelectedDossier(d); setShowDetails(true); }}
-                    onViewHistory={() => { setSelectedDossier(d); setShowHistorique(true); }}
+                    onViewDetails={() => { setSelectedDossierId(d.id); setShowDetails(true); }}
                     onMarkComplete={d.statut !== 'termine' ? () => handleMarquerTermine(d.id) : undefined}
                     onEdit={() => handleEditDossier(d)}
                     onDelete={() => handleDeleteDossier(d.id)}
@@ -1188,7 +1081,8 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
                                     key={dossier.id}
                                     dossier={dossier}
                                     aerodromes={aerodromes}
-                                    onView={(d) => { setSelectedDossier(d); setShowDetails(true); }}
+                                    userRole={userRole}
+                                    onView={(d) => { setSelectedDossierId(d.id); setShowDetails(true); }}
                                     onRestore={handleRestoreFromArchive}
                                     onDelete={handleDeleteArchive}
                                   />
@@ -1224,7 +1118,6 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
           reassignAssignment(dossierId, assignmentId, newInspectorId, newInspectorNom, motif)
         }
       />
-      {showHistorique && HistoriqueModal()}
       {showExtendModal && ExtendModal()}
     </div>
   );

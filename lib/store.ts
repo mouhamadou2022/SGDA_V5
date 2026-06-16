@@ -2328,6 +2328,7 @@ export const useAppStore = create<AppStore>()(
       setUser: (user) => {
         set({ user })
         if (user?.id) {
+          startDossiersSync(user.id)
           import('@/lib/datastore').then(({ fetchNotifications }) => {
             fetchNotifications(user.id).then((res) => {
               if (res.data) get().setNotifications(res.data as Notification[])
@@ -3726,28 +3727,33 @@ resetLearningData: () => {
 },
 
      // Dans le create pour les dossiers
-archiverDossierAutomatique: (dossierId) =>
-  set((state) => {
-    const dossier = state.dossiers.find((d) => d.id === dossierId)
-    if (!dossier || dossier.statut !== 'termine') return state
-    const now = new Date().toISOString()
-    const entry = registreUtils.toRegistreEntryFromDossier({ ...dossier, archived_at: now }, state.aerodromes.find(a => a.id === dossier.aerodrome_id))
-    return {
-      dossiers: state.dossiers.map((d) =>
-        d.id === dossierId ? { ...d, statut: 'archive', archived_at: now } : d
-      ),
-      registreEntries: [...(state.registreEntries || []), { ...entry, id: crypto.randomUUID(), created_at: now, timeline: entry.timeline || [] } as RegistreEntry],
-    }
-  }),
+ archiverDossierAutomatique: async (dossierId) => {
+   const state = get()
+   const dossier = state.dossiers.find((d) => d.id === dossierId)
+   if (!dossier || dossier.statut !== 'termine') return
+   const now = new Date().toISOString()
+   const entry = registreUtils.toRegistreEntryFromDossier({ ...dossier, archived_at: now }, state.aerodromes.find(a => a.id === dossier.aerodrome_id))
 
-restaurerDossier: (dossierId) =>
-  set((state) => ({
-    dossiers: state.dossiers.map((d) =>
-      d.id === dossierId && d.statut === 'archive'
-        ? { ...d, statut: 'termine', archived_at: undefined }
-        : d
-    ),
-  })),
+   await datastore.updateDossier(dossierId, { statut: 'archive', archived_at: now, updated_at: now } as any)
+
+   set((state) => ({
+     dossiers: state.dossiers.map((d) =>
+       d.id === dossierId ? { ...d, statut: 'archive', archived_at: now } : d
+     ),
+     registreEntries: [...(state.registreEntries || []), { ...entry, id: crypto.randomUUID(), created_at: now, timeline: entry.timeline || [] } as RegistreEntry],
+   }))
+ },
+
+ restaurerDossier: async (dossierId) => {
+   await datastore.updateDossier(dossierId, { statut: 'termine', archived_at: undefined, updated_at: new Date().toISOString() } as any)
+   set((state) => ({
+     dossiers: state.dossiers.map((d) =>
+       d.id === dossierId && d.statut === 'archive'
+         ? { ...d, statut: 'termine', archived_at: undefined }
+         : d
+     ),
+   }))
+ },
 
 addAssignment: async (dossierId, assignment) => {
   const now = new Date().toISOString()
@@ -3794,82 +3800,89 @@ addAssignment: async (dossierId, assignment) => {
   }
 },
 
-updateAssignment: (dossierId, assignmentId, data) => set((state) => ({
-  dossiers: state.dossiers.map(d =>
-    d.id === dossierId
-      ? {
-          ...d,
-          assignments: d.assignments.map(a =>
-            a.id === assignmentId ? { ...a, ...data, historique: [...a.historique, ...(data.historique || [])] } : a
-          ),
-          updated_at: new Date().toISOString(),
-        }
-      : d
-  ),
-})),
+updateAssignment: async (dossierId, assignmentId, data) => {
+  const state = get()
+  const now = new Date().toISOString()
+  const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
+    a.id === assignmentId ? { ...a, ...data, historique: [...a.historique, ...(data.historique || [])] } : a
+  ) || []
+  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  if (result.error) console.error('[store] Erreur persistance updateAssignment:', result.error)
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, assignments: updatedAssignments, updated_at: now } : d
+    ),
+  }))
+},
 
-reassignAssignment: (dossierId, assignmentId, newInspecteurId, newInspecteurNom, motif) => set((state) => {
+reassignAssignment: async (dossierId, assignmentId, newInspecteurId, newInspecteurNom, motif) => {
+  const state = get()
   const now = new Date().toISOString()
   const auteur = state.user?.nom || 'Système'
-  return {
-    dossiers: state.dossiers.map(d =>
-      d.id === dossierId
-        ? {
-            ...d,
-            assignments: d.assignments.map(a =>
-              a.id === assignmentId
-                ? {
-                    ...a,
-                    inspecteur_id: newInspecteurId,
-                    inspecteur_nom: newInspecteurNom,
-                    statut: 'attribue',
-                    progression: a.progression,
-                    reassigne_de: {
-                      from_inspecteur_id: a.inspecteur_id,
-                      from_inspecteur_nom: a.inspecteur_nom,
-                      date: now,
-                      motif,
-                    },
-                    historique: [...a.historique, { date: now, action: `Réassigné à ${newInspecteurNom}`, details: motif }],
-                    feedbacks: [...a.feedbacks, {
-                      id: crypto.randomUUID(),
-                      auteur_id: auteur,
-                      auteur_nom: auteur,
-                      role: 'chef',
-                      type: 'info',
-                      message: `Réassignation: ${motif}`,
-                      date: now,
-                    }],
-                  }
-                : a
-            ),
-            historique: [...d.historique, { date: now, action: `Réassignation du dossier à ${newInspecteurNom}`, utilisateur: auteur, commentaire: motif }],
-            updated_at: now,
-          }
-        : d
-    ),
-  }
-}),
+  const updatedAssignments: DossierAssignment[] = (state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
+    a.id === assignmentId
+      ? {
+          ...a,
+          inspecteur_id: newInspecteurId,
+          inspecteur_nom: newInspecteurNom,
+          statut: 'attribue' as const,
+          progression: a.progression,
+          reassigne_de: {
+            from_inspecteur_id: a.inspecteur_id,
+            from_inspecteur_nom: a.inspecteur_nom,
+            date: now,
+            motif,
+          },
+          historique: [...a.historique, { date: now, action: `Réassigné à ${newInspecteurNom}`, details: motif }],
+          feedbacks: [...a.feedbacks, {
+            id: crypto.randomUUID(),
+            auteur_id: auteur,
+            auteur_nom: auteur,
+            role: 'chef',
+            type: 'info',
+            message: `Réassignation: ${motif}`,
+            date: now,
+          }],
+        }
+      : a
+  ) || []) as DossierAssignment[]
+  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  if (result.error) console.error('[store] Erreur persistance reassignAssignment:', result.error)
+  set((state) => {
+    const dossier = state.dossiers.find(d => d.id === dossierId)
+    if (!dossier) return state
+    return {
+      dossiers: state.dossiers.map(d =>
+        d.id === dossierId
+          ? {
+              ...d,
+              assignments: updatedAssignments,
+              historique: [...d.historique, { date: now, action: `Réassignation du dossier à ${newInspecteurNom}`, utilisateur: auteur, commentaire: motif }],
+              updated_at: now,
+            }
+          : d
+      ),
+    }
+  })
+},
 
-addAssignmentFeedback: (dossierId, assignmentId, feedback) => set((state) => {
+addAssignmentFeedback: async (dossierId, assignmentId, feedback) => {
+  const state = get()
   const now = new Date().toISOString()
   const newFeedback: DossierFeedback = { id: crypto.randomUUID(), date: now, ...feedback }
-  return {
+  const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
+    a.id === assignmentId
+      ? { ...a, feedbacks: [...a.feedbacks, newFeedback], historique: [...a.historique, { date: now, action: `Feedback: ${feedback.type}`, details: feedback.message }] }
+      : a
+  ) || []
+  const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now } as any)
+  if (result.error) console.error('[store] Erreur persistance addAssignmentFeedback:', result.error)
+  set((state) => ({
     dossiers: state.dossiers.map(d =>
-      d.id === dossierId
-        ? {
-            ...d,
-            assignments: d.assignments.map(a =>
-              a.id === assignmentId
-                ? { ...a, feedbacks: [...a.feedbacks, newFeedback], historique: [...a.historique, { date: now, action: `Feedback: ${feedback.type}`, details: feedback.message }] }
-                : a
-            ),
-            updated_at: now,
-          }
-        : d
+      d.id === dossierId ? { ...d, assignments: updatedAssignments, updated_at: now } : d
     ),
-  }
-}),
+  }))
+},
 
 addAssignmentCollaborateur: (dossierId, assignmentId, collaborateur) => set((state) => {
   const now = new Date().toISOString()
@@ -6835,6 +6848,50 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
     }
   )
 )
+
+// ============================================================
+// Sync temps réel — polling Supabase toutes les 10s
+// ============================================================
+let _syncInterval: ReturnType<typeof setInterval> | null = null
+
+export function startDossiersSync(userId?: string) {
+  if (_syncInterval) return
+  _syncInterval = setInterval(async () => {
+    const { data } = await supabase
+      .from('dossiers')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (!data) return
+    const existing = useAppStore.getState().dossiers
+    const merged = data.reduce((acc: any[], sup: any) => {
+      const local = acc.find((d: any) => d.id === sup.id)
+      if (local) {
+        // Garder la version la plus récente
+        if (new Date(sup.updated_at || sup.created_at) > new Date(local.updated_at || local.created_at)) {
+          Object.assign(local, sup)
+        }
+      } else {
+        acc.push(sup)
+      }
+      return acc
+    }, [...existing])
+    // Ajouter les dossiers locaux qui manquent dans Supabase
+    for (const local of existing) {
+      if (!merged.find((d: any) => d.id === local.id)) {
+        merged.push(local)
+      }
+    }
+    useAppStore.setState({ dossiers: merged as any })
+  }, 10000)
+}
+
+export function stopDossiersSync() {
+  if (_syncInterval) {
+    clearInterval(_syncInterval)
+    _syncInterval = null
+  }
+}
 
 // ============================================================
 // Hooks utilitaires existants

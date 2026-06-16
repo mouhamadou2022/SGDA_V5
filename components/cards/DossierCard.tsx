@@ -35,7 +35,7 @@ export function DossierCard({
   userRole = 'inspector'
 }: DossierCardProps) {
 
-  const canManage = ['admin', 'inspector'].includes(userRole)
+  const canManage = ['admin', 'chef'].includes(userRole)
   const [showMenu, setShowMenu] = useState(false)
 
   const getDelaiIndicator = (dateLimite: string) => {
@@ -156,7 +156,7 @@ export function DossierCard({
                   <History className="w-4 h-4 mr-2" />Historique
                 </button>
               )}
-               {dossier.statut !== 'termine' && onMarkComplete && (
+               {canManage && dossier.statut !== 'termine' && onMarkComplete && (
                  <button className="dropdown-item w-full text-left" onClick={() => { onMarkComplete(); setShowMenu(false) }}>
                    <CheckCircle2 className="w-4 h-4 mr-2 text-success" />Marquer terminé
                  </button>

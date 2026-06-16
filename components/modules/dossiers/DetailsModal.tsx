@@ -2,9 +2,9 @@
 'use client'
 
 import React, { useState } from 'react'
-import { FolderOpen, User, Send, Clock, FileText, Download } from 'lucide-react'
+import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
-import type { Dossier } from '@/lib/store'
+import { useAppStore, type Dossier } from '@/lib/store'
 
 const CATEGORIES_DOSSIERS = [
   { id: 'reglementaire', label: 'Réglementaire' },
@@ -70,6 +70,77 @@ export default function DetailsModal({
   const [reassignMotif, setReassignMotif] = useState('')
   const [reassignDossierId, setReassignDossierId] = useState('')
   const [reassignAssignmentId, setReassignAssignmentId] = useState('')
+  const [showAccuseId, setShowAccuseId] = useState<string | null>(null)
+  const [commentaireAccuse, setCommentaireAccuse] = useState('')
+  const [preuvesAssignment, setPreuvesAssignment] = useState<string | null>(null)
+  const [preuvesFiles, setPreuvesFiles] = useState<File[]>([])
+  const [preuveError, setPreuveError] = useState('')
+
+  const updateAssignment = useAppStore(s => s.updateAssignment)
+  const accuserReceptionAssignment = useAppStore(s => s.accuserReceptionAssignment)
+
+  const isOwnAssignment = (assignmentId: string, inspecteurId: string) =>
+    user?.id === inspecteurId && userRole === 'inspector'
+
+  const handleAccuserReception = (assignmentId: string) => {
+    if (!d) return
+    accuserReceptionAssignment(d.id, assignmentId, commentaireAccuse)
+    setShowAccuseId(null)
+    setCommentaireAccuse('')
+  }
+
+  const handleProgressionChange = (assignmentId: string, val: number) => {
+    if (!d) return
+    const assignment = d.assignments?.find(a => a.id === assignmentId)
+    if (!assignment) return
+    const statut = val === 100 ? 'termine' as const : (val > 0 ? 'en_cours' as const : assignment.statut)
+    if (val === 100 && preuvesFiles.length === 0) {
+      setPreuveError('Veuillez joindre au moins un fichier comme preuve avant de passer à 100%')
+      return
+    }
+    setPreuveError('')
+    updateAssignment(d.id, assignmentId, {
+      progression: val as 0 | 25 | 50 | 75 | 100,
+      statut: val === 100 && assignment.statut !== 'termine' ? 'en_validation' : statut,
+      historique: [...assignment.historique, {
+        date: new Date().toISOString(),
+        action: val === 100 ? 'Travail terminé, en attente de validation' : `Progression: ${val}%`,
+        details: '',
+      }],
+    })
+  }
+
+  const handlePreuvesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return
+    setPreuvesFiles(prev => [...prev, ...Array.from(e.target.files!)])
+  }
+
+  const handleRemovePreuve = (index: number) => {
+    setPreuvesFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleSubmitPreuves = (assignmentId: string) => {
+    if (!d || preuvesFiles.length === 0) return
+    const assignment = d.assignments?.find(a => a.id === assignmentId)
+    if (!assignment) return
+    const newPreuves = preuvesFiles.map(f => ({
+      nom: f.name,
+      url: URL.createObjectURL(f),
+      taille: f.size,
+      type: f.type,
+      date_upload: new Date().toISOString(),
+    }))
+    updateAssignment(d.id, assignmentId, {
+      preuves: [...assignment.preuves, ...newPreuves],
+      historique: [...assignment.historique, {
+        date: new Date().toISOString(),
+        action: `${preuvesFiles.length} preuve(s) soumise(s)`,
+        details: preuvesFiles.map(f => f.name).join(', '),
+      }],
+    })
+    setPreuvesFiles([])
+    setPreuvesAssignment(null)
+  }
 
   const handleChefFeedback = () => {
     if (!feedbackText.trim() || !feedbackAssignmentId || !d) return
@@ -187,6 +258,97 @@ export default function DetailsModal({
                   </div>
                   <span className="text-xs font-medium">{a.progression}%</span>
                 </div>
+
+                {isOwnAssignment(a.id, a.inspecteur_id) && a.statut === 'attribue' && (
+                  showAccuseId === a.id ? (
+                    <div className="space-y-1 p-2 bg-role-primary-soft rounded-lg">
+                      <p className="text-xs font-medium">Accuser réception du dossier</p>
+                      <textarea value={commentaireAccuse}
+                        onChange={e => setCommentaireAccuse(e.target.value)}
+                        placeholder="Commentaire (optionnel)..."
+                        className="form-textarea text-xs" rows={2}
+                      />
+                      <div className="flex gap-1">
+                        <button onClick={() => { setShowAccuseId(null); setCommentaireAccuse('') }} className="btn btn-ghost btn-xs">Annuler</button>
+                        <button onClick={() => handleAccuserReception(a.id)} className="btn btn-primary btn-xs">Confirmer</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowAccuseId(a.id)} className="btn btn-primary btn-xs w-full gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Accuser réception
+                    </button>
+                  )
+                )}
+
+                {isOwnAssignment(a.id, a.inspecteur_id) && a.statut !== 'termine' && a.statut !== 'valide' && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between gap-1">
+                      {[0, 25, 50, 75, 100].map(val => (
+                        <button key={val} type="button"
+                          onClick={() => handleProgressionChange(a.id, val)}
+                          className={`flex-1 text-[10px] py-1 rounded font-medium transition-all ${
+                            a.progression === val ? 'btn-primary shadow-md' : 'btn-secondary'
+                          }`}
+                        >
+                          {val}%
+                        </button>
+                      ))}
+                    </div>
+                    {preuveError && (
+                      <p className="text-[10px] text-danger">{preuveError}</p>
+                    )}
+                    {isOwnAssignment(a.id, a.inspecteur_id) && (
+                      <>
+                        {preuvesAssignment === a.id ? (
+                          <div className="space-y-1 border border-dashed border-border rounded-lg p-2">
+                            <input type="file" multiple onChange={handlePreuvesUpload}
+                              className="hidden" id={`preuves-${a.id}`}
+                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                            />
+                            <label htmlFor={`preuves-${a.id}`} className="cursor-pointer flex items-center gap-2 text-xs text-muted-foreground">
+                              <Upload className="w-4 h-4" /> Ajouter des fichiers
+                            </label>
+                            {preuvesFiles.length > 0 && (
+                              <div className="space-y-1">
+                                {preuvesFiles.map((f, i) => (
+                                  <div key={i} className="flex items-center justify-between bg-role-primary-soft rounded px-2 py-1 text-[10px]">
+                                    <span className="truncate flex-1">{f.name}</span>
+                                    <button onClick={() => handleRemovePreuve(i)} className="btn btn-ghost btn-xs text-danger p-0">
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <button onClick={() => handleSubmitPreuves(a.id)}
+                                  className="btn btn-primary btn-xs w-full gap-1">
+                                  <Upload className="w-3 h-3" /> Soumettre {preuvesFiles.length} fichier(s)
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : a.preuves.length === 0 ? (
+                          <button onClick={() => setPreuvesAssignment(a.id)}
+                            className="btn btn-ghost btn-xs text-muted-foreground gap-1">
+                            <Upload className="w-3 h-3" /> Joindre des preuves
+                          </button>
+                        ) : null}
+                      </>
+                    )}
+                    {a.preuves.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-medium text-success">Preuves ({a.preuves.length})</p>
+                        {a.preuves.map((p, i) => (
+                          <div key={i} className="flex items-center gap-1 text-[10px]">
+                            <FileText className="w-3 h-3 text-success shrink-0" />
+                            <span className="flex-1 truncate">{p.nom}</span>
+                            <a href={p.url} download={p.nom} className="btn btn-ghost btn-xs p-0">
+                              <Download className="w-3 h-3" />
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {canFeedback && (
                   <div className="flex gap-1">
