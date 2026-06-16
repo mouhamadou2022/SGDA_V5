@@ -1312,6 +1312,7 @@ export interface DossierExtension {
   date: string
   jours: 3 | 7 | 10
   motif: string
+  statut: 'en_attente' | 'approuve' | 'refuse'
   superieur_approbation?: string
   superieur_nom?: string
 }
@@ -1987,7 +1988,7 @@ interface DossierSlice {
   setCurrentDossier: (dossier: Dossier | null) => void
   addDossier: (dossier: Omit<Dossier, 'id' | 'created_at' | 'updated_at' | 'historique'>) => Promise<Dossier | undefined>
   updateDossier: (id: string, data: Partial<Dossier>) => Promise<void>
-  extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => void
+  extendreDossier: (id: string, extension: DossierExtension, superieurNom?: string) => Promise<void>
   deleteDossier: (id: string) => Promise<void>
   getDossiersByInspecteur: (inspecteurId: string) => Dossier[]
   getDossiersUrgents: () => Dossier[]
@@ -5250,20 +5251,42 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         }))
         return newDossier
       },
-      extendreDossier: (id, extension, superieurNom) => set((state) => ({
-        dossiers: state.dossiers.map(d => {
-          if (d.id !== id) return d
-          const now = new Date().toISOString()
-          const newDateLimite = new Date(new Date(d.date_limite).getTime() + extension.jours * 86400000).toISOString()
+      extendreDossier: async (id, extension, superieurNom) => {
+        const now = new Date().toISOString()
+        let newDateLimite = ''
+
+        set((state) => {
+          const dossier = state.dossiers.find(d => d.id === id)
+          if (!dossier) return state
+          newDateLimite = new Date(new Date(dossier.date_limite).getTime() + extension.jours * 86400000).toISOString()
           return {
-            ...d,
-            date_limite: newDateLimite,
-            extensions: [...(d.extensions || []), { ...extension, superieur_approbation: superieurNom || 'chef', date: now }],
-            historique: [...d.historique, { date: now, action: `Extension de délai de ${extension.jours} jour(s) : ${extension.motif}`, utilisateur: state.user?.nom || 'Système' }],
-            updated_at: now,
+            dossiers: state.dossiers.map(d =>
+              d.id === id
+                ? {
+                    ...d,
+                    date_limite: newDateLimite,
+                    extensions: [...(d.extensions || []), { ...extension, statut: 'approuve', superieur_approbation: superieurNom || 'chef', date: now }],
+                    historique: [...d.historique, { date: now, action: `Extension de délai de ${extension.jours} jour(s) : ${extension.motif}`, utilisateur: state.user?.nom || 'Système' }],
+                    updated_at: now,
+                  }
+                : d
+            ),
           }
         })
-      })),
+
+        // Persister dans Supabase
+        const dossier = get().dossiers.find(d => d.id === id)
+        if (dossier) {
+          const result = await datastore.updateDossier(id, {
+            date_limite: newDateLimite,
+            extensions: dossier.extensions,
+            updated_at: now,
+          } as any)
+          if (result.error) {
+            console.error('[store] Erreur persistance extension Supabase:', result.error)
+          }
+        }
+      },
       updateDossier: async (id, data) => {
         const result = await datastore.updateDossier(id, data)
         if (result.error) {

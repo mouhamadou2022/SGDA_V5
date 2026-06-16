@@ -641,9 +641,9 @@ export default function DossiersModule({ userRole, aerodromeId }: DossiersModule
 
   const ExtendModal = () => {
     const localFocus = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
-    const handleExtend = () => {
+    const handleExtend = async () => {
       if (!selectedDossier || !extMotif.trim()) return
-      extendreDossier(selectedDossier.id, { date: new Date().toISOString(), jours: extJours, motif: extMotif }, user?.nom)
+      await extendreDossier(selectedDossier.id, { date: new Date().toISOString(), jours: extJours, motif: extMotif, statut: 'approuve' }, user?.nom)
       addNotification({ user_id: selectedDossier.inspecteur_id || selectedDossier.assignments?.[0]?.inspecteur_id || user?.id || '', type: 'success', title: 'Délai étendu', message: `Délai du dossier ${selectedDossier.reference} étendu de ${extJours} jours.`, canal: 'in_app' })
       setShowExtendModal(false)
       setExtMotif('')

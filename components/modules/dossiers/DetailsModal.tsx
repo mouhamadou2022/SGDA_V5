@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { FolderOpen, User, Send, Clock } from 'lucide-react'
+import { FolderOpen, User, Send, Clock, FileText, Download } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
 import type { Dossier } from '@/lib/store'
 
@@ -93,6 +93,12 @@ export default function DetailsModal({
     setReassignAssignmentId('')
   }
 
+  const isAdmin = userRole === 'admin'
+  const isInspector = userRole === 'inspector'
+  const canManage = isAdmin
+  const canFeedback = isAdmin
+  const canRequestExtend = isAdmin || isInspector
+
   return (
     <FormShell
       open={open}
@@ -135,6 +141,27 @@ export default function DetailsModal({
           </div>
         )}
 
+        {d?.fichiers && d.fichiers.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase flex items-center gap-1 mb-2">
+              <FileText className="w-3 h-3" /> Fichiers joints ({d.fichiers.length})
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {d.fichiers.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 p-2 border border-border rounded-lg text-xs">
+                  <FileText className="w-4 h-4 shrink-0 text-role-primary" />
+                  <span className="flex-1 truncate">{f.nom}</span>
+                  <span className="text-muted-foreground shrink-0">{(f.taille / 1024).toFixed(0)} Ko</span>
+                  <a href={f.url} target="_blank" rel="noopener noreferrer"
+                    className="btn btn-ghost btn-xs shrink-0 gap-1">
+                    <Download className="w-3 h-3" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {d?.assignments && d.assignments.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs font-semibold text-role-primary uppercase flex items-center gap-1">
@@ -161,20 +188,22 @@ export default function DetailsModal({
                   <span className="text-xs font-medium">{a.progression}%</span>
                 </div>
 
-                <div className="flex gap-1">
-                  <input value={feedbackAssignmentId === a.id ? feedbackText : ''}
-                    onChange={e => { setFeedbackAssignmentId(a.id); setFeedbackText(e.target.value) }}
-                    onFocus={() => setFeedbackAssignmentId(a.id)}
-                    placeholder={`Feedback pour ${a.inspecteur_nom}...`}
-                    className="form-input text-xs flex-1" />
-                  <button onClick={() => { setFeedbackAssignmentId(a.id); handleChefFeedback() }}
-                    disabled={feedbackAssignmentId !== a.id || !feedbackText.trim()}
-                    className="btn btn-primary btn-xs gap-1">
-                    <Send className="w-3 h-3" /> Envoyer
-                  </button>
-                </div>
+                {canFeedback && (
+                  <div className="flex gap-1">
+                    <input value={feedbackAssignmentId === a.id ? feedbackText : ''}
+                      onChange={e => { setFeedbackAssignmentId(a.id); setFeedbackText(e.target.value) }}
+                      onFocus={() => setFeedbackAssignmentId(a.id)}
+                      placeholder={`Feedback pour ${a.inspecteur_nom}...`}
+                      className="form-input text-xs flex-1" />
+                    <button onClick={() => { setFeedbackAssignmentId(a.id); handleChefFeedback() }}
+                      disabled={feedbackAssignmentId !== a.id || !feedbackText.trim()}
+                      className="btn btn-primary btn-xs gap-1">
+                      <Send className="w-3 h-3" /> Envoyer
+                    </button>
+                  </div>
+                )}
 
-                {a.statut !== 'termine' && a.statut !== 'valide' && (
+                {canManage && a.statut !== 'termine' && a.statut !== 'valide' && (
                   <div className="pt-1">
                     {reassignAssignmentId === a.id && reassignDossierId === d.id ? (
                       <div className="flex gap-1 items-center">
@@ -208,7 +237,7 @@ export default function DetailsModal({
                   </div>
                 )}
 
-                {a.feedbacks.length > 0 && (
+                {(canManage || isInspector) && a.feedbacks.length > 0 && (
                   <div className="space-y-1 pt-1 border-t border-border">
                     {a.feedbacks.map((fb, i) => (
                       <div key={i} className={`text-xs p-2 rounded-lg ${fb.role === 'chef' ? 'bg-primary-soft' : 'bg-role-primary-soft/50'}`}>
@@ -223,7 +252,7 @@ export default function DetailsModal({
           </div>
         )}
 
-        {d && d.statut !== 'termine' && d.statut !== 'archive' && (
+        {canRequestExtend && d && d.statut !== 'termine' && d.statut !== 'archive' && (
           <div className="pt-2">
             <button onClick={onRequestExtend}
               className="btn btn-sm gap-1.5" style={{ background: '#f59e0b', color: 'white' }}>
@@ -235,12 +264,19 @@ export default function DetailsModal({
         {d?.extensions && d.extensions.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-role-primary uppercase">Extensions de délai</p>
-            {d.extensions.map((ext, i) => (
-              <div key={i} className="flex items-center justify-between p-2 bg-warning/10 rounded-lg text-sm">
-                <span>+{ext.jours} jours — {ext.motif}</span>
-                <span className="text-xs text-muted-foreground">{new Date(ext.date).toLocaleDateString('fr-FR')}</span>
-              </div>
-            ))}
+            {d.extensions.map((ext, i) => {
+              const statutLabel = ext.statut === 'approuve' ? 'Approuvée' : ext.statut === 'refuse' ? 'Refusée' : 'En attente'
+              const statutClass = ext.statut === 'approuve' ? 'badge success' : ext.statut === 'refuse' ? 'badge danger' : 'badge warning'
+              return (
+                <div key={i} className="flex items-center justify-between p-2 bg-warning/10 rounded-lg text-sm">
+                  <div className="flex items-center gap-2">
+                    <span>+{ext.jours} jours — {ext.motif}</span>
+                    <span className={statutClass}>{statutLabel}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{new Date(ext.date).toLocaleDateString('fr-FR')}</span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
