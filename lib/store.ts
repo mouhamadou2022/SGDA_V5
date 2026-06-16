@@ -5352,6 +5352,12 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         }))
       },
       deleteDossier: async (id) => {
+        const dossier = get().dossiers.find(d => d.id === id)
+        if (!dossier) return
+        // Archiver au lieu de supprimer si terminé ou déjà archivé
+        if (dossier.statut === 'termine' || dossier.statut === 'archive') {
+          return get().archiverDossierAutomatique(id)
+        }
         const result = await datastore.deleteDossier(id)
         if (result.error) {
           console.error('[store] Erreur suppression dossier Supabase:', result.error)

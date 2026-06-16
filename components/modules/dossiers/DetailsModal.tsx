@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, memo, useEffect } from 'react'
-import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X } from 'lucide-react'
+import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X, Eye } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Dossier } from '@/lib/store'
 
@@ -400,7 +400,11 @@ export default function DetailsModal({
                   <span className="flex-1 truncate">{f.nom}</span>
                   <span className="text-muted-foreground shrink-0">{(f.taille / 1024).toFixed(0)} Ko</span>
                   <a href={f.url} target="_blank" rel="noopener noreferrer"
-                    className="btn btn-ghost btn-xs shrink-0 gap-1">
+                    className="btn btn-ghost btn-xs shrink-0" title="Visualiser">
+                    <Eye className="w-3 h-3" />
+                  </a>
+                  <a href={f.url} download={f.nom}
+                    className="btn btn-ghost btn-xs shrink-0" title="Télécharger">
                     <Download className="w-3 h-3" />
                   </a>
                 </div>

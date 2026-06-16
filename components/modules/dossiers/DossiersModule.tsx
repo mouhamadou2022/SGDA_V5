@@ -482,10 +482,14 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     setShowForm(true);
   };
 
-  const handleDeleteDossier = (dossierId: string) => {
+  const handleDeleteDossier = (dossier: Dossier) => {
     if (!canManage) return
-    if (confirm('Supprimer ce dossier ? Cette action est irréversible.')) {
-      deleteDossier(dossierId);
+    const estTermine = dossier.statut === 'termine' || dossier.statut === 'archive'
+    const msg = estTermine
+      ? `Ce dossier est ${dossier.statut === 'archive' ? 'déjà archivé' : 'terminé'}. L\'archiver définitivement ?`
+      : 'Supprimer ce dossier définitivement ? Cette action est irréversible.'
+    if (confirm(msg)) {
+      deleteDossier(dossier.id);
     }
   };
 
@@ -882,7 +886,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
                                       {canManage && (
                                         <button 
                                           className="action-button text-danger"
-                                          onClick={() => handleDeleteDossier(dossier.id)}
+                                          onClick={() => handleDeleteDossier(dossier)}
                                           title="Supprimer"
                                         >
                                           <Trash2 className="w-4 h-4" />
@@ -916,7 +920,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
                     onViewDetails={() => { setSelectedDossierId(d.id); setShowDetails(true); }}
                     onMarkComplete={d.statut !== 'termine' ? () => handleMarquerTermine(d.id) : undefined}
                     onEdit={() => handleEditDossier(d)}
-                    onDelete={() => handleDeleteDossier(d.id)}
+                    onDelete={() => handleDeleteDossier(d)}
                   />
                 );
               })}
