@@ -45,7 +45,7 @@ function scorePondere(domaines: ScoreDomaine): number {
   return score
 }
 
-function scoresDomaines(aerodrome: Aerodrome, c3: boolean, c4: boolean, c5: boolean): ScoreDomaine {
+function scoresDomainesC3(aerodrome: Aerodrome): ScoreDomaine {
   const cat  = parseCat(aerodrome)
   const type = aerodrome.type ?? 'national'
   const sgs  = aerodrome.maturite_sgs ?? 50
@@ -53,57 +53,20 @@ function scoresDomaines(aerodrome: Aerodrome, c3: boolean, c4: boolean, c5: bool
   const precision = aerodrome.piste_principale?.type_approche === 'cat1' || aerodrome.piste_principale?.type_approche === 'cat2'
   const raRisk = aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda'
 
-  // Scores C3 (conformité) : 100 = conforme
-  const sgsC3 = sgs
-  const phyC3 = heli ? 55 : 70
-  const olsC3 = precision ? 55 : 70
-  const mfpC3 = Math.max(40, 80 - Math.max(0, (cat - 3)) * 5)
-  const sliC3 = aerodrome.horaires === 'h24' ? 60 : 75
-  const opsC3 = type === 'international' ? 55 : type === 'national' ? 70 : 80
-  const raC3  = raRisk ? 50 : 75
-
-  // Scores C4 (écarts latents) : 100 = aucun risque d'écart caché
-  const sgsC4 = sgs <= 25 ? 30 : sgs <= 50 ? 55 : sgs <= 75 ? 75 : 90
-  const phyC4 = heli ? 50 : 70
-  const olsC4 = precision ? 50 : 70
-  const mfpC4 = Math.max(35, 80 - Math.max(0, (cat - 3)) * 6)
-  const sliC4 = aerodrome.horaires === 'h24' ? 55 : 75
-  const opsC4 = type === 'international' ? 50 : type === 'national' ? 70 : 80
-  const raC4  = raRisk ? 45 : 75
-
-  // Scores C5 (résilience) : 100 = très résilient
-  const sgsC5 = Math.round(30 + (sgs / 100) * 50)
-  const phyC5 = heli ? 45 : 65
-  const olsC5 = precision ? 50 : 65
-  const mfpC5 = Math.max(35, 70 - Math.max(0, (cat - 3)) * 4)
-  const sliC5 = aerodrome.horaires === 'h24' ? 55 : 70
-  const opsC5 = type === 'international' ? 50 : type === 'national' ? 65 : 75
-  const raC5  = raRisk ? 40 : 65
-
   return {
-    SGS: c3 ? sgsC3 : c4 ? sgsC4 : sgsC5,
-    PHY: c3 ? phyC3 : c4 ? phyC4 : phyC5,
-    OLS: c3 ? olsC3 : c4 ? olsC4 : olsC5,
-    MFP: c3 ? mfpC3 : c4 ? mfpC4 : mfpC5,
-    SLI: c3 ? sliC3 : c4 ? sliC4 : sliC5,
-    OPS: c3 ? opsC3 : c4 ? opsC4 : opsC5,
-    RA:  c3 ? raC3  : c4 ? raC4  : raC5,
+    SGS: sgs,
+    PHY: heli ? 55 : 70,
+    OLS: precision ? 55 : 70,
+    MFP: Math.max(40, 80 - Math.max(0, (cat - 3)) * 5),
+    SLI: aerodrome.horaires === 'h24' ? 60 : 75,
+    OPS: type === 'international' ? 55 : type === 'national' ? 70 : 80,
+    RA:  raRisk ? 50 : 75,
   }
 }
 
 function baselineC3(aerodrome: Aerodrome): number {
-  const d = scoresDomaines(aerodrome, true, false, false)
+  const d = scoresDomainesC3(aerodrome)
   return Math.min(95, Math.max(30, Math.round(scorePondere(d))))
-}
-
-function baselineC4(aerodrome: Aerodrome): number {
-  const d = scoresDomaines(aerodrome, false, true, false)
-  return Math.min(95, Math.max(30, Math.round(scorePondere(d))))
-}
-
-function baselineC5(aerodrome: Aerodrome): number {
-  const d = scoresDomaines(aerodrome, false, false, true)
-  return Math.min(95, Math.max(25, Math.round(scorePondere(d))))
 }
 
 // ─── Helper : âge en mois depuis une date ────────────────────────────────────
@@ -144,9 +107,9 @@ function profilHomologue(aerodrome: Aerodrome): {
 
   const c1 = Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
   const c2 = 85
-  const c3 = 78
-  const c4 = 82
-  const c5 = recents ? 80 : 70
+  const c3 = 80
+  const c4 = 90
+  const c5 = recents ? 85 : 78
   const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
   const tendance: ProfilRisque['tendance'] = !recents ? 'baisse' : 'stable'
 
@@ -176,11 +139,12 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
     }
   }
 
-  // Aucun statut → heuristique pessimiste (comportement actuel)
+  // Aucun statut → heuristique (C3) + valeurs par défaut (C4=95, C5=90)
   const c1 = calculateC1(aerodrome.maturite_sgs ?? 50)
   const c3 = baselineC3(aerodrome)
-  const c4 = baselineC4(aerodrome)
-  const c5 = baselineC5(aerodrome)
+  // Pas d'écarts ni d'événements à la création → scores par défaut élevés
+  const c4 = 95
+  const c5 = 90
 
   function degradeC2ParTemps(aerodrome: Aerodrome): number {
     if (!aerodrome.created_at) return 100
