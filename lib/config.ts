@@ -54,16 +54,15 @@ export const PERMISSIONS = {
     ]
   },
   
-  // DG Exploitant : vue stratégique — pilotage et décision, pas les détails opérationnels
+  // DG Exploitant : cockpit stratégique — pilotage, décision, impact
   dg_operator: {
     modules: [
-      'dashboard', 'operator-dashboard',
-      'aerodromes', 'risque',
-      'certification', 'homologation',
-      'operator-ecarts', 'operator-pac-consolide',
-      'operator-planning',
+      'dashboard',
+      'aerodromes',
+      'operator-situation-securite',
+      'operator-conformite-echeances',
+      'operator-impact-decisions',
       'operator-messagerie',
-      'operator-certification', 'operator-homologation',
     ],
   },
 

@@ -30,6 +30,7 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  Target,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
@@ -135,8 +136,8 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'focal_operator', 'staff_operator', 'guest'] },
     // ── Modules ANACIM ──
     { id: 'aerodromes', label: 'Aérodromes', icon: Plane, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'focal_operator', 'guest'] },
-    { id: 'certification', label: 'Certification', icon: ShieldCheck, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'guest'], condition: showCertification },
-    { id: 'homologation', label: 'Homologation', icon: Scale, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'guest'], condition: showHomologation },
+    { id: 'certification', label: 'Certification', icon: ShieldCheck, roles: ['admin', 'inspector', 'dg_anacim', 'guest'], condition: showCertification },
+    { id: 'homologation', label: 'Homologation', icon: Scale, roles: ['admin', 'inspector', 'dg_anacim', 'guest'], condition: showHomologation },
     { id: 'planning', label: 'Planning', icon: CalendarDays, roles: ['admin', 'inspector', 'dg_anacim'] },
     { id: 'surveillance', label: 'Surveillance', icon: Eye, roles: ['admin', 'inspector', 'dg_anacim'] },
     { id: 'plans-actions', label: 'Écarts & PAC', icon: Flame, roles: ['admin', 'inspector', 'dg_anacim'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
@@ -147,7 +148,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'evenements', label: 'Événements', icon: AlertTriangle, roles: ['admin', 'inspector', 'dg_anacim'] },
     { id: 'enquetes', label: 'Enquêtes', icon: MessageSquare, roles: ['admin', 'inspector', 'dg_anacim'] },
     { id: 'messagerie', label: 'Messagerie', icon: Mail, roles: ['admin', 'inspector', 'dg_anacim'], badge: messagesNonLus, badgeVariant: 'primary' },
-    { id: 'risque', label: 'Profil Risque', icon: Activity, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'focal_operator', 'staff_operator'] },
+    { id: 'risque', label: 'Profil Risque', icon: Activity, roles: ['admin', 'inspector', 'dg_anacim', 'focal_operator', 'staff_operator'] },
     { id: 'signatures', label: 'Signatures DG', icon: PenLine, roles: ['dg_anacim'] },
     { id: 'charge', label: 'Charge Travail', icon: ListTodo, roles: ['admin', 'inspector'] },
     // ── Modules admin exclusifs ──
@@ -156,10 +157,13 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'codes', label: "Codes d'Accès", icon: Key, roles: ['admin'] },
     { id: 'ml-monitoring', label: 'ML Monitoring', icon: Activity, roles: ['admin', 'inspector'] },
     // ── Portail exploitant ──
-    { id: 'operator-planning', label: 'Mon Planning', icon: ListTodo, roles: ['dg_operator', 'focal_operator', 'staff_operator'] },
-    { id: 'operator-ecarts', label: 'Écarts & PAC', icon: Flame, roles: ['dg_operator', 'focal_operator'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
-    { id: 'operator-certification', label: 'Certification', icon: ShieldCheck, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorCertification },
-    { id: 'operator-homologation', label: 'Homologation', icon: Scale, roles: ['dg_operator', 'focal_operator', 'staff_operator'], condition: showOperatorHomologation },
+    { id: 'operator-situation-securite', label: 'Situation Sécurité', icon: Flame, roles: ['dg_operator'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
+    { id: 'operator-conformite-echeances', label: 'Conformité & Échéances', icon: CalendarDays, roles: ['dg_operator'] },
+    { id: 'operator-impact-decisions', label: 'Impact & Décisions', icon: Target, roles: ['dg_operator'] },
+    { id: 'operator-planning', label: 'Mon Planning', icon: ListTodo, roles: ['focal_operator', 'staff_operator'] },
+    { id: 'operator-ecarts', label: 'Écarts & PAC', icon: Flame, roles: ['focal_operator'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
+    { id: 'operator-certification', label: 'Certification', icon: ShieldCheck, roles: ['focal_operator', 'staff_operator'], condition: showOperatorCertification },
+    { id: 'operator-homologation', label: 'Homologation', icon: Scale, roles: ['focal_operator', 'staff_operator'], condition: showOperatorHomologation },
     { id: 'operator-evenements', label: 'Événements', icon: AlertCircle, roles: ['focal_operator', 'staff_operator'] },
     { id: 'operator-documentations', label: 'Kit Références', icon: FileText, roles: ['focal_operator', 'staff_operator'] },
     { id: 'operator-enquetes', label: 'Enquêtes', icon: MessageCircle, roles: ['focal_operator'] },
