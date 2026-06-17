@@ -91,7 +91,10 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
     const labels: Record<string, string> = {
       dashboard: 'Tableau de Bord',
       'admin-dashboard': 'Administration',
-      'dg-dashboard': 'Tableau de Bord DG',
+      'dg-dashboard': 'Vue Nationale',
+      'dg-pilotage-securite': 'Pilotage Sécurité',
+      'dg-conformite-controle': 'Conformité & Contrôle',
+      'dg-decisions-impact': 'Décisions & Impact',
       'dg-operator-dashboard': 'Vue d\'Ensemble',
       'focal-dashboard': 'Tableau de Bord Point Focal',
       'staff-dashboard': 'Tableau de Bord Personnel',

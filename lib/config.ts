@@ -45,13 +45,14 @@ export const PERMISSIONS = {
     ]
   },
   
+  // DG ANACIM : vue stratégique nationale — pilotage et décision
   dg_anacim: {
     modules: [
-      'dashboard', 'aerodromes', 'certification', 'homologation', 
-      'planning', 'surveillance', 'registres', 'dossiers', 
-      'formation', 'evenements', 'enquetes', 'messagerie', 
-      'risque', 'signatures', 'plans-actions'
-    ]
+      'dashboard',
+      'dg-pilotage-securite',
+      'dg-conformite-controle',
+      'dg-decisions-impact',
+    ],
   },
   
   // DG Exploitant : cockpit stratégique — pilotage, décision, impact
