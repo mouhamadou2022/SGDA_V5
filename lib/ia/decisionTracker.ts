@@ -1,4 +1,3 @@
-import type { Recommendation } from './engines/recommendationEngine'
 import { thresholdController } from './thresholdController'
 import { iaStorage, mergeArrayById } from '@/lib/persistence/iaStorage'
 
@@ -6,6 +5,18 @@ export type DecisionStatus = 'pending' | 'applied' | 'dismissed' | 'expired'
 
 import type { EffectivenessRating } from './types'
 export type { EffectivenessRating }
+
+interface Recommendation {
+  type: 'prioritaire' | 'preventif' | 'correctif' | 'strategique'
+  domaine?: string
+  sousZone?: string
+  zoneDetail?: string
+  action: string
+  justification: string
+  urgence: 'immediate' | '3_mois' | '6_mois' | 'prochaine_mission'
+  confiance?: number
+  validationRequise?: boolean
+}
 
 export interface DecisionRecord {
   id: string

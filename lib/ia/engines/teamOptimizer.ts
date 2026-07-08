@@ -72,7 +72,7 @@ export class TeamOptimizer {
           ))
         : 0
       const peutEtreChef = ['inspecteur_titulaire', 'inspecteur_principal'].includes(
-        (insp as InspecteurAvecCompetence)._insp?.type || insp.type_inspecteur || ''
+        (insp as InspecteurAvecCompetence)._insp?.type || (insp as any).type_inspecteur || ''
       )
       return {
         id: insp.id, nom: insp.nom, prenom: insp.prenom,
