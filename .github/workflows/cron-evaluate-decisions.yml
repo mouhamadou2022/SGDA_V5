@@ -22,3 +22,5 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.SITE_URL }}/api/cron/evaluate-decisions"
           echo "Status: $(cat response.json)"
+      - name: Vérifier le statut
+        run: cat response.json
