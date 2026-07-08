@@ -3,7 +3,7 @@
 # Boucle d'apprentissage : décision → outcome → recalibrage
 # Nécessite : secrets.CRON_SECRET + secrets.SITE_URL dans les secrets GitHub
 
-name: Évaluation automatique des décisions
+name: Evaluation auto des decisions
 
 on:
   schedule:
@@ -13,10 +13,10 @@ on:
 
 jobs:
   evaluate:
-    name: Évaluer les décisions et recalibrer
+    name: Evaluer et recalibrer
     runs-on: ubuntu-latest
     steps:
-      - name: Appeler l'API d'évaluation des décisions
+      - name: Appeler API evaluation
         run: |
           curl -s -o response.json -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
