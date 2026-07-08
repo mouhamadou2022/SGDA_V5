@@ -1,7 +1,7 @@
 # .github/workflows/cron-evaluate-decisions.yml
 # Évalue les décisions AERORISQ 6 mois après + recalibrage des poids C1-C5
 # Boucle d'apprentissage : décision → outcome → recalibrage
-# Nécessite : secrets.CRON_SECRET + secrets.SITE_URL dans les secrets GitHub
+# Nécessite : secrets.CRON_SECRET et SITE_URL dans les secrets GitHub
 
 name: Evaluation auto des decisions
 
