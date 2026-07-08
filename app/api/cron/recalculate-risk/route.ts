@@ -99,6 +99,23 @@ export async function GET(request: Request) {
           .from('profils_risque')
           .upsert(profil, { onConflict: 'aerodrome_id' })
 
+        // 7. Alimenter score_history pour l'apprentissage
+        if (!upsertError) {
+          const { error: shError } = await supabaseAdmin
+            .from('score_history')
+            .insert({
+              aerodrome_id: aerodromeId,
+              score_global: scoreGlobal,
+              c1, c2, c3, c4, c5,
+              niveau: profil.niveau,
+              tendance: 'stable',
+              computed_at: now,
+            })
+          if (shError) {
+            console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
+          }
+        }
+
         results.push({
           id: aerodromeId,
           code_oaci: aerodrome.code_oaci || '',
