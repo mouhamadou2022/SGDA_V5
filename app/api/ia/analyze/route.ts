@@ -19,10 +19,7 @@ export async function POST(request: Request) {
     const body: AnalyzeRequest = await request.json()
 
     if (!isLLMConfigured()) {
-      return NextResponse.json(
-        { error: 'Aucune clé API configurée. Ajoutez GROQ_API_KEY ou OPENROUTER_API_KEY dans .env.local', code: 'NO_API_KEY' },
-        { status: 503 }
-      )
+      console.warn('[/api/ia/analyze] Aucune clé API cloud configurée — tentative via Ollama (local) uniquement')
     }
 
     const messages = [

@@ -9,11 +9,29 @@
 'use client';
 
 import { ResultatChecklist } from '@/types/surveillance';
-import { useAppStore } from './store';
+import type { AppStore } from './store';
+
+let _storeState: AppStore | null = null
+function getStoreState() {
+  if (!_storeState) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useAppStore } = require('./store')
+    _storeState = useAppStore.getState()
+  }
+  return _storeState!
+}
 
 // ============================================================
-// TYPES (inchangés)
+// TYPES
 // ============================================================
+
+export interface TextModification {
+  field: 'point_verification' | 'reference_reglementaire' | 'directive_preuve' | 'directive_sa' | 'directive_ns' | 'directive_nv' | 'directive_na';
+  ancien: string;
+  nouveau: string;
+  date: string;
+  surveillance_id: string;
+}
 
 export interface ItemHistoryRecord {
   id: string;
@@ -37,9 +55,13 @@ export interface ItemHistoryRecord {
   derniere_observation?: string;
   fichiers_types?: string[];
   confiance: number;
+  feedback_ajustement: number;
   dernier_feedback: string;
   feedback_correction?: ResultatChecklist;
+  nb_corrections: number;
+  nb_erreurs_correction: number;
   alerte_ecart_recurrent: boolean;
+  text_modifications?: TextModification[];
 }
 
 export interface PredictionResult {
@@ -96,7 +118,7 @@ export function upsertItemHistory(
   item: { id: string; numero: string; point_verification: string; resultat?: ResultatChecklist; observation?: string; fichiers?: any[] },
   surveillance_id: string
 ): ItemHistoryRecord {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const key = `${aerodrome_id}_${type_inspection}_${domaine}_${sous_domaine}_${sous_sous_domaine}_${item.id}`;
   
   let record = store.checklistMemoryRecords.find(r => r.id === key);
@@ -130,8 +152,11 @@ export function upsertItemHistory(
         return ext || 'unknown';
       }),
       confiance: 0,
+      feedback_ajustement: 0,
       dernier_feedback: new Date().toISOString(),
       alerte_ecart_recurrent: false,
+      nb_corrections: 0,
+      nb_erreurs_correction: 0,
     };
   } else {
     // ✅ Mise à jour avec limite d'historique
@@ -163,8 +188,9 @@ export function upsertItemHistory(
   const recentsNS = record.historique_resultats.slice(-3).filter(r => r.resultat === 'NS').length;
   record.alerte_ecart_recurrent = recentsNS >= 2;
   
-  // Recalculer la confiance (normalisée)
-  record.confiance = calculateConfiance(record);
+  // Recalculer la confiance (normalisée) + ajustement des corrections
+  const confianceBase = calculateConfiance(record);
+  record.confiance = Math.min(100, Math.max(0, confianceBase + (record.feedback_ajustement || 0)));
   
   // ✅ Sauvegarder dans le store
   store.setChecklistMemoryRecords(
@@ -238,7 +264,7 @@ export function getPredictionForItem(
   item: { id: string; numero: string; point_verification: string },
   profilRisque?: { score_global: number; tendance: string }
 ): PredictionResult {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const key = `${aerodrome_id}_${type_inspection}_${domaine}_${sous_domaine}_${sous_sous_domaine}_${item.id}`;
   const record = store.checklistMemoryRecords.find(r => r.id === key);
   
@@ -258,26 +284,14 @@ export function getPredictionForItem(
   let justification = '';
   let alerte = false;
   
-  // Cas 1: Confiance très bonne et historique SA stable
-  if (confiance >= SEUILS_CONFIANCE.TRES_BONNE && record.taux_conformite >= 80) {
-    prediction = 'SA';
-    justification = `Historique favorable: ${record.taux_conformite}% de conformité sur ${record.nb_occurrences} inspection(s). Derniers résultats: ${derniersResultats.map(r => r.resultat).join(' → ')}`;
-  }
-  
-  // Cas 2: Confiance bonne et dernière inspection SA
-  else if (confiance >= SEUILS_CONFIANCE.BONNE && record.dernier_resultat === 'SA') {
-    prediction = 'SA';
-    justification = `Conforme lors de la dernière inspection (${new Date(record.historique_resultats[record.historique_resultats.length - 1].date).toLocaleDateString('fr-FR')})`;
-  }
-  
-  // Cas 3: Écart récurrent détecté
-  else if (record.alerte_ecart_recurrent) {
+  // Cas 1 (ex-Cas 3): Écart récurrent détecté → PRIORITAIRE
+  if (record.alerte_ecart_recurrent) {
     prediction = 'NS';
     alerte = true;
     justification = `⚠️ Écart récurrent détecté: ${record.historique_resultats.slice(-3).filter(r => r.resultat === 'NS').length} NS sur les 3 dernières inspections`;
   }
-  
-  // Cas 4: Tendance à la dégradation récente
+
+  // Cas 2 (ex-Cas 4): Tendance à la dégradation récente
   else if (derniersResultats.length >= 2) {
     const dernier = derniersResultats[derniersResultats.length - 1].resultat;
     const avantDernier = derniersResultats[derniersResultats.length - 2].resultat;
@@ -289,6 +303,18 @@ export function getPredictionForItem(
       prediction = 'SA';
       justification = '📈 Amélioration récente détectée (NS → SA)';
     }
+  }
+
+  // Cas 3 (ex-Cas 1): Confiance très bonne et historique SA stable
+  else if (confiance >= SEUILS_CONFIANCE.TRES_BONNE && record.taux_conformite >= 80) {
+    prediction = 'SA';
+    justification = `Historique favorable: ${record.taux_conformite}% de conformité sur ${record.nb_occurrences} inspection(s). Derniers résultats: ${derniersResultats.map(r => r.resultat).join(' → ')}`;
+  }
+
+  // Cas 4 (ex-Cas 2): Confiance bonne et dernière inspection SA
+  else if (confiance >= SEUILS_CONFIANCE.BONNE && record.dernier_resultat === 'SA') {
+    prediction = 'SA';
+    justification = `Conforme lors de la dernière inspection (${new Date(record.historique_resultats[record.historique_resultats.length - 1].date).toLocaleDateString('fr-FR')})`;
   }
   
   // Cas 5: Ajustement par profil de risque
@@ -331,18 +357,20 @@ export function recordCorrection(
   correction: ResultatChecklist,
   commentaire?: string
 ): void {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const key = `${aerodrome_id}_${type_inspection}_${domaine}_${sous_domaine}_${sous_sous_domaine}_${item_id}`;
   const record = store.checklistMemoryRecords.find(r => r.id === key);
   
   if (!record) return;
   
-  let updatedRecord = {
+  const updatedRecord = {
     ...record,
+    historique_resultats: [...record.historique_resultats],
     feedback_correction: correction,
     dernier_feedback: new Date().toISOString(),
+    nb_corrections: (record.nb_corrections || 0) + 1,
   };
-  
+
   // ✅ Si correction, mettre à jour le dernier résultat dans l'historique
   if (prediction !== correction && updatedRecord.historique_resultats.length > 0) {
     const dernierIdx = updatedRecord.historique_resultats.length - 1;
@@ -352,10 +380,15 @@ export function recordCorrection(
       observation: commentaire || updatedRecord.historique_resultats[dernierIdx].observation,
     };
     updatedRecord.dernier_resultat = correction;
-    updatedRecord.confiance = Math.max(0, updatedRecord.confiance - 10);
+    updatedRecord.nb_erreurs_correction = (record.nb_erreurs_correction || 0) + 1;
+    updatedRecord.feedback_ajustement = (record.feedback_ajustement || 0) - 10;
   } else {
-    updatedRecord.confiance = Math.min(100, updatedRecord.confiance + 5);
+    updatedRecord.feedback_ajustement = (record.feedback_ajustement || 0) + 5;
   }
+
+  // Recalculer la confiance (base + ajustement cumulé, clampé [0,100])
+  const confianceBase = calculateConfiance(updatedRecord);
+  updatedRecord.confiance = Math.min(100, Math.max(0, confianceBase + updatedRecord.feedback_ajustement));
   
   // Recalculer le taux de conformité
   const totalReel = updatedRecord.historique_resultats.filter(r => r.resultat !== 'NA').length;
@@ -379,19 +412,15 @@ export function getProblematicItems(
   aerodrome_id?: string,
   seuilErreur: number = 20
 ): { record: ItemHistoryRecord; taux_erreur: number }[] {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const problematicItems: { record: ItemHistoryRecord; taux_erreur: number }[] = [];
   
   for (const record of store.checklistMemoryRecords) {
     if (aerodrome_id && record.aerodrome_id !== aerodrome_id) continue;
-    
-    // Calculer le taux d'erreur (corrections vs prédictions)
-    let erreurs = 0;
-    if (record.feedback_correction && record.feedback_correction !== record.dernier_resultat) {
-      erreurs++;
-    }
-    
-    const taux_erreur = record.nb_occurrences > 0 ? (erreurs / record.nb_occurrences) * 100 : 0;
+
+    const nbCorrections = record.nb_corrections || 0;
+    const nbErreurs = record.nb_erreurs_correction || 0;
+    const taux_erreur = nbCorrections > 0 ? Math.round((nbErreurs / nbCorrections) * 100) : 0;
     
     if (taux_erreur >= seuilErreur) {
       problematicItems.push({ record, taux_erreur });
@@ -411,10 +440,10 @@ export function getLearningStats(): {
   taux_ecart_recurrent: number;
   items_problematiques: number;
 } {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const records = store.checklistMemoryRecords;
   
-  let totalItems = records.length;
+  const totalItems = records.length;
   let confianceSum = 0;
   let ecartsRecurrents = 0;
   
@@ -435,10 +464,83 @@ export function getLearningStats(): {
 }
 
 /**
+ * ✅ Enregistre une modification de texte sur un item généré par l'IA
+ */
+export function recordTextModification(
+  aerodrome_id: string,
+  type_inspection: string,
+  domaine: string,
+  sous_domaine: string,
+  sous_sous_domaine: string,
+  item: { id: string; numero: string; point_verification: string },
+  field: TextModification['field'],
+  ancien: string,
+  nouveau: string,
+  surveillance_id: string,
+): void {
+  if (ancien === nouveau) return;
+  const store = getStoreState();
+  const key = `${aerodrome_id}_${type_inspection}_${domaine}_${sous_domaine}_${sous_sous_domaine}_${item.id}`;
+  const record = store.checklistMemoryRecords.find(r => r.id === key);
+  if (!record) return;
+
+  const mod: TextModification = { field, ancien, nouveau, date: new Date().toISOString(), surveillance_id };
+  const updatedRecord = {
+    ...record,
+    text_modifications: [...(record.text_modifications || []), mod],
+  };
+
+  store.setChecklistMemoryRecords(
+    store.checklistMemoryRecords.map(r => r.id === key ? updatedRecord : r)
+  );
+}
+
+/**
+ * ✅ Retourne les stats sur les modifications texte pour l'apprentissage
+ */
+export function getTextDeltaStats(aerodrome_id?: string): {
+  total_modifications: number;
+  top_fields: { field: string; count: number }[];
+  top_items: { item_id: string; item_description: string; count: number }[];
+} {
+  const store = getStoreState();
+  const records = aerodrome_id
+    ? store.checklistMemoryRecords.filter(r => r.aerodrome_id === aerodrome_id)
+    : store.checklistMemoryRecords;
+
+  const fieldCount: Record<string, number> = {};
+  const itemCount: Record<string, { desc: string; count: number }> = {};
+  let total = 0;
+
+  for (const r of records) {
+    const mods = r.text_modifications || [];
+    for (const m of mods) {
+      total++;
+      fieldCount[m.field] = (fieldCount[m.field] || 0) + 1;
+      const itemKey = `${r.item_id}`;
+      if (!itemCount[itemKey]) itemCount[itemKey] = { desc: r.item_description, count: 0 };
+      itemCount[itemKey].count++;
+    }
+  }
+
+  return {
+    total_modifications: total,
+    top_fields: Object.entries(fieldCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([field, count]) => ({ field, count })),
+    top_items: Object.entries(itemCount)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .map(([item_id, val]) => ({ item_id, item_description: val.desc, count: val.count })),
+  };
+}
+
+/**
  * ✅ NOUVELLE : Exporte la mémoire depuis le store
  */
 export function exportMemory(): string {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   const data = store.checklistMemoryRecords;
   return JSON.stringify(data, null, 2);
 }
@@ -449,7 +551,7 @@ export function exportMemory(): string {
 export function importMemory(jsonData: string): void {
   try {
     const data = JSON.parse(jsonData);
-    const store = useAppStore.getState();
+    const store = getStoreState();
     store.setChecklistMemoryRecords(data);
   } catch (error) {
     console.error('[checklistMemory] Erreur lors de l\'import:', error);
@@ -460,7 +562,7 @@ export function importMemory(jsonData: string): void {
  * ✅ NOUVELLE : Réinitialise la mémoire dans le store
  */
 export function resetMemory(): void {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   store.setChecklistMemoryRecords([]);
 }
 
@@ -468,7 +570,7 @@ export function resetMemory(): void {
  * ✅ CORRIGÉE : Utilise le store
  */
 export function getHistoryForAerodrome(aerodrome_id: string): ItemHistoryRecord[] {
-  const store = useAppStore.getState();
+  const store = getStoreState();
   return store.checklistMemoryRecords
     .filter(r => r.aerodrome_id === aerodrome_id)
     .sort((a, b) => b.nb_occurrences - a.nb_occurrences);
@@ -522,7 +624,7 @@ export function getSuggestionsDetaillees(
   type_inspection: string,
   profil?: { score_global: number; tendance: string }
 ): SuggestionDetaillee[] {
-  const store = useAppStore.getState()
+  const store = getStoreState()
   const suggestions: SuggestionDetaillee[] = []
   
   for (const record of store.checklistMemoryRecords) {
@@ -570,7 +672,7 @@ export interface PatternRecurrent {
 }
 
 export function detectRecurrentPatterns(aerodrome_id: string, seuilRecurrence: number = 70): PatternRecurrent[] {
-  const store = useAppStore.getState()
+  const store = getStoreState()
   const patterns: PatternRecurrent[] = []
   
   for (const record of store.checklistMemoryRecords) {
@@ -616,6 +718,8 @@ export const checklistMemory = {
   calculateConfiance,
   getPredictionForItem,
   recordCorrection,
+  recordTextModification,
+  getTextDeltaStats,
   getProblematicItems,
   getLearningStats,
   exportMemory,

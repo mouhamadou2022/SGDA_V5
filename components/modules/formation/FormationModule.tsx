@@ -37,15 +37,15 @@ import {
   X,
   Upload,
   Mail,
+  Phone,
   Activity,
   Sparkles,
   List,
   Grid3x3,
   PieChart,
 } from 'lucide-react';
-import { PieChart as FormationPieChart } from '@/components/ui/charts/PieChart';
 import { CompetenceMatrix } from './CompetenceMatrix';
-import { EcheanceAlert } from './EcheanceAlert';
+
 import { FormationSuggestions } from './FormationSuggestions';
 import { DeleteConfirmationDialog } from '@/components/ui/DeleteConfirmationDialog';
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
@@ -137,7 +137,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const [selectedInspecteur, setSelectedInspecteur] = useState<string | null>(null);
   const [selectedFormation, setSelectedFormation] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [viewMode, setViewMode] = useState<'dashboard' | 'liste' | 'grille' | 'calendrier' | 'matrice' | 'echeances' | 'suggestions'>('dashboard');
+  const [viewMode, setViewMode] = useState<'dashboard' | 'liste' | 'grille' | 'calendrier' | 'matrice' | 'suggestions'>('dashboard');
   const [calendarPeriod, setCalendarPeriod] = useState<'mois' | 'six_mois' | 'annee'>('mois');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [expandedInspectors, setExpandedInspectors] = useState<Record<string, boolean>>({});
@@ -188,7 +188,34 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const listeFormations = formations ?? [];
-  const listeInspecteurs = inspecteurs ?? [];
+  const listeInspecteurs = useMemo(() => {
+    const fromStore = inspecteurs ?? [];
+    const ids = new Set(fromStore.map(i => i.id));
+    const emails = new Set(fromStore.map(i => i.email).filter(Boolean));
+    const fromUsers = (utilisateurs ?? [])
+      .filter(u => u.role === 'inspector')
+      .filter(u => !ids.has(u.inspecteur_id || u.id) && !(u.email && emails.has(u.email)))
+      .map(u => ({
+        id: u.inspecteur_id || u.id,
+        user_id: u.id,
+        matricule: u.matricule || '',
+        prenom: u.prenom || '',
+        nom: u.nom || '',
+        email: u.email || '',
+        telephone: u.telephone || '',
+        type: (u.type_inspecteur || 'inspecteur_titulaire') as Inspecteur['type'],
+        service: (u.service || 'normes_aerodromes') as Inspecteur['service'],
+        poste: u.poste as Inspecteur['poste'],
+        superieur_id: u.superieur_id,
+        domaine_principal: 'exploitation' as Inspecteur['domaine_principal'],
+        statut: (u.statut === 'actif' ? 'en_service' : 'inactif') as Inspecteur['statut'],
+        competences: u.competences || [],
+        formations: [],
+        photo: u.photo_url,
+        created_at: u.created_at || new Date().toISOString(),
+      } as Inspecteur));
+    return [...fromStore, ...fromUsers];
+  }, [inspecteurs, utilisateurs]);
 
   const filteredFormations = useMemo(() => {
     return listeFormations.filter(f => {
@@ -937,97 +964,204 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   );
 
   const InspecteurFicheModal = () => {
-    const ins = inspecteurs.find(i => i.id === selectedInspecteur);
+    const ins = listeInspecteurs.find(i => i.id === selectedInspecteur);
     if (!ins) return null;
-    const formationCount = formations.filter(f => f.participants?.includes(ins.id)).length;
-    const statutColors: Record<string, string> = { en_service: 'text-success', en_conge: 'text-warning', en_mission: 'text-info', absent: 'text-danger' };
-    const domaine = DOMAINES_COMPETENCE.find(d => d.id === ins.domaine_principal);
+    const formationsList = formations.filter(f => f.participants?.includes(ins.id));
+    const formationCount = formationsList.length;
+    const domaines = DOMAINES_COMPETENCE;
+    const domaine = domaines.find(d => d.id === ins.domaine_principal);
+    const statutConfig: Record<string, { label: string, class: string }> = {
+      en_service: { label: 'En service', class: 'text-success bg-success/10' },
+      en_conge: { label: 'En congé', class: 'text-warning bg-warning/10' },
+      en_mission: { label: 'En mission', class: 'text-info bg-info/10' },
+      absent: { label: 'Absent', class: 'text-danger bg-danger/10' },
+    };
+    const st = statutConfig[ins.statut] || { label: ins.statut, class: '' };
+    const totalCompetences = ins.competences?.length || 0;
+    const avgNiveau = totalCompetences > 0
+      ? (ins.competences!.reduce((s, c) => s + c.niveau, 0) / totalCompetences).toFixed(1)
+      : '—';
     return (
       <FormShell
         open={showInspecteurFiche && !!mounted}
         onClose={() => { setShowInspecteurFiche(false); setSelectedInspecteur(null); }}
         title="Fiche inspecteur"
         icon={Eye}
-        size="lg"
+        size="3xl"
         dataRole={userRole}
       >
-        <div className="space-y-6">
-          {/* Profil header */}
-          <div className="flex items-center gap-5 p-5 bg-gradient-to-r from-blue-950/5 to-transparent rounded-2xl border border-border/50">
-            <div className="w-20 h-20 rounded-full bg-blue-950 flex items-center justify-center text-white text-2xl font-bold shrink-0 overflow-hidden ring-4 ring-blue-950/10">
-              {ins.photo ? (
-                <img src={ins.photo} alt="" className="w-full h-full object-cover" />
-              ) : (
-                getInitials(ins.prenom, ins.nom)
-              )}
+        <div className="space-y-8">
+          {/* Profil header - Premium */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-950 via-indigo-900 to-blue-800 p-6 sm:p-8">
+            <div className="absolute top-0 right-0 w-64 h-64 opacity-10">
+              <div className="w-full h-full rounded-full bg-white blur-3xl" />
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-bold tracking-tight">{ins.prenom} {ins.nom}</h3>
-              <p className="text-sm text-muted-foreground">{ins.matricule || '—'}</p>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="badge primary text-[10px]">{getNiveauLabel(ins.type)}</span>
-                {domaine && <span className="badge outline text-[10px]">{domaine.label.split(' (')[0]}</span>}
-                <span className={`text-[11px] font-medium capitalize ${statutColors[ins.statut] || 'text-muted-foreground'}`}>
-                  {ins.statut.replace(/_/g, ' ')}
-                </span>
+            <div className="relative z-10 flex flex-col sm:flex-row items-start gap-6">
+              <div className="w-24 h-24 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center !text-white text-3xl font-bold shrink-0 overflow-hidden ring-4 ring-white/20 shadow-2xl">
+                {ins.photo ? (
+                  <img src={ins.photo} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  getInitials(ins.prenom, ins.nom)
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold !text-white tracking-tight">{ins.prenom} {ins.nom}</h3>
+                    <p className="text-sm !text-white/70 mt-0.5">{ins.matricule || 'Sans matricule'}</p>
+                  </div>
+                  <span className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold capitalize ${st.class}`}>
+                    {st.label}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <span className="px-3 py-1 rounded-full bg-white/20 !text-white text-xs font-medium backdrop-blur-sm">
+                    {getNiveauLabel(ins.type)}
+                  </span>
+                  {domaine && (
+                    <span className="px-3 py-1 rounded-full bg-white/20 !text-white text-xs font-medium backdrop-blur-sm">
+                      {domaine.label.split(' (')[0]}
+                    </span>
+                  )}
+                  {ins.poste && (
+                    <span className="px-3 py-1 rounded-full bg-white/20 !text-white text-xs font-medium backdrop-blur-sm">
+                      {ins.poste.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Coordonnées */}
-          <div>
-            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Coordonnées</p>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Email', value: ins.email },
-                { label: 'Téléphone', value: ins.telephone },
-                { label: 'Service', value: ins.service?.replace(/_/g, ' ') },
-              ].map(item => (
-                <div key={item.label} className="p-3 bg-role-primary-soft rounded-xl">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{item.label}</p>
-                  <p className="text-sm font-medium truncate">{item.value || '—'}</p>
-                </div>
-              ))}
+          {/* Grille informations */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 bg-role-primary-soft rounded-xl border border-border/40">
+              <div className="flex items-center gap-2 text-role-primary mb-3">
+                <Mail className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">Email</p>
+              </div>
+              <p className="text-sm font-medium truncate">{ins.email || '—'}</p>
+            </div>
+            <div className="p-4 bg-role-primary-soft rounded-xl border border-border/40">
+              <div className="flex items-center gap-2 text-role-primary mb-3">
+                <Phone className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">Téléphone</p>
+              </div>
+              <p className="text-sm font-medium">{ins.telephone || '—'}</p>
+            </div>
+            <div className="p-4 bg-role-primary-soft rounded-xl border border-border/40">
+              <div className="flex items-center gap-2 text-role-primary mb-3">
+                <Briefcase className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">Service</p>
+              </div>
+              <p className="text-sm font-medium capitalize">{ins.service?.replace(/_/g, ' ') || '—'}</p>
             </div>
           </div>
 
-          {/* Activité */}
+          {/* Statistiques */}
           <div>
-            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Activité</p>
-            <div className="grid grid-cols-4 gap-3">
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3 flex items-center gap-2">
+              <BarChart3 className="w-3.5 h-3.5" />
+              Statistiques
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Formations', value: formationCount, icon: '🎓' },
-                { label: 'Compétences', value: ins.competences?.length || 0, icon: '⭐' },
-                { label: 'Domaine', value: domaine?.label.split(' (')[0] || '—' },
-                { label: 'Statut', value: ins.statut.replace(/_/g, ' ') },
-              ].map(item => (
-                <div key={item.label} className="p-3 bg-role-primary-soft rounded-xl">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{item.label}</p>
-                  <p className="text-sm font-medium truncate">{item.value}</p>
-                </div>
-              ))}
+                { label: 'Formations suivies', value: formationCount, icon: GraduationCap, color: 'text-blue-600 bg-blue-100' },
+                { label: 'Compétences', value: totalCompetences, icon: Star, color: 'text-amber-600 bg-amber-100' },
+                { label: 'Niveau moyen', value: avgNiveau, icon: TrendingUp, color: 'text-green-600 bg-green-100' },
+                { label: 'Domaine principal', value: domaine?.label.split(' (')[0] || '—', icon: BookOpen, color: 'text-purple-600 bg-purple-100' },
+              ].map(item => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.label} className="relative p-4 rounded-xl border border-border/40 bg-card hover:shadow-sm transition-shadow">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${item.color}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">{item.label}</p>
+                    <p className="text-xl font-bold tracking-tight mt-0.5">{item.value}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           {/* Compétences */}
-          {ins.competences && ins.competences.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3">Compétences</p>
-              <div className="grid grid-cols-2 gap-2">
-                {ins.competences.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-role-primary-soft">
-                    <span className="text-sm font-medium">{c.domaine}</span>
-                    <div className="flex items-center gap-1">
-                      {[1,2,3,4,5].map(n => (
-                        <div key={n} className={`w-2 h-2 rounded-full ${n <= c.niveau ? 'bg-role-primary' : 'bg-border'}`} />
-                      ))}
-                      <span className="text-[10px] text-muted-foreground ml-1">{c.niveau}/5</span>
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3 flex items-center gap-2">
+              <Award className="w-3.5 h-3.5" />
+              Compétences &nbsp;<span className="text-muted-foreground font-normal">({totalCompetences})</span>
+            </p>
+            {ins.competences && ins.competences.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {ins.competences.map((c, i) => {
+                  const pct = Math.round((c.niveau / 5) * 100);
+                  const barColor = c.niveau >= 4 ? 'bg-green-500' : c.niveau >= 3 ? 'bg-blue-500' : c.niveau >= 2 ? 'bg-amber-500' : 'bg-red-500';
+                  return (
+                    <div key={i} className="p-4 rounded-xl border border-border/40 bg-card hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold">{c.domaine}</span>
+                        <span className="text-xs font-medium text-muted-foreground">{c.niveau}/5</span>
+                      </div>
+                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-muted-foreground rounded-xl border border-dashed border-border">
+                <Award className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Aucune compétence renseignée</p>
+              </div>
+            )}
+          </div>
+
+          {/* Dernières formations */}
+          <div>
+            <p className="text-xs font-semibold text-role-primary uppercase tracking-wide mb-3 flex items-center gap-2">
+              <GraduationCap className="w-3.5 h-3.5" />
+              Formations suivies &nbsp;<span className="text-muted-foreground font-normal">({formationCount})</span>
+            </p>
+            {formationCount > 0 ? (
+              <div className="space-y-2">
+                {formationsList.slice(0, 5).map(f => (
+                  <div key={f.id} className="flex items-center justify-between p-3 rounded-xl border border-border/40 bg-card hover:bg-role-primary-soft/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center shrink-0">
+                        <BookOpen className="w-4 h-4 text-role-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{f.titre || 'Formation'}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {f.date ? formatDate(f.date) : 'Date non définie'}
+                          {f.duree_heures ? ` · ${f.duree_heures}h` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-semibold capitalize ${
+                      f.statut === 'terminee' ? 'bg-green-100 text-green-700' :
+                      f.statut === 'planifiee' ? 'bg-blue-100 text-blue-700' :
+                      f.statut === 'en_cours' ? 'bg-amber-100 text-amber-700' :
+                      'bg-muted text-muted-foreground'
+                    }`}>
+                      {f.statut?.replace(/_/g, ' ')}
+                    </span>
                   </div>
                 ))}
+                {formationCount > 5 && (
+                  <p className="text-xs text-center text-muted-foreground pt-1">
+                    +{formationCount - 5} formation{formationCount - 5 > 1 ? 's' : ''} supplémentaire{formationCount - 5 > 1 ? 's' : ''}
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="p-8 text-center text-muted-foreground rounded-xl border border-dashed border-border">
+                <GraduationCap className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Aucune formation suivie</p>
+              </div>
+            )}
+          </div>
         </div>
       </FormShell>
     );
@@ -1100,7 +1234,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       />
 
       {/* KPIs */}
-      <div className="kpi-grid">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="kpi-card">
           <div className="kpi-icon bg-role-primary-soft">
             <GraduationCap className="w-5 h-5 text-role-primary" />
@@ -1207,9 +1341,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <button className={viewMode === 'matrice' ? 'active' : ''} onClick={() => setViewMode('matrice')}>
               <Grid3x3 className="w-4 h-4" /> Compétences
             </button>
-            <button className={viewMode === 'echeances' ? 'active' : ''} onClick={() => setViewMode('echeances')}>
-              <Clock className="w-4 h-4" /> Échéances
-            </button>
+
             <button className={viewMode === 'suggestions' ? 'active' : ''} onClick={() => setViewMode('suggestions')}>
               <Sparkles className="w-4 h-4" /> Suggestions
             </button>
@@ -1363,7 +1495,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                       <tr key={ins.id} className="hover:bg-role-primary-soft transition-colors">
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center text-white text-xs font-semibold">
+                            <div className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center !text-white text-xs font-semibold">
                               {getInitials(ins.prenom, ins.nom)}
                             </div>
                             <div>
@@ -1416,18 +1548,16 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                   onClick={() => toggleInspector(ins.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleInspector(ins.id); } }}
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center text-white font-semibold text-sm">
+                    <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center !text-white font-semibold text-sm">
                       {getInitials(ins.prenom, ins.nom)}
                     </div>
                     <div className="text-left">
                       <p className="font-medium">{ins.prenom} {ins.nom}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {ins.matricule} • {formationUtils.formatService(ins.service)} • {formationUtils.formatTypeInspecteur(ins.type)}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{ins.matricule}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3">
                     {totalCount > 0 ? (
                       <div className="flex items-center gap-1.5">
                         {grouped.planifiees.length > 0 && <span className="badge primary text-[10px]">{grouped.planifiees.length} planifiée(s)</span>}
@@ -1594,7 +1724,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
                   onClick={() => toggleInspector(ins.id)}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center text-white font-semibold text-sm">
+                    <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center !text-white font-semibold text-sm">
                       {getInitials(ins.prenom, ins.nom)}
                     </div>
                     <div className="text-left">
@@ -1679,7 +1809,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
       {viewMode === 'dashboard' && (
         <div className="space-y-6 animate-fade-up">
-          <div className="kpi-grid">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="kpi-card"><div className="kpi-icon"><Calendar className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.formationsCount}</div><div className="kpi-label">Formations</div></div></div>
             <div className="kpi-card"><div className="kpi-icon"><Clock className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-value">{stats.planifiees}</div><div className="kpi-label">Planifiées</div></div></div>
             <div className="kpi-card"><div className="kpi-icon"><PlayCircle className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-value">{stats.enCours}</div><div className="kpi-label">En cours</div></div></div>
@@ -1687,9 +1817,9 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <div className="kpi-card"><div className="kpi-icon"><TrendingUp className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-value">{stats.tauxCompletion}%</div><div className="kpi-label">Taux complétion</div></div></div>
             <div className="kpi-card"><div className="kpi-icon"><BarChart3 className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.budgetTotal.toLocaleString()} F</div><div className="kpi-label">Budget</div></div></div>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <Card title="Formations à venir / en cours" icon={<Calendar className="w-4 h-4" />}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="lg:col-span-1">
+              <Card title="Formations à venir / en cours" icon={<Calendar className="w-4 h-4" />} className="h-full">
                 {(() => {
                   const upcoming = listeFormations
                     .filter(f => f.statut === 'planifiee' || f.statut === 'en_cours')
@@ -1720,30 +1850,34 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
               </Card>
             </div>
             <div className="lg:col-span-1">
-              <Card title="Exécution des formations" icon={<PieChart className="w-4 h-4" />}>
-                <FormationPieChart
-                  data={[
-                    { name: 'Planifié', value: stats.planifiees },
-                    { name: 'En cours', value: stats.enCours },
-                    { name: 'Terminé', value: stats.terminees },
-                    { name: 'En retard', value: stats.enRetard },
-                  ]}
-                  nameKey="name"
-                  valueKey="value"
-                  height={280}
-                  colors={['#3b82f6', '#f59e0b', '#10b981', '#ef4444']}
-                />
+              <Card title="Exécution des formations" icon={<PieChart className="w-4 h-4" />} className="h-full">
+                <div className="grid grid-cols-2 gap-3 p-2">
+                  {[
+                    { name: 'Planifié', value: stats.planifiees, color: '#3b82f6' },
+                    { name: 'En cours', value: stats.enCours, color: '#f59e0b' },
+                    { name: 'Terminé', value: stats.terminees, color: '#10b981' },
+                    { name: 'En retard', value: stats.enRetard, color: '#ef4444' },
+                  ].map(item => (
+                    <div key={item.name} className="flex flex-col items-center justify-center p-3 rounded-xl bg-role-primary-soft/50">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                        <span className="text-xs font-medium text-muted-foreground">{item.name}</span>
+                      </div>
+                      <span className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </Card>
             </div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1">
-              <Card title="Inspecteurs" icon={<Users className="w-4 h-4" />}>
+              <Card title="Inspecteurs" icon={<Users className="w-4 h-4" />} className="h-full">
                 {listeInspecteurs.slice(0, 6).map(ins => {
                   const domaine = DOMAINES_COMPETENCE.find(d => d.id === ins.domaine_principal);
                   return (
                     <div key={ins.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-role-primary-soft transition-colors">
-                      <div className="w-9 h-9 rounded-full bg-blue-950 flex items-center justify-center text-white font-semibold text-xs shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-blue-950 flex items-center justify-center !text-white font-semibold text-xs shrink-0">
                         {getInitials(ins.prenom, ins.nom)}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1769,7 +1903,18 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
               </Card>
             </div>
             <div className="lg:col-span-2">
-              <EcheanceAlert userRole={userRole} />
+              <Card title="Formations expirées" icon={<AlertTriangle className="w-4 h-4 text-danger" />} className="h-full">
+                {(() => {
+                  const expirees = listeFormations.filter(estExpiree)
+                  if (expirees.length === 0) return <p className="text-sm text-muted-foreground text-center py-8">Aucune formation expirée</p>
+                  return <div className="space-y-2">{expirees.slice(0, 5).map(f => (
+                    <div key={f.id} className="flex items-center justify-between p-2 rounded-lg bg-danger-soft">
+                      <div><p className="text-sm font-medium">{f.titre}</p><p className="text-xs text-muted-foreground">{f.reference} — {new Date(f.date).toLocaleDateString('fr-FR')}</p></div>
+                      <span className="badge danger">{f.duree_heures}h</span>
+                    </div>
+                  ))}</div>
+                })()}
+              </Card>
             </div>
           </div>
           <div className="flex justify-end pt-2">
@@ -1782,7 +1927,6 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
           </div>
         </div>
       )}
-      {viewMode === 'echeances' && <EcheanceAlert userRole={userRole} />}
       {viewMode === 'suggestions' && <FormationSuggestions userRole={userRole} />}
       {showDetails && selectedFormation && (() => {
         const f = listeFormations.find(x => x.id === selectedFormation); if (!f) return null

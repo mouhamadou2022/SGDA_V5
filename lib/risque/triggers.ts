@@ -54,6 +54,13 @@ export function detectDelaiExpireTrigger(
 
 /**
  * Détecte si un incident récent est survenu
+ *
+ * ATTENTION — couplage avec detectHistoriqueIncidents (aggravators.ts) :
+ * nbIncidentsRecents (ici, fenêtre 30j) et nbIncidentsDomaine (aggravator, fenêtre 12mois)
+ * peuvent se recouper si les mêmes incidents alimentent les deux compteurs. L'appelant
+ * doit garantir que ce sont des ensembles disjoints (ex: incidents récents ≤30j exclus du
+ * compteur aggravator) ou au contraire que le recouvrement est intentionnel.
+ * Voir aussi : la fonction detectAllTriggers dans triggers.ts et detectAllAggravators.
  */
 export function detectIncidentTrigger(
   nbIncidentsRecents: number,
@@ -146,18 +153,27 @@ export function detectAllTriggers(params: {
 }
 
 /**
- * Calcule le score d'impact global des triggers
+ * Calcule le score d'impact global des triggers par saturation douce.
+ *
+ * Remplace l'ancien plateau dur à 2.0 par une fonction d'approche exponentielle
+ * cohérente avec computeAggravatorsMultiplier dans aggravators.ts :
+ * score = 1 + maxExcess × (1 − e^{−sumPoids / k})
+ * où sumPoids = Σ(trigger.poids) des triggers actifs
+ *
+ * Résultat : dégradation progressive et monotone, pas de palier artificiel.
  */
 export function computeTriggersImpact(triggers: FacteurDeclencheur[]): number {
-  let score = 1.0 // base
-  
-  for (const trigger of triggers) {
-    if (trigger.actif) {
-      score += trigger.poids
-    }
-  }
-  
-  return Math.min(2.0, score)
+  const MAX_IMPACT = 2.0
+  const K = 1.5
+
+  const sum = triggers
+    .filter(t => t.actif)
+    .reduce((acc, t) => acc + t.poids, 0)
+
+  const maxExcess = MAX_IMPACT - 1
+  const score = 1 + maxExcess * (1 - Math.exp(-sum / K))
+
+  return Math.min(MAX_IMPACT, score)
 }
 
 /**

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { useFormProgress } from '@/hooks/useFormProgress'
+import { ROLES } from '@/lib/config'
+import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -35,14 +37,17 @@ const STATUTS = [
   { id: 'suspendu', label: 'Suspendu' },
 ]
 
-const ROLES_ANACIM = ['admin', 'inspector', 'dg_anacim', 'guest']
-
 const ROLE_LABELS: Record<string, string> = {
   admin:          'Administrateur',
   inspector:      'Inspecteur',
   dg_anacim:      'DG ANACIM',
+  dg_operator:    'DG Exploitant',
+  focal_operator: 'Focal Exploitant',
+  staff_operator: 'Staff Exploitant',
   guest:          'Invité',
 }
+
+const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 
 export function UtilisateurForm({
   mode, utilisateurId, onSuccess, onCancel, userRole,
@@ -57,6 +62,7 @@ export function UtilisateurForm({
   const [formData, setFormData] = useState({
     prenom: '',
     nom: '',
+    matricule: '',
     email: '',
     telephone: '',
     role: 'guest' as string,
@@ -71,6 +77,9 @@ export function UtilisateurForm({
     notifications_email: true,
     notifications_sms: false,
     photo_url: '',
+    competences: [] as { domaine: string; niveau: number }[],
+    specialites: [] as string[],
+    notification_email: '',
   })
 
   const activeTab = activeTabProp
@@ -86,43 +95,40 @@ export function UtilisateurForm({
    // Only run when progress actually changes
    useEffect(() => { onProgressRef.current?.(progress) }, [progress])
 
-  const [errors, setErrors] = useState<Record<string, string>>({})
+   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const loadKeyRef = useRef(0)
 
-   // Create utilisateur lookup map for O(1) access instead of O(n) find
-   const utilisateursMap = useMemo(() => {
-     const map = new Map<string, any>();
-     utilisateurs?.forEach(u => {
-       map.set(u.id, u);
-     });
-     return map;
-   }, [utilisateurs])
-
-   useEffect(() => {
-     if (mode === 'modification' && utilisateurId) {
-       const u = utilisateursMap.get(utilisateurId)
-       if (u) {
-         setFormData({
-           prenom: u.prenom || '',
-           nom: u.nom || '',
-           email: u.email || '',
-           telephone: u.telephone || '',
-           role: u.role || 'guest',
-           mot_de_passe: '',
-           confirmer_mot_de_passe: '',
-            aerodrome_id: u.aerodrome_id || '',
-            type_inspecteur: (u as any).type_inspecteur || '',
-            service: (u as any).service || '',
-            poste: (u as any).poste || '',
-            superieur_id: (u as any).superieur_id || '',
-            statut: (u as any).statut || 'actif',
-            notifications_email: u.notifications_email ?? true,
-            notifications_sms: u.notifications_sms ?? false,
-            photo_url: (u as any).photo_url || '',
-          })
-       }
-     }
-   }, [mode, utilisateurId, utilisateursMap])
+  useEffect(() => {
+    if (mode === 'modification' && utilisateurId) {
+      const u = useAppStore.getState().getUtilisateur(utilisateurId)
+      if (u) {
+        loadKeyRef.current++
+        setFormData({
+          prenom: u.prenom || '',
+          nom: u.nom || '',
+          matricule: u.matricule || '',
+          email: u.email || '',
+          telephone: u.telephone || '',
+          role: u.role || 'guest',
+          mot_de_passe: '',
+          confirmer_mot_de_passe: '',
+          aerodrome_id: u.aerodrome_id || '',
+          type_inspecteur: u.type_inspecteur || '',
+          service: u.service || '',
+          poste: u.poste || '',
+          superieur_id: u.superieur_id || '',
+          statut: u.statut || 'actif',
+          notifications_email: u.notifications_email ?? true,
+          notifications_sms: u.notifications_sms ?? false,
+          photo_url: u.photo_url || '',
+          competences: u.competences || [],
+          specialites: u.specialites || [],
+          notification_email: u.notification_email || '',
+        })
+      }
+    }
+  }, [mode, utilisateurId])
 
   const handlePhotoUpload = () => {
     const input = document.createElement('input');
@@ -158,8 +164,6 @@ export function UtilisateurForm({
     if (!formData.nom.trim())    newErrors.nom    = "Le nom est requis"
     if (!formData.email.trim())  newErrors.email  = "L'email est requis"
     else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = "L'email n'est pas valide"
-    if (formData.role === 'inspector') {
-    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -169,9 +173,16 @@ export function UtilisateurForm({
     if (!validerFormulaire()) return
     setIsSubmitting(true)
     try {
+      const domainesFromSpecialites = (specs: string[]) =>
+        specs.flatMap(sp => {
+          const found = SPECIALITES_INSPECTEUR.find(s => s.code === sp)
+          return found ? found.domaines : []
+        })
+
       const data = {
         prenom: formData.prenom,
         nom: formData.nom,
+        matricule: formData.matricule || undefined,
         email: formData.email,
         telephone: formData.telephone || undefined,
         role: formData.role,
@@ -180,19 +191,27 @@ export function UtilisateurForm({
             service: formData.service,
             poste: formData.poste || undefined,
             superieur_id: formData.superieur_id || undefined,
+            specialites: formData.specialites,
+            competences: formData.specialites.length > 0
+              ? [...new Set(domainesFromSpecialites(formData.specialites))].map(d => ({ domaine: d, niveau: 3 }))
+              : formData.competences,
           }),
         statut: formData.statut,
         notifications_email: formData.notifications_email,
         notifications_sms: formData.notifications_sms,
+        notification_email: formData.notification_email || undefined,
         photo_url: formData.photo_url || undefined,
         ...(mode === 'creation' && { mot_de_passe: formData.mot_de_passe }),
         updated_at: new Date().toISOString(),
       }
-      // Sync photo to linked inspecteur
-      if (formData.photo_url && mode === 'modification') {
-        const user = utilisateursMap.get(utilisateurId!)
+      // Sync photo, competences to linked inspecteur (specialites stocké sur utilisateurs uniquement)
+      if (mode === 'modification') {
+        const user = useAppStore.getState().getUtilisateur(utilisateurId!)
         if (user?.inspecteur_id) {
-          updateInspecteur(user.inspecteur_id, { photo: formData.photo_url } as any)
+          const updates: Record<string, any> = {}
+          if (formData.photo_url) updates.photo = formData.photo_url
+          if (formData.competences.length) updates.competences = formData.competences
+          if (Object.keys(updates).length) updateInspecteur(user.inspecteur_id, updates as any)
         }
       }
 
@@ -245,7 +264,8 @@ export function UtilisateurForm({
 
   const p = formData.mot_de_passe
 
-  const emailAuto = (formData.role !== 'guest' && formData.prenom && formData.nom)
+  const isExploitantRole = ROLE_EXPLOITANT.includes(formData.role)
+  const emailAuto = (formData.role !== 'guest' && !isExploitantRole && formData.prenom && formData.nom)
     ? `${formData.prenom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '.')}.${formData.nom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '.')}@anacim.sn`
     : ''
 
@@ -277,8 +297,8 @@ export function UtilisateurForm({
             <label className={labelClass}><Mail className="w-4 h-4 inline mr-1 text-role-primary" />Email</label>
             <input type="email" value={formData.email} readOnly
               className={`form-input ${focusClass} bg-role-primary-soft cursor-not-allowed`} />
-            {formData.role !== 'guest' && <p className="field-description">Email auto-généré d'après le prénom et le nom</p>}
-            {formData.role === 'guest' && (
+            {formData.role !== 'guest' && !isExploitantRole && <p className="field-description">Email auto-généré d'après le prénom et le nom</p>}
+            {(formData.role === 'guest' || isExploitantRole) && (
               <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })}
                 placeholder="email@exemple.com" className={`form-input ${focusClass} mt-2${errors.email ? ' border-danger' : ''}`} />
             )}
@@ -288,6 +308,11 @@ export function UtilisateurForm({
           <div className="form-field">
             <label htmlFor="telephone" className={labelClass}><Phone className="w-4 h-4 inline mr-1 text-role-primary" />Téléphone</label>
             <input id="telephone" value={formData.telephone} onChange={e => setFormData({ ...formData, telephone: e.target.value })} placeholder="+221 77 123 45 67" className={`form-input ${focusClass}`} />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="matricule" className={labelClass}><span className="w-4 h-4 inline mr-1" />Matricule</label>
+            <input id="matricule" value={formData.matricule} onChange={e => setFormData({ ...formData, matricule: e.target.value })} placeholder="Ex: INS-001" className={`form-input ${focusClass}`} />
           </div>
         </div>
 
@@ -322,7 +347,7 @@ export function UtilisateurForm({
             <label htmlFor="role" className={labelClass}>Rôle <span className="text-danger">*</span></label>
             <select id="role" value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value })}
               className={`form-select ${focusClass}`} style={selectStyle}>
-              {ROLES_ANACIM.map(role => <option key={role} value={role}>{ROLE_LABELS[role] || role}</option>)}
+              {ROLES.map(role => <option key={role} value={role}>{ROLE_LABELS[role] || role}</option>)}
             </select>
           </div>
 
@@ -371,6 +396,51 @@ export function UtilisateurForm({
             </div>
           )}
 
+          {formData.role === 'inspector' && (
+            <div className="form-field">
+              <label className={labelClass}>Spécialité(s) métier <span className="text-danger">*</span></label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {SPECIALITES_INSPECTEUR.map(sp => {
+                  const selected = formData.specialites.includes(sp.code)
+                  return (
+                    <label key={sp.code} className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs transition-all ${selected ? 'border-role-primary bg-role-primary-soft text-role-primary font-semibold' : 'border-border hover:border-role-primary'}`}>
+                      <input type="checkbox" checked={selected} onChange={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          specialites: selected
+                            ? prev.specialites.filter(s => s !== sp.code)
+                            : [...prev.specialites, sp.code],
+                        }))
+                      }} className="sr-only" />
+                      {selected ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <div className="w-5 h-5 rounded-full border-2 border-muted-foreground shrink-0" />}
+                      <div>
+                        <div className="font-medium">{sp.label}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">Audite : {sp.domaines.join(', ')}</div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+              {formData.specialites.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">Sélectionnez au moins une spécialité pour que l'inspecteur soit ciblé dans les affectations.</p>
+              )}
+            </div>
+          )}
+
+          {ROLE_EXPLOITANT.includes(formData.role) && (
+            <div className="form-field">
+              <label className={labelClass}>Aérodrome rattaché <span className="text-danger">*</span></label>
+              <select value={formData.aerodrome_id} onChange={e => setFormData({ ...formData, aerodrome_id: e.target.value })}
+                className={`form-select ${focusClass}${!formData.aerodrome_id ? ' border-warning' : ''}`} style={selectStyle}>
+                <option value="">Sélectionner un aérodrome</option>
+                {aerodromes.filter(a => !a.deleted_at).map(a => (
+                  <option key={a.id} value={a.id}>{a.nom} ({a.code_oaci})</option>
+                ))}
+              </select>
+              {!formData.aerodrome_id && <p className="text-xs text-warning mt-1">L'exploitant doit être rattaché à un aérodrome pour recevoir les notifications.</p>}
+            </div>
+          )}
+
           <div className="form-field">
             <label htmlFor="statut" className={labelClass}>Statut</label>
             <select id="statut" value={formData.statut} onChange={e => setFormData({ ...formData, statut: e.target.value })}
@@ -412,6 +482,15 @@ export function UtilisateurForm({
           {formData.notifications_sms && !formData.telephone && (
             <div className="p-2 bg-warning/10 rounded-lg flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-warning" /><span className="text-sm text-warning">Ajoutez un numéro de téléphone pour recevoir les SMS</span>
+            </div>
+          )}
+          {ROLE_EXPLOITANT.includes(formData.role) && (
+            <div className="form-field mt-4">
+              <label className={labelClass}>Email de notification <span className="text-xs text-muted-foreground">(optionnel)</span></label>
+              <input type="email" value={formData.notification_email} onChange={e => setFormData({ ...formData, notification_email: e.target.value })}
+                placeholder="notification@exemple.com"
+                className={`form-input ${focusClass}`} />
+              <p className="text-xs text-muted-foreground mt-1">Cet email sera utilisé pour les notifications de surveillance. Par défaut, l'email principal est utilisé.</p>
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@ import {
   AlertCircle,
   FileText,
   X,
+  Loader2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 
@@ -46,6 +47,8 @@ export default function SurveillanceTransmission({
     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [verificationComplete, setVerificationComplete] = useState(false);
+  const [isTransmettant, setIsTransmettant] = useState(false);
+  const [erreurTransmission, setErreurTransmission] = useState<string | null>(null);
 
   useEffect(() => {
     const allOk = checklistSignee && ecartsTraites && rapportSigne && lettreSigneeDG;
@@ -59,13 +62,21 @@ export default function SurveillanceTransmission({
     { label: 'Lettre de transmission signée par le DG', ok: lettreSigneeDG, message: 'La lettre doit être signée par le DG ANACIM' },
   ];
 
-  const handleTransmettre = () => {
-    onTransmettre({
-      surveillanceId,
-      dateLimitePAC,
-      messagePersonnalise,
-      dateTransmission: new Date().toISOString(),
-    });
+  const handleTransmettre = async () => {
+    if (isTransmettant) return;
+    setIsTransmettant(true);
+    setErreurTransmission(null);
+    try {
+      await onTransmettre({
+        surveillanceId,
+        dateLimitePAC,
+        messagePersonnalise,
+        dateTransmission: new Date().toISOString(),
+      });
+    } catch (err) {
+      setErreurTransmission(err instanceof Error ? err.message : 'Erreur lors de la transmission');
+      setIsTransmettant(false);
+    }
   };
 
   if (!open) return null;
@@ -144,6 +155,16 @@ export default function SurveillanceTransmission({
             </div>
           )}
 
+          {erreurTransmission && (
+            <div className="alert alert-danger">
+              <AlertCircle className="alert-icon h-4 w-4" />
+              <div className="alert-content">
+                <span className="alert-title">Erreur de transmission</span>
+                <p className="text-xs mt-1">{erreurTransmission}</p>
+              </div>
+            </div>
+          )}
+
           <hr className="border-border my-4" />
 
           {/* Options de transmission */}
@@ -210,11 +231,15 @@ export default function SurveillanceTransmission({
             <button
               type="button"
               onClick={handleTransmettre}
-              disabled={!verificationComplete}
-              className={`btn btn-primary gap-2 ${!verificationComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={!verificationComplete || isTransmettant}
+              className={`btn btn-primary gap-2 ${!verificationComplete || isTransmettant ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Send className="h-4 w-4" />
-              Confirmer la transmission
+              {isTransmettant ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {isTransmettant ? 'Transmission en cours…' : 'Confirmer la transmission'}
             </button>
           </div>
 

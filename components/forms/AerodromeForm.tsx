@@ -19,6 +19,7 @@ import { REGIONS } from '@/lib/config';
 import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
+import { safeParseJSON } from '@/lib/safeParseJSON';
 import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
 
@@ -186,7 +187,7 @@ function emptyField(): AiSuggestionField {
   return { value: '', confidence: 0, source: '' };
 }
 
-async function suggestAerodrome(nom: string, lat: number, lon: number): Promise<AiSuggestion | null> {
+async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>): Promise<AiSuggestion | null | 'LLM_UNAVAILABLE'> {
   try {
     // Tentative d'extraire un code OACI
     const oaciMatch = nom.match(/\bGO[A-Z]{2}\b/i);
@@ -197,6 +198,7 @@ async function suggestAerodrome(nom: string, lat: number, lon: number): Promise<
 Aérodrome recherché : "${nom}"
 Coordonnées : ${lat.toFixed(4)}, ${lon.toFixed(4)}
 ${ourAirports ? `Données OurAirports trouvées : ${JSON.stringify(ourAirports)}` : ''}
+${existingData ? `Données déjà renseignées (ne suggère que les champs vides ou à améliorer) :\n${JSON.stringify(existingData, null, 2)}` : ''}
 
 Retourne UNIQUEMENT un objet JSON valide, sans texte avant ni après.
 Pour chaque champ, estime ta confiance (0-100) :
@@ -257,9 +259,10 @@ Champs à ne remplir que si type_entite="helistation" ou "mixte" : tous les cham
 Ne mets JAMAIS de valeur pour un champ qui ne correspond pas au type_entite.`;
 
     const aiResult = await assistantAgent.chat({ message: prompt, contexte: { module: 'aerodrome-enrichissement' }, userRole: 'inspector' });
-    const m = aiResult.message.match(/\{[\s\S]*?\}/);
-    if (m) {
-      const parsed = JSON.parse(m[0]);
+    // Détecter si le LLM n'est pas disponible (fallback local)
+    if (assistantAgent.isLLMAvailable() === false || aiResult.message.includes('GROQ_API_KEY')) return 'LLM_UNAVAILABLE'
+    const parsed = safeParseJSON<Record<string, any>>(aiResult.message);
+    if (parsed) {
       const suggestion: AiSuggestion = {
         nom: parsed.nom ?? emptyField(),
         code_oaci: parsed.code_oaci ?? emptyField(),
@@ -656,14 +659,21 @@ function AiSuggestionFieldRow({ field, value, onAccept, isAccepted }: {
   );
 }
 
-function AiSuggestionPanel({ suggestion, isLoading, acceptedFields, onAcceptField, onAcceptAll, onSkip, onToggle }: {
-  suggestion: AiSuggestion|null; isLoading: boolean; acceptedFields: Set<string>;
+function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, onAcceptField, onAcceptAll, onSkip, onToggle }: {
+  suggestion: AiSuggestion|null; isLoading: boolean; llmError: string|null; acceptedFields: Set<string>;
   onAcceptField:(f: string, v: string | number) => void; onAcceptAll:()=>void; onSkip:()=>void; onToggle:(f: string)=>void;
 }) {
   if (isLoading) return (
     <div className="flex flex-col items-center justify-center py-20 gap-5 text-center">
       <div className="relative"><Brain className="w-14 h-14 text-role-primary"/><Loader2 className="w-5 h-5 text-role-primary animate-spin absolute -bottom-1 -right-1"/></div>
       <p className="font-semibold text-foreground text-lg">Analyse IA en cours…</p>
+    </div>
+  );
+  if (llmError) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4 text-center text-muted-foreground">
+      <Brain className="w-14 h-14 opacity-20"/>
+      <div><p className="font-medium text-foreground">Enrichissement IA indisponible</p><p className="text-sm mt-1">{llmError}</p></div>
+      <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans IA</button>
     </div>
   );
   if (!suggestion) return (
@@ -690,7 +700,7 @@ function AiSuggestionPanel({ suggestion, isLoading, acceptedFields, onAcceptFiel
               Suggestions IA — {suggestion.nom?.value || suggestion.code_oaci?.value || 'Aérodrome'}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Sources : {[...new Set(Object.values(suggestion).filter((v): v is AiSuggestionField => 'source' in v).map(v => v.source).filter(Boolean))].join(', ') || 'Training'}
+              Sources : {[...new Set(Object.values(suggestion).filter((v): v is AiSuggestionField => v && typeof v === 'object' && 'source' in v).map(v => v.source).filter(Boolean))].join(', ') || 'Training'}
             </p>
           </div>
         </div>
@@ -777,7 +787,7 @@ const pisteSchema = z.object({
 
 const aerodromeSchema = z.object({
   nom:                  z.string().min(3, 'Minimum 3 caractères'),
-  code_oaci:            z.string().length(4, 'Exactement 4 caractères').regex(/^[A-Z]{4}$/, 'Majuscules uniquement (ex: GOBD)'),
+  code_oaci:            z.string().length(4, 'Exactement 4 caractères').regex(/^[A-Z]{4}$/, 'Majuscules uniquement (ex: GOBD)').optional(),
   type:                 z.enum(['international','national']),
   type_entite:          z.enum(['aerodrome','helistation','mixte']),
   categorie_sslia:      z.string().min(1, 'Requis'),
@@ -806,6 +816,9 @@ const aerodromeSchema = z.object({
     email:z.string().email('Email invalide').or(z.literal('')), telephone:z.string(),
   })).optional(),
 }).superRefine((data, ctx) => {
+  if (data.type_entite !== 'helistation') {
+    if (!data.code_oaci) ctx.addIssue({ code: 'custom', path: ['code_oaci'], message: 'Code OACI requis pour les aérodromes' });
+  }
   if (data.statut_certification === 'certifie') {
     if (!data.certifie_le) ctx.addIssue({ code: 'custom', path: ['certifie_le'], message: 'Date de certification requise' });
     if (!data.numero_certificat) ctx.addIssue({ code: 'custom', path: ['numero_certificat'], message: 'Numéro de certificat requis' });
@@ -872,6 +885,7 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
   // ── IA ───────────────────────────────────────────────────────────────────
   const [aiSuggestion,   setAiSuggestion]   = useState<AiSuggestion|null>(null);
   const [isEnriching,    setIsEnriching]    = useState(false);
+  const [llmError,       setLlmError]       = useState<string|null>(null);
   const [acceptedFields, setAcceptedFields] = useState<Set<string>>(new Set());
   const [iaValidated,    setIaValidated]    = useState(false);
   const enrichDebounce = useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
@@ -981,28 +995,48 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
   }, [progress, onProgressChange]);
 
   // ── Enrichissement IA ────────────────────────────────────────────────────
+  const enrichedKey = useRef<string>('')
   useEffect(() => {
-    if (aerodrome) return;
-    if (currentStep !== 1) return;
     if (!currentLatitude||!currentLongitude||isNaN(currentLatitude)||isNaN(currentLongitude)) return;
+    const key = `${currentLatitude.toFixed(4)},${currentLongitude.toFixed(4)}`
+    if (enrichedKey.current === key) return
+    // Vérifier si le LLM est disponible (ne pas réessayer si déjà marqué indisponible)
+    if (assistantAgent.isLLMAvailable() === false) {
+      setLlmError('L\'assistant IA n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+      return
+    }
+    setLlmError(null)
     clearTimeout(enrichDebounce.current);
+    setIsEnriching(true);
     enrichDebounce.current = setTimeout(async () => {
-      setIsEnriching(true);
       try {
-        // 1. Reverse geocode pour obtenir le nom du lieu
         const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLatitude}&lon=${currentLongitude}&accept-language=fr&namedetails=1&zoom=14`);
         const geoData = await geoRes.json();
         const address = geoData.address || {};
         const name = geoData.namedetails?.name || address.aerodrome || address.airport || geoData.display_name?.split(',')[0]?.trim() || '';
-        // 2. Suggérer tous les champs via l'IA
-        setAiSuggestion(await suggestAerodrome(name, currentLatitude, currentLongitude));
+        const result = await suggestAerodrome(name, currentLatitude, currentLongitude, aerodrome ? {
+          nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, region: aerodrome.region,
+          type: aerodrome.type, type_entite: aerodrome.type_entite,
+          categorie_sslia: aerodrome.categorie_sslia,
+          piste_principale: aerodrome.piste_principale, helistation: (aerodrome as any).helistation,
+          altitude: aerodrome.altitude, horaires: aerodrome.horaires,
+          maturite_sgs: aerodrome.maturite_sgs, statut_sgs: aerodrome.statut_sgs,
+          statut_certification: aerodrome.statut_certification,
+        } : undefined)
+        if (result === 'LLM_UNAVAILABLE') {
+          setLlmError('L\'assistant IA n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+          setAiSuggestion(null)
+        } else {
+          setAiSuggestion(result as AiSuggestion | null)
+        }
+        enrichedKey.current = key
       } catch {
         setAiSuggestion(null);
       }
       setIsEnriching(false);
     }, 1500);
     return () => clearTimeout(enrichDebounce.current);
-  }, [currentLatitude, currentLongitude, aerodrome, currentStep]);
+  }, [currentLatitude, currentLongitude, currentStep]);
 
   // Reset statut_certification quand le type change
   useEffect(() => {
@@ -1123,7 +1157,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
 
       if (aerodrome) {
         await updateAerodrome(aerodrome.id, { ...cleanData, type_entite:data.type_entite as TypeEntiteAerodrome, maturite_sgs:data.maturite_sgs as 1|2|3|4|5, statut_sgs:data.statut_sgs as 'complet'|'simplifie'|'non_applicable', lat:data.latitude, lon:data.longitude, updated_at:now } as any);
-        addNotification({ user_id:user?.id||'', type:'success', title:'Mis à jour', message:`${data.code_oaci} — ${data.nom}`, canal:'in_app' });
+        addNotification({ user_id:user?.id||'', type:'success', title:'Mis à jour', message:`${data.code_oaci || data.nom} — ${data.nom}`, canal:'in_app' });
       } else {
         const newId = crypto.randomUUID();
         const newAero = { id:newId, ...cleanData, lat:data.latitude, lon:data.longitude, created_at:now, updated_at:now } as unknown as Aerodrome;
@@ -1132,7 +1166,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         const ri = calculerProfilInitial(newAero);
         await setProfilRisque(newId, ri.profil);
         const entityLabel = data.type_entite==='helistation' ? 'Hélistation' : data.type_entite==='mixte' ? 'Site mixte' : 'Aérodrome';
-        addNotification({ user_id:user?.id||'', type:ri.profil.niveau==='critique'||ri.profil.niveau==='eleve'?'warning':'success', title:`${entityLabel} créé — Profil initialisé`, message:`${data.code_oaci} — ${data.nom} · ${resumeRisqueInitial(ri)}`, canal:'in_app' });
+        addNotification({ user_id:user?.id||'', type:ri.profil.niveau==='critique'||ri.profil.niveau==='eleve'?'warning':'success', title:`${entityLabel} créé — Profil initialisé`, message:`${data.code_oaci || data.nom} — ${data.nom} · ${resumeRisqueInitial(ri)}`, canal:'in_app' });
       }
       const sc = data.statut_certification;
       if (sc === 'certifie' || sc === 'homologue') {
@@ -1160,6 +1194,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
 
   const showPiste = watchTypeEntite==='aerodrome' || watchTypeEntite==='mixte';
   const showHeli  = watchTypeEntite==='helistation' || watchTypeEntite==='mixte';
+  const showCodeOaci = watchTypeEntite !== 'helistation';
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -1213,7 +1248,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         {currentStep===2 && (
           <div className="animate-fade-up">
             <SectionTitle icon={Sparkles}>Validation des suggestions IA</SectionTitle>
-            <AiSuggestionPanel suggestion={aiSuggestion} isLoading={isEnriching} acceptedFields={acceptedFields}
+            <AiSuggestionPanel suggestion={aiSuggestion} isLoading={isEnriching} llmError={llmError} acceptedFields={acceptedFields}
               onAcceptField={handleAcceptField} onAcceptAll={handleAcceptAll}
               onSkip={()=>{ setIaValidated(true); setCompletedSteps(prev=>new Set([...prev,2])); setCurrentStep(3); }}
               onToggle={handleToggle}/>
@@ -1231,12 +1266,12 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
                   {...form.register('nom')} placeholder="Aéroport International Blaise Diagne"/>
                 {form.formState.errors.nom && <span className="field-error">{form.formState.errors.nom.message}</span>}
               </div>
-              <div className="form-field">
+              {showCodeOaci && <div className="form-field">
                 <Label icon={Globe} required>Code OACI</Label>
                 <input type="text" className={`form-input w-full font-mono bg-background border-border text-foreground py-3 px-4 rounded-xl uppercase ${focusClass}`}
                   {...form.register('code_oaci',{setValueAs:(v:string)=>v.toUpperCase()})} placeholder="GOBD" maxLength={4}/>
                 {form.formState.errors.code_oaci && <span className="field-error">{form.formState.errors.code_oaci.message}</span>}
-              </div>
+              </div>}
               <div className="form-field">
                 <Label icon={Plane} required>Type</Label>
                 <select className={`form-select w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`}

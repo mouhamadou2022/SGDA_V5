@@ -2,7 +2,7 @@
 // VERSION FINALE CORRIGÉE
 // ✅ Suppression des fonctions dupliquées getFrequenceSuggerer et getTypeSuggerer
 // ✅ Utilisation de computeFinalFrequency et suggestMissionType depuis risque.ts
-// ✅ Ajout du feedback utilisateur pour l'apprentissage
+// ✅ Ajout du feedback utilisateur pour l'apprentissage (retiré — corrompait le Random Forest)
 // ✅ Correction de handleLancer (position du feedback)
 // ✅ Déplacement de enregistrerFeedbackPlanning dans le composant
 // ✅ Refonte de PreparationModal avec les classes CSS globales (.tabs, .tab, .tab-content)
@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useDebounce } from '@/hooks/useDebounce';
-import { useAppStore, Planning, Aerodrome, ProfilRisque, Surveillance, Utilisateur, Ecart } from '@/lib/store';
+import { useAppStore, Planning, Aerodrome, ProfilRisque, Surveillance, Utilisateur, Ecart, IaSuggestion } from '@/lib/store';
 import { getProcessusActifs } from '@/lib/processus';
 import {
   CalendarDays,
@@ -48,13 +48,16 @@ import {
   Loader2,
   Send,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 
 // Store
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, genererSuggestionsMaintien, type SuggestionMaintien } from '@/lib/domaines';
+import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, genererSuggestionsMaintien, verifierCompositionEquipe, type SuggestionMaintien } from '@/lib/domaines';
+
+const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 
 // Composants du module
 import { PlanningCalendarView } from './PlanningCalendarView';
@@ -65,9 +68,9 @@ import { SmartAssignment } from './SmartAssignment';
 import PlanningNPlus1 from './PlanningNPlus1';
 import PreparationModal from './PreparationModal'
 import { PlanningCard } from '@/components/cards/PlanningCard';
-import { learningEngine } from '@/lib/learningEngine';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { checklistMemory } from '@/lib/checklistMemory';
 
 // Import des fonctions risque
 import { 
@@ -76,10 +79,10 @@ import {
   computeVelocityMetrics, 
   computeProactiveAlert, 
   computeFinalFrequency,
-  genererPlanningN1
 } from '@/lib/risque';
 import { riskEngine, getEcartTriggers, type EcartTrigger } from '@/lib/riskEngine';
 import { Card } from '@/components/ui/card';
+import { predictHMM } from '@/lib/risque/hmm'
 import { SuggestionFeedback } from '@/lib/store';
 import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
 
@@ -143,12 +146,9 @@ type ViewMode = 'list' | 'calendar' | 'gantt' | 'workload' | 'assignment' | 'tab
 
 interface PlanningModuleProps {
   userRole: string;
-  setActiveModule?: (module: string) => void;
 }
 
-
-
-export default function PlanningModule({ userRole, setActiveModule }: PlanningModuleProps) {
+export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const router = useRouter();
 
   // Store
@@ -191,6 +191,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const deletePlanning = useAppStore(s => s.deletePlanning);
   const updatePlanning = useAppStore(s => s.updatePlanning);
   const submitSuggestionFeedbackStore = useAppStore(s => s.submitSuggestionFeedback);
+  const setActiveModule = useAppStore(s => s.setActiveModule);
 
   // State
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -217,10 +218,14 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const [iaQuestion, setIaQuestion] = useState('');
   const [iaAnswer, setIaAnswer] = useState('');
   const [showProactiveSuggestions, setShowProactiveSuggestions] = useState(false);
-  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'all' | 'retards'>('active');
-  const [showProcessus, setShowProcessus] = useState(false);
+  const [showIaSuggestionModal, setShowIaSuggestionModal] = useState(false);
+  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'all' | 'retards' | 'terminees'>('active');
   const certifications = useAppStore(s => s.certifications || []);
   const homologations = useAppStore(s => s.homologations || []);
+  const iaSuggestions = useAppStore(s => s.iaSuggestions || []);
+  const addIaSuggestion = useAppStore(s => s.addIaSuggestion);
+  const removeIaSuggestion = useAppStore(s => s.removeIaSuggestion);
+  const addPlanning = useAppStore(s => s.addPlanning);
   const processusActifs = useMemo(() => getProcessusActifs(certifications, homologations, surveillances, ecarts, aerodromes), [certifications, homologations, surveillances, ecarts, aerodromes]);
   const [mounted, setMounted] = useState(false);
   const suggestionsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -255,8 +260,17 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         list = list.filter(p => p.aerodrome_id === aero.id);
       }
     }
+    // Exclure les plannings est_proposition (remplacés par iaSuggestions)
+    list = list.filter(p => !p.est_proposition);
+    // Exclure TOUS les plannings certification/homologation (affichés dans l'accordéon dédié)
+    list = list.filter(p => p.type !== 'certification' && p.type !== 'homologation');
     return list;
   }, [planningsStore, selectedYear, selectedAerodrome, selectedType, selectedStatut, searchTerm, aerodromesActifs]);
+
+  // Plannings certification/homologation (affichés dans l'accordéon dédié)
+  const certHomologPlannings = useMemo(() => {
+    return planningsStore.filter(p => p.type === 'certification' || p.type === 'homologation')
+  }, [planningsStore, certifications, homologations])
 
   const aerodromesRisque = useMemo(() => {
     return aerodromesActifs.map(aero => {
@@ -287,7 +301,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           .slice(-12)
           .map(s => (s as any).score_global as number)
         if (scoresHist.length >= 3) {
-          const { predictHMM } = require('@/lib/risque/hmm')
           const hmmR = predictHMM(scoresHist)
           hmmState = hmmR.isTransitioning ? 'degrading' : hmmR.currentStateName
         }
@@ -367,6 +380,37 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
     }).filter(a => a !== null && (a.niveauAlerte !== null || (a as any).ecartTriggers?.length > 0)) as AerodromeRisque[];
   }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts, suggestionFeedbacks]);
 
+  // Pont : aerodromesRisque → iaSuggestions — alimente le bouton "Suggestions IA"
+  useEffect(() => {
+    const planningsAerodromeIds = new Set(filteredPlannings.map(p => p.aerodrome_id))
+    const suggestionAerodromeIds = new Set(iaSuggestions.map(s => s.aerodrome_id))
+    const maintenant = new Date().toISOString()
+
+    for (const aero of aerodromesRisque) {
+      if (aero.niveauAlerte !== 'critique' && aero.niveauAlerte !== 'haute') continue
+      if (suggestionAerodromeIds.has(aero.id)) continue
+      if (planningsAerodromeIds.has(aero.id)) continue
+
+      const newSuggestion: IaSuggestion = {
+        id: `ia-sug-${Date.now()}-${aero.id}`,
+        aerodrome_id: aero.id,
+        type: aero.decisionSurveillance.type === 'inopinee' ? 'programmee' as const : 'programmee' as const,
+        portee: aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean),
+        date_debut: new Date(Date.now() + 7 * 86400000).toISOString(),
+        date_fin: new Date(Date.now() + 9 * 86400000).toISOString(),
+        equipe_ids: [],
+        chef_id: '',
+        priorite: (aero.niveauAlerte === 'critique' ? 'critique' : 'haute') as Planning['priorite'],
+        objectifs: `Surveillance ${aero.decisionSurveillance.type} — ${aero.decisionSurveillance.raison}`,
+        raison: aero.decisionSurveillance.raison,
+        confiance: aero.niveauAlerte === 'critique' ? 85 : 70,
+        source: aero.niveauAlerte === 'critique' ? 'risque_critique' : 'sgs_faible',
+        created_at: maintenant,
+      }
+      addIaSuggestion(newSuggestion)
+    }
+  }, [aerodromesRisque, iaSuggestions, filteredPlannings, addIaSuggestion])
+
   // Plannings avec enrichissement risque et lien vers surveillance
   const planningsEnrichis = useMemo(() => {
     return filteredPlannings.map(planning => {
@@ -418,7 +462,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       group.plannings.push(planning);
       group.stats.total++;
       
-      if (planning.statut === 'realisee') group.stats.realisees++;
+      if (['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(planning.statut)) group.stats.realisees++;
       if (planning.statut === 'en_retard') group.stats.enRetard++;
       if (planning.statut === 'planifiee') group.stats.planifiees++;
       
@@ -447,19 +491,10 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
     suggestionAcceptee: boolean,
     raison?: string
   ) => {
-    const profil = profilsRisque[planning.aerodrome_id];
-    if (!profil) return;
-    
-    learningEngine.recordLearningFeedback(
-      planning.aerodrome_id,
-      'planning',
-      planning.type,
-      planning.id,
-      'SA',
-      70,
-      'SA',
-      raison || (suggestionAcceptee ? 'Planning validé' : 'Planning rejeté')
-    );
+    // Ancien appel à learningEngine.recordLearningFeedback retiré — 
+    // il enregistrait des données non-checklist ('planning'/'SA'/'SA')
+    // qui corrompaient l'entraînement du Random Forest.
+    // Le feedback planning sera réimplémenté via engineFeedback/decisionTracker.
     
     addNotification({
       user_id: user?.id || '',
@@ -487,6 +522,15 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   };
 
   const handleRequestExecute = (planning: Planning) => {
+    if (planning.est_proposition) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning',
+        title: 'Planning non validé',
+        message: 'Validez d\'abord ce planning via la section Planning N+1 avant de l\'exécuter.',
+        canal: 'in_app',
+      });
+      return;
+    }
     setExecuteTarget(planning);
     setExecuteConfirmOpen(true);
   };
@@ -498,6 +542,17 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   };
 
   const handleLancer = async (planning: Planning) => {
+    const store = useAppStore.getState()
+    const { addSurveillance, setChecklistHierarchy, updateSurveillance } = store;
+    if (planning.est_proposition) {
+      addNotification({
+        user_id: user?.id || '', type: 'danger',
+        title: 'Validation requise',
+        message: 'Ce planning doit d\'abord être validé via la validation N+1 avant d\'être exécuté.',
+        canal: 'in_app',
+      });
+      return;
+    }
     if ((planning as Planning & { isLancee?: boolean }).isLancee) {
       addNotification({
         user_id: user?.id || '',
@@ -518,6 +573,21 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         ? ['SGS', ...(planning.portee || [])]
         : (planning.portee || [])
 
+    // Vérifier la composition de l'équipe avant de lancer
+    const equipeIds = planning.equipe_ids || [];
+    if (equipeIds.length > 0) {
+      const { valide, erreurs } = verifierCompositionEquipe(equipeIds, utilisateurs, porteeComplete)
+      if (!valide) {
+        addNotification({
+          user_id: user?.id || '', type: 'danger',
+          title: 'Équipe incompatible',
+          message: erreurs.join('. '),
+          canal: 'in_app',
+        })
+        return
+      }
+    }
+
     const nouvelleSurveillance: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'> = {
       aerodrome_id: planning.aerodrome_id,
       planning_id: planning.id,
@@ -530,11 +600,11 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       statut: 'en_cours',
     };
 
-    const { addSurveillance, setChecklistHierarchy, updateSurveillance } = useAppStore.getState();
     const surveillance = await addSurveillance(nouvelleSurveillance);
 
     if (surveillance && surveillance.id) {
       updatePlanning(planning.id, {
+        statut: 'en_cours',
         surveillance_id: surveillance.id,
         updated_at: new Date().toISOString(),
       });
@@ -558,7 +628,6 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine' :
           planning.type === 'maintien' ? 'maintien' : 'periodique';
 
-        const store = useAppStore.getState();
         const master = store.findMasterChecklistForPortee(planning.portee || []);
         if (master) {
           const snapshot = JSON.parse(JSON.stringify(master.checklist));
@@ -573,30 +642,37 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           setChecklistHierarchy(surveillance.id, enriched);
           updateSurveillance(surveillance.id, { checklist_hierarchy: enriched });
         } else {
-          const analysesDocs = kitDocAgent.getAnalysesForPortee(planning.portee || []);
-          const analyses = analysesDocs.length > 0 ? analysesDocs : undefined;
           try {
-            const result = kitDocAgent.generateChecklist({
+            const checklistPrefix = planning.type === 'certification' ? 'CERT'
+              : planning.type === 'homologation' ? 'HMG' : 'QSC';
+            const result = await kitDocAgent.generateChecklist({
               surveillance_id: surveillance.id,
               entite_id: planning.aerodrome_id,
               type_entite: aerodrome?.type_entite ?? 'aerodrome',
               type_surveillance: typeSurv,
               portee: planning.portee || [],
               profil_risque: profil,
-              analyses_docs: analyses,
+              prefix_numero: checklistPrefix,
             });
             const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodrome) } : result;
             kitDocAgent.injectIntoStore(surveillance.id, resultFiltered);
             updateSurveillance(surveillance.id, { checklist_hierarchy: toDomaineChecklistArray(resultFiltered) });
-          } catch { /* génération silencieuse */ }
+          } catch (err) {
+              console.error('[Planning] Erreur génération IA checklist:', err);
+              addNotification({
+                user_id: user?.id || '', type: 'danger',
+                title: 'Erreur IA',
+                message: 'La génération automatique de la checklist a échoué. Vous pourrez la générer depuis la page checklist.',
+                canal: 'in_app',
+              });
+            }
         }
       }
 
       // ── Pre-remplir les items checklist avec les prédictions IA (checklistMemory) ──
       try {
-        const { checklistMemory } = await import('@/lib/checklistMemory')
-        const profil = useAppStore.getState().profilsRisque?.[planning.aerodrome_id]
-        const surv = useAppStore.getState().surveillances.find(s => s.id === surveillance.id)
+        const profil = store.profilsRisque?.[planning.aerodrome_id]
+        const surv = store.surveillances.find(s => s.id === surveillance.id)
         const hierarchy = surv?.checklist_hierarchy
 
         if (hierarchy && profil) {
@@ -656,7 +732,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             prefillItems(hierarchy)
             if (changed) {
               updateSurveillance(surveillance.id, { checklist_hierarchy: hierarchy })
-              useAppStore.getState().setChecklistHierarchy(surveillance.id, hierarchy)
+              store.setChecklistHierarchy(surveillance.id, hierarchy)
             }
           }
         }
@@ -683,10 +759,12 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       }).join(', ');
       const aeroCode = (planning as any).aeroCode || '';
       const message = `Une surveillance ${typeLabel} est programmée du ${dateDebut} au ${dateFin} sur ${aeroCode}.\nDomaines: ${domainesLabels}\nÉquipe: ${equipeNoms}\nPréparez vos documents et registres pour l'équipe ANACIM.`;
+      const aerodrome = aerodromes.find(a => a.id === planning.aerodrome_id);
       utilisateurs
         .filter(u =>
           u.aerodrome_id === planning.aerodrome_id &&
-          ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+          (ROLE_EXPLOITANT.includes(u.role ?? '') || u.role === 'guest') &&
+          u.statut !== 'inactif' && u.statut !== 'suspendu'
         )
         .forEach(u =>
           addNotification({
@@ -699,6 +777,29 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
           })
         );
     }
+
+    // ── Synchroniser surveillance_id vers la certification/homologation liée ──
+    if (planning.type === 'certification') {
+      const relatedCert = store.certifications.find(
+        c => c.aerodrome_id === planning.aerodrome_id && c.phase_active === 3 && c.statut_global === 'en_cours'
+      );
+      if (relatedCert) {
+        const currentPhase3 = (relatedCert.phases_data as any)?.phase3 || {};
+        store.updateCertification(relatedCert.id, {
+          phases_data: { ...relatedCert.phases_data, phase3: { ...currentPhase3, surveillance_id: surveillance.id } },
+        } as any);
+      }
+    } else if (planning.type === 'homologation') {
+      const relatedHomo = store.homologations.find(
+        (h: any) => h.aerodrome_id === planning.aerodrome_id && h.phase_active === 2 && h.statut_global === 'en_cours'
+      );
+      if (relatedHomo) {
+        const currentPhase2 = (relatedHomo.phases_data as any)?.phase2 || {};
+        store.updateHomologation(relatedHomo.id, {
+          phases_data: { ...relatedHomo.phases_data, phase2: { ...currentPhase2, surveillance_id: surveillance.id } },
+        } as any);
+      }
+    }
     // ─────────────────────────────────────────────────────────────
 
     // Naviguer vers la page de la surveillance (pas directement la checklist)
@@ -709,6 +810,94 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
     setEditingPlanning(planning);
     startTransition(() => setFormOpen(true));
   };
+
+  // Valider une suggestion IA → crée le planning
+  const handleValiderSuggestion = useCallback(async (suggestion: IaSuggestion) => {
+    const now = new Date().toISOString()
+    const planning: Planning = {
+      id: crypto.randomUUID(),
+      aerodrome_id: suggestion.aerodrome_id,
+      type: suggestion.type,
+      date_debut: suggestion.date_debut,
+      date_fin: suggestion.date_fin,
+      portee: suggestion.portee,
+      equipe_ids: suggestion.equipe_ids,
+      chef_id: suggestion.chef_id,
+      statut: 'planifiee',
+      priorite: suggestion.priorite,
+      objectifs: suggestion.objectifs,
+      est_proposition: false,
+      annee_cible: new Date().getFullYear(),
+      created_at: now,
+      updated_at: now,
+    }
+    try {
+      await addPlanning(planning)
+      removeIaSuggestion(suggestion.id)
+      submitSuggestionFeedbackStore({
+        aerodrome_id: suggestion.aerodrome_id,
+        suggestion_type: 'audit_complet',
+        mission_type_suggeree: suggestion.type,
+        etait_pertinent: true,
+        date_suggestion: suggestion.created_at,
+        date_feedback: now,
+      })
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Planning créé',
+        message: `Planning ${suggestion.type.replace(/_/g, ' ')} créé à partir de la suggestion IA.`,
+        canal: 'in_app',
+      })
+    } catch (e) {
+      console.error('Erreur validation suggestion:', e)
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Erreur',
+        message: 'Impossible de créer le planning.',
+        canal: 'in_app',
+      })
+    }
+  }, [addPlanning, removeIaSuggestion, submitSuggestionFeedbackStore, addNotification, user])
+
+  // Ajuster une suggestion → ouvre le formulaire de planning pré-rempli
+  const handleAjusterSuggestion = useCallback((suggestion: IaSuggestion) => {
+    setEditingPlanning({
+      id: crypto.randomUUID(),
+      aerodrome_id: suggestion.aerodrome_id,
+      type: suggestion.type,
+      date_debut: suggestion.date_debut,
+      date_fin: suggestion.date_fin,
+      portee: suggestion.portee,
+      equipe_ids: suggestion.equipe_ids,
+      chef_id: suggestion.chef_id,
+      statut: 'planifiee',
+      priorite: suggestion.priorite,
+      objectifs: suggestion.objectifs,
+      est_proposition: false,
+      annee_cible: new Date().getFullYear(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    setFormOpen(true)
+    setShowIaSuggestionModal(false)
+  }, [setEditingPlanning, setFormOpen])
+
+  // Rejeter une suggestion → enregistre le feedback et la supprime
+  const handleRejeterSuggestion = useCallback((suggestion: IaSuggestion, motif?: string) => {
+    const now = new Date().toISOString()
+    removeIaSuggestion(suggestion.id)
+    submitSuggestionFeedbackStore({
+      aerodrome_id: suggestion.aerodrome_id,
+      suggestion_type: 'audit_complet',
+      mission_type_suggeree: suggestion.type,
+      etait_pertinent: false,
+      raison_inexactitude: motif || 'rejetée',
+      date_suggestion: suggestion.created_at,
+      date_feedback: now,
+    })
+  }, [removeIaSuggestion, submitSuggestionFeedbackStore])
 
   // Appliquer les suggestions IA & Profil pour un planning donné
   const handleAppliquerSuggestionsGlobal = (planning: { aerodrome_id: string; id?: string }) => {
@@ -737,8 +926,11 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         domaines.push(mapping[key] || key);
       }
     });
-    domaines.sort((a, b) => (profil as unknown as Record<string, number>)['c' + (a === 'SGS' ? '1' : a === 'PAC' ? '2' : a === 'PHY' ? '3' : a === 'Ecarts' ? '4' : '5')] - 
-                              (profil as unknown as Record<string, number>)['c' + (b === 'SGS' ? '1' : b === 'PAC' ? '2' : b === 'PHY' ? '3' : b === 'Ecarts' ? '4' : '5')]);
+    const DOMAINE_TO_CKEY: Record<string, string> = { SGS: 'c1', PAC: 'c2', PHY: 'c3', Ecarts: 'c4', SLI: 'c5' }
+    domaines.sort((a, b) =>
+      ((profil as unknown as Record<string, number>)[DOMAINE_TO_CKEY[a] || 'c3'] ?? 0) -
+      ((profil as unknown as Record<string, number>)[DOMAINE_TO_CKEY[b] || 'c3'] ?? 0)
+    );
     if (domaines.length > 3) domaines.length = 3;
 
     // Suggérer la priorité
@@ -802,17 +994,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       .slice(0, 3)
       .map(u => u.id);
 
-    // Enregistrer le feedback pour apprentissage
-    learningEngine.recordLearningFeedback(
-      planning.aerodrome_id,
-      domaines[0] || 'SGS',
-      '',
-      `global-suggestion-${planning.id || Date.now()}`,
-      'SA' as const,
-      90,
-      'SA' as const,
-      `Suggestion IA appliquée: ${type}, ${priorite}, domaines: ${domaines.join(', ')}`
-    );
+    // Ancien appel à learningEngine.recordLearningFeedback retiré — corrompait le Random Forest
 
     // Submit SuggestionFeedback pour alimenter le ML Agent
     const suggestionTypeMap: Record<string, 'surveillance_pac' | 'surveillance_ecarts' | 'audit_complet' | 'surveillance_mixte'> = {
@@ -897,9 +1079,9 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
     setFeedbackTarget(null);
   };
 
-  const handleView = (planning: Planning & { surveillanceId?: string }) => {
-    if (planning.surveillanceId) {
-      router.push(`/surveillance/${planning.surveillanceId}`);
+  const handleView = (planning: Planning) => {
+    if (planning.surveillance_id) {
+      router.push(`/surveillance/${planning.surveillance_id}`);
     }
   };
 
@@ -939,7 +1121,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         p.profilScore || '-',
         p.profilTendance || '-',
         p.nbEcartsCritiques || '0',
-        p.aDesExemptions ? 'Oui' : 'Não',
+        p.aDesExemptions ? 'Oui' : 'Non',
       ];
     });
 
@@ -1019,85 +1201,100 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
   const hasExemptionsAnywhere = Array.from(exemptionsActivesParAerodrome.values()).some(arr => arr.length > 0);
   const hasMesuresEnRetard = aerodromesRisque.some(a => a.aDesMesuresEnRetard);
 
-  const DeleteConfirmModal = () => {
-    if (!deleteDialogOpen) return null;
-    return createPortal(
-      <div className="modal-overlay" data-role={userRole} onClick={() => setDeleteDialogOpen(false)}>
-        <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-              <div className="modal-title flex items-center gap-2 text-danger">
-                <AlertCircle className="w-5 h-5" />
-                Confirmer la suppression
-              </div>
-              <button className="modal-close" onClick={() => setDeleteDialogOpen(false)}>
-                <X className="w-4 h-4" />
-              </button>
+/* ───────── Composants extraits (hors du corps du composant parent) ───────── */
+
+function ModaleSuppression({ deleteDialogOpen, setDeleteDialogOpen, confirmDelete, userRole }: {
+  deleteDialogOpen: boolean, setDeleteDialogOpen: (v: boolean) => void,
+  confirmDelete: () => void, userRole: string
+}) {
+  if (!deleteDialogOpen) return null;
+  return createPortal(
+    <div className="modal-overlay" data-role={userRole} onClick={() => setDeleteDialogOpen(false)}>
+      <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+            <div className="modal-title flex items-center gap-2 text-danger">
+              <AlertCircle className="w-5 h-5" />
+              Confirmer la suppression
             </div>
-            <div className="modal-body py-6 px-5">
-              <p className="text-foreground">Êtes-vous sûr de vouloir supprimer ce planning ?</p>
-              <p className="text-small text-muted-foreground mt-2">Cette action est irréversible.</p>
-            </div>
-            <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-              <button className="btn btn-secondary" onClick={() => setDeleteDialogOpen(false)}>Annuler</button>
-              <button className="btn btn-danger" onClick={confirmDelete}>Supprimer</button>
-            </div>
+            <button className="modal-close" onClick={() => setDeleteDialogOpen(false)}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="modal-body py-6 px-5">
+            <p className="text-foreground">Êtes-vous sûr de vouloir supprimer ce planning ?</p>
+            <p className="text-small text-muted-foreground mt-2">Cette action est irréversible.</p>
+          </div>
+          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
+            <button className="btn btn-secondary" onClick={() => setDeleteDialogOpen(false)}>Annuler</button>
+            <button className="btn btn-danger" onClick={confirmDelete}>Supprimer</button>
           </div>
         </div>
-      </div>,
-      document.body
-    );
-  };
+      </div>
+    </div>,
+    document.body
+  );
+}
 
-  const ExecuteConfirmModal = () => {
-    if (!executeConfirmOpen || !executeTarget) return null;
-    const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
-    return createPortal(
-      <div className="modal-overlay" data-role={userRole} onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-        <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-              <div className="modal-title flex items-center gap-2 text-role-primary">
-                <PlayCircle className="w-5 h-5" />
-                Lancer la surveillance
-              </div>
-              <button className="modal-close" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-                <X className="w-4 h-4" />
-              </button>
+function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute }: {
+  executeConfirmOpen: boolean, executeTarget: Planning | null,
+  setExecuteConfirmOpen: (v: boolean) => void, setExecuteTarget: (v: Planning | null) => void,
+  aerodromesActifs: Aerodrome[], aerodromes: Aerodrome[], userRole: string,
+  handleConfirmExecute: () => void
+}) {
+  if (!executeConfirmOpen || !executeTarget) return null;
+  const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
+  return createPortal(
+    <div className="modal-overlay" data-role={userRole} onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
+      <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+            <div className="modal-title flex items-center gap-2 text-role-primary">
+              <PlayCircle className="w-5 h-5" />
+              Lancer la surveillance
             </div>
-            <div className="modal-body py-6 px-5 space-y-4">
-              <div className="p-3 bg-role-primary-soft rounded-lg">
-                <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
-                <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
-                <p className="text-sm font-medium mt-1">Période: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
-              </div>
-              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="flex items-start gap-2">
-                  <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Vous allez être redirigé vers le module Surveillance</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                      La surveillance sera créée automatiquement. Vous pourrez ensuite rédiger la checklist, identifier les écarts et produire le rapport.
-                    </p>
-                  </div>
+            <button className="modal-close" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="modal-body py-6 px-5 space-y-4">
+            <div className="p-3 bg-role-primary-soft rounded-lg">
+              <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
+              <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
+              <p className="text-sm font-medium mt-1">Période: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
+            </div>
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Vous allez être redirigé vers le module Surveillance</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    La surveillance sera créée automatiquement. Vous pourrez ensuite rédiger la checklist, identifier les écarts et produire le rapport.
+                  </p>
                 </div>
               </div>
             </div>
-            <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-              <button className="btn btn-secondary" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>Annuler</button>
-              <button className="btn btn-primary" onClick={handleConfirmExecute}>
-                <PlayCircle className="w-4 h-4 mr-1" />
-                Continuer vers Surveillance
-              </button>
-            </div>
+          </div>
+          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
+            <button className="btn btn-secondary" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>Annuler</button>
+            <button className="btn btn-primary" onClick={handleConfirmExecute}>
+              <PlayCircle className="w-4 h-4 mr-1" />
+              Continuer vers Surveillance
+            </button>
           </div>
         </div>
-      </div>,
-      document.body
-    );
-  };
+      </div>
+    </div>,
+    document.body
+  );
+}
 
-  const FormModal = () => (
+function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPlanning, userRole }: {
+  formOpen: boolean, setFormOpen: (v: boolean) => void,
+  editingPlanning: Planning | null, setEditingPlanning: (v: Planning | null) => void,
+  userRole: string
+}) {
+  return (
     <FormShell
       open={!!formOpen}
       onClose={() => setFormOpen(false)}
@@ -1113,6 +1310,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       />
     </FormShell>
   );
+}
 
   if (!mounted) return null;
 
@@ -1257,86 +1455,31 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
               })()}
             </div>
             
-            {/* Bouton Suggestions IA — animé selon la sévérité des déclencheurs */}
+            {/* Bouton Suggestions IA — badge des suggestions en attente */}
             {(() => {
-              const totalCritiques    = aerodromesRisque.reduce((sum, a) => sum + (a.nbTriggersCritiques || 0), 0);
-              const totalHautes       = aerodromesRisque.reduce((sum, a) => sum + (a.nbTriggersHautes    || 0), 0);
-              const totalPacEnAttente = aerodromesRisque.filter(a => a.hasPacAccepteEnAttente).length;
-              const badgeCount        = totalCritiques + totalHautes + totalPacEnAttente;
+              const badgeCount = iaSuggestions.length;
+              const aDesNouvelles = badgeCount > 0;
 
-              // ── états ────────────────────────────────────────────────────────
-              // ouvert   : panneau IA déjà visible      → bleu stable, pas de pulse
-              // critique : triggers critiques ou PAC    → rouge, double ring-ping + pulse
-              // eleve    : triggers hauts seulement     → orange, ring-ping + pulse
-              // calme    : aucun déclencheur urgent     → secondaire, pas d'animation
-              const urgent  = !showProactiveSuggestions && (totalCritiques > 0 || totalPacEnAttente > 0);
-              const warning = !showProactiveSuggestions && !urgent && totalHautes > 0;
-              const ouvert  = showProactiveSuggestions;
-
-              const badge = badgeCount > 0 && (
-                <span className={`badge text-xs ${urgent ? 'danger' : 'warning'}`}>
-                  {badgeCount}
-                </span>
-              );
-
-              const titleText = urgent
-                ? `${totalCritiques} urgence(s) critique(s) · ${totalPacEnAttente} PAC en attente — cliquer pour traiter`
-                : warning
-                ? `${totalHautes} alerte(s) haute(s) — cliquer pour voir les suggestions`
-                : ouvert
-                ? 'Fermer le panneau de suggestions'
-                : 'Suggestions IA & Profil';
-
-              /* ── État CRITIQUE : ring-ping rouge + pulse bouton ── */
-              if (urgent) return (
+              if (aDesNouvelles) return (
                 <div className="relative inline-flex shrink-0">
-                  <span className="absolute inset-0 rounded-md animate-ping bg-danger/35 pointer-events-none" />
+                  <span className="absolute inset-0 rounded-md animate-ping bg-primary/35 pointer-events-none" />
                   <button
-                    onClick={() => setShowProactiveSuggestions(!showProactiveSuggestions)}
-                    className="btn btn-danger gap-2 animate-pulse relative"
-                    title={titleText}
+                    onClick={() => setShowIaSuggestionModal(true)}
+                    className="btn btn-primary gap-2 animate-pulse relative"
+                    title={`${badgeCount} suggestion(s) IA en attente de validation`}
                   >
                     <Brain className="w-4 h-4" />
                     <span>Suggestions IA</span>
-                    {badge}
+                    <span className="badge text-xs danger">{badgeCount}</span>
                   </button>
                 </div>
               );
 
-              /* ── État ÉLEVÉ : ring-ping orange + pulse bouton ── */
-              if (warning) return (
-                <div className="relative inline-flex shrink-0">
-                  <span className="absolute inset-0 rounded-md animate-ping bg-warning/30 pointer-events-none" />
-                  <button
-                    onClick={() => setShowProactiveSuggestions(!showProactiveSuggestions)}
-                    className="btn btn-warning gap-2 animate-pulse relative"
-                    title={titleText}
-                  >
-                    <Brain className="w-4 h-4" />
-                    <span>Suggestions IA</span>
-                    {badge}
-                  </button>
-                </div>
-              );
-
-              /* ── État OUVERT : bleu stable ── */
-              if (ouvert) return (
-                <button
-                  onClick={() => setShowProactiveSuggestions(false)}
-                  className="btn btn-primary gap-2"
-                  title={titleText}
-                >
-                  <Brain className="w-4 h-4" />
-                  <span>Suggestions IA</span>
-                </button>
-              );
-
-              /* ── État CALME : secondaire, pas d'animation ── */
               return (
                 <button
-                  onClick={() => setShowProactiveSuggestions(true)}
-                  className="btn btn-secondary gap-2"
-                  title={titleText}
+                  onClick={() => {}}
+                  className="btn btn-secondary gap-2 opacity-60"
+                  title="Aucune suggestion en attente"
                 >
                   <Brain className="w-4 h-4" />
                   <span>Suggestions IA</span>
@@ -1429,22 +1572,19 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
               <AlertTriangle className="w-4 h-4" />
               <span>Retards</span>
             </button>
+            <button
+              onClick={() => setVisibilityFilter('terminees')}
+              className={visibilityFilter === 'terminees' ? 'active' : ''}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Terminées</span>
+            </button>
           </div>
 
           <button onClick={resetFilters} className="action-button" title="Réinitialiser les filtres">
             <X className="w-4 h-4" />
           </button>
 
-          {processusActifs.length > 0 && (
-            <button
-              onClick={() => setShowProcessus(!showProcessus)}
-              className={`filter-chip ${showProcessus ? 'active' : ''}`}
-            >
-              <Shield className="w-3 h-3 mr-1" />
-              Certification / Homologation
-              <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold bg-primary text-white">{processusActifs.length}</span>
-            </button>
-          )}
 
           <button onClick={handleExportCSV} className="action-button" title="Export CSV">
             <Download className="w-4 h-4" />
@@ -1474,13 +1614,79 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             </button>
           </div>
           {iaAnswer && (
-            <div className="mt-2 p-2 bg-primary-soft/50 rounded-lg text-sm">
-              <Brain className="w-3 h-3 inline mr-1 text-role-primary" />
-              {iaAnswer}
+            <div className="mt-2 p-3 bg-primary-soft/50 rounded-lg border border-primary/20">
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <span className="flex items-center gap-1 text-xs font-medium text-role-primary">
+                  <Brain className="w-3 h-3" /> Réponse IA
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setIaAnswer(''); setIaQuestion(''); }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-role-primary bg-role-primary-soft hover:bg-role-primary-soft/80 transition-colors">
+                    <RefreshCw className="w-3 h-3" /> Nouvelle question
+                  </button>
+                  <button onClick={() => setIaAnswer('')}
+                    className="action-button w-6 h-6 p-0" title="Fermer">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{iaAnswer}</p>
             </div>
           )}
         </div>
       </Card>
+
+      {/* Certifications & Homologations (regroupées séparément de la surveillance continue) */}
+      {certHomologPlannings.length > 0 && (
+        <AccordionGroup spacing="sm">
+          {['certification', 'homologation'].map(type => {
+            const items = certHomologPlannings.filter(p => p.type === type)
+            if (items.length === 0) return null
+            return (
+              <AccordionSection
+                key={type}
+                icon={<Shield className="w-4 h-4 !text-white" />}
+                title={
+                  <span className="text-foreground font-medium">
+                    {type === 'certification' ? 'Certifications' : 'Homologations'}
+                  </span>
+                }
+                badges={<span className="badge outline">{items.length} planning(s)</span>}
+                defaultOpen={true}
+              >
+                {items.map(planning => {
+                  const aero = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id)
+                  const survLiee = surveillances.find(s => s.planning_id === planning.id)
+                  return (
+                    <div key={planning.id} className="space-y-1">
+                      <PlanningCard
+                        planning={planning}
+                        aerodrome={aero}
+                        isLancee={!!survLiee}
+                        surveillanceId={survLiee?.id}
+                        onPrepare={() => handlePrepare(planning)}
+                        onExecute={() => handleRequestExecute(planning)}
+                        onView={() => handleView(planning)}
+                        onEdit={() => handleEdit(planning)}
+                        onDelete={() => handleDelete(planning)}
+                        userRole={userRole}
+                        onSuggestionIA={(p) => {
+                          setEditingPlanning(p);
+                          setFormOpen(true);
+                          if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
+                          suggestionsTimerRef.current = setTimeout(() => {
+                            handleAppliquerSuggestionsGlobal(p);
+                          }, 500);
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </AccordionSection>
+            )
+          })}
+        </AccordionGroup>
+      )}
 
       {/* Vue Liste */}
       {viewMode === 'list' && (
@@ -1492,7 +1698,7 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
             return (
               <AccordionSection
                 key={aerodrome.id}
-                icon={<MapPin className="w-4 h-4 text-white" />}
+                icon={<MapPin className="w-4 h-4 !text-white" />}
                 title={
                   <span>
                     <span className="code-oaci-badge">{aerodrome.code_oaci}</span>
@@ -1593,28 +1799,21 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                   if (visibilityFilter === 'all') return true
                   if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
                   if (visibilityFilter === 'retards') return p.statut === 'en_retard' || (p.statut === 'planifiee' && p.date_debut && new Date(p.date_debut) < new Date())
+                  if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
+                  return true
+                }).length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <p className="text-sm">Aucun planning {visibilityFilter === 'retards' ? 'en retard' : visibilityFilter === 'terminees' ? 'termine' : ''}</p>
+                  </div>
+                ) : (
+                  aeroPlannings.filter((p: any) => {
+                    if (visibilityFilter === 'all') return true
+                    if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
+                    if (visibilityFilter === 'retards') return p.statut === 'en_retard' || (p.statut === 'planifiee' && p.date_debut && new Date(p.date_debut) < new Date())
+                    if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
                   return true
                 }).map((planning: any) => (
                   <div key={planning.id} className="space-y-1">
-                    {showProcessus && (() => {
-                      const pr = processusActifs.find(p => p.aerodrome_id === planning.aerodrome_id && p.processus_type === planning.type);
-                      return pr ? (
-                        <div className="flex items-center gap-2 px-1">
-                          <span className={`badge ${pr.processus_type === 'certification' ? 'primary' : 'info'} text-xs`}>
-                            {pr.phase_label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {Math.round(pr.progression)}%
-                          </span>
-                          <div className="progress w-16 h-1.5 ml-1">
-                            <div className="progress-bar" style={{ width: `${pr.progression}%` }} />
-                          </div>
-                          <button className="action-button text-xs text-role-primary hover:underline" onClick={() => setActiveModule?.(pr.processus_type)}>
-                            <span>Voir le processus →</span>
-                          </button>
-                        </div>
-                      ) : null
-                    })()}
                    <PlanningCard
                      key={planning.id}
                      planning={planning}
@@ -1629,10 +1828,8 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                      userRole={userRole}
                      profilScore={planning.profilScore}
                       onSuggestionIA={(p) => {
-                        // Ouvrir le formulaire avec suggestions IA
                         setEditingPlanning(p);
                         setFormOpen(true);
-                         // Déclencher la suggestion après ouverture
                          if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
                          suggestionsTimerRef.current = setTimeout(() => {
                            handleAppliquerSuggestionsGlobal(p);
@@ -1640,7 +1837,8 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                       }}
                     />
                   </div>
-                ))}
+                ))
+                )}
               </AccordionSection>
             );
           })}
@@ -1654,272 +1852,93 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
         </div>
       )}
 
-      {/* Suggestions IA & Profil - Panneau de déclenchement */}
-      {showProactiveSuggestions && createPortal(
-        <div className="modal-overlay" data-role={userRole} onClick={() => setShowProactiveSuggestions(false)}>
-          <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
-        <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary">
-      <div className="modal-header border-b border-border bg-role-primary-soft">
-        <div className="flex items-center gap-3 flex-1">
-          <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center text-white">
-            <Brain className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-foreground">Suggestions IA</h2>
-            <p className="text-xs text-muted-foreground">Déclencheurs PAC, Écarts & Profil de risque</p>
-          </div>
-        </div>
-        <button onClick={() => setShowProactiveSuggestions(false)} className="btn btn-secondary gap-2">
-          <X className="h-4 w-4" />Fermer
-        </button>
-      </div>
-      <div className="p-6">
-          <Card
-            icon={<Brain className="w-5 h-5 text-primary" />}
-            title="Suggestions IA – Déclencheurs PAC & Écarts"
-            badge={
-              <button onClick={() => setShowProactiveSuggestions(false)} className="modal-close">
-                <X className="w-4 h-4" />
-              </button>
-            }
-            className="border-primary mb-6 animate-fade-up"
-          >
-            <div className="space-y-4">
-              {aerodromesRisque
-                .filter(a => (a.ecartTriggers && a.ecartTriggers.length > 0) || a.niveauAlerte === 'critique' || a.niveauAlerte === 'haute')
-                .sort((a, b) => {
-                  const order: Record<string, number> = { 'critique': 0, 'haute': 1, 'moyenne': 2 };
-                  return (a.nbTriggersCritiques || 0) - (b.nbTriggersCritiques || 0) || (order[a.niveauAlerte as string] ?? 3) - (order[b.niveauAlerte as string] ?? 3);
-                })
-                .map((aero: AerodromeRisque) => (
-                  <AccordionSection
-                    key={aero.id}
-                    icon={<Brain className="w-4 h-4 text-white" />}
-                    title={
-                      <span>
-                        <span className="code-oaci-badge">{aero.code_oaci}</span>
-                        <span className="ml-2 font-medium">{aero.nom}</span>
-                      </span>
-                    }
-                    badges={
-                      <>
-                        {aero.nbTriggersCritiques > 0 && (
-                          <span className="badge danger animate-pulse text-xs">{aero.nbTriggersCritiques} urgence(s)</span>
-                        )}
-                        {aero.nbTriggersHautes > 0 && (
-                          <span className="badge warning text-xs">{aero.nbTriggersHautes} alerte(s)</span>
-                        )}
-                        {aero.hasPacAccepteEnAttente && (
-                          <span className="badge primary text-xs">PAC à vérifier</span>
-                        )}
-                      </>
-                    }
-                    className={
-                      aero.nbTriggersCritiques > 0 ? 'border-l-4 border-l-danger' :
-                      aero.nbTriggersHautes > 0 ? 'border-l-4 border-l-warning' :
-                      'border-l-4 border-l-role-primary'
-                    }
-                  >
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Profil de risque</p>
-                        <p className={`text-2xl font-bold ${aero.profilScore < 30 ? 'text-danger' : aero.profilScore < 60 ? 'text-warning' : 'text-success'}`}>
-                          {aero.profilScore || 'N/A'}/100
-                        </p>
-                        {aero.profilTendance && (
-                          <p className="text-xs text-muted-foreground">Tendance: {aero.profilTendance}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Type suggéré</p>
-                        <p className="font-medium capitalize">
-                          {aero.decisionSurveillance?.type === 'maintien' ? 'Maintien' :
-                           aero.decisionSurveillance?.type === 'inopine' ? 'Inopinée' :
-                           aero.decisionSurveillance?.type === 'periodique' ? 'Périodique' : aero.decisionSurveillance?.type || 'N/A'}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">{aero.decisionSurveillance?.raison}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Délai: {aero.decisionSurveillance?.delaiRecommandation || '-'}j</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Fréquence</p>
-                        <p className="font-medium">{aero.frequenceSuggestion?.label || 'N/A'}</p>
-                      </div>
-                    </div>
+      {/* Modal Suggestions IA — propositions de surveillance à valider */}
+      {showIaSuggestionModal && createPortal(
+        <div className="modal-overlay" data-role={userRole} onClick={() => setShowIaSuggestionModal(false)}>
+          <div className="modal-content max-w-4xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+            <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary">
+              <div className="modal-header border-b border-border bg-role-primary-soft">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center !text-white">
+                    <Brain className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-foreground">Suggestions IA</h2>
+                    <p className="text-xs text-muted-foreground">{iaSuggestions.length} proposition(s) de surveillance en attente de validation</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowIaSuggestionModal(false)} className="btn btn-secondary gap-2">
+                  <X className="h-4 w-4" />Fermer
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                {iaSuggestions.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>Aucune suggestion IA en attente.</p>
+                  </div>
+                )}
+                {iaSuggestions.map((s) => {
+                  const aerodrome = aerodromesActifs.find(a => a.id === s.aerodrome_id)
+                  const sourceLabel = s.source === 'risque_critique' ? 'Score critique'
+                    : s.source === 'sgs_absent' ? 'SGS absent'
+                    : s.source === 'sgs_faible' ? 'SGS insuffisant'
+                    : s.source === 'certification_fraiche' ? 'Certification obtenue'
+                    : s.source === 'homologation_fraiche' ? 'Homologation obtenue'
+                    : s.source
+                  const prioriteColor = s.priorite === 'critique' ? 'danger' : s.priorite === 'haute' ? 'warning' : 'primary'
 
-                    {/* Création rapide pour cas critique */}
-                    {aero.decisionSurveillance?.priorite === 'critique' && (
-                      <div className="flex items-center gap-3 mb-4 p-2 bg-danger/5 border border-danger/20 rounded-lg">
-                        <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
-                        <span className="text-xs text-danger font-medium flex-1">
-                          Action immédiate requise — créer une surveillance d'urgence maintenant
-                        </span>
+                  return (
+                    <div key={s.id} className="border border-border rounded-xl p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between gap-4 mb-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="code-oaci-badge">{aerodrome?.code_oaci || s.aerodrome_id}</span>
+                          <span className="badge text-xs capitalize">{s.type.replace(/_/g, ' ')}</span>
+                          <span className={`badge text-xs ${prioriteColor}`}>{s.priorite}</span>
+                          <span className="badge outline text-xs">{Math.round(s.confiance * 100)}% confiance</span>
+                        </div>
+                        <span className="badge neutral text-xs shrink-0">{sourceLabel}</span>
+                      </div>
+                      <p className="text-sm font-medium mb-1">{s.objectifs}</p>
+                      <p className="text-xs text-muted-foreground mb-3">{s.raison}</p>
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {s.portee.map(d => (
+                          <span key={d} className="badge outline text-xs">{d}</span>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 flex-wrap">
+                        <span>Début: {new Date(s.date_debut).toLocaleDateString('fr-FR')}</span>
+                        <span>Fin: {new Date(s.date_fin).toLocaleDateString('fr-FR')}</span>
+                        {s.equipe_ids.length > 0 && <span>Équipe: {s.equipe_ids.length} membre(s)</span>}
+                      </div>
+                      <div className="flex items-center gap-2 pt-2 border-t border-border">
                         <button
-                          onClick={() => {
-                            setEditingPlanning({
-                              id: '', aerodrome_id: aero.id,
-                              type: 'audit_complet',
-                              date_debut: '', date_fin: '',
-                              portee: aero.decisionSurveillance.domainesCibles,
-                              equipe_ids: [], chef_id: '',
-                              statut: 'planifiee',
-                              priorite: 'critique',
-                              objectifs: aero.decisionSurveillance.raison,
-                              est_proposition: true,
-                              annee_cible: selectedYear,
-                              created_at: new Date().toISOString(),
-                              updated_at: new Date().toISOString(),
-                            });
-                            setFormOpen(true);
-                            if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-                            suggestionsTimerRef.current = setTimeout(() => handleAppliquerSuggestionsGlobal({ aerodrome_id: aero.id }), 500);
-                          }}
-                          className="btn btn-sm btn-danger gap-1 shrink-0"
+                          onClick={() => handleValiderSuggestion(s)}
+                          className="btn btn-sm btn-success gap-1"
                         >
-                          <PlayCircle className="w-3.5 h-3.5" />
-                          Créer maintenant
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Valider
+                        </button>
+                        <button
+                          onClick={() => handleAjusterSuggestion(s)}
+                          className="btn btn-sm btn-primary gap-1"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          Ajuster
+                        </button>
+                        <button
+                          onClick={() => handleRejeterSuggestion(s)}
+                          className="btn btn-sm btn-outline gap-1 text-danger border-danger/30 hover:bg-danger/5"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Rejeter
                         </button>
                       </div>
-                    )}
-
-                    <div className="space-y-2">
-                      {aero.ecartTriggers?.slice(0, 10).map((trigger) => {
-                        const typeLabel = trigger.typeSurveillanceSuggere === 'mise_oeuvre_pac' ? 'Vérification PAC' : trigger.typeSurveillanceSuggere === 'suivi_ecarts' ? 'Suivi écarts' : 'Audit complet';
-                        const getUrgenceVariant = trigger.urgence === 'critique' ? 'level' as const : trigger.urgence === 'haute' ? 'level' as const : 'role' as const;
-                        const getUrgenceLevelColor = trigger.urgence === 'critique' ? 'danger' as const : trigger.urgence === 'haute' ? 'warning' as const : undefined;
-                        const getUrgenceBg = trigger.urgence === 'critique' ? 'bg-danger/5' : trigger.urgence === 'haute' ? 'bg-warning/5' : 'bg-muted/30';
-                        const statutBadge = trigger.ecart.statut === 'pac_attendu' ? 'badge warning' : trigger.ecart.statut === 'pac_accepte' ? 'badge primary' : trigger.ecart.statut === 'preuves_soumises' ? 'badge success' : 'badge outline';
-
-                        return (
-                          <Card key={trigger.ecart.id} variant={getUrgenceVariant} levelColor={getUrgenceLevelColor} className={`${getUrgenceBg} [&>div:last-child]:p-3`}>
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-mono text-sm font-semibold">{trigger.ecart.reference}</span>
-                                  <span className={`badge text-xs ${statutBadge}`}>{trigger.ecart.statut.replace(/_/g, ' ')}</span>
-                                  <span className="badge outline text-xs">OACI {trigger.celluleOACI}</span>
-                                  {trigger.badgeLabel && (
-                                    <span className={`text-xs font-medium ${trigger.urgence === 'critique' ? 'text-danger' : trigger.urgence === 'haute' ? 'text-warning' : 'text-muted-foreground'}`}>
-                                      {trigger.badgeLabel}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className={`text-xs px-1.5 py-0.5 rounded ${trigger.predictionResultat === 'SA' ? 'bg-success/20 text-success' : trigger.predictionResultat === 'NS' ? 'bg-danger/20 text-danger' : 'bg-warning/20 text-warning'}`}>
-                                    {trigger.predictionResultat} ({trigger.predictionConfiance}%)
-                                  </span>
-                                </div>
-                              </div>
-                              <p className="text-xs text-muted-foreground mb-2">{trigger.justification}</p>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">→</span>
-                                <span className="text-xs font-medium">{typeLabel}</span>
-                                <button
-                                  onClick={() => {
-                                    setEditingPlanning({
-                                      id: '', aerodrome_id: aero.id,
-                                      type: trigger.typeSurveillanceSuggere === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : trigger.typeSurveillanceSuggere === 'suivi_ecarts' ? 'suivi_ecarts' : 'audit_complet',
-                                      date_debut: '', date_fin: '', portee: [], equipe_ids: [], chef_id: '',
-                                      statut: 'planifiee', priorite: trigger.urgence === 'critique' ? 'critique' : trigger.urgence === 'haute' ? 'haute' : 'moyenne',
-                                      objectifs: `Surveillance déclenchée: ${trigger.justification}`,
-                                      est_proposition: true, annee_cible: selectedYear,
-                                      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-                                    });
-                                    setFormOpen(true);
-                                    if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-                                    suggestionsTimerRef.current = setTimeout(() => handleAppliquerSuggestionsGlobal({ aerodrome_id: aero.id }), 500);
-                                    submitSuggestionFeedback(aero.id, trigger.typeSurveillanceSuggere === 'mise_oeuvre_pac' ? 'surveillance_pac' : 'surveillance_ecarts', trigger.typeSurveillanceSuggere, true, undefined, [trigger.ecart.id]);
-                                  }}
-                                  className="btn btn-sm btn-primary gap-1"
-                                >
-                                  <PlayCircle className="w-3 h-3" />
-                                  Planifier
-                                </button>
-                                <button
-                                  onClick={() => openFeedbackModal(aero.id, trigger.typeSurveillanceSuggere === 'mise_oeuvre_pac' ? 'surveillance_pac' : 'surveillance_ecarts', trigger.typeSurveillanceSuggere, [trigger.ecart.id])}
-                                  className="btn btn-sm btn-outline gap-1"
-                                >
-                                  <X className="w-3 h-3" />
-                                  Ignorer
-                                </button>
-                              </div>
-                          </Card>
-                        );
-                      })}
                     </div>
-
-                    {/* Suggestions de maintien */}
-                    {aero.suggestionsMaintien && aero.suggestionsMaintien.length > 0 && (
-                      <div className="mb-4">
-                        <p className="text-sm font-medium mb-2 flex items-center gap-2">
-                          <Shield className="w-3.5 h-3.5 text-role-primary" />
-                          Suggestions de maintien ({aero.suggestionsMaintien.length})
-                        </p>
-                        <div className="space-y-2">
-                          {aero.suggestionsMaintien.map((s, idx) => (
-                            <Card key={idx} variant="level" levelColor="primary" className="bg-primary/5 [&>div:last-child]:p-3">
-                                <div className="flex items-center justify-between flex-wrap gap-1 mb-1">
-                                  <span className="text-xs font-medium">{s.raison}</span>
-                                  <span className="badge outline text-xs">{s.confiance}%</span>
-                                </div>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {s.domaines.map((d: string) => (
-                                    <span key={d} className="code-oaci-badge text-xs">{d}</span>
-                                  ))}
-                                  {s.typesChecklist.map((t: string) => (
-                                    <span key={t} className="badge neutral text-xs">{t.replace(/_/g, ' ')}</span>
-                                  ))}
-                                </div>
-                                <span className="text-xs text-muted-foreground mt-1 block">
-                                  Source: {s.source === 'ecart_actif' ? 'Écart actif' : s.source === 'evenement_securite' ? 'Événement sécurité' : s.source === 'conformite_baisse' ? 'Conformité' : s.source === 'domaine_critique' ? 'Domaine critique' : s.source === 'historique' ? 'Historique' : s.source === 'lanceur_alerte' ? 'Lanceur alerte' : s.source}
-                                </span>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Domaines critiques */}
-                    {aero.domainesCritiques && aero.domainesCritiques.length > 0 && (
-                      <div className="mb-4">
-                        <p className="text-sm font-medium mb-2">Domaines à surveiller</p>
-                        <div className="space-y-2">
-                          {aero.domainesCritiques.map((d, idx) => (
-                            <Card key={idx} variant="level" levelColor="primary" className="bg-primary/5 [&>div:last-child]:p-3">
-                                <div className="flex items-center justify-between">
-                                  <span className={`badge text-xs ${d.score < 30 ? 'danger' : d.score < 60 ? 'warning' : 'primary'}`}>
-                                    {d.domaine} (Score: {d.score})
-                                  </span>
-                                  <span className="text-xs text-muted-foreground">Seuil: {d.seuil}</span>
-                                </div>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {aero.nbEcartsCritiques > 0 && (
-                        <span className="badge danger text-xs">{aero.nbEcartsCritiques} écart(s) critique(s)</span>
-                      )}
-                      {aero.aDesExemptions && (
-                        <span className="badge warning text-xs">Exemptions actives</span>
-                      )}
-                      {aero.aDesMesuresEnRetard && (
-                        <span className="badge danger text-xs animate-pulse">Mesures en retard</span>
-                      )}
-                    </div>
-                  </AccordionSection>
-                ))}
-
-              {aerodromesRisque.filter(a => (a.ecartTriggers && a.ecartTriggers.length > 0) || a.niveauAlerte === 'critique' || a.niveauAlerte === 'haute').length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>Aucun déclencheur actif — toutes les surveillances sont sous contrôle.</p>
-                </div>
-              )}
+                  )
+                })}
+              </div>
             </div>
-        </Card>
-      </div>
-    </div>
           </div>
         </div>,
         document.body
@@ -2050,8 +2069,14 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
                           </td>
                           <td className="text-right">
                             <div className="flex justify-end gap-2">
-                              <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" /></button>
-                              <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" /></button>
+                              {!planning.est_proposition && (
+                                <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                              {!planning.est_proposition && (
+                                <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" />
+                                </button>
+                              )}
                               <button className="action-button" onClick={e => { e.stopPropagation(); handleView(planning); }} title="Voir"><Info className="w-4 h-4" /></button>
                               <button className="action-button" onClick={e => { e.stopPropagation(); handleEdit(planning); }} title="Modifier"><Edit2 className="w-4 h-4" /></button>
                               <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(planning); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
@@ -2102,10 +2127,16 @@ export default function PlanningModule({ userRole, setActiveModule }: PlanningMo
       )}
 
       {/* Modales */}
-      <FormModal />
-      <DeleteConfirmModal />
-      <ExecuteConfirmModal />
+      <ModaleFormulaire formOpen={!!formOpen} setFormOpen={setFormOpen} editingPlanning={editingPlanning} setEditingPlanning={setEditingPlanning} userRole={userRole} />
+      <ModaleSuppression deleteDialogOpen={deleteDialogOpen} setDeleteDialogOpen={setDeleteDialogOpen} confirmDelete={confirmDelete} userRole={userRole} />
+      <ModaleExecution
+        executeConfirmOpen={executeConfirmOpen} executeTarget={executeTarget}
+        setExecuteConfirmOpen={setExecuteConfirmOpen} setExecuteTarget={setExecuteTarget}
+        aerodromesActifs={aerodromesActifs} aerodromes={aerodromes}
+        userRole={userRole} handleConfirmExecute={handleConfirmExecute}
+      />
       <PreparationModal open={preparationOpen} planning={preparationPlanning} onClose={() => setPreparationOpen(false)} userRole={userRole} />
     </div>
   );
 }
+

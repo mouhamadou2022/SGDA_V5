@@ -1,10 +1,9 @@
 // lib/services/surveillanceAutoCreator.ts
-// Auto-crée une surveillance quand le profil de risque passe sous le seuil critique (score < 30)
-// + recalcule périodiquement les profils de risque
-// Suit les mêmes étapes que handleLancer dans PlanningModule.tsx
+// Propose des surveillances via iaSuggestions[] au lieu de les auto-créer
+// L'inspecteur valide/ajuste/rejette depuis la modale "Suggestions IA"
 'use client'
 
-import { useAppStore, Planning, Surveillance } from '@/lib/store'
+import { useAppStore, Planning, IaSuggestion } from '@/lib/store'
 import { riskEngine } from '@/lib/riskEngine'
 
 let subscribed = false
@@ -29,52 +28,42 @@ export function initSurveillanceAutoCreator() {
       // ── Déclencheur 1 : Score global critique (< 30) ──
       if (profil && profil.score_global < 30) {
         if (!prevProfil || prevProfil.score_global >= 30) {
-          const dejaSurveille = state.surveillances.some(s =>
-            s.aerodrome_id === aero.id &&
-            s.statut !== 'archivee' &&
-            (s.type === 'audit_complet' || s.type === 'maintien') &&
-            Date.now() - new Date(s.created_at).getTime() < 24 * 60 * 60 * 1000
+          const dejaSuggere = state.iaSuggestions.some(s =>
+            s.aerodrome_id === aero.id && s.source === 'risque_critique'
           )
-          if (!dejaSurveille) {
-            autoCreateSurveillance(aero.id, 'risque_critique').catch(console.error)
-            continue
+          const dejaPlanifie = state.plannings.some(p =>
+            p.aerodrome_id === aero.id && p.statut === 'planifiee' &&
+            (p.type === 'audit_complet' || p.type === 'maintien')
+          )
+          const dejaEnCours = state.surveillances.some(s =>
+            s.aerodrome_id === aero.id && s.statut !== 'archivee' &&
+            s.statut !== 'transmise'
+          )
+          if (!dejaSuggere && !dejaPlanifie && !dejaEnCours) {
+            createSuggestion(aero.id, 'risque_critique')
           }
         }
       }
 
-      // ── Déclencheur 2 : SGS absent (maturite_sgs == 0) — ignoré si non_applicable ──
+      // ── Déclencheur 2 : SGS absent (maturite_sgs == 0) ──
       const maturiteSgsActuelle = aero.maturite_sgs ?? 0
       const sgsNonApplicable = aero.statut_sgs === 'non_applicable'
       if (!sgsNonApplicable && (maturiteSgsActuelle === 0 || maturiteSgsActuelle == null)) {
-        const dejaSurveilleSGS = state.surveillances.some(s =>
-          s.aerodrome_id === aero.id &&
-          s.statut !== 'archivee' &&
-          s.type === 'audit_complet' &&
-          (s.portee || []).some(p => p === 'SGS') &&
-          Date.now() - new Date(s.created_at).getTime() < 7 * 24 * 60 * 60 * 1000
-        )
-        if (!dejaSurveilleSGS) {
-          autoCreateSurveillance(aero.id, 'sgs_absent').catch(console.error)
-          continue
-        }
+        if (state.iaSuggestions.some(s => s.aerodrome_id === aero.id && s.source === 'sgs_absent')) continue
+        if (state.plannings.some(p => p.aerodrome_id === aero.id && p.statut === 'planifiee' && p.type === 'audit_complet' && (p.portee || []).some(x => x === 'SGS'))) continue
+        if (state.surveillances.some(s => s.aerodrome_id === aero.id && s.statut !== 'archivee' && s.type === 'audit_complet' && (s.portee || []).some(p => p === 'SGS'))) continue
+        createSuggestion(aero.id, 'sgs_absent')
       }
 
-      // ── Déclencheur 3 : SGS insuffisant (N1-N3) — ignoré si non_applicable ──
+      // ── Déclencheur 3 : SGS insuffisant (1-50) ──
       if (!sgsNonApplicable && maturiteSgsActuelle > 0 && maturiteSgsActuelle <= 50) {
-        const dejaSurveilleSGSFaible = state.surveillances.some(s =>
-          s.aerodrome_id === aero.id &&
-          s.statut !== 'archivee' &&
-          (s.type === 'audit_complet' || s.type === 'maintien') &&
-          (s.portee || []).some(p => p === 'SGS') &&
-          Date.now() - new Date(s.created_at).getTime() < 30 * 24 * 60 * 60 * 1000
-        )
-        if (!dejaSurveilleSGSFaible) {
-          autoCreateSurveillance(aero.id, 'sgs_faible').catch(console.error)
-          continue
-        }
+        if (state.iaSuggestions.some(s => s.aerodrome_id === aero.id && s.source === 'sgs_faible')) continue
+        if (state.plannings.some(p => p.aerodrome_id === aero.id && p.statut === 'planifiee' && (p.type === 'audit_complet' || p.type === 'maintien') && (p.portee || []).some(x => x === 'SGS'))) continue
+        if (state.surveillances.some(s => s.aerodrome_id === aero.id && s.statut !== 'archivee' && (s.type === 'audit_complet' || s.type === 'maintien') && (s.portee || []).some(p => p === 'SGS'))) continue
+        createSuggestion(aero.id, 'sgs_faible')
       }
 
-      // ── Déclencheur 4 : Certification/Homologation fraîche → maintien dans 6 mois ──
+      // ── Déclencheur 4 : Certification/Homologation fraîche → maintien ──
       const certsAero = (state.certifications || []).filter(c =>
         c.aerodrome_id === aero.id
       )
@@ -88,34 +77,25 @@ export function initSurveillanceAutoCreator() {
       const homoFraiche = derniereHomo && derniereHomo.statut_global === 'homologue' &&
         Date.now() - new Date(derniereHomo.updated_at).getTime() < 24 * 60 * 60 * 1000
       if (certifFraiche || homoFraiche) {
-        const dejaMaintien = state.surveillances.some(s =>
-          s.aerodrome_id === aero.id &&
-          s.statut !== 'archivee' &&
-          s.type === 'maintien' &&
-          s.portee?.length >= 6 &&
-          Date.now() - new Date(s.created_at).getTime() < 180 * 24 * 60 * 60 * 1000
-        )
-        if (!dejaMaintien) {
-          autoCreateSurveillance(aero.id, certifFraiche ? 'certification_fraiche' : 'homologation_fraiche').catch(console.error)
-          continue
-        }
+        const source = certifFraiche ? 'certification_fraiche' as const : 'homologation_fraiche' as const
+        if (state.iaSuggestions.some(s => s.aerodrome_id === aero.id && s.source === source)) continue
+        if (state.plannings.some(p => p.aerodrome_id === aero.id && p.statut === 'planifiee' && p.type === 'maintien')) continue
+        if (state.surveillances.some(s => s.aerodrome_id === aero.id && s.statut !== 'archivee' && s.type === 'maintien' && s.portee?.length >= 6)) continue
+        createSuggestion(aero.id, source)
       }
     }
 
     prevProfils = state.profilsRisque
   })
 
-  // Recalcul périodique en tâche de fond
   schedulePeriodicRecalculation()
 }
 
 function schedulePeriodicRecalculation() {
   if (periodicInterval) clearInterval(periodicInterval)
 
-  // Premier recul après 30s (le temps que l'app soit chargée)
   setTimeout(() => recalculateAllRiskProfiles(), 30_000)
 
-  // Puis toutes les 30 minutes
   periodicInterval = setInterval(() => recalculateAllRiskProfiles(), 30 * 60 * 1000)
 }
 
@@ -131,19 +111,17 @@ async function recalculateAllRiskProfiles() {
   const aerodromes = store.aerodromes?.filter(a => !a.deleted_at) || []
   if (aerodromes.length === 0) return
 
-  // Vérifier les certifications/homologations arrivant à expiration
   try { verifierExpirationsCertifications() } catch { /* silencieux */ }
 
   const toRecalculate = aerodromes
     .filter(a => {
       const profil = store.profilsRisque?.[a.id]
-      // Recalculer si : pas de profil, ou score < 70, ou dernier calcul > 6h
       if (!profil) return true
       if (profil.score_global < 70) return true
       if (profil.computed_at && Date.now() - new Date(profil.computed_at).getTime() > 6 * 60 * 60 * 1000) return true
       return false
     })
-    .slice(0, 5) // max 5 par cycle pour éviter la surcharge
+    .slice(0, 5)
 
   if (toRecalculate.length === 0) return
 
@@ -156,8 +134,6 @@ async function recalculateAllRiskProfiles() {
   }
 }
 
-// Vérifie les certifications et homologations arrivant à expiration dans ≤ 6 mois
-// Envoie une notification aux exploitants de l'aérodrome concerné
 function verifierExpirationsCertifications() {
   const store = useAppStore.getState()
   const sixMois = 180 * 24 * 60 * 60 * 1000
@@ -183,7 +159,6 @@ function verifierExpirationsCertifications() {
       if (remaining <= 0) continue
 
       const key = `cert_${cert.id}_${aero.id}`
-      // Éviter les doublons : notifier max 1x par période (6m, 3m, 1m)
       let seuil = 0
       let label = ''
       if (remaining <= unMois && remaining > 0) { seuil = unMois; label = '1 mois' }
@@ -192,7 +167,7 @@ function verifierExpirationsCertifications() {
       else continue
 
       const lastNotified = notified[key] || 0
-      if (now - lastNotified < seuil) continue // déjà notifié pour cette période
+      if (now - lastNotified < seuil) continue
 
       const opsAero = exploitants.filter(u => u.aerodrome_id === aero.id)
       for (const op of opsAero) {
@@ -204,7 +179,6 @@ function verifierExpirationsCertifications() {
           canal: 'in_app',
         })
       }
-      // Notifier aussi les inspecteurs concernés
       store.addNotification({
         user_id: store.user?.id || '',
         type: 'info',
@@ -216,10 +190,10 @@ function verifierExpirationsCertifications() {
     }
   }
 
-  try { sessionStorage.setItem(alreadyNotifiedKey, JSON.stringify(notified)) } catch {}
+  try { sessionStorage.setItem(alreadyNotifiedKey, JSON.stringify(notified)) } catch { /* silencieux */ }
 }
 
-async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' = 'risque_critique') {
+function createSuggestion(aerodromeId: string, raison: IaSuggestion['source']) {
   const store = useAppStore.getState()
   const aerodrome = store.aerodromes.find(a => a.id === aerodromeId)
   if (!aerodrome) return
@@ -227,120 +201,70 @@ async function autoCreateSurveillance(aerodromeId: string, raison: 'risque_criti
   const profil = store.profilsRisque?.[aerodromeId]
   const now = new Date().toISOString()
 
-  // Déterminer le type et la portée selon la raison
-  let type: Surveillance['type'] = 'audit_complet'
+  let type: Planning['type'] = 'audit_complet'
   let portee: string[] = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
   let priorite: Planning['priorite'] = 'critique'
+  let confiance: number = 0.85
   let objectifs: string
+  let raisonTexte: string
 
   if (raison === 'sgs_absent') {
     type = 'audit_complet'
     portee = ['SGS']
     priorite = 'critique'
-    objectifs = `[AUTO] SGS absent — aérodrome sans évaluation PAOE. Audit SGS prioritaire généré automatiquement.`
+    confiance = 0.95
+    objectifs = `Audit SGS — aérodrome sans évaluation PAOE`
+    raisonTexte = `Score SGS nul (${aerodrome.maturite_sgs ?? 'N/A'}/100) — l'aérodrome n'a pas d'évaluation PAOE validée. Une surveillance SGS est nécessaire pour évaluer le système de gestion de la sécurité.`
   } else if (raison === 'sgs_faible') {
     type = 'maintien'
     portee = ['SGS']
     priorite = 'haute'
-    objectifs = `[AUTO] SGS insuffisant (score ${aerodrome.maturite_sgs ?? 'inconnu'}/100 ≤ 50) — surveillance SGS renforcée automatique.`
-  } else if (raison === 'certification_fraiche' || raison === 'homologation_fraiche') {
+    confiance = 0.75
+    objectifs = `Surveillance SGS renforcée — score insuffisant`
+    raisonTexte = `Score SGS (${aerodrome.maturite_sgs ?? 'inconnu'}/100) ≤ 50 — le système de gestion de la sécurité nécessite une surveillance renforcée pour identifier les lacunes et proposer des mesures correctives.`
+  } else if (raison === 'certification_fraiche') {
     type = 'maintien'
     portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
     priorite = 'moyenne'
-    const label = raison === 'certification_fraiche' ? 'certification' : 'homologation'
-    objectifs = `[AUTO] ${label} obtenue — surveillance de maintien programmée automatiquement pour garantir la conformité continue.`
+    confiance = 0.90
+    objectifs = `Surveillance de maintien post-certification`
+    raisonTexte = `Certification obtenue récemment — une surveillance de maintien dans les 6 mois permet de vérifier la conformité continue et d'anticiper le renouvellement.`
+  } else if (raison === 'homologation_fraiche') {
+    type = 'maintien'
+    portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
+    priorite = 'moyenne'
+    confiance = 0.85
+    objectifs = `Surveillance de maintien post-homologation`
+    raisonTexte = `Homologation obtenue récemment — une surveillance de maintien dans les 6 mois permet de vérifier la conformité continue.`
   } else {
     portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
-    objectifs = `[AUTO] Score critique (${profil?.score_global ?? '?'}/100) — surveillance d'urgence créée automatiquement par le profil de risque`
+    confiance = 0.90
+    objectifs = `Audit complet — score critique`
+    raisonTexte = `Score de risque global ${profil?.score_global ?? '?'}/100 (critique < 30) — une surveillance d'audit complète est recommandée immédiatement pour évaluer tous les domaines.`
   }
 
-  // 1. Créer le planning
-  const planningId = crypto.randomUUID()
-  const planning: Planning = {
-    id: planningId,
+  const equipe_ids: string[] = []
+  const chef_id = ''
+  const date_debut = now
+  const daysAhead = raison === 'sgs_absent' ? 14 : (raison === 'certification_fraiche' || raison === 'homologation_fraiche' ? 180 : 7)
+  const date_fin = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000).toISOString()
+
+  const suggestion: IaSuggestion = {
+    id: crypto.randomUUID(),
     aerodrome_id: aerodromeId,
     type,
-    date_debut: now,
-    date_fin: new Date(Date.now() + (raison === 'sgs_absent' ? 14 : raison === 'certification_fraiche' || raison === 'homologation_fraiche' ? 180 : 7) * 24 * 60 * 60 * 1000).toISOString(),
     portee,
-    equipe_ids: [],
-    chef_id: '',
-    statut: 'planifiee',
+    date_debut,
+    date_fin,
+    equipe_ids,
+    chef_id,
     priorite,
     objectifs,
-    est_proposition: true,
-    annee_cible: new Date().getFullYear(),
+    raison: raisonTexte,
+    confiance,
+    source: raison,
     created_at: now,
-    updated_at: now,
-  }
-  try { await store.addPlanning(planning) } catch { return }
-
-  // 2. Créer la surveillance liée au planning
-  const surveillanceData: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'> = {
-    aerodrome_id: aerodromeId,
-    planning_id: planningId,
-    type: 'audit_complet',
-    portee: planning.portee || [],
-    equipe_ids: [],
-    chef_id: '',
-    date_debut: now,
-    date_fin: planning.date_fin,
-    statut: 'en_cours',
-  }
-  let surveillance: Surveillance
-  try { surveillance = await store.addSurveillance(surveillanceData) } catch { return }
-
-  // 3. Màj planning avec l'ID surveillance
-  store.updatePlanning(planningId, { surveillance_id: surveillance.id, updated_at: now, est_proposition: false })
-
-  // 4. Générer la checklist via kitDocAgent
-  try {
-    const { kitDocAgent, toDomaineChecklistArray } = await import('@/lib/ia/agents/kitDocAgent')
-    const master = store.findMasterChecklistForPortee(planning.portee || [])
-    if (master) {
-      const snapshot = JSON.parse(JSON.stringify(master.checklist))
-      const filtered = kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome)
-      const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
-        entite_id: aerodromeId,
-        type_entite: aerodrome.type_entite ?? 'aerodrome',
-        type_surveillance: 'maintien',
-        portee: planning.portee || [],
-        profil_risque: profil,
-      })
-      store.setChecklistHierarchy(surveillance.id, enriched)
-      store.updateSurveillance(surveillance.id, { checklist_hierarchy: enriched })
-    } else {
-      const result = kitDocAgent.generateChecklist({
-        surveillance_id: surveillance.id,
-        entite_id: aerodromeId,
-        type_entite: aerodrome.type_entite ?? 'aerodrome',
-        type_surveillance: 'maintien',
-        portee: planning.portee || [],
-        profil_risque: profil,
-      })
-      const resultFiltered = kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodrome)
-      const finalResult = { ...result, domaines: resultFiltered }
-      kitDocAgent.injectIntoStore(surveillance.id, finalResult)
-      store.updateSurveillance(surveillance.id, { checklist_hierarchy: toDomaineChecklistArray(finalResult) })
-    }
-  } catch (e) {
-    console.error('[SurveillanceAutoCreator] Erreur génération checklist:', e)
   }
 
-  // 5. Notification
-  const label = raison === 'sgs_absent' ? 'SGS absent'
-    : raison === 'sgs_faible' ? 'SGS insuffisant'
-    : raison === 'certification_fraiche' ? 'Certification obtenue'
-    : raison === 'homologation_fraiche' ? 'Homologation obtenue'
-    : 'Score critique'
-  store.addNotification({
-    user_id: store.user?.id || '',
-    type: raison === 'risque_critique' || raison === 'sgs_absent' ? 'danger' : 'info',
-    title: raison === 'risque_critique' ? 'Surveillance critique auto-créée'
-      : raison === 'certification_fraiche' || raison === 'homologation_fraiche' ? 'Maintien post-certification auto-créé'
-      : 'Surveillance SGS auto-créée',
-    message: `⚠️ ${aerodrome.code_oaci} — ${label}. Une surveillance ${type === 'audit_complet' ? 'd\'audit' : 'de maintien'} a été générée automatiquement.`,
-    canal: 'in_app',
-    link: `/surveillance/${surveillance.id}`,
-  })
+  store.addIaSuggestion(suggestion)
 }

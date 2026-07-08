@@ -7,7 +7,7 @@
 import { useAppStore, ProfilRisque, Certification, Homologation } from '@/lib/store'
 import { notificationService } from './notificationService'
 
-const NIVEAUX = ['faible', 'moyen', 'eleve', 'critique'] as const
+const NIVEAUX = ['tres_faible', 'faible', 'moyen', 'eleve', 'critique'] as const
 
 let active = false
 

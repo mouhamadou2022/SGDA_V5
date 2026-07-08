@@ -136,21 +136,18 @@ export function enregistrerFeedbackPreuves(
  * Ajuster les pondérations des critères PAC
  */
 function ajusterPonderationsPAC(feedback: PACLearningFeedback): void {
-  // Si l'inspecteur a coché des critères différents de ceux suggérés
   for (const critere of feedback.criteres_inspecteur) {
     if (!feedback.criteres_suggere.includes(critere)) {
-      ponderationsCriterePAC[critere] = (ponderationsCriterePAC[critere] || 1.0) + 0.05;
+      ponderationsCriterePAC[critere] = Math.min(3.0, (ponderationsCriterePAC[critere] || 1.0) + 0.05);
     }
   }
 
-  // Si la décision diffère
   if (!feedback.concordance) {
     for (const critere of feedback.criteres_inspecteur) {
-      ponderationsCriterePAC[critere] = (ponderationsCriterePAC[critere] || 1.0) + 0.1;
+      ponderationsCriterePAC[critere] = Math.min(3.0, (ponderationsCriterePAC[critere] || 1.0) + 0.1);
     }
   }
 
-  // Si feedback inutile
   if (feedback.feedback_utilite === 'non') {
     ponderationsPriorisation.score_critique = Math.max(10, ponderationsPriorisation.score_critique - 5);
     ponderationsPriorisation.tendance_baisse = Math.max(10, ponderationsPriorisation.tendance_baisse - 5);
@@ -161,9 +158,18 @@ function ajusterPonderationsPAC(feedback: PACLearningFeedback): void {
  * Ajuster les pondérations des critères preuves
  */
 function ajusterPonderationsPreuves(feedback: PreuveLearningFeedback): void {
-  // Logique similaire pour les preuves
   if (!feedback.concordance && feedback.feedback_utilite !== 'non') {
-    // Ajuster les seuils
+    for (const critere of feedback.criteres_inspecteur) {
+      if (!feedback.criteres_suggere.includes(critere)) {
+        ponderationsCriterePAC[critere] = Math.min(3.0, (ponderationsCriterePAC[critere] || 1.0) + 0.05);
+      }
+    }
+    for (const critere of feedback.criteres_inspecteur) {
+      ponderationsCriterePAC[critere] = Math.min(3.0, (ponderationsCriterePAC[critere] || 1.0) + 0.1);
+    }
+  }
+  if (feedback.feedback_utilite === 'non') {
+    ponderationsPriorisation.score_critique = Math.max(10, ponderationsPriorisation.score_critique - 3);
   }
 }
 

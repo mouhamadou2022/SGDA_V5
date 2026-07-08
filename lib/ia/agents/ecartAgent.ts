@@ -212,7 +212,7 @@ export class EcartAgent {
 
     // Calcul de la cellule OACI (matrice probabilité × gravité) — non applicable SGS
     const { probabilite, gravite, cellule, justification } = isSGS
-      ? { probabilite: 2 as NiveauProbabiliteOACI, gravite: 'B' as NiveauGraviteOACI, cellule: '2B', justification: 'SGS — matrice OACI non applicable' }
+      ? { probabilite: 1 as NiveauProbabiliteOACI, gravite: 'A' as NiveauGraviteOACI, cellule: 'N/A', justification: 'SGS — évaluation PAOE, pas de matrice OACI' }
       : computeCelluleOACI(nsCount, nvCount, request.profil)
 
     // Génération du libellé officiel par IA

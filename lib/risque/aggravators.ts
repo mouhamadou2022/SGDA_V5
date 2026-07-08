@@ -137,6 +137,14 @@ export function detectAbsenceFormation(
 
 /**
  * Détecte un historique d'incidents sur le domaine
+ *
+ * ATTENTION — couplage avec detectIncidentTrigger (triggers.ts) :
+ * nbIncidentsDomaine (ici, fenêtre 12mois) et nbIncidentsRecents (trigger, fenêtre 30j)
+ * peuvent se recouper si les mêmes incidents alimentent les deux compteurs. L'appelant
+ * doit garantir que ce sont des ensembles disjoints ou documenter le choix de recouvrement,
+ * faute de quoi un même incident sera compté deux fois dans des mécanismes différents
+ * (poids additif × multiplicateur multiplicatif) qui finissent multipliés ensemble
+ * dans computeOptimalFrequency.
  */
 export function detectHistoriqueIncidents(
   nbIncidentsDomaine: number,
@@ -181,18 +189,33 @@ export function detectAllAggravators(params: {
 }
 
 /**
- * Calcule le multiplicateur global des aggravants
+ * Calcule le multiplicateur global des aggravants par saturation douce.
+ *
+ * Remplace l'ancien produit brut clampé : avec 7 facteurs cumulant jusqu'à 9.56×, le clamp
+ * à 3.0 créait un plateau dur où 4 facteurs ou 7 facteurs donnaient le même score (3.0),
+ * annulant tout pouvoir discriminant au-delà du seuil.
+ *
+ * Nouveau modèle : somme des excès (multiplicateur - 1) passée dans une fonction
+ * d'approche exponentielle :  1 + maxExcess × (1 − e^{−sum / k})
+ * - sum = Σ active (factor - 1)
+ * - maxExcess = CLAMP_MAX - 1 = 2.0
+ * - k = 1.5 (constante de saturation : plus k est grand, plus la saturation est lente)
+ *
+ * Résultat : dégradation progressive et monotone, pas de palier artificiel.
+ * Avec 1 facteur : 1.27 — 3 facteurs : 1.76 — 7 facteurs : 2.61 (jamais de plateau)
  */
 export function computeAggravatorsMultiplier(aggravators: FacteurAggravant[]): number {
-  let multiplier = 1.0
-  
-  for (const agg of aggravators) {
-    if (agg.actif) {
-      multiplier *= agg.multiplicateur
-    }
-  }
-  
-  return Math.min(3.0, multiplier)
+  const CLAMP_MAX = 3.0
+  const K = 1.5
+
+  const sum = aggravators
+    .filter(a => a.actif)
+    .reduce((acc, a) => acc + (a.multiplicateur - 1), 0)
+
+  const maxExcess = CLAMP_MAX - 1
+  const multiplier = 1 + maxExcess * (1 - Math.exp(-sum / K))
+
+  return Math.min(CLAMP_MAX, multiplier)
 }
 
 /**

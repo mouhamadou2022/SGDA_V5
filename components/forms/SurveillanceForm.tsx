@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Save, X, Calendar, Users, FileText, AlertCircle, TrendingUp, TrendingDown, Shield, Zap, Target } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 import { SURVEILLANCE_TYPES, SURVEILLANCE_DOMAINS } from '@/lib/config'
 import { getRiskLevel, suggestMissionType } from '@/lib/risque'
 import { useFormProgress } from '@/hooks/useFormProgress'
@@ -34,6 +35,17 @@ const surveillanceSchema = z.object({
   observations: z.string().optional(),
   objectifs: z.string().min(10, 'Les objectifs doivent faire au moins 10 caractères'),
 })
+
+// Seul un inspecteur titulaire ou principal peut être chef d'équipe
+const TYPES_CHEF_AUTORISES = ['inspecteur_titulaire', 'inspecteur_principal']
+function peutEtreChef(insp: any): boolean {
+  if (!insp) return false
+  const type = insp?.type_inspecteur || insp?._insp?.type
+  return TYPES_CHEF_AUTORISES.includes(type)
+}
+function equipeContientChefEligible(membres: any[]): boolean {
+  return membres.some(m => peutEtreChef(m))
+}
 
 type SurveillanceFormValues = z.infer<typeof surveillanceSchema>
 
@@ -131,6 +143,7 @@ export const SurveillanceForm = memo(function SurveillanceForm({
   const user = useAppStore(s => s.user)
   const aerodromes = useAppStore(s => s.aerodromes)
   const utilisateurs = useAppStore(s => s.utilisateurs)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const addSurveillance = useAppStore(s => s.addSurveillance)
   const updateSurveillance = useAppStore(s => s.updateSurveillance)
@@ -143,8 +156,15 @@ export const SurveillanceForm = memo(function SurveillanceForm({
 
   // Inspecteurs réels depuis le store
   const inspecteursReels = useMemo(() => {
-    return utilisateurs.filter(u => u.role === 'inspector' && u.statut !== 'inactif')
-  }, [utilisateurs])
+    return utilisateurs
+      .filter(u => u.role === 'inspector' && u.statut !== 'inactif')
+      .map(u => {
+        const linkedInsp = u.inspecteur_id
+          ? inspecteurs.find(i => i.id === u.inspecteur_id)
+          : inspecteurs.find(i => i.email === u.email || (i.prenom === u.prenom && i.nom === u.nom))
+        return { ...u, _insp: linkedInsp }
+      })
+  }, [utilisateurs, inspecteurs])
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<SurveillanceFormValues>({
     resolver: zodResolver(surveillanceSchema),
@@ -236,7 +256,34 @@ export const SurveillanceForm = memo(function SurveillanceForm({
     setIsSubmitting(true)
     try {
       const now = new Date().toISOString()
-      
+
+      // Vérifier que le chef est titulaire/principal
+      const chefUser = inspecteursReels.find(i => i.id === data.chef_id)
+      if (!chefUser || !peutEtreChef(chefUser)) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Chef non valide',
+          message: 'Le chef d\'équipe doit être un inspecteur titulaire ou principal.',
+          canal: 'in_app'
+        })
+        setIsSubmitting(false)
+        return
+      }
+      // Vérifier que l'équipe contient au moins un titulaire/principal
+      const equipe = inspecteursReels.filter(i => data.equipe_ids.includes(i.id))
+      if (!equipeContientChefEligible(equipe)) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Équipe non valide',
+          message: 'L\'équipe doit contenir au moins un inspecteur titulaire ou principal.',
+          canal: 'in_app'
+        })
+        setIsSubmitting(false)
+        return
+      }
+
       if (surveillance) {
         await updateSurveillance(surveillance.id, { 
           ...data, 
@@ -504,7 +551,9 @@ export const SurveillanceForm = memo(function SurveillanceForm({
               />
               <span>{insp.prenom} {insp.nom}</span>
               <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-role-primary-soft text-role-primary text-xs font-mono font-semibold">
-                {insp.service || 'Service général'}
+                {(insp.specialites || []).map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s).join(', ')
+                || ((insp as any)._insp ? `${(insp as any)._insp.type?.replace(/_/g, ' ')} · ${(insp as any)._insp.domaine_principal?.toUpperCase()}` : undefined)
+                || insp.service || 'Service général'}
               </span>
               {(insp as any).competences?.length > 0 && (
                 <span className="text-xs text-muted-foreground">
@@ -528,15 +577,20 @@ export const SurveillanceForm = memo(function SurveillanceForm({
              className={`form-select ${focusClass}${errors.chef_id ? ' border-danger' : ''}`}
              style={selectStyle}
            >
-              <option value="">Sélectionner le chef d'équipe</option>
-              {watchEquipe.map(id => {
-                const insp = inspecteursReels.find(i => i.id === id)
-                return insp ? (
-                  <option key={id} value={id}>
-                    {insp.prenom} {insp.nom} {(insp as any).competences?.some((c: any) => c.niveau === 5) ? '⭐ Expert' : ''}
-                  </option>
-                ) : null
-              })}
+               <option value="">Sélectionner le chef d'équipe</option>
+               {watchEquipe
+                 .filter(id => peutEtreChef(inspecteursReels.find(i => i.id === id)))
+                 .map(id => {
+                 const insp = inspecteursReels.find(i => i.id === id)
+                 return insp ? (
+                   <option key={id} value={id}>
+                     {insp.prenom} {insp.nom} {(insp as any).competences?.some((c: any) => c.niveau === 5) ? '⭐ Expert' : ''}
+                   </option>
+                 ) : null
+               })}
+               {!equipeContientChefEligible(watchEquipe.map(id => inspecteursReels.find(i => i.id === id)).filter(Boolean)) && (
+                 <option value="" disabled>Aucun inspecteur éligible (titulaire/principal requis)</option>
+               )}
            </select>
            {errors.chef_id && <p className="field-error">{errors.chef_id.message}</p>}
          </div>

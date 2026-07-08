@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useMemo, useCallback, memo } from 'react'
 import {
   FolderOpen, FileText, Upload, X, Calendar,
-  User, AlertCircle, Save, Clock, AlertTriangle, Plus, Trash2, CheckCircle2,
+  User, AlertCircle, Save, Clock, AlertTriangle, Trash2, CheckCircle2,
 } from 'lucide-react'
 import { useAppStore, type Aerodrome, type Utilisateur, type DossierAssignment } from '@/lib/store'
 import { dossierUtils } from '@/lib/dossierUtils'
+import { uploadDossierFile } from '@/lib/dossierFileUpload'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -71,7 +72,7 @@ export const DossierForm = memo(function DossierForm({
 
   // Assignation multiple
   const [selectedInspecteurs, setSelectedInspecteurs] = useState<{ id: string; nom: string }[]>([])
-  const [pendingInspecteurId, setPendingInspecteurId] = useState('')
+  const [selectKey, setSelectKey] = useState(0)
 
   const [aerodromes, setAerodromes] = useState<Aerodrome[]>([])
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([])
@@ -114,14 +115,6 @@ export const DossierForm = memo(function DossierForm({
   const inspecteursDejaAssignes = utilisateurs?.filter((u: Utilisateur) =>
     selectedInspecteurs.some(s => s.id === u.id)
   ) || []
-
-  const handleAjouterInspecteur = () => {
-    if (!pendingInspecteurId) return
-    const u = utilisateurs.find(u => u.id === pendingInspecteurId)
-    if (!u) return
-    setSelectedInspecteurs(prev => [...prev, { id: u.id, nom: `${u.prenom} ${u.nom}` }])
-    setPendingInspecteurId('')
-  }
 
   const handleRetirerInspecteur = (id: string) => {
     setSelectedInspecteurs(prev => prev.filter(s => s.id !== id))
@@ -169,6 +162,12 @@ export const DossierForm = memo(function DossierForm({
       if (d < t) e.dateLimite = 'La date limite doit être future'
     }
     setErrors(e)
+    if (Object.keys(e).length > 0) {
+      addNotification({
+        user_id: user?.id || '', type: 'danger',
+        message: `Formulaire invalide : ${Object.values(e).join(', ')}`, canal: 'in_app',
+      })
+    }
     return Object.keys(e).length === 0
   }
 
@@ -178,16 +177,15 @@ export const DossierForm = memo(function DossierForm({
     setIsSubmitting(true)
 
     try {
-      const uploadFiles = async (files: File[]) =>
-        Promise.all(files.map(f => ({
-          nom: f.name,
-          url: URL.createObjectURL(f),
-          taille: f.size,
-          type: f.type,
-          date_upload: new Date().toISOString(),
-        })))
-
-      const newFichiers = await uploadFiles(fichiers)
+      // Upload files to Supabase Storage using a temp ID for path
+      const tempDossierId = dossierId || crypto.randomUUID()
+      const newFichiers = await Promise.all(fichiers.map(async f => ({
+        nom: f.name,
+        url: await uploadDossierFile(f, tempDossierId),
+        taille: f.size,
+        type: f.type,
+        date_upload: new Date().toISOString(),
+      })))
       const urgenceMeta = URGENCE.find(u => u.id === urgence) || URGENCE[1]
 
       if (mode === 'creation') {
@@ -417,22 +415,23 @@ export const DossierForm = memo(function DossierForm({
           <div className="flex gap-2 items-end">
             <div className="flex-1 form-field">
               <label className={labelClass}>Ajouter un inspecteur</label>
-              <select value={pendingInspecteurId}
-                onChange={e => setPendingInspecteurId(e.target.value)}
+              <select key={selectKey}
+                onChange={e => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  const u = utilisateurs.find(u => u.id === id);
+                  if (!u) return;
+                  setSelectedInspecteurs(prev => [...prev, { id: u.id, nom: `${u.prenom} ${u.nom}` }]);
+                  setSelectKey(k => k + 1);
+                }}
                 className={`form-select ${focusClass}`} style={selectStyle}
               >
-                <option value="">Sélectionner...</option>
+                <option value="">Sélectionner un inspecteur...</option>
                 {inspecteursDisponibles.map((u: Utilisateur) => (
                   <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
                 ))}
               </select>
             </div>
-            <button type="button" onClick={handleAjouterInspecteur}
-              disabled={!pendingInspecteurId}
-              className="btn btn-primary btn-sm h-10 gap-1"
-            >
-              <Plus className="w-4 h-4" /> Ajouter
-            </button>
           </div>
           {errors.inspecteurs && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.inspecteurs}</p>}
 

@@ -9,6 +9,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useOptimizedStore, useGlobalDebounce, useGlobalTransition } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
@@ -25,15 +26,16 @@ import {
   AlertCircle, Info, MessageSquare, History, Send,
   CheckSquare, XCircle, Bell, Mail, Phone,
   Activity, Shield, Target, Zap, Brain, BarChart3,
-  Archive, Loader2, Sparkles, X,
+  Archive, Loader2, Sparkles, X, RefreshCw,
 } from 'lucide-react'
 import { EcartCard } from '@/components/cards/EcartCard'
 import { EvaluationPACModal } from './EvaluationPACModal'
 import { EvaluationPreuvesModal } from './EvaluationPreuvesModal'
 import { HistoriqueEcartModal } from './HistoriqueEcartModal'
 import { SoumissionPACModal } from './SoumissionPACModal'
+import { ValidationChefModal } from './ValidationChefModal'
 import { ArchiveEcarts } from './ArchiveEcarts'
-import { computeHawkesContagion, computeProactiveAlert, getRiskLevelFromCell } from '@/lib/risque'
+import { computeHawkesContagion, computeProactiveAlert, getRiskLevelFromCell, getRiskLevelClass } from '@/lib/risque'
 import { TYPES_SURVEILLANCE, getTypeSurveillanceLabel, DOMAINES_SURVEILLANCE, getDomaineLabel, DomaineCode, grouperParDomaine, DomaineItems } from '@/lib/domaines'
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent'
 import type { GenerateEcartResult, EvaluatePACResult } from '@/lib/ia/agents/ecartAgent'
@@ -82,6 +84,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const [showPreuvesEvaluationModal, setShowPreuvesEvaluationModal] = useState(false)
   const [showHistoriqueModal, setShowHistoriqueModal] = useState(false)
   const [showSoumissionModal, setShowSoumissionModal] = useState(false)
+  const [showValidationChefModal, setShowValidationChefModal] = useState(false)
   const [activeTab, setActiveTab] = useState('surveillances')
   const [showAnalytics, setShowAnalytics] = useState(false)
   
@@ -92,6 +95,75 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const [iaQuestion, setIaQuestion] = useState('')
   const [iaAnswer, setIaAnswer] = useState('')
   const [isAskingIa, setIsAskingIa] = useState(false)
+  
+  // État des brouillons d'évaluation (localStorage)
+  const EVAL_DRAFT_KEY = 'sgda_evaluation_drafts'
+  const [evalDrafts, setEvalDrafts] = useState<Record<string, any>>({})
+  const [showEvalTransmissionModal, setShowEvalTransmissionModal] = useState(false)
+  const [isSubmittingEvalBulk, setIsSubmittingEvalBulk] = useState(false)
+  const [pendingEvalGroup, setPendingEvalGroup] = useState<{ domaine: string; ecarts: any[] } | null>(null)
+  const evaluerPAC = useAppStore(s => s.evaluerPAC)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(EVAL_DRAFT_KEY)
+      if (saved) setEvalDrafts(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  const saveEvalDraft = (ecartId: string, data: any) => {
+    const updated = { ...evalDrafts, [ecartId]: { ...data, savedAt: new Date().toISOString() } }
+    setEvalDrafts(updated)
+    localStorage.setItem(EVAL_DRAFT_KEY, JSON.stringify(updated))
+  }
+
+  const deleteEvalDraft = (ecartId: string) => {
+    const updated = { ...evalDrafts }
+    delete updated[ecartId]
+    setEvalDrafts(updated)
+    localStorage.setItem(EVAL_DRAFT_KEY, JSON.stringify(updated))
+  }
+
+  const handleSubmitAllEvaluations = async () => {
+    if (!pendingEvalGroup) return
+    setIsSubmittingEvalBulk(true)
+    const toSubmit = pendingEvalGroup.ecarts.filter((e: any) => evalDrafts[e.id])
+    const errors: string[] = []
+    for (const ecart of toSubmit) {
+      const draft = evalDrafts[ecart.id]
+      try {
+        await evaluerPAC(ecart.id, {
+          note_pertinence: draft.notes?.pertinence || 0,
+          note_exhaustivite: draft.notes?.exhaustivite || 0,
+          note_precision: draft.notes?.precision || 0,
+          note_specificite: draft.notes?.specificite || 0,
+          note_realisme: draft.notes?.realisme || 0,
+          note_tracabilite: draft.notes?.realisme || 0,
+          note_coherence: draft.notes?.coherence || 0,
+          note_globale: (() => {
+            const pond = { pertinence: 0.20, exhaustivite: 0.18, precision: 0.18, specificite: 0.16, realisme: 0.15, coherence: 0.13 }
+            const s = Object.entries(draft.notes || {}).reduce((sum, [k, v]) => sum + (v as number) * (pond as any)[k] || 0.16, 0)
+            return Math.round(s * 10) / 10
+          })(),
+          decision: draft.decision || 'refuse',
+          commentaire_refus: draft.commentaire || '',
+          evalue_par: user?.id || '',
+          evalue_le: new Date().toISOString(),
+        })
+        deleteEvalDraft(ecart.id)
+      } catch (err) {
+        errors.push(`${ecart.reference}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    setIsSubmittingEvalBulk(false)
+    setShowEvalTransmissionModal(false)
+    setPendingEvalGroup(null)
+    if (errors.length === 0) {
+      addNotification({ user_id: user?.id || '', type: 'success', title: 'Évaluations transmises', message: `${toSubmit.length} évaluation(s) envoyée(s) à l'exploitant`, canal: 'in_app' })
+    } else {
+      addNotification({ user_id: user?.id || '', type: 'warning', title: 'Erreurs partielles', message: `${toSubmit.length - errors.length} envoyée(s), ${errors.length} erreur(s)`, canal: 'in_app' })
+    }
+  }
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -119,7 +191,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       }
       
       let points = 0
-      let raisons: string[] = []
+      const raisons: string[] = []
       
       // Score de base selon niveau d'écart
       switch (ecart.niveau_risque) {
@@ -423,7 +495,22 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
           </div>
           {iaAnswer && (
             <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
-              <p className="text-sm text-gray-700">{iaAnswer}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <Brain className="w-3 h-3" /> Réponse
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setIaAnswer(''); setIaQuestion(''); }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-role-primary bg-role-primary-soft hover:bg-role-primary-soft/80 transition-colors">
+                    <RefreshCw className="w-3 h-3" /> Nouvelle question
+                  </button>
+                  <button onClick={() => setIaAnswer('')}
+                    className="action-button w-6 h-6 p-0" title="Fermer">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{iaAnswer}</p>
             </div>
           )}
       </Card>
@@ -546,6 +633,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               <option value="pac_soumis">PAC soumis</option>
               <option value="pac_accepte">PAC accepté</option>
               <option value="preuves_soumises">Preuves soumises</option>
+              <option value="en_attente_validation_chef">Attente validation chef</option>
               <option value="cloture">Clôturé</option>
               <option value="en_retard">En retard</option>
             </select>
@@ -646,7 +734,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       </div>
 
       <div className="tab-content">
-        {activeTab === 'surveillances' && (
+        {activeTab === 'surveillances' && (<>
           <AccordionGroup spacing="sm">
             {Object.entries(ecartsParSurveillance).map(([survId, { surveillance, ecarts }]) => {
               const aerodrome = aerodromes.find(a => a.id === surveillance.aerodrome_id)
@@ -686,18 +774,29 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                   }
                 >
                   {/* Regroupement par domaine réglementaire */}
-                  {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => (
+                  {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => {
+                    const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
+                    const draftComplet = ecartsAEvaluer.filter((e: any) => {
+                      const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision
+                    })
+                    return (
                     <div key={groupe.domaine} className="space-y-3">
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 rounded-lg border border-border/50">
                         <span className="inline-flex items-center justify-center w-8 h-6 rounded-md text-[10px] font-bold bg-role-primary text-white tracking-wide">{groupe.domaine}</span>
                         <span className="text-sm font-medium text-foreground">{groupe.domaineLabel}</span>
                         <span className="badge outline text-[10px]">{groupe.items.length} écart{groupe.items.length > 1 ? 's' : ''}</span>
+                        {ecartsAEvaluer.length > 0 && (
+                          <span className={`badge text-[10px] ${draftComplet.length === ecartsAEvaluer.length ? 'success' : 'warning'}`}>
+                            {draftComplet.length}/{ecartsAEvaluer.length} évalué{draftComplet.length > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </div>
                       {groupe.items.map((ecart: any) => (
                         <EcartCard
                           key={ecart.id}
                           ecart={ecart}
                           aerodrome={aerodrome}
+                          hideDomaine={true}
                           prioriteDynamique={ecart.prioriteDynamique}
                           raisonPriorite={ecart.raisonPriorite}
                           onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
@@ -706,17 +805,48 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
                           userRole={userRole}
                           userId={user?.id || ''}
+                          evalDraft={evalDrafts[ecart.id] || null}
                         />
                       ))}
                     </div>
-                  ))}
+                    )
+                  })}
                 </AccordionSection>
               )
             })}
           </AccordionGroup>
-        )}
+          {/* Transmission groupée des évaluations */}
+          {(() => {
+            const tabAEvaluer = sortedEcarts.filter((e: any) => e.surveillance_id && e.statut === 'pac_soumis')
+            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
+            if (tabAEvaluer.length === 0) return null
+            const allReady = tabComplet.length === tabAEvaluer.length
+            return (
+              <Card variant="role" size="sm" className="mt-4">
+                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
+                </div>
+                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
+                {allReady ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
+                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
+                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
+                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
+                )}
+              </Card>
+            )
+          })()}
+        </> )}
 
-        {activeTab === 'evenements' && (
+        {activeTab === 'evenements' && (<>
           <AccordionGroup spacing="sm">
             {Object.entries(ecartsParEvenement).map(([evId, { evenement, ecarts }]) => {
               const aerodrome = aerodromes.find(a => a.id === evenement.aerodrome_id)
@@ -738,18 +868,29 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     </>
                   }
                 >
-                  {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => (
+                  {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => {
+                    const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
+                    const draftComplet = ecartsAEvaluer.filter((e: any) => {
+                      const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision
+                    })
+                    return (
                     <div key={groupe.domaine} className="space-y-3">
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 rounded-lg border border-border/50">
                         <span className="inline-flex items-center justify-center w-8 h-6 rounded-md text-[10px] font-bold bg-role-primary text-white tracking-wide">{groupe.domaine}</span>
                         <span className="text-sm font-medium text-foreground">{groupe.domaineLabel}</span>
                         <span className="badge outline text-[10px]">{groupe.items.length} écart{groupe.items.length > 1 ? 's' : ''}</span>
+                        {ecartsAEvaluer.length > 0 && (
+                          <span className={`badge text-[10px] ${draftComplet.length === ecartsAEvaluer.length ? 'success' : 'warning'}`}>
+                            {draftComplet.length}/{ecartsAEvaluer.length} évalué{draftComplet.length > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </div>
                       {groupe.items.map((ecart: any) => (
                         <EcartCard
                           key={ecart.id}
                           ecart={ecart}
                           aerodrome={aerodrome}
+                          hideDomaine={true}
                           prioriteDynamique={ecart.prioriteDynamique}
                           raisonPriorite={ecart.raisonPriorite}
                           onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
@@ -758,15 +899,46 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
                           userRole={userRole}
                           userId={user?.id || ''}
+                          evalDraft={evalDrafts[ecart.id] || null}
                         />
                       ))}
                     </div>
-                  ))}
+                    )
+                  })}
                 </AccordionSection>
               )
             })}
           </AccordionGroup>
-        )}
+          {/* Transmission groupée des évaluations */}
+          {(() => {
+            const tabAEvaluer = sortedEcarts.filter((e: any) => e.evenement_id && e.statut === 'pac_soumis')
+            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
+            if (tabAEvaluer.length === 0) return null
+            const allReady = tabComplet.length === tabAEvaluer.length
+            return (
+              <Card variant="role" size="sm" className="mt-4">
+                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
+                </div>
+                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
+                {allReady ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
+                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
+                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
+                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
+                )}
+              </Card>
+            )
+          })()}
+        </> )}
 
         {activeTab === 'urgences' && (
           <div className="animate-fade-in space-y-4">
@@ -785,6 +957,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
                     onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
                     onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
+                    onValidationChef={() => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) }}
                     userRole={userRole}
                     userId={user?.id || ''}
                     urgent
@@ -801,7 +974,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
           </div>
         )}
 
-        {activeTab === 'processus' && (
+        {activeTab === 'processus' && (<>
           <AccordionGroup spacing="sm">
             {(() => {
               const processusParAerodrome = new Map<string, { aerodrome: any; processus: typeof processusActifs; ecarts: any[] }>()
@@ -843,30 +1016,44 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                       </button>
                     }
                   >
-                    {grouperParDomaine(aeroEcarts).map((groupe: DomaineItems<any>) => (
+                    {grouperParDomaine(aeroEcarts).map((groupe: DomaineItems<any>) => {
+                      const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
+                      const draftComplet = ecartsAEvaluer.filter((e: any) => {
+                        const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision
+                      })
+                      return (
                       <div key={groupe.domaine} className="space-y-3">
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 rounded-lg border border-border/50">
                           <span className="inline-flex items-center justify-center w-8 h-6 rounded-md text-[10px] font-bold bg-role-primary text-white tracking-wide">{groupe.domaine}</span>
                           <span className="text-sm font-medium text-foreground">{groupe.domaineLabel}</span>
                           <span className="badge outline text-[10px]">{groupe.items.length} écart{groupe.items.length > 1 ? 's' : ''}</span>
+                          {ecartsAEvaluer.length > 0 && (
+                            <span className={`badge text-[10px] ${draftComplet.length === ecartsAEvaluer.length ? 'success' : 'warning'}`}>
+                              {draftComplet.length}/{ecartsAEvaluer.length} évalué{draftComplet.length > 1 ? 's' : ''}
+                            </span>
+                          )}
                         </div>
                         {groupe.items.map((ecart: any) => (
-                          <EcartCard
-                            key={ecart.id}
-                            ecart={ecart}
-                            aerodrome={aerodrome}
-                            prioriteDynamique={ecart.prioriteDynamique}
-                            raisonPriorite={ecart.raisonPriorite}
-                            onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
-                            onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
-                            onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                            onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
-                            userRole={userRole}
-                            userId={user?.id || ''}
-                          />
+                        <EcartCard
+                          key={ecart.id}
+                          ecart={ecart}
+                          aerodrome={aerodrome}
+                          hideDomaine={true}
+                          prioriteDynamique={ecart.prioriteDynamique}
+                          raisonPriorite={ecart.raisonPriorite}
+                          onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
+                          onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
+                          onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
+                          onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
+                          onValidationChef={() => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) }}
+                          userRole={userRole}
+                          userId={user?.id || ''}
+                          evalDraft={evalDrafts[ecart.id] || null}
+                        />
                         ))}
                       </div>
-                    ))}
+                      )
+                    })}
                     {aeroEcarts.length === 0 && (
                       <Card className="text-center">
                         <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
@@ -878,7 +1065,36 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               })
             })()}
           </AccordionGroup>
-        )}
+          {/* Transmission groupée des évaluations */}
+          {(() => {
+            const tabAEvaluer = sortedEcarts.filter((e: any) => e.statut === 'pac_soumis')
+            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
+            if (tabAEvaluer.length === 0) return null
+            const allReady = tabComplet.length === tabAEvaluer.length
+            return (
+              <Card variant="role" size="sm" className="mt-4">
+                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
+                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
+                </div>
+                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
+                {allReady ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
+                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
+                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
+                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
+                )}
+              </Card>
+            )
+          })()}
+        </> )}
 
       </div>
 
@@ -913,7 +1129,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               {sug.niveau_risque && (
                 <div className="form-field">
                   <label className="filter-label">Niveau de risque suggéré</label>
-                  <span className={`badge ${sug.niveau_risque === 'critique' ? 'danger' : sug.niveau_risque === 'eleve' ? 'warning' : 'primary'}`}>
+                    <span className={getRiskLevelClass(sug.niveau_risque)}>
                     {sug.niveau_risque}
                   </span>
                 </div>
@@ -986,6 +1202,13 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             onClose={() => { setShowEvaluationModal(false); setSelectedEcart(null) }}
             ecartId={selectedEcart}
             userRole={userRole}
+            onSaveDraft={(data) => saveEvalDraft(selectedEcart!, data)}
+            initialEvaluation={evalDrafts[selectedEcart!] ? {
+              notes: evalDrafts[selectedEcart!].notes,
+              decision: evalDrafts[selectedEcart!].decision,
+              commentaire: evalDrafts[selectedEcart!].commentaire,
+              reserves: evalDrafts[selectedEcart!].reserves,
+            } : undefined}
           />
           <EvaluationPreuvesModal
             isOpen={showPreuvesEvaluationModal}
@@ -1004,7 +1227,40 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             onClose={() => { setShowSoumissionModal(false); setSelectedEcart(null) }}
             ecartId={selectedEcart}
           />
+          <ValidationChefModal
+            isOpen={showValidationChefModal}
+            onClose={() => { setShowValidationChefModal(false); setSelectedEcart(null) }}
+            ecartId={selectedEcart}
+          />
         </>
+      )}
+      
+      {/* Modal confirmation transmission groupée évaluations */}
+      {showEvalTransmissionModal && pendingEvalGroup && typeof window !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-background rounded-2xl max-w-md w-full border-t-4 border-t-role-primary">
+            <div className="modal-header">
+              <div className="modal-title flex items-center gap-2"><Send className="w-5 h-5 text-role-primary" />Transmettre les évaluations</div>
+              <button className="modal-close" onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null) }}><X className="w-4 h-4" /></button>
+            </div>
+            <div className="modal-body p-5 space-y-4">
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-warning/5 border border-warning/30">
+                <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+                <p className="text-sm text-muted-foreground">
+                  Vous êtes sur le point de transmettre {pendingEvalGroup.ecarts.length} évaluation(s). Cette action est irréversible.
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">Les exploitants seront notifiés des résultats de l'évaluation de leurs PAC.</p>
+            </div>
+            <div className="modal-footer gap-2">
+              <button className="btn btn-secondary" onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null) }}>Annuler</button>
+              <button className="btn btn-primary" onClick={handleSubmitAllEvaluations} disabled={isSubmittingEvalBulk}>
+                {isSubmittingEvalBulk ? 'Transmission...' : `Confirmer la transmission (${pendingEvalGroup.ecarts.length})`}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   )

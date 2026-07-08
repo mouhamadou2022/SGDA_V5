@@ -1,7 +1,7 @@
 ﻿// components/modules/planning/SmartAssignment.tsx
 // VERSION CORRIGÉE AVEC IA - Ajout du feedback utilisateur et suggestions IA
 // ✅ Ajout de enregistrerFeedbackAssignation
-// ✅ Appel à learningEngine.recordLearningFeedback dans handleAssigner
+// ✅ Appel à learningEngine.recordLearningFeedback dans handleAssigner — RETIRÉ (corrompait le Random Forest)
 // ✅ Suggestions IA pour les assignations
 // 0 style inline, 0 fetch direct
 
@@ -12,7 +12,7 @@ import { useAppStore, type Planning, type Utilisateur, type Formation, type Exem
 import type { ResultatChecklist } from '@/types/surveillance';
 import { formatDate } from '@/lib/utils';
 import { computeCompetenceScore } from '@/lib/competences';
-import { learningEngine } from '@/lib/learningEngine';
+import { getDomainesFromSpecialites, couvertureSuffisante, verifierCompositionEquipe } from '@/lib/domaines';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import {
   CheckCircle2,
@@ -42,6 +42,8 @@ interface InspecteurSuggeré {
   correspondance: string[];
   /** Vrai si l'inspecteur a au moins une compétence couvrant les domaines requis */
   isQualified: boolean;
+  /** Vrai si l'inspecteur peut être chef d'équipe (titulaire/principal) */
+  peutEtreChef: boolean;
 }
 
 interface PlanningEnrichi extends Planning {
@@ -84,6 +86,13 @@ function extraireDomaines(portee: string[]): string[] {
   return Array.from(domaines);
 }
 
+// Seul un inspecteur titulaire ou principal peut être chef d'équipe
+const TYPES_CHEF_AUTORISES = ['inspecteur_titulaire', 'inspecteur_principal']
+function peutEtreChef(insp: any): boolean {
+  const type = insp?.type_inspecteur || insp?._insp?.type
+  return TYPES_CHEF_AUTORISES.includes(type)
+}
+
 function calculerScoreInspecteur(
   insp: Utilisateur,
   planning: PlanningEnrichi,
@@ -98,22 +107,25 @@ function calculerScoreInspecteur(
     return {
       ...insp,
       disponible: false,
-      specialites: insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [],
+      specialites: insp.specialites || insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [],
       score: 0,
       chargeMissions: 0,
       competenceScore: 0,
       niveauCompetence: 'insuffisant',
       correspondance: ['Inactif'],
       isQualified: false,
+      peutEtreChef: false,
     };
   }
 
   const portee = planning.portee ?? [];
   const domainesRequis = extraireDomaines(portee);
   
-  // Compétences de l'inspecteur
-  const competencesInsp = insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [];
-  const matching = competencesInsp.filter((c: string) => 
+  // Domaines de l'inspecteur depuis ses spécialités métier (fallback compétences)
+  const domainesInsp = insp.specialites?.length
+    ? getDomainesFromSpecialites(insp.specialites)
+    : insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [];
+  const matching = domainesInsp.filter((c: string) => 
     domainesRequis.some(d => d === c || c.includes(d))
   );
   
@@ -206,7 +218,7 @@ function calculerScoreInspecteur(
   }
 
   // Bonus pour expertise en suivi PAC / mesures
-  const aExpertisePAC = competencesInsp.some((c: string) => 
+  const aExpertisePAC = domainesInsp.some((c: string) => 
     c.toLowerCase().includes('pac') || 
     c.toLowerCase().includes('action') || 
     c.toLowerCase().includes('corrective')
@@ -219,13 +231,14 @@ function calculerScoreInspecteur(
   return {
     ...insp,
     disponible: true,
-    specialites: competencesInsp,
+    specialites: domainesInsp,
     score: Math.max(0, Math.min(100, score)),
     chargeMissions,
     competenceScore,
     niveauCompetence,
     correspondance,
     isQualified,
+    peutEtreChef: peutEtreChef(insp),
   };
 }
 
@@ -307,20 +320,11 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
     planningId: string,
     inspecteurId: string
   ) => {
-    const planning = plannings.find(p => p.id === planningId);
-    if (!planning) return;
-    
-    learningEngine.recordLearningFeedback(
-      planning.aerodrome_id,
-      'assignment',
-      planning.type,
-      planningId,
-      'SA',
-      70,
-      'SA',
-      `Assignation acceptée pour inspecteur ${inspecteurId}`
-    );
-  }, [plannings]);
+    // Feedback ignoré : cette fonction sera réimplémentée via teamOptimizer
+    // dans la version AERORISQ. L'ancien appel à learningEngine.recordLearningFeedback
+    // corrompait le modèle Random Forest avec des données non-checklist.
+    return;
+  }, []);
 
   // ✅ Suggestion IA pour l'assignation
   const getIaSuggestion = useCallback(async (planning: PlanningEnrichi) => {
@@ -348,9 +352,15 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
       .map((insp) => calculerScoreInspecteur(insp, planning, planningsEnrichis, profilsRisque, formations))
       .filter((insp) => insp.disponible);
 
-    // Tri : qualifiés d'abord (par score desc), puis non-qualifiés (par score desc) en dernier
-    const qualifies    = scored.filter(i => i.isQualified).sort((a, b) => b.score - a.score);
-    const nonQualifies = scored.filter(i => !i.isQualified).sort((a, b) => b.score - a.score);
+    // Tri : qualifiés d'abord (peutEtreChef avant, score desc), puis non-qualifiés
+    const qualifies    = scored.filter(i => i.isQualified).sort((a, b) => {
+      if (a.peutEtreChef !== b.peutEtreChef) return a.peutEtreChef ? -1 : 1
+      return b.score - a.score
+    });
+    const nonQualifies = scored.filter(i => !i.isQualified).sort((a, b) => {
+      if (a.peutEtreChef !== b.peutEtreChef) return a.peutEtreChef ? -1 : 1
+      return b.score - a.score
+    });
 
     // On retourne les qualifiés en priorité, puis les non-qualifiés (en avertissement)
     return [...qualifies, ...nonQualifies].slice(0, 6);
@@ -360,11 +370,40 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
     const inspecteurId = assignations[planningId];
     if (!inspecteurId) return;
     
+    const planning = planningsEnrichis.find(p => p.id === planningId);
+    if (!planning) return;
+    const inspecteur = inspecteurs.find(i => i.id === inspecteurId);
+    if (!inspecteur) return;
+    
+    // Vérifier que l'inspecteur peut être chef d'équipe
+    if (!peutEtreChef(inspecteur)) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Chef non valide',
+        message: 'Seuls les inspecteurs titulaires ou principaux peuvent être chefs d\'équipe.',
+        canal: 'in_app'
+      });
+      return;
+    }
+    
+    // Vérifier la couverture des domaines
+    const portee = planning.portee ?? [];
+    const domainesRequis = extraireDomaines(portee);
+    const equipeIds = [inspecteurId];
+    const { valide, erreurs } = verifierCompositionEquipe(equipeIds, inspecteurs, domainesRequis);
+    if (!valide) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'warning',
+        title: 'Équipe incomplète',
+        message: erreurs.join('. '),
+        canal: 'in_app'
+      });
+    }
+    
     // ✅ Enregistrer le feedback
     enregistrerFeedbackAssignation(planningId, inspecteurId);
-    
-    const planning = planningsEnrichis.find(p => p.id === planningId);
-    const inspecteur = inspecteurs.find(i => i.id === inspecteurId);
     
     updatePlanning(planningId, {
       chef_id: inspecteurId,
@@ -633,6 +672,8 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
                             {suggestions.map((insp) => {
                               const prefixe = !insp.isQualified
                                 ? '⚠️ NON QUALIFIÉ — '
+                                : !insp.peutEtreChef
+                                ? '🚫 PAS CHEF — '
                                 : insp.score >= 80 ? '⭐ '
                                 : insp.score >= 60 ? '✓ '
                                 : '';
@@ -704,12 +745,15 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
                         {suggestions.map((insp) => (
                           <div key={insp.id} className="flex items-center justify-between p-3 rounded-xl bg-role-primary-soft border border-role-primary-light">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-role-primary flex items-center justify-center text-white font-bold">
+                              <div className="w-10 h-10 rounded-full bg-role-primary flex items-center justify-center !text-white font-bold">
                                 {insp.prenom?.[0]}{insp.nom?.[0]}
                               </div>
                               <div>
                                 <span className="text-small font-semibold text-foreground">{insp.prenom} {insp.nom}</span>
                                 <div className="flex flex-wrap gap-1 mt-1">
+                                  {insp.peutEtreChef && (
+                                    <span className="badge primary text-xs">👔 Chef</span>
+                                  )}
                                   {insp.correspondance.slice(0, 3).map((c, i) => (
                                     <span key={i} className="badge outline text-xs">{c}</span>
                                   ))}

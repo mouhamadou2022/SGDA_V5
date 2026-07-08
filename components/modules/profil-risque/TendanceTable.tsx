@@ -4,7 +4,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2, BarChart3 } from 'lucide-react'
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -61,12 +61,14 @@ export function TendanceTable({ profil }: Props) {
   return (
     <div className="space-y-5">
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Score moyen</p><p className={`text-xl font-bold ${getScoreColor(stats.avg)}`}>{stats.avg}</p><p className="text-xs text-foreground">/100</p></div>
-        <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Écart-type</p><p className="text-xl font-bold text-foreground">{stats.ecart}</p><p className="text-xs text-foreground">dispersion</p></div>
-        <div className="bg-danger-soft rounded-xl p-3 text-center"><p className="text-xs text-danger">Critère min</p><p className="text-xl font-bold text-danger">{stats.min}</p><p className="text-xs text-danger">{stats.minC}</p></div>
-        <div className="bg-success-soft rounded-xl p-3 text-center"><p className="text-xs text-success">Critère max</p><p className="text-xl font-bold text-success">{stats.max}</p><p className="text-xs text-success">{stats.maxC}</p></div>
-      </div>
+      <Card variant="role" title="Synthèse des critères C1-C5" icon={<BarChart3 className="w-4 h-4" />}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Score moyen</p><p className={`text-xl font-bold ${getScoreColor(stats.avg)}`}>{stats.avg}</p><p className="text-xs text-foreground">/100</p></div>
+          <div className="bg-muted rounded-xl p-3 text-center"><p className="text-xs text-foreground">Écart-type</p><p className="text-xl font-bold text-foreground">{stats.ecart}</p><p className="text-xs text-foreground">dispersion</p></div>
+          <div className="bg-danger-soft rounded-xl p-3 text-center"><p className="text-xs text-danger">Critère min</p><p className="text-xl font-bold text-danger">{stats.min}</p><p className="text-xs text-danger">{stats.minC}</p></div>
+          <div className="bg-success-soft rounded-xl p-3 text-center"><p className="text-xs text-success">Critère max</p><p className="text-xl font-bold text-success">{stats.max}</p><p className="text-xs text-success">{stats.maxC}</p></div>
+        </div>
+      </Card>
 
       {/* Tableau principal */}
       <div className="table-container">

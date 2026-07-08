@@ -119,6 +119,22 @@ export {
   getPerformanceClass,
 } from './calibration'
 
+// Naive Bayes C5 (explicabilité causale)
+export {
+  discretizeC5,
+  discretizeCritere,
+  learnNaiveBayesC5,
+  inferNaiveBayesC5,
+  getC5Label,
+  getC5Color,
+} from './naiveBayesC5'
+export type {
+  NiveauC5,
+  NiveauCritere,
+  NaiveBayesC5Model,
+  BayesExplainResult,
+} from './naiveBayesC5'
+
 // Fréquence
 export {
   computeBaseFrequency,
@@ -130,5 +146,64 @@ export {
   getFrequencyLabel,
 } from './frequency'
 
+// Prévisions saisonnières (Prophet-like)
+export {
+  fitSeasonalModel,
+  predict,
+  evaluateModel,
+} from './seasonalForecast'
+export type {
+  ForecastPoint,
+  SeasonalModel,
+} from './seasonalForecast'
+
+// Matrice risque ICAO dynamique (Doc 9859)
+export {
+  computeICaoMatrix,
+  computeGlobalICaoRisk,
+  getICaoLabels,
+} from './icaoMatrix'
+export type {
+  ICaoCell,
+  NiveauRisqueICAO,
+  ProbabiliteCategorie,
+  SeveriteCategorie,
+  EvenementPourMatrice,
+} from './icaoMatrix'
+
 // Fonctions C1–C5 du moteur principal (réexport depuis lib/risque.ts)
 export { calculateC1, calculateGlobalScore } from '../risque'
+
+// Classificateur texte pour écarts
+export { classifyEcartTexte, suggestGraviteFromTexte, classifySousTypeCOP } from './ecartClassifier'
+export type { SousTypeCOP } from './ecartClassifier'
+
+// Réseau bayésien causal (bow-tie + organisationnel)
+export {
+  construireReseauDepuisBowTie,
+  inferer,
+  computeBayesianNetworkRisk,
+  smoothCPT,
+  discretiserChargeTravail,
+  discretiserFormationAdequation,
+  discretiserSupervisionQuality,
+  calculerEvidencesOrganisationnelles,
+  buildEvidencesFromProfil,
+  computeBarrierEfficacite,
+  getConfianceLabel,
+  getConfianceDot,
+} from './bayesianNetwork'
+export type {
+  BayesNode,
+  CPT,
+  BayesianNetworkResult,
+  TypeNoeud,
+  EvidOrgParams,
+} from './bayesianNetwork'
+
+// Évaluateur de modèles (accuracy réelle)
+export {
+  evaluateModel as evaluateClassifier,
+  trainAndEvaluate, saveEvaluationHistory, getEvaluationHistory, getAccuracyTrend, getConfidenceLevel,
+} from './modelEvaluator'
+export type { ModelEvaluation, EvaluationHistoryPoint } from './modelEvaluator'

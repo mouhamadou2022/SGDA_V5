@@ -53,7 +53,7 @@ function fitGEV(data: number[]): { shape: number; scale: number; location: numbe
   const mean = sorted.reduce((a, b) => a + b, 0) / n
 
   // Moments pondérés
-  let b0 = mean
+  const b0 = mean
   let b1 = 0
   let b2 = 0
   for (let i = 0; i < n; i++) {
@@ -67,9 +67,19 @@ function fitGEV(data: number[]): { shape: number; scale: number; location: numbe
 
   const c = (2 * b1 - b0) / (3 * b2 - b0) - Math.log(2) / Math.log(3)
   const shape = 7.8590 * c + 2.9554 * c * c
-  // gamma = Γ(1+|ξ|) approximation
+  // Γ(1+|ξ|) par approximation de Taylor (|ξ| petit) ou Stirling (|ξ| plus grand)
   const absShape = Math.abs(shape)
-  const gammaApprox = absShape < 1e-6 ? 1 : Math.sqrt(2 * Math.PI / absShape) * Math.pow(absShape / Math.E, absShape)
+  let gammaApprox: number
+  if (absShape < 1e-6) {
+    gammaApprox = 1
+  } else if (absShape < 0.3) {
+    // Développement de Taylor près de 1 : Γ(1+x) ≈ 1 - γx + (γ²/2 + π²/12)x²
+    const g = 0.5772156649
+    gammaApprox = 1 - g * absShape + (g * g / 2 + Math.PI * Math.PI / 12) * absShape * absShape
+  } else {
+    // Stirling pour les grandes valeurs
+    gammaApprox = Math.sqrt(2 * Math.PI / absShape) * Math.pow(absShape / Math.E, absShape)
+  }
   const scale = ((2 * b1 - b0) * shape) / (gammaApprox * (1 - Math.pow(2, -shape)))
   const location = b0 + scale * (gammaApprox - 1) / shape
 

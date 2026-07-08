@@ -19,7 +19,10 @@ import {
   EvaluationSGS, MaturiteSGSDetaillee, buildEvaluationFromMaturiteDetaillee,
 } from '@/types/checklist';
 import { SGSEvaluationModal } from './SGSEvaluation';
-import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
+import { ChecklistLearningPanel } from './ChecklistLearningPanel';
+import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { recordTextModification, type TextModification } from '@/lib/checklistMemory';
+import { uploadPreuveFile } from '@/lib/preuves';
 
 
 function getProgressBarColor(taux: number): string {
@@ -112,14 +115,14 @@ export function SurveillanceChecklistStandard({
   modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
-  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: string; date_debut: string; equipe_ids: string[]; chef_id: string; };
+  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: string; date_debut: string; equipe_ids: string[]; chef_id: string; statut?: string; };
   onSave?: (checklistState: any) => void;
   onComplete?: () => void;
   readOnly?: boolean;
   userRole?: string;
   /** Ouvre automatiquement l'évaluation SGS (PAOE) dès le montage — pour les surveillances SGS-only */
   autoOpenSGS?: boolean;
-  /** Domaines à exclure de la checklist (ex: ['SGS'] pour portée mixte SGS + autres) */
+  /** Domaines supplémentaires à exclure (en plus de SGS, qui est toujours exclu) */
   excludeDomaines?: string[];
   /** Mode de saisie (piloté depuis le header de page) */
   modeSaisie?: import('@/types/checklist').ModeSaisie;
@@ -141,7 +144,15 @@ export function SurveillanceChecklistStandard({
   const [suggestions, setSuggestions] = useState<{ itemId: string; itemNumero: string; justification: string; confiance: number }[]>([]);
   const [sgsEvaluationOpen, setSgsEvaluationOpen] = useState(autoOpenSGS);
   const [sgsEvaluation, setSgsEvaluation] = useState<EvaluationSGS | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
+  const effectiveExclude = useMemo(() => {
+    const ex = [...excludeDomaines];
+    if (!ex.some(e => e.toUpperCase() === 'SGS')) {
+      ex.push('SGS');
+    }
+    return ex;
+  }, [excludeDomaines]);
 
   const aerodromeId = surveillance.aerodrome?.code_oaci || 'unknown';
   const profil = profilsRisque?.[aerodromeId] || null;
@@ -207,10 +218,11 @@ export function SurveillanceChecklistStandard({
     const store = useAppStore.getState();
     const surveillanceObj = store.surveillances.find(s => s.id === surveillanceId);
     const flatItems = store.checklistItems?.[surveillanceId] || [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (surveillanceObj?.checklist_hierarchy && surveillanceObj.checklist_hierarchy.length > 0) {
       let hierarchy = surveillanceObj.checklist_hierarchy as unknown as DomaineChecklist[];
-      if (excludeDomaines.length > 0) {
-        const excludeUpper = excludeDomaines.map(e => e.toUpperCase());
+      if (effectiveExclude.length > 0) {
+        const excludeUpper = effectiveExclude.map(e => e.toUpperCase());
         hierarchy = hierarchy.filter(d => !excludeUpper.some(e => (d.nom || d.id || '').toUpperCase().includes(e)));
       }
       mergeItemsIntoHierarchy(hierarchy, flatItems);
@@ -246,8 +258,8 @@ export function SurveillanceChecklistStandard({
     const prefilledHierarchy = store.checklistHierarchy?.[surveillanceId];
     if (prefilledHierarchy && prefilledHierarchy.length > 0) {
       let hierarchy = prefilledHierarchy as unknown as DomaineChecklist[];
-      if (excludeDomaines.length > 0) {
-        const excludeUpper = excludeDomaines.map(e => e.toUpperCase());
+      if (effectiveExclude.length > 0) {
+        const excludeUpper = effectiveExclude.map(e => e.toUpperCase());
         hierarchy = hierarchy.filter(d => !excludeUpper.some(e => (d.nom || d.id || '').toUpperCase().includes(e)));
       }
       mergeItemsIntoHierarchy(hierarchy, flatItems);
@@ -265,12 +277,73 @@ export function SurveillanceChecklistStandard({
       return;
     }
     const initialDomaines: DomaineChecklist[] = DOMAINES_PREDEFINIS
-      .filter(d => excludeDomaines.length === 0 || !excludeDomaines.map(e => e.toUpperCase()).some(e => (d.nom || d.id || '').toUpperCase().includes(e)))
+      .filter(d => !effectiveExclude.map(e => e.toUpperCase()).some(ee => (d.nom || d.id || '').toUpperCase().includes(ee)))
       .map((d, idx) => ({
         id: d.id, nom: d.nom, description: d.description, items: [], sousDomaines: [],
         isExpanded: true, progression: 0, ordre: idx,
       }));
     setDomaines(initialDomaines);
+    // Générer la checklist via IA si aucune hiérarchie existante
+    setIsGenerating(true);
+    timer = setTimeout(async () => {
+      try {
+        const store = useAppStore.getState();
+        const surv = store.surveillances.find(s => s.id === surveillanceId);
+        const portee = surv?.portee || [];
+        const aerodromeStore = store.aerodromes.find(a => surv && a.id === surv.aerodrome_id);
+        const profil = store.profilsRisque?.[surv?.aerodrome_id || ''] || undefined;
+        const typeSurv: 'periodique' | 'inopine' | 'maintien' =
+          surv?.type === 'inopine' || surv?.type === 'inopinee' ? 'inopine' :
+          surv?.type === 'maintien' ? 'maintien' : 'periodique';
+        const checklistPrefix = surv?.type === 'certification' ? 'CERT'
+          : surv?.type === 'homologation' ? 'HMG' : 'QSC';
+        let generated: DomaineChecklist[];
+        // Template sauvegardé (apprentissage IA) — prioritaire sur master/IA génération
+        const template = aerodromeStore?.checklist_template;
+        if (template && Array.isArray(template) && template.length > 0) {
+          const snapshot = JSON.parse(JSON.stringify(template));
+          const enriched = kitDocAgent.applyRiskProfileToChecklist(snapshot, {
+            entite_id: surv?.aerodrome_id || '', type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
+            type_surveillance: typeSurv, portee, profil_risque: profil,
+          });
+          generated = enriched as unknown as DomaineChecklist[];
+        } else {
+          const master = store.findMasterChecklistForPortee(portee);
+          if (master) {
+            const snapshot = JSON.parse(JSON.stringify(master.checklist));
+            const filtered = aerodromeStore ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodromeStore) : snapshot;
+            const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
+              entite_id: surv?.aerodrome_id || '', type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
+              type_surveillance: typeSurv, portee, profil_risque: profil,
+            });
+            generated = enriched as unknown as DomaineChecklist[];
+          } else {
+            const result = await kitDocAgent.generateChecklist({
+              surveillance_id: surveillanceId, entite_id: surv?.aerodrome_id || '',
+              type_entite: aerodromeStore?.type_entite ?? 'aerodrome', type_surveillance: typeSurv,
+              portee, profil_risque: profil, prefix_numero: checklistPrefix,
+            });
+            const resultFiltered = aerodromeStore ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodromeStore) } : result;
+            generated = toDomaineChecklistArray(resultFiltered) as unknown as DomaineChecklist[];
+            kitDocAgent.injectIntoStore(surveillanceId, resultFiltered);
+            store.updateSurveillance(surveillanceId, { checklist_hierarchy: generated as any });
+          }
+        }
+        if (effectiveExclude.length > 0) {
+          const excludeUpper = effectiveExclude.map(e => e.toUpperCase());
+          generated = generated.filter(d => !excludeUpper.some(e => (d.nom || d.id || '').toUpperCase().includes(e)));
+        }
+        let count = 0;
+        const walk = (d: any) => { count += (d.items || []).filter((i: any) => i.prefilled).length; (d.sousDomaines || []).forEach(walk); (d.sousSousDomaines || []).forEach(walk); };
+        generated.forEach(d => walk(d));
+        setDomaines(generated);
+        setIaPrefilledCount(count);
+      } catch (err) {
+        console.error('[SurveillanceChecklistStandard] Erreur génération IA checklist:', err);
+      }
+      setIsGenerating(false);
+    }, 100);
+    return () => clearTimeout(timer);
   }, [surveillanceId]);
 
   const stats = useMemo(() => {
@@ -393,6 +466,28 @@ export function SurveillanceChecklistStandard({
         }
       }
 
+      // Tracker les modifications de texte sur les items IA
+      if (oldItem?.prefilled) {
+        const textFields: [keyof Pick<ChecklistItem, 'point_verification' | 'reference_reglementaire' | 'directive_preuve' | 'directive_sa' | 'directive_ns' | 'directive_nv' | 'directive_na'>, TextModification['field']][] = [
+          ['point_verification', 'point_verification'],
+          ['reference_reglementaire', 'reference_reglementaire'],
+          ['directive_preuve', 'directive_preuve'],
+          ['directive_sa', 'directive_sa'],
+          ['directive_ns', 'directive_ns'],
+          ['directive_nv', 'directive_nv'],
+          ['directive_na', 'directive_na'],
+        ];
+        for (const [key, field] of textFields) {
+          const ancien = oldItem[key] || '';
+          const nouveau = updated[key] || '';
+          if (ancien !== nouveau) {
+            recordTextModification(aerodromeId, surveillance.type, dNom, sdNom, ssdNom,
+              { id: updated.id, numero: updated.numero || '', point_verification: updated.point_verification || '' },
+              field, ancien, nouveau, surveillanceId);
+          }
+        }
+      }
+
       const replaceItem = (items: ChecklistItem[]) => items.map(i => i.id === updated.id ? updated : i);
       return prev.map(d => ({
         ...d,
@@ -506,6 +601,23 @@ export function SurveillanceChecklistStandard({
       await recalculerProfilRisque(aerodromeId);
     }
 
+    // Sauvegarder la structure comme template pour l'apprentissage IA
+    try {
+      const { updateAerodrome } = useAppStore.getState();
+      const stripResults = (items: ChecklistItem[]) =>
+        items.map(i => ({ ...i, resultat: undefined, observation: undefined, fichiers: undefined, observation_stylus_data: undefined, mode_saisie_obs: undefined, prefilled: false }));
+      const template = domaines.map(d => ({
+        ...d,
+        items: stripResults(d.items || []),
+        sousDomaines: (d.sousDomaines || []).map(sd => ({
+          ...sd,
+          items: stripResults(sd.items || []),
+          sousSousDomaines: (sd.sousSousDomaines || []).map(ssd => ({ ...ssd, items: stripResults(ssd.items || []) })),
+        })),
+      }));
+      await updateAerodrome(aerodromeId, { checklist_template: template as any });
+    } catch { /* silencieux */ }
+
     onComplete?.();
   };
 
@@ -525,6 +637,20 @@ export function SurveillanceChecklistStandard({
   const isEquipeMember = noTeamRestriction || (!!user?.id && (surveillance.equipe_ids || []).includes(user.id));
   const canEditChecklist = isChef || isEquipeMember;
   const actualReadOnly = readOnly || isSigned || !canEditChecklist;
+  // structureReadOnly active dès que la surveillance n'est plus en préparation (statut !== 'planifiee')
+  // → la structure de la checklist est figée, seuls les résultats/observations restent modifiables
+  const structureReadOnly = actualReadOnly || (!!surveillance.statut && surveillance.statut !== 'planifiee');
+
+  if (isGenerating) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground animate-pulse">Génération de la checklist par IA...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6" data-role={userRole} data-module="checklist-standard">
@@ -632,6 +758,9 @@ export function SurveillanceChecklistStandard({
         </Card>
       )}
 
+      {/* Panneau apprentissage IA */}
+      <ChecklistLearningPanel aerodromeId={aerodromeId} />
+
       {/* Stats conformité */}
       <Card className="overflow-hidden">
           {/* Compteurs SA/NS/NV/NA */}
@@ -682,6 +811,8 @@ export function SurveillanceChecklistStandard({
         onUpdateDomaines={actualReadOnly ? undefined : setDomaines}
         modeSaisie={modeSaisie}
         readOnly={actualReadOnly}
+        structureReadOnly={structureReadOnly}
+        onUploadPreuve={surveillanceId ? (file, itemId) => uploadPreuveFile(file, surveillanceId, itemId) : undefined}
       />
 
       {/* Signature */}
@@ -718,6 +849,7 @@ export function SurveillanceChecklistStandard({
         riskTrend={riskTrend}
         onGenerateByIA={handleGenerateSGSByIA}
         readOnly={actualReadOnly}
+        structureReadOnly={structureReadOnly}
       />
 
       {signatureDialogOpen && typeof window !== 'undefined' && createPortal(

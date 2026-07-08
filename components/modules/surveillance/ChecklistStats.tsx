@@ -15,9 +15,7 @@ import {
   PieChart,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-
-// Types
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
+import type { ResultatChecklist } from '@/types/checklist'
 
 export interface ChecklistItemStats {
   id: string;

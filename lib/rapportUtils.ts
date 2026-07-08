@@ -4,7 +4,6 @@
 import { ProfilRisque, Ecart, Surveillance, ChecklistItem } from './store';
 
 // Types
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
 
 export interface RapportStats {
   total_items: number;
@@ -228,24 +227,24 @@ export function generatePageGardeHTML(
   const dateFinFormatted = new Date(dateFin).toLocaleDateString('fr-FR');
 
   return `
-    <div style="text-align: center; margin-bottom: 40px; page-break-after: avoid;">
-      <div style="margin-bottom: 30px;">
-        <h1 style="font-size: 28px; margin: 20px 0; color: #1a56db;">ANACIM</h1>
-        <h2 style="font-size: 18px; margin-bottom: 10px; color: #374151;">Agence Nationale de l'Aviation Civile du Sénégal</h2>
-        <h3 style="font-size: 16px; margin-bottom: 30px; color: #4b5563;">Direction de la Sécurité des Aérodromes</h3>
-      </div>
-      <hr style="margin: 30px 0; border-color: #e5e7eb;">
-      <h1 style="font-size: 32px; margin: 40px 0; color: #1a56db;">RAPPORT DE SURVEILLANCE</h1>
-      <p style="font-size: 14px; margin: 10px 0;"><strong>Réf:</strong> ${reference}</p>
-      <hr style="margin: 30px 0; border-color: #e5e7eb;">
-      <table style="width: 100%; margin-top: 40px; border-collapse: collapse;">
+      <div style="text-align: center; margin-bottom: 40px; page-break-after: avoid;">
+        <div style="margin-bottom: 30px;">
+          <h1 style="font-size: 20pt; margin: 20px 0; color: #1a56db;">ANACIM</h1>
+          <h2 style="font-size: 14pt; margin-bottom: 10px; color: #374151;">Agence Nationale de l'Aviation Civile du Sénégal</h2>
+          <h3 style="font-size: 12pt; margin-bottom: 30px; color: #4b5563;">Direction de la Sécurité des Aérodromes</h3>
+        </div>
+        <hr style="margin: 30px 0; border-color: #e5e7eb;">
+        <h1 style="font-size: 20pt; margin: 40px 0; color: #1a56db;">RAPPORT DE SURVEILLANCE</h1>
+        <p style="font-size: 12pt; margin: 10px 0;"><strong>Réf:</strong> ${reference}</p>
+        <hr style="margin: 30px 0; border-color: #e5e7eb;">
+      <table style="width: 100%; margin-top: 40px; border-collapse: collapse; font-size: 10pt;">
         <tr><td style="padding: 8px;"><strong>Aérodrome:</strong></td><td>${aerodromeNom} (${aerodromeCode})</td></tr>
         <tr><td style="padding: 8px;"><strong>Date de la surveillance:</strong></td><td>${dateDebutFormatted} → ${dateFinFormatted}</td></tr>
         <tr><td style="padding: 8px;"><strong>Type de surveillance:</strong></td><td>${type}</td></tr>
         ${chefEquipe ? `<tr><td style="padding: 8px;"><strong>Chef d'équipe:</strong></td><td>${chefEquipe}</td></tr>` : ''}
       </table>
       <div style="margin-top: 60px;">
-        <p style="font-size: 12px; color: #6b7280;">Document confidentiel - ANACIM</p>
+        <p style="font-size: 10pt; color: #6b7280;">Document confidentiel - ANACIM</p>
       </div>
     </div>
   `;
@@ -375,14 +374,14 @@ export function generateResultatsHTML(
       <div style="margin: 15px 0; padding: 15px; background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <span><strong>Maturité SGS (C1):</strong></span>
-          <span style="font-size: 18px; font-weight: bold; color: ${getScoreColor(profil.c1)};">
+          <span style="font-size: 14pt; font-weight: bold; color: ${getScoreColor(profil.c1)};">
             ${profil.c1}/100 — ${profil.sgs_maturity_label || getNiveauLabel(profil.c1)}
           </span>
         </div>
         <div style="margin: 10px 0; background-color: #e5e7eb; border-radius: 8px; height: 16px; overflow: hidden;">
           <div style="background-color: ${getScoreColor(profil.c1)}; width: ${profil.c1}%; height: 100%;"></div>
         </div>
-        <p style="margin-top: 10px; font-size: 13px; color: #6b7280;">
+        <p style="margin-top: 10px; font-size: 12pt; color: #6b7280;">
           ${profil.c1 >= 80 ? 'Le SGS est mature et pleinement opérationnel.' :
             profil.c1 >= 60 ? 'Le SGS est significatif mais des améliorations sont possibles.' :
             profil.c1 >= 40 ? 'Le SGS est partiellement déployé. Des actions correctives sont nécessaires.' :
@@ -390,7 +389,7 @@ export function generateResultatsHTML(
             'Le SGS est inexistant ou non documenté. Action prioritaire requise.'}
         </p>
         ${sgsDomaine ? `
-          <p style="font-size: 13px; color: #6b7280;">
+          <p style="font-size: 12pt; color: #6b7280;">
             <strong>Domaine SGS:</strong> ${sgsDomaine.domaine} — Taux de conformité: ${sgsDomaine.taux}%
             ${sgsDomaine.taux < 50 ? ' ⚠️ Nécessite une attention immédiate.' : ''}
           </p>
@@ -403,10 +402,10 @@ export function generateResultatsHTML(
   const criticalHtml = criticalDomains.length > 0 ? `
     <div style="margin-top: 25px;">
       <h3>Domaines critiques</h3>
-      <p style="color: #ef4444; font-size: 13px;">⚠️ Les domaines suivants ont un taux de conformité inférieur à 50% :</p>
+      <p style="color: #ef4444; font-size: 12pt;">⚠️ Les domaines suivants ont un taux de conformité inférieur à 50% :</p>
       <ul style="margin-top: 10px;">
         ${criticalDomains.map(d => `
-          <li style="margin: 5px 0; font-size: 13px;">
+          <li style="margin: 5px 0; font-size: 12pt;">
             <strong>${d.domaine}</strong> — ${d.taux}% de conformité
             (SA: ${d.sa}, NS: ${d.ns}, NV: ${d.nv})
           </li>
@@ -419,19 +418,19 @@ export function generateResultatsHTML(
   const scenariosHtml = profil?.scenarios && profil.scenarios.length > 0 ? `
     <div style="margin-top: 25px;">
       <h3>Scénarios de risque projetés</h3>
-      <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+      <p style="font-size: 12pt; color: #6b7280; margin-bottom: 15px;">
         Analyse bayésienne et modélisation des scénarios potentiels (confiance ensemble: ${profil.ensemble_confidence ? `${profil.ensemble_confidence}%` : 'N/A'})
       </p>
       ${profil.scenarios.map(s => `
         <div style="margin: 12px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #fafafa;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <strong style="font-size: 14px;">${s.nom}</strong>
-            <span style="font-size: 13px; color: ${getScoreColor(s.scoreProjecte)};">
+            <strong style="font-size: 12pt;">${s.nom}</strong>
+            <span style="font-size: 12pt; color: ${getScoreColor(s.scoreProjecte)};">
               Score projeté: ${s.scoreProjecte}/100
             </span>
           </div>
-          <p style="margin: 8px 0; font-size: 13px; color: #374151;">${s.description}</p>
-          <div style="display: flex; gap: 20px; margin: 8px 0; font-size: 12px; color: #6b7280;">
+          <p style="margin: 8px 0; font-size: 12pt; color: #374151;">${s.description}</p>
+          <div style="display: flex; gap: 20px; margin: 8px 0; font-size: 10pt; color: #6b7280;">
             <span><strong>Probabilité:</strong> ${s.probabilite}%</span>
             <span><strong>Intervalle de confiance:</strong> [${s.intervalleConfiance[0]}, ${s.intervalleConfiance[1]}]</span>
           </div>
@@ -442,8 +441,8 @@ export function generateResultatsHTML(
           </div>
           ${s.actionsRecommandees.length > 0 ? `
             <div style="margin-top: 8px;">
-              <strong style="font-size: 12px;">Actions recommandées:</strong>
-              <ul style="margin: 5px 0 0 20px; font-size: 12px;">
+              <strong style="font-size: 10pt;">Actions recommandées:</strong>
+              <ul style="margin: 5px 0 0 20px; font-size: 10pt;">
                 ${s.actionsRecommandees.map(a => `<li>${a}</li>`).join('')}
               </ul>
             </div>
@@ -452,7 +451,7 @@ export function generateResultatsHTML(
       `).join('')}
       ${profil.bayesian_black_swan ? `
         <div style="margin-top: 10px; padding: 10px; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;">
-          <p style="font-size: 13px; color: #ef4444;"><strong>⚠️ Risque cygne noir détecté</strong> — événement à faible probabilité mais à très fort impact identifié par l'analyse bayésienne.</p>
+          <p style="font-size: 12pt; color: #ef4444;"><strong>⚠️ Risque cygne noir détecté</strong> — événement à faible probabilité mais à très fort impact identifié par l'analyse bayésienne.</p>
         </div>
       ` : ''}
     </div>
@@ -465,37 +464,37 @@ export function generateResultatsHTML(
       <div style="margin: 15px 0; padding: 15px; background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;">
         <div style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-around;">
           <div style="text-align: center; min-width: 100px;">
-            <div style="font-size: 24px; font-weight: bold; color: ${getScoreColor(profil.score_global)};">${profil.score_global}</div>
-            <div style="font-size: 11px; color: #6b7280;">Actuel</div>
+            <div style="font-size: 18pt; font-weight: bold; color: ${getScoreColor(profil.score_global)};">${profil.score_global}</div>
+            <div style="font-size: 10pt; color: #6b7280;">Actuel</div>
           </div>
           <div style="text-align: center; min-width: 100px;">
-            <div style="font-size: 24px; font-weight: bold; color: ${getScoreColor(profil.prediction_3m)};">${profil.prediction_3m}</div>
-            <div style="font-size: 11px; color: #6b7280;">3 mois${profil.prediction_interval_3m ? ` [${profil.prediction_interval_3m.lower}-${profil.prediction_interval_3m.upper}]` : ''}</div>
+            <div style="font-size: 18pt; font-weight: bold; color: ${getScoreColor(profil.prediction_3m)};">${profil.prediction_3m}</div>
+            <div style="font-size: 10pt; color: #6b7280;">3 mois${profil.prediction_interval_3m ? ` [${profil.prediction_interval_3m.lower}-${profil.prediction_interval_3m.upper}]` : ''}</div>
           </div>
           ${profil.prediction_6m != null ? `
           <div style="text-align: center; min-width: 100px;">
-            <div style="font-size: 24px; font-weight: bold; color: ${getScoreColor(profil.prediction_6m)};">${profil.prediction_6m}</div>
-            <div style="font-size: 11px; color: #6b7280;">6 mois${profil.prediction_interval_6m ? ` [${profil.prediction_interval_6m.lower}-${profil.prediction_interval_6m.upper}]` : ''}</div>
+            <div style="font-size: 18pt; font-weight: bold; color: ${getScoreColor(profil.prediction_6m)};">${profil.prediction_6m}</div>
+            <div style="font-size: 10pt; color: #6b7280;">6 mois${profil.prediction_interval_6m ? ` [${profil.prediction_interval_6m.lower}-${profil.prediction_interval_6m.upper}]` : ''}</div>
           </div>
           ` : ''}
           ${profil.prediction_12m != null ? `
           <div style="text-align: center; min-width: 100px;">
-            <div style="font-size: 24px; font-weight: bold; color: ${getScoreColor(profil.prediction_12m)};">${profil.prediction_12m}</div>
-            <div style="font-size: 11px; color: #6b7280;">12 mois</div>
+            <div style="font-size: 18pt; font-weight: bold; color: ${getScoreColor(profil.prediction_12m)};">${profil.prediction_12m}</div>
+            <div style="font-size: 10pt; color: #6b7280;">12 mois</div>
           </div>
           ` : ''}
         </div>
         <!-- Barre de tendance visuelle -->
         <div style="margin-top: 15px; display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 11px; color: #6b7280; min-width: 50px;">Actuel</span>
+          <span style="font-size: 10pt; color: #6b7280; min-width: 50px;">Actuel</span>
           <div style="flex: 1; height: 6px; background-color: #e5e7eb; border-radius: 3px; position: relative;">
             <div style="position: absolute; left: ${profil.score_global}%; width: 2px; height: 14px; top: -4px; background-color: #374151;"></div>
             ${profil.prediction_3m != null ? `<div style="position: absolute; left: ${profil.prediction_3m}%; width: 2px; height: 10px; top: -2px; background-color: ${getScoreColor(profil.prediction_3m)};"></div>` : ''}
             ${profil.prediction_6m != null ? `<div style="position: absolute; left: ${profil.prediction_6m}%; width: 2px; height: 10px; top: -2px; background-color: ${getScoreColor(profil.prediction_6m)};"></div>` : ''}
           </div>
-          <span style="font-size: 11px; color: #6b7280; min-width: 50px; text-align: right;">12mois</span>
+          <span style="font-size: 10pt; color: #6b7280; min-width: 50px; text-align: right;">12mois</span>
         </div>
-        <p style="margin-top: 10px; font-size: 12px; color: #6b7280;">
+        <p style="margin-top: 10px; font-size: 12pt; color: #6b7280;">
           <strong>Tendance:</strong> ${profil.tendance === 'hausse' ? '📈 Amélioration' : profil.tendance === 'baisse' ? '📉 Dégradation' : '➡️ Stable'}
           ${profil.event_trend_acceleration != null ? ` | <strong>Accélération de la tendance:</strong> ${profil.event_trend_acceleration > 0 ? '+':''}${(profil.event_trend_acceleration * 100).toFixed(1)}%` : ''}
           ${profil.ensemble_confidence != null ? ` | <strong>Confiance du modèle:</strong> ${profil.ensemble_confidence}%` : ''}
@@ -511,7 +510,7 @@ export function generateResultatsHTML(
       <div style="margin: 10px 0; padding: 12px; background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span><strong>Score d'efficacité:</strong></span>
-          <span style="font-size: 18px; font-weight: bold; color: ${getScoreColor(profil.effectiveness_score)};">${profil.effectiveness_score}/100</span>
+          <span style="font-size: 14pt; font-weight: bold; color: ${getScoreColor(profil.effectiveness_score)};">${profil.effectiveness_score}/100</span>
         </div>
         <div style="margin: 8px 0; background-color: #e5e7eb; border-radius: 8px; height: 12px; overflow: hidden;">
           <div style="background-color: ${getScoreColor(profil.effectiveness_score)}; width: ${profil.effectiveness_score}%; height: 100%;"></div>
@@ -527,20 +526,20 @@ export function generateResultatsHTML(
       <div style="margin: 20px 0;">
         <div style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
           <div style="text-align: center; min-width: 80px;">
-            <div style="font-size: 32px; font-weight: bold; color: #10b981;">${stats.sa}</div>
-            <div style="font-size: 12px;">Satisfaisant</div>
+            <div style="font-size: 18pt; font-weight: bold; color: #10b981;">${stats.sa}</div>
+            <div style="font-size: 10pt;">Satisfaisant</div>
           </div>
           <div style="text-align: center; min-width: 80px;">
-            <div style="font-size: 32px; font-weight: bold; color: #ef4444;">${stats.ns}</div>
-            <div style="font-size: 12px;">Non satisfaisant</div>
+            <div style="font-size: 18pt; font-weight: bold; color: #ef4444;">${stats.ns}</div>
+            <div style="font-size: 10pt;">Non satisfaisant</div>
           </div>
           <div style="text-align: center; min-width: 80px;">
-            <div style="font-size: 32px; font-weight: bold; color: #f59e0b;">${stats.nv}</div>
-            <div style="font-size: 12px;">Non vérifié</div>
+            <div style="font-size: 18pt; font-weight: bold; color: #f59e0b;">${stats.nv}</div>
+            <div style="font-size: 10pt;">Non vérifié</div>
           </div>
           <div style="text-align: center; min-width: 80px;">
-            <div style="font-size: 32px; font-weight: bold; color: #6b7280;">${stats.na}</div>
-            <div style="font-size: 12px;">Non applicable</div>
+            <div style="font-size: 18pt; font-weight: bold; color: #6b7280;">${stats.na}</div>
+            <div style="font-size: 10pt;">Non applicable</div>
           </div>
         </div>
       </div>
@@ -602,7 +601,7 @@ export function generateAnnexesHTML(
       <td style="padding: 8px; border: 1px solid #e5e7eb;">${e.ref_reglementaire}</td>
       <td style="padding: 8px; border: 1px solid #e5e7eb;">${e.libelle}</td>
       <td style="padding: 8px; border: 1px solid #e5e7eb;">
-        <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; color: white; background-color: ${e.niveau === 'critique' ? '#ef4444' : e.niveau === 'eleve' ? '#f59e0b' : '#3b82f6'};">${e.niveau}</span>
+        <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 9pt; font-weight: 500; color: white; background-color: ${e.niveau === 'critique' ? '#ef4444' : e.niveau === 'eleve' ? '#f59e0b' : '#3b82f6'};">${e.niveau}</span>
       </td>
     </tr>
   `).join('');
@@ -628,8 +627,8 @@ export function generateAnnexesHTML(
     <h3>Annexe A-2: Check-list renseignée</h3>
     ${Object.entries(checklistByDomaine).map(([domaine, items]) => `
       <div style="margin-bottom: 20px;">
-        <p style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">Domaine: ${domaine} (${items.length} points)</p>
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+        <p style="font-weight: bold; font-size: 12pt; margin-bottom: 8px;">Domaine: ${domaine} (${items.length} points)</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10pt;">
           <thead>
             <tr style="background-color: #f3f4f6;">
               <th style="padding: 6px; border: 1px solid #e5e7eb;">N°</th>
@@ -646,11 +645,11 @@ export function generateAnnexesHTML(
                 <td style="padding: 6px; border: 1px solid #e5e7eb;">${item.reference_ras14 || '-'}</td>
                 <td style="padding: 6px; border: 1px solid #e5e7eb;">${item.description || item.point_verification || '-'}</td>
                 <td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center;">
-                  <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; color: white; background-color: ${getResultatColor(item.resultat)};">
+                  <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9pt; font-weight: 600; color: white; background-color: ${getResultatColor(item.resultat)};">
                     ${item.resultat || 'NV'}
                   </span>
                 </td>
-                <td style="padding: 6px; border: 1px solid #e5e7eb; font-size: 10px;">${item.observation || '-'}</td>
+                <td style="padding: 6px; border: 1px solid #e5e7eb; font-size: 10pt;">${item.observation || '-'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -670,7 +669,7 @@ export function generateAnnexesHTML(
           <tr>
             <td style="padding: 6px; width: 200px;"><strong>Score global:</strong></td>
             <td style="padding: 6px;">
-              <span style="font-size: 16px; font-weight: bold; color: ${niveauConfig?.color || '#f59e0b'};">${profil.score_global}/100</span>
+              <span style="font-size: 14pt; font-weight: bold; color: ${niveauConfig?.color || '#f59e0b'};">${profil.score_global}/100</span>
               — ${niveauConfig?.label || profil.niveau}
             </td>
           </tr>
@@ -743,7 +742,7 @@ export function generateAnnexesHTML(
             { label: 'C5 — Résilience', value: profil.c5 },
           ].map(c => `
             <div style="margin: 8px 0;">
-              <div style="display: flex; justify-content: space-between; font-size: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 10pt;">
                 <span>${c.label}</span>
                 <span style="font-weight: bold; color: ${getNiveauConfigHTML(c.value).color};">${c.value}/100</span>
               </div>
@@ -764,19 +763,19 @@ export function generateAnnexesHTML(
       <div style="margin: 12px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <strong>${s.nom}</strong>
-          <span style="font-size: 13px; color: ${getNiveauConfigHTML(s.scoreProjecte).color};">
+          <span style="font-size: 12pt; color: ${getNiveauConfigHTML(s.scoreProjecte).color};">
             Score: ${s.scoreProjecte}/100 — Probabilité: ${s.probabilite}%
           </span>
         </div>
-        <p style="margin: 8px 0; font-size: 12px; color: #374151;">${s.description}</p>
+        <p style="margin: 8px 0; font-size: 12pt; color: #374151;">${s.description}</p>
         <div style="margin: 5px 0; background-color: #e5e7eb; border-radius: 4px; height: 8px; overflow: hidden;">
           <div style="background-color: ${getNiveauConfigHTML(s.scoreProjecte).color}; width: ${s.probabilite}%; height: 100%;"></div>
         </div>
-        <div style="font-size: 11px; color: #6b7280; margin: 5px 0;">
+        <div style="font-size: 10pt; color: #6b7280; margin: 5px 0;">
           Intervalle de confiance: [${s.intervalleConfiance[0]}, ${s.intervalleConfiance[1]}]
         </div>
         ${s.actionsRecommandees.length > 0 ? `
-          <div style="margin-top: 8px; font-size: 12px;">
+          <div style="margin-top: 8px; font-size: 12pt;">
             <strong>Actions recommandées:</strong>
             <ul style="margin: 5px 0 0 20px;">
               ${s.actionsRecommandees.map(a => `<li>${a}</li>`).join('')}
@@ -873,9 +872,9 @@ export function generateRapportCompletHTML(
       h1, h2, h3, h4 {
         color: #1a56db;
       }
-      h1 { font-size: 28px; }
-      h2 { font-size: 22px; margin-top: 30px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
-      h3 { font-size: 18px; margin-top: 20px; }
+      h1 { font-size: 20pt; }
+      h2 { font-size: 14pt; margin-top: 30px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+      h3 { font-size: 12pt; margin-top: 20px; }
       table {
         width: 100%;
         border-collapse: collapse;

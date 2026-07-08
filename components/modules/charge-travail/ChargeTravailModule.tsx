@@ -116,6 +116,15 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
       if (e.inspecteur_ref_id) {
         taches.push({ ...chargeUtils.ecartVersTache(e, aerodromes), lien_id: e.inspecteur_ref_id });
       }
+      // Tâches d'évaluation pour l'inspecteur
+      const tachePAC = chargeUtils.ecartVersTacheEvaluationPAC(e, aerodromes)
+      if (tachePAC && e.inspecteur_ref_id) {
+        taches.push({ ...tachePAC, lien_id: e.inspecteur_ref_id })
+      }
+      const tachePreuves = chargeUtils.ecartVersTacheValidationPreuves(e, aerodromes)
+      if (tachePreuves && e.inspecteur_ref_id) {
+        taches.push({ ...tachePreuves, lien_id: e.inspecteur_ref_id })
+      }
     });
 
     evenements?.forEach(e => {
@@ -693,7 +702,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
                   <div className="card-content p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-4">
-                        <span className="w-12 h-12 rounded-full bg-role-gradient text-white flex items-center justify-center text-xs font-bold shrink-0">{initials}</span>
+                        <span className="w-12 h-12 rounded-full bg-role-gradient !text-white flex items-center justify-center text-xs font-bold shrink-0">{initials}</span>
                         <div>
                           <h3 className="font-semibold text-foreground text-lg">{charge.inspecteur_nom}</h3>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">

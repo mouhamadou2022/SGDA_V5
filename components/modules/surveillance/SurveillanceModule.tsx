@@ -405,6 +405,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   const aerodromes = useOptimizedStore(s => s.aerodromes)
   const surveillances = useOptimizedStore(s => s.surveillances)
   const ecarts = useOptimizedStore(s => s.ecarts)
+  const profilsRisque = useAppStore(s => s.profilsRisque)
   const certifications = useAppStore(s => s.certifications)
   const homologations = useAppStore(s => s.homologations)
   const updateSurveillance = useAppStore(s => s.updateSurveillance)
@@ -414,8 +415,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
 
-  // Récupérer les exemptions actives si la fonction existe
-  const getExemptionsActives = (useAppStore as any).getExemptionsActives?.bind(useAppStore) || (() => []);
+  const getExemptionsActives = useAppStore(s => s.getExemptionsActives)
 
   // Portal mount state
   const [mounted, setMounted] = useState(false);
@@ -430,8 +430,6 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
     statut: 'all' as SurveillanceStatut | 'all',
     type_entite: 'all' as TypeEntiteAerodrome | 'all',
   });
-  const [showProcessus, setShowProcessus] = useState(false);
-
   const resetFilters = () => {
     setFilters({ aerodrome: 'all', type: 'all', statut: 'all', type_entite: 'all' });
   };
@@ -452,7 +450,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
       } else if (hasSGS) {
         router.push(`/surveillance/${surveillance.id}/ecarts/sgs`);
       } else {
-        router.push(`/surveillance/${surveillance.id}/ecarts`);
+        router.push(`/surveillance/${surveillance.id}/reconciliation`);
       }
     } else {
       router.push(`/surveillance/${surveillance.id}`);
@@ -465,6 +463,24 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   };
 
   const handleDeleteSurveillance = (id: string) => {
+    const surv = surveillances.find(s => s.id === id);
+    if (!surv) return;
+    const lieAUnProcessus = certifications.some(c =>
+      c.aerodrome_id === surv.aerodrome_id && c.statut_global === 'en_cours' &&
+      (c.phases_data as any)?.phase3?.surveillance_id === id
+    ) || homologations.some((h: any) =>
+      h.aerodrome_id === surv.aerodrome_id && h.statut_global === 'en_cours' &&
+      (h.phases_data as any)?.phase2?.surveillance_id === id
+    );
+    if (lieAUnProcessus) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning',
+        title: 'Suppression impossible',
+        message: 'Cette surveillance est liée à un processus de certification ou homologation actif. Clôturez d\'abord le processus.',
+        canal: 'in_app',
+      });
+      return;
+    }
     if (window.confirm('Êtes-vous sûr de vouloir supprimer cette surveillance ?')) {
       deleteSurveillance(id);
     }
@@ -543,14 +559,18 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
     return map;
   }, [aerodromes, getExemptionsActives]);
 
-  // Statistiques
+  const STATUT_PRIORITE: Record<string, number> = {
+    planifiee: 0, en_cours: 1, checklist_signee: 2, ecarts_signes: 3,
+    rapport_signe: 4, lettre_signee: 5, transmise: 6, archivee: 7,
+  }
+
   const stats = useMemo(() => {
     const total = surveillances.length;
     const enCours = surveillances.filter(s => s.statut === 'en_cours').length;
     const terminees = surveillances.filter(s => s.statut === 'transmise' || s.statut === 'archivee').length;
     const ecartsOuverts = ecarts.filter(e => e.statut !== 'cloture').length;
-    const checklistsSignees = surveillances.filter(s => s.statut >= 'checklist_signee').length;
-    const rapportsSignes = surveillances.filter(s => s.statut >= 'rapport_signe').length;
+    const checklistsSignees = surveillances.filter(s => (STATUT_PRIORITE[s.statut] ?? 0) >= 2).length;
+    const rapportsSignes = surveillances.filter(s => (STATUT_PRIORITE[s.statut] ?? 0) >= 4).length;
 
     return { total, enCours, terminees, ecartsOuverts, checklistsSignees, rapportsSignes };
   }, [surveillances, ecarts]);
@@ -577,18 +597,20 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
        if (filters.aerodrome !== 'all' && s.aerodrome_id !== filters.aerodrome) return false;
        if (filters.statut !== 'all' && s.statut !== filters.statut) return false;
        if (filters.type !== 'all' && s.type !== filters.type) return false;
-       if (filters.type_entite !== 'all') {
-         const aero = aerodromesMap.get(s.aerodrome_id);
-         if (aero?.type_entite !== filters.type_entite) return false;
-       }
-       if (showProcessus) {
-         const isProcessusType = s.type === 'certification' || s.type === 'homologation';
-         const aUnProcessusActif = processusActifs.some(pr => pr.aerodrome_id === s.aerodrome_id && pr.processus_type === s.type);
-         if (!isProcessusType || !aUnProcessusActif) return false;
-       }
-       return true;
-     });
-   }, [surveillances, filters, ongletPrincipal, aerodromesMap, showProcessus, processusActifs]);
+        if (filters.type_entite !== 'all') {
+          const aero = aerodromesMap.get(s.aerodrome_id);
+          if (aero?.type_entite !== filters.type_entite) return false;
+        }
+        // Exclure TOUTES les surveillances certification/homologation (affichées dans l'accordéon dédié)
+        if (s.type === 'certification' || s.type === 'homologation') return false;
+        return true;
+      });
+    }, [surveillances, filters, aerodromesMap]);
+
+   // Surveillances certification/homologation (affichées dans l'accordéon dédié)
+   const certHomologSurveillances = useMemo(() => {
+      return surveillances.filter(s => s.type === 'certification' || s.type === 'homologation')
+    }, [surveillances])
 
    // Groupement par aérodrome (pour onglet actives seulement)
    const surveillancesByAerodrome = useMemo(() => {
@@ -608,7 +630,16 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
        grouped.get(s.aerodrome_id).surveillances.push(s);
      });
     return Array.from(grouped.values());
-  }, [filteredSurveillances, aerodromesMap, ongletPrincipal, exemptionsActivesParAerodrome]);
+  }, [filteredSurveillances, aerodromesMap, exemptionsActivesParAerodrome, ongletPrincipal]);
+
+  const aerodromeOptions = useMemo(() =>
+    aerodromes.map(a => (
+      <option key={a.id} value={a.id}>
+        {a.code_oaci} - {a.nom}
+        {exemptionsActivesParAerodrome.has(a.id) && ' ⚠️'}
+      </option>
+    )),
+  [aerodromes, exemptionsActivesParAerodrome])
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="surveillance">
@@ -683,17 +714,9 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                  onChange={(e) => setFilters(f => ({ ...f, aerodrome: e.target.value }))}
                  className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
                  style={selectStyle}
-               >
-                 <option value="all">Tous les aérodromes</option>
-                 {/* Memoize aerodrome options */}
-                 {useMemo(() => {
-                   return aerodromes.map(a => (
-                     <option key={a.id} value={a.id}>
-                       {a.code_oaci} - {a.nom}
-                       {exemptionsActivesParAerodrome.has(a.id) && ' ⚠️'}
-                     </option>
-                   ))
-                 }, [aerodromes, exemptionsActivesParAerodrome])}
+                >
+                  <option value="all">Tous les aérodromes</option>
+                  {aerodromeOptions}
                </select>
 
               {/* Filtre Type */}
@@ -742,17 +765,6 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                 Réinitialiser
               </button>
 
-              {processusActifs.length > 0 && (
-                <button
-                  onClick={() => setShowProcessus(!showProcessus)}
-                  className={`filter-chip ${showProcessus ? 'active' : ''}`}
-                >
-                  <Shield className="w-3 h-3 mr-1" />
-                  Certification / Homologation
-                  <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-primary text-white">{processusActifs.length}</span>
-                </button>
-              )}
-
               <div className="ml-auto view-toggle">
                 <button
                   onClick={() => setViewMode('list')}
@@ -771,6 +783,64 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
               </div>
             </div>
           </Card>
+
+          {/* Certifications & Homologations (regroupées séparément de la surveillance continue) */}
+          {certHomologSurveillances.length > 0 && (
+            <AccordionGroup spacing="sm">
+              {['certification', 'homologation'].map(type => {
+                const items = certHomologSurveillances.filter(s => s.type === type)
+                if (items.length === 0) return null
+                return (
+                  <AccordionSection
+                    key={type}
+                    icon={<Shield className="w-4 h-4 !text-white" />}
+                    title={
+                      <span className="text-foreground font-medium">
+                        {type === 'certification' ? 'Certifications' : 'Homologations'}
+                      </span>
+                    }
+                    badges={<span className="badge outline">{items.length} surveillance(s)</span>}
+                    defaultOpen={true}
+                  >
+                    {items.map(s => {
+                      const aero = aerodromesMap.get(s.aerodrome_id) || aerodromes.find(a => a.id === s.aerodrome_id)
+                      return (
+                        <div key={s.id} className="space-y-1">
+                          <SurveillanceCard
+                            surveillance={s}
+                            aerodrome={aero}
+                            nbEcarts={ecarts.filter(e => e.surveillance_id === s.id).length}
+                            profilScore={profilsRisque?.[s.aerodrome_id]?.score_global}
+                            onView={() => handleViewDetails(s)}
+                            onEdit={() => handleEditSurveillance(s)}
+                            onDelete={() => handleDeleteSurveillance(s.id)}
+                            onContinue={() => handleContinue(s)}
+                            onTransmit={() => handleTransmit(s)}
+                            onViewChecklist={() => handleChecklistNavigation(s)}
+                            onViewEcarts={() => {
+                              const portee = s.portee || [];
+                              const hasSGS = portee.includes('SGS');
+                              if (hasSGS && portee.length > 1) {
+                                setEcartChoiceSurveillance(s);
+                                setShowEcartChoice(true);
+                              } else if (hasSGS) {
+                                router.push(`/surveillance/${s.id}/ecarts/sgs`);
+                              } else {
+                                router.push(`/surveillance/${s.id}/ecarts`);
+                              }
+                            }}
+                            onViewRapport={() => handleViewSurveillance(s, 'rapport')}
+                            onViewLettre={() => openLettreModal(s)}
+                            onViewTransmission={() => handleTransmit(s)}
+                          />
+                        </div>
+                      )
+                    })}
+                  </AccordionSection>
+                )
+              })}
+            </AccordionGroup>
+          )}
 
           {/* VUE LISTE - Groupée par aérodrome (accordéon) */}
           {viewMode === 'list' && (
@@ -802,28 +872,13 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                   )}
                   {aeroSurveillances.map((s: any) => (
                     <div key={s.id} className="space-y-1">
-                      {showProcessus && (() => {
-                        const pr = processusActifs.find(p => p.aerodrome_id === s.aerodrome_id && p.processus_type === s.type);
-                        return pr ? (
-                          <div className="flex items-center gap-2 px-1">
-                            <span className={`badge ${pr.processus_type === 'certification' ? 'primary' : 'info'} text-[10px]`}>
-                              {pr.phase_label}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{Math.round(pr.progression)}%</span>
-                            <div className="progress w-16 h-1.5 ml-1">
-                              <div className="progress-bar" style={{ width: `${pr.progression}%` }} />
-                            </div>
-                            <button className="action-button text-[10px] text-role-primary hover:underline" onClick={() => setActiveModule(pr.processus_type)}>
-                              Voir le processus →
-                            </button>
-                          </div>
-                        ) : null
-                      })()}
-                    <SurveillanceCard
-                      key={s.id}
-                      surveillance={s}
-                      aerodrome={aerodrome}
-                      onView={() => handleViewDetails(s)}
+                      <SurveillanceCard
+                        key={s.id}
+                        surveillance={s}
+                        aerodrome={aerodrome}
+                        nbEcarts={ecarts.filter(e => e.surveillance_id === s.id).length}
+                        profilScore={profilsRisque?.[s.aerodrome_id]?.score_global}
+                        onView={() => handleViewDetails(s)}
                       onEdit={() => handleEditSurveillance(s)}
                       onDelete={() => handleDeleteSurveillance(s.id)}
                       onContinue={() => handleContinue(s)}
@@ -870,6 +925,8 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                     <SurveillanceCard
                       surveillance={surveillance}
                       aerodrome={aerodrome}
+                      nbEcarts={ecarts.filter(e => e.surveillance_id === surveillance.id).length}
+                      profilScore={profilsRisque?.[surveillance.aerodrome_id]?.score_global}
                       onView={() => handleViewDetails(surveillance)}
                       onEdit={() => handleEditSurveillance(surveillance)}
                       onDelete={() => handleDeleteSurveillance(surveillance.id)}
@@ -981,7 +1038,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                   onClick={() => {
                     setShowEcartChoice(false);
                     setEcartChoiceSurveillance(null);
-                    router.push(`/surveillance/${ecartChoiceSurveillance.id}/ecarts`);
+                    router.push(`/surveillance/${ecartChoiceSurveillance.id}/reconciliation`);
                   }}
                 >
                   <div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0">

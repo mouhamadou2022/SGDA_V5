@@ -20,14 +20,19 @@ export default function NotFound() {
       setSeconds((prev) => {
         if (prev <= 1) {
           clearInterval(timer)
-          router.push('/')
           return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(timer)
-  }, [router])
+  }, [])
+
+  useEffect(() => {
+    if (seconds === 0) {
+      router.push('/')
+    }
+  }, [seconds, router])
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">

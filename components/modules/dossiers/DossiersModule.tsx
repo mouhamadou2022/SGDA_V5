@@ -26,10 +26,7 @@ import {
   Upload,
   ChevronDown,
   ChevronRight,
-  ArchiveRestore,
   Calendar,
-  List,
-  Archive,
   Filter,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -63,98 +60,6 @@ const SERVICES = [
   { id: 'normes_aerodromes', label: 'Normes des Aérodromes' },
 ];
 
-function DossierArchiveItem({
-  dossier,
-  aerodromes,
-  onView,
-  onRestore,
-  onDelete,
-  userRole,
-}: {
-  dossier: Dossier;
-  aerodromes: { id: string; code_oaci: string; nom: string }[];
-  onView: (d: Dossier) => void;
-  onRestore: (id: string) => void;
-  onDelete: (id: string) => void;
-  userRole?: string;
-}) {
-  const canManageArchive = ['admin', 'chef'].includes(userRole || '')
-  const [showFiles, setShowFiles] = useState(false);
-  const aerodrome = aerodromes?.find(a => a.id === dossier.aerodrome_id);
-
-  return (
-    <div className="bg-role-primary-soft/10 rounded-xl p-4 hover:shadow-role-glow transition-shadow">
-      <div className="flex flex-wrap justify-between items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-sm font-semibold text-role-primary">
-              {dossier.reference}
-            </span>
-            <span className="badge neutral text-xs">
-              Archivé le {dossier.archived_at ? new Date(dossier.archived_at).toLocaleDateString('fr-FR') : '-'}
-            </span>
-          </div>
-          <h4 className="font-medium mt-1">{dossier.titre}</h4>
-          {aerodrome && (
-            <p className="text-small text-muted-foreground mt-1">
-              {aerodrome.code_oaci} — {aerodrome.nom}
-            </p>
-          )}
-          {dossier.instructions && (
-            <p className="text-small text-muted-foreground mt-2 line-clamp-2">
-              {dossier.instructions}
-            </p>
-          )}
-        </div>
-
-        <div className="flex gap-2 shrink-0">
-          <button onClick={() => onView(dossier)} className="action-button" title="Voir détails">
-            <Eye className="w-4 h-4" />
-          </button>
-          {canManageArchive && (
-            <>
-              <button onClick={() => onRestore(dossier.id)} className="action-button text-success hover:bg-success-soft" title="Restaurer">
-                <ArchiveRestore className="w-4 h-4" />
-              </button>
-              <button onClick={() => onDelete(dossier.id)} className="action-button text-danger hover:bg-danger-soft" title="Supprimer définitivement">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {dossier.fichiers && dossier.fichiers.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-border">
-          <button
-            onClick={() => setShowFiles(!showFiles)}
-            className="flex items-center gap-1 text-small text-role-primary hover:underline"
-          >
-            {showFiles ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            {dossier.fichiers.length} fichier(s) associé(s)
-          </button>
-          {showFiles && (
-            <div className="mt-2 space-y-2">
-              {dossier.fichiers.map((fichier) => (
-                <div key={(fichier as any).id || fichier.nom} className="flex items-center justify-between p-2 bg-background rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-small truncate max-w-[200px]">{fichier.nom}</span>
-                    <span className="text-xs text-muted-foreground">({(fichier as any).taille})</span>
-                  </div>
-                  <a href={(fichier as any).url} download={fichier.nom} className="action-button" title="Télécharger">
-                    <Download className="w-4 h-4" />
-                  </a>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function DossiersModule({ userRole: _userRole, aerodromeId }: DossiersModuleProps) {
   const dossiers = useAppStore(s => s.dossiers);
   const aerodromes = useAppStore(s => s.aerodromes);
@@ -168,14 +73,12 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
   const addNotification = useAppStore(s => s.addNotification);
   const deleteDossier = useAppStore(s => s.deleteDossier);
   const archiverDossierAutomatique = useAppStore(s => s.archiverDossierAutomatique);
-  const restaurerDossier = useAppStore(s => s.restaurerDossier);
   const addAssignment = useAppStore(s => s.addAssignment);
   const updateAssignment = useAppStore(s => s.updateAssignment);
   const reassignAssignment = useAppStore(s => s.reassignAssignment);
   const addAssignmentFeedback = useAppStore(s => s.addAssignmentFeedback);
 
   // États
-  const [activeTab, setActiveTab] = useState<'actifs' | 'archives'>('actifs');
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({
     categorie: 'tous',
@@ -202,17 +105,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
       setFilters(prev => ({ ...prev, inspecteur: user.id }));
     }
   }, [mounted, user, userRole]);
-
-  // États pour Archives
-  const [archiveSearchTerm, setArchiveSearchTerm] = useState('');
-  const [archiveFilters, setArchiveFilters] = useState({
-    categorie: 'tous',
-    aerodrome: 'tous',
-    dateDebut: '',
-    dateFin: '',
-  });
-  const [anneesOuvertes, setAnneesOuvertes] = useState<Record<string, boolean>>({});
-  const [categoriesOuvertes, setCategoriesOuvertes] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setMounted(true);
@@ -246,11 +138,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     return listeDossiers.filter(d => d.statut !== 'archive');
   }, [listeDossiers]);
 
-  // Dossiers archivés
-  const dossiersArchives = useMemo(() => {
-    return listeDossiers.filter(d => d.statut === 'archive');
-  }, [listeDossiers]);
-
   // Filtrer les dossiers actifs
   const filteredDossiers = useMemo(() => {
     return dossiersActifs.filter(d => {
@@ -281,71 +168,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     });
   }, [dossiersActifs, searchTerm, filters, aerodromeId]);
 
-  // Filtrer les dossiers archivés
-  const filteredArchives = useMemo(() => {
-    return dossiersArchives.filter(d => {
-      // Recherche textuelle
-      if (archiveSearchTerm) {
-        const term = archiveSearchTerm.toLowerCase();
-        const match =
-          d.reference?.toLowerCase().includes(term) ||
-          d.titre?.toLowerCase().includes(term) ||
-          (d.instructions?.toLowerCase().includes(term) || false);
-        if (!match) return false;
-      }
-
-      // Filtre catégorie
-      if (archiveFilters.categorie !== 'tous' && d.categorie !== archiveFilters.categorie)
-        return false;
-
-      // Filtre aérodrome
-      if (archiveFilters.aerodrome !== 'tous' && d.aerodrome_id !== archiveFilters.aerodrome)
-        return false;
-
-      // Filtre date d'archivage
-      if (archiveFilters.dateDebut && d.archived_at && d.archived_at < archiveFilters.dateDebut)
-        return false;
-      if (archiveFilters.dateFin && d.archived_at && d.archived_at > archiveFilters.dateFin)
-        return false;
-
-      return true;
-    });
-  }, [dossiersArchives, archiveSearchTerm, archiveFilters]);
-
-  // Grouper les archives par année puis par catégorie
-  const archivesGrouped = useMemo(() => {
-    const grouped: Record<string, Record<string, typeof filteredArchives>> = {};
-
-    filteredArchives.forEach((dossier) => {
-      const annee = dossier.archived_at
-        ? new Date(dossier.archived_at).getFullYear().toString()
-        : 'Sans date';
-      const categorie = dossier.categorie;
-
-      if (!grouped[annee]) grouped[annee] = {};
-      if (!grouped[annee][categorie]) grouped[annee][categorie] = [];
-      grouped[annee][categorie].push(dossier);
-    });
-
-    // Trier les années décroissantes
-    const anneesTriees = Object.keys(grouped).sort((a, b) => {
-      if (a === 'Sans date') return 1;
-      if (b === 'Sans date') return -1;
-      return parseInt(b) - parseInt(a);
-    });
-
-    const result: { annee: string; categories: { nom: string; dossiers: Dossier[] }[] }[] = [];
-    for (const annee of anneesTriees) {
-      const categories = Object.entries(grouped[annee]).map(([nom, dossiers]) => ({
-        nom,
-        dossiers,
-      }));
-      result.push({ annee, categories });
-    }
-
-    return result;
-  }, [filteredArchives]);
-
   // Grouper par catégorie pour les actifs
   const dossiersParCategorie = useMemo(() => {
     const grouped: Record<string, Dossier[]> = {};
@@ -374,15 +196,8 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
         const { jours } = dossierUtils.getDelaiRestant(d.date_limite);
         return jours < 7 && d.statut !== 'termine';
       }).length,
-      archives: dossiersArchives.length
     };
-  }, [filteredDossiers, dossiersArchives]);
-
-  // Catégories disponibles pour le filtre archives
-  const archiveCategoriesDisponibles = useMemo(() => {
-    const cats = new Set(dossiersArchives.map(d => d.categorie));
-    return Array.from(cats);
-  }, [dossiersArchives]);
+  }, [filteredDossiers]);
 
   const getIconeCategorie = (categorieId: string, className?: string) => {
     const cat = CATEGORIES_DOSSIERS.find(c => c.id === categorieId);
@@ -448,32 +263,39 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
 
   const handleMarquerTermine = (dossierId: string) => {
     if (!canManage) return
+    const dossier = listeDossiers.find(d => d.id === dossierId)
+    if (!dossier) return
+    const now = new Date().toISOString()
+    const auteur = user?.nom || 'Système'
+
+    // Compléter toutes les assignments non terminées
+    const updatedAssignments = (dossier.assignments || []).map(a => {
+      if (a.statut === 'termine' || a.statut === 'valide') return a
+      return {
+        ...a,
+        statut: 'termine' as const,
+        progression: 100 as 0 | 25 | 50 | 75 | 100,
+        historique: [...a.historique, { date: now, action: 'Dossier clôturé par le chef', details: 'Assignation automatiquement terminée' }],
+      }
+    })
+
+    // Refuser les extensions en attente
+    const updatedExtensions = (dossier.extensions || []).map(e =>
+      e.statut === 'en_attente' ? { ...e, statut: 'refuse' as const, superieur_approbation: auteur } : e
+    )
+
     updateDossier(dossierId, {
       progression: 100,
       statut: 'termine',
-      updated_at: new Date().toISOString(),
+      assignments: updatedAssignments,
+      extensions: updatedExtensions,
+      updated_at: now,
       historique: [
-        ...(listeDossiers.find(d => d.id === dossierId)?.historique || []),
-        {
-          date: new Date().toISOString(),
-          action: 'Dossier terminé',
-          utilisateur: user?.id || 'system',
-          commentaire: 'Traitement finalisé'
-        }
-      ]
-    });
-  };
-
-  const handleRestoreFromArchive = (dossierId: string) => {
-    if (!canManage) return
-    restaurerDossier(dossierId);
-  };
-
-  const handleDeleteArchive = (dossierId: string) => {
-    if (!canManage) return
-    if (confirm('Supprimer définitivement ce dossier ? Cette action est irréversible.')) {
-      deleteDossier(dossierId);
-    }
+        ...(dossier.historique || []),
+        { date: now, action: 'Dossier terminé', utilisateur: auteur, commentaire: 'Traitement finalisé — toutes les assignations clôturées' },
+        ...(updatedExtensions.some(e => e.statut === 'refuse') ? [{ date: now, action: 'Extensions en attente refusées (clôture)', utilisateur: auteur, commentaire: 'Clôture automatique' }] : []),
+      ],
+    } as any)
   };
 
   const handleEditDossier = (dossier: Dossier) => {
@@ -491,24 +313,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     if (confirm(msg)) {
       deleteDossier(dossier.id);
     }
-  };
-
-  const toggleAnnee = (annee: string) => {
-    setAnneesOuvertes((prev) => ({ ...prev, [annee]: !prev[annee] }));
-  };
-
-  const toggleCategorie = (key: string) => {
-    setCategoriesOuvertes((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const resetArchiveFilters = () => {
-    setArchiveSearchTerm('');
-    setArchiveFilters({
-      categorie: 'tous',
-      aerodrome: 'tous',
-      dateDebut: '',
-      dateFin: '',
-    });
   };
 
   // Style pour les selects avec flèche personnalisée
@@ -636,48 +440,9 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
           <div className="kpi-label">Urgents</div>
           <div className="kpi-value">{stats.urgents}</div>
         </div>
-
-        <div className="kpi-card">
-          <div className="kpi-icon bg-neutral-soft">
-            <ArchiveRestore className="w-5 h-5 text-muted" />
-          </div>
-          <div className="kpi-label">Archivés</div>
-          <div className="kpi-value">{stats.archives}</div>
-        </div>
       </div>
 
-      {/* Onglets principaux */}
-      <div className="tabs-container border-b border-border">
-        <div className="tabs flex gap-1">
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'actifs'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('actifs')}
-          >
-            <List className="w-4 h-4 inline mr-1.5" /> Dossiers actifs ({stats.total})
-          </button>
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'archives'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('archives')}
-          >
-            <Archive className="w-4 h-4 inline mr-1.5" /> Archives ({stats.archives})
-          </button>
-        </div>
-      </div>
-
-      {/* ============================================================ */}
-      {/* ONGLET DOSSIERS ACTIFS */}
-      {/* ============================================================ */}
-      {activeTab === 'actifs' && (
-        <>
-          {/* Barre d'outils */}
+      {/* Barre d'outils */}
           <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex-1 min-w-[240px] relative">
@@ -926,189 +691,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
               })}
             </div>
           )}
-        </>
-      )}
-
-      {/* ============================================================ */}
-      {/* ONGLET ARCHIVES */}
-      {/* ============================================================ */}
-      {activeTab === 'archives' && (
-        <div className="space-y-4">
-          {/* Barre de filtres Archives */}
-          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
-            <div className="flex flex-wrap gap-3 items-center">
-              {/* Recherche */}
-              <div className="flex-1 min-w-[200px] relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Rechercher dans les archives..."
-                  value={archiveSearchTerm}
-                  onChange={(e) => setArchiveSearchTerm(e.target.value)}
-                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent"
-                />
-              </div>
-
-              {/* Filtre catégorie */}
-              <select
-                value={archiveFilters.categorie}
-                onChange={(e) => setArchiveFilters(prev => ({ ...prev, categorie: e.target.value }))}
-                className="h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] appearance-none"
-                style={selectStyle}
-              >
-                <option value="tous">Toutes catégories</option>
-                {archiveCategoriesDisponibles.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {CATEGORIES_DOSSIERS.find(c => c.id === cat)?.label || cat}
-                  </option>
-                ))}
-              </select>
-
-              {/* Filtre aérodrome */}
-              <select
-                value={archiveFilters.aerodrome}
-                onChange={(e) => setArchiveFilters(prev => ({ ...prev, aerodrome: e.target.value }))}
-                className="h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] appearance-none"
-                style={selectStyle}
-              >
-                <option value="tous">Tous aérodromes</option>
-                {aerodromes?.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code_oaci} - {a.nom}
-                  </option>
-                ))}
-              </select>
-
-              {/* Filtre date */}
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={archiveFilters.dateDebut}
-                    onChange={(e) => setArchiveFilters(prev => ({ ...prev, dateDebut: e.target.value }))}
-                    className="h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                    placeholder="Du"
-                  />
-                </div>
-                <span className="text-muted-foreground">→</span>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={archiveFilters.dateFin}
-                    onChange={(e) => setArchiveFilters(prev => ({ ...prev, dateFin: e.target.value }))}
-                    className="h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                    placeholder="Au"
-                  />
-                </div>
-              </div>
-
-              {/* Reset filtres */}
-              {(archiveSearchTerm || archiveFilters.categorie !== 'tous' || archiveFilters.aerodrome !== 'tous' || archiveFilters.dateDebut || archiveFilters.dateFin) && (
-                <button onClick={resetArchiveFilters} className="btn btn-ghost btn-sm">
-                  Réinitialiser
-                </button>
-              )}
-            </div>
-
-            {/* Résumé des résultats */}
-            <div className="flex items-center gap-3 pt-2 border-t border-border">
-              <span className="badge neutral">
-                {filteredArchives.length} dossier(s) archivé(s)
-              </span>
-            </div>
-          </Card>
-
-          {/* Message si aucun résultat */}
-          {filteredArchives.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <ArchiveRestore className="h-16 w-16 text-muted-foreground opacity-30 mb-4" />
-              <p className="text-muted-foreground">Aucun dossier archivé trouvé</p>
-              <button onClick={resetArchiveFilters} className="btn btn-primary mt-4">
-                Réinitialiser les filtres
-              </button>
-            </div>
-          )}
-
-          {/* Accordéon par année */}
-          {filteredArchives.length > 0 && (
-            <div className="space-y-3">
-              {archivesGrouped.map(({ annee, categories }) => (
-                <div key={annee} className="card overflow-hidden">
-                  {/* En-tête année */}
-                  <button
-                    onClick={() => toggleAnnee(annee)}
-                    className="w-full flex items-center justify-between p-4 bg-role-primary-soft/30 hover:bg-role-primary-soft/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      {anneesOuvertes[annee] ? (
-                        <ChevronDown className="h-4 w-4 text-role-primary" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-role-primary" />
-                      )}
-                      <span className="font-semibold text-lg">{annee}</span>
-                      <span className="badge neutral">
-                        {categories.reduce((acc, cat) => acc + cat.dossiers.length, 0)} dossier(s)
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Contenu année */}
-                  {anneesOuvertes[annee] && (
-                    <div className="p-4 space-y-3">
-                      {categories.map(({ nom, dossiers: catDossiers }) => {
-                        const key = `${annee}-${nom}`;
-                        const catLabel = CATEGORIES_DOSSIERS.find(c => c.id === nom)?.label || nom;
-                        
-                        return (
-                          <div key={nom} className="border border-border rounded-xl overflow-hidden">
-                            {/* En-tête catégorie */}
-                            <button
-                              onClick={() => toggleCategorie(key)}
-                              className="w-full flex items-center justify-between p-3 bg-background hover:bg-role-primary-soft/30 transition-colors"
-                            >
-                              <div className="flex items-center gap-2">
-                                {categoriesOuvertes[key] ? (
-                                  <ChevronDown className="h-3 w-3 text-role-primary" />
-                                ) : (
-                                  <ChevronRight className="h-3 w-3 text-role-primary" />
-                                )}
-                                <span className="font-medium capitalize">{catLabel}</span>
-                                <span className="badge outline text-xs">
-                                  {catDossiers.length}
-                                </span>
-                              </div>
-                            </button>
-
-                            {/* Liste des dossiers de cette catégorie */}
-                            {categoriesOuvertes[key] && (
-                              <div className="p-3 space-y-3 border-t border-border">
-                                {catDossiers.map((dossier) => (
-                                  <DossierArchiveItem
-                                    key={dossier.id}
-                                    dossier={dossier}
-                                    aerodromes={aerodromes}
-                                    userRole={userRole}
-                                    onView={(d) => { setSelectedDossierId(d.id); setShowDetails(true); }}
-                                    onRestore={handleRestoreFromArchive}
-                                    onDelete={handleDeleteArchive}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Modales via Portal */}
       {showForm && FormModal()}
       <DetailsModal

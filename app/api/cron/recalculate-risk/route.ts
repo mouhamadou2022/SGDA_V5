@@ -57,8 +57,8 @@ export async function GET(request: Request) {
         }))
 
         // 3. Calculer C1-C5
-        const maturiteSGS = aerodrome.maturite_sgs ?? 50
-        const c1 = risqueUtils.calculateC1(maturiteSGS)
+        const maturiteSGS = aerodrome.statut_sgs === 'non_applicable' ? 100 : (aerodrome.maturite_sgs ?? 50)
+        const c1 = risqueUtils.calculateC1(maturiteSGS, undefined, aerodrome.statut_sgs)
         const c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome || [])
         const c3 = surveillancesAerodrome.length > 0
           ? risqueUtils.calculateC3(surveillancesAerodrome.map((s: any) => ({

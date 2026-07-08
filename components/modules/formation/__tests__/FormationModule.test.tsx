@@ -83,7 +83,7 @@ jest.mock('@/lib/formationUtils', () => ({
 }))
 jest.mock('@/lib/utils', () => ({ formatDate: jest.fn((d: string) => d) }))
 jest.mock('../CompetenceMatrix', () => ({ CompetenceMatrix: () => <div data-testid="competence-matrix">CompetenceMatrix</div> }))
-jest.mock('../EcheanceAlert', () => ({ EcheanceAlert: () => <div data-testid="echeance-alert">EcheanceAlert</div> }))
+
 jest.mock('../FormationSuggestions', () => ({ FormationSuggestions: () => <div data-testid="formation-suggestions">FormationSuggestions</div> }))
 
 import FormationModule from '../FormationModule'
@@ -145,11 +145,6 @@ describe('FormationModule', () => {
       expect(document.querySelector('table')).toBeInTheDocument()
     })
 
-    it('passe à la vue échéances', () => {
-      renderModule()
-      fireEvent.click(screen.getByText('Échéances'))
-      expect(screen.getByTestId('echeance-alert')).toBeInTheDocument()
-    })
 
     it('passe à la vue suggestions', () => {
       renderModule()

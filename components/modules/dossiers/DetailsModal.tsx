@@ -5,6 +5,7 @@ import React, { useState, memo, useEffect } from 'react'
 import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X, Eye } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Dossier } from '@/lib/store'
+import { uploadPreuveFile } from '@/lib/dossierFileUpload'
 
 const CATEGORIES_DOSSIERS = [
   { id: 'reglementaire', label: 'Réglementaire' },
@@ -38,6 +39,7 @@ function getLibelleStatut(statut: string): string {
 interface AssignmentCardProps {
   assignment: any
   dossierId: string
+  dossierStatut: string
   userRole: string
   user: { id: string; nom?: string } | null
   utilisateurs: { id: string; role: string; prenom: string; nom: string }[]
@@ -57,7 +59,7 @@ interface AssignmentCardProps {
 }
 
 const AssignmentCard = memo(function AssignmentCard({
-  assignment: a, dossierId, userRole, user, utilisateurs,
+  assignment: a, dossierId, dossierStatut, userRole, user, utilisateurs,
   isAdmin, isInspector, canManage, canFeedback,
   onFeedback, onReassignStart, onReassignConfirm, onReassignCancel,
   reassignTarget, reassignMotif, setReassignTarget, setReassignMotif, isReassigning,
@@ -110,17 +112,23 @@ const AssignmentCard = memo(function AssignmentCard({
     setPreuvesFiles(prev => prev.filter((_, i) => i !== index))
   }
 
-  const handleSubmitPreuves = () => {
+  const handleSubmitPreuves = async () => {
     if (preuvesFiles.length === 0) return
-    const newPreuves = preuvesFiles.map(f => ({
-      nom: f.name, url: URL.createObjectURL(f), taille: f.size, type: f.type, date_upload: new Date().toISOString(),
-    }))
+    const newPreuves = await Promise.all(preuvesFiles.map(async f => ({
+      nom: f.name,
+      url: await uploadPreuveFile(f, dossierId, a.id),
+      taille: f.size,
+      type: f.type,
+      date_upload: new Date().toISOString(),
+    })))
     updateAssignment(dossierId, a.id, {
       preuves: [...a.preuves, ...newPreuves],
       historique: [...a.historique, { date: new Date().toISOString(), action: `${preuvesFiles.length} preuve(s) soumise(s)`, details: preuvesFiles.map(f => f.name).join(', ') }],
     })
     setPreuvesFiles([])
   }
+
+  const isTerminated = dossierStatut === 'termine' || dossierStatut === 'archive'
 
   return (
     <div key={a.id} className="border border-border rounded-xl p-3 space-y-2">
@@ -162,7 +170,7 @@ const AssignmentCard = memo(function AssignmentCard({
         )
       )}
 
-      {isOwn && a.statut !== 'termine' && a.statut !== 'valide' && (
+      {isOwn && a.statut !== 'termine' && a.statut !== 'valide' && !isTerminated && (
         <div className="space-y-1">
           <div className="flex justify-between gap-1">
             {[0, 25, 50, 75, 100].map(val => (
@@ -237,7 +245,7 @@ const AssignmentCard = memo(function AssignmentCard({
         </div>
       )}
 
-      {canManage && a.statut !== 'termine' && a.statut !== 'valide' && (
+      {canManage && a.statut !== 'termine' && a.statut !== 'valide' && !isTerminated && (
         <div className="pt-1">
           {isReassigning ? (
             <div className="flex gap-1 items-center">
@@ -423,6 +431,7 @@ export default function DetailsModal({
                 key={a.id}
                 assignment={a}
                 dossierId={d.id}
+                dossierStatut={d.statut}
                 userRole={userRole}
                 user={user}
                 utilisateurs={utilisateurs}
@@ -467,7 +476,7 @@ export default function DetailsModal({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{new Date(ext.date).toLocaleDateString('fr-FR')}</span>
-                    {canManage && ext.statut === 'en_attente' && d && (
+                    {canManage && ext.statut === 'en_attente' && d && d.statut !== 'termine' && d.statut !== 'archive' && (
                       <div className="flex gap-1">
                         <button onClick={() => onTraiterExtension?.(d.id, i, 'approuve')}
                           className="btn btn-success btn-xs gap-1">

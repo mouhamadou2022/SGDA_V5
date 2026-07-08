@@ -24,6 +24,8 @@ interface SoumissionPACFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   userRole?: string;
+  onSaveDraft?: (lignes: LignePAC[], fichiers: File[]) => void;
+  initialLignes?: LignePAC[];
 }
 
 const NIVEAU_CONFIG = {
@@ -31,10 +33,11 @@ const NIVEAU_CONFIG = {
   eleve:    { label: 'Élevé',    badgeClass: 'badge warning' },
   moyen:    { label: 'Moyen',    badgeClass: 'badge primary' },
   faible:   { label: 'Faible',   badgeClass: 'badge success' },
+  tres_faible: { label: 'Très faible', badgeClass: 'badge success' },
 } as const;
 
 export function SoumissionPACForm({
-  ecartId, onSuccess, onCancel, userRole = 'focal_operator'
+  ecartId, onSuccess, onCancel, userRole = 'focal_operator', onSaveDraft, initialLignes
 }: SoumissionPACFormProps) {
   const ecarts = useAppStore(s => s.ecarts);
   const aerodromes = useAppStore(s => s.aerodromes);
@@ -44,9 +47,11 @@ export function SoumissionPACForm({
   const ecart = ecarts.find(e => e.id === ecartId);
   const aerodrome = aerodromes.find(a => a.id === ecart?.aerodrome_id);
 
-  const [lignes, setLignes] = useState<LignePAC[]>([
-    { id: crypto.randomUUID(), action: '', responsable: '', date_debut: '', date_fin: '' }
-  ]);
+  const [lignes, setLignes] = useState<LignePAC[]>(
+    initialLignes && initialLignes.length > 0
+      ? initialLignes
+      : [{ id: crypto.randomUUID(), action: '', responsable: '', date_debut: '', date_fin: '' }]
+  );
   const [fichiers, setFichiers] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,6 +68,9 @@ export function SoumissionPACForm({
       el.style.height = Math.min(el.scrollHeight, 200) + 'px';
     }
   };
+
+  const today = new Date().toISOString().split('T')[0];
+  const delaiPac = ecart?.delai_pac ? new Date(ecart.delai_pac).toISOString().split('T')[0] : null;
 
   useEffect(() => {
     if (user?.nom && lignes.length === 1 && !lignes[0].responsable) {
@@ -107,8 +115,12 @@ export function SoumissionPACForm({
       if (!ligne.action.trim()) newErrors[`${ligne.id}_action`] = 'Requis';
       if (!ligne.responsable.trim()) newErrors[`${ligne.id}_responsable`] = 'Requis';
       if (!ligne.date_debut) newErrors[`${ligne.id}_date_debut`] = 'Requis';
+      else if (ligne.date_debut < today) newErrors[`${ligne.id}_date_debut`] = 'Doit être ≥ aujourd\'hui';
       if (!ligne.date_fin) newErrors[`${ligne.id}_date_fin`] = 'Requis';
-      if (ligne.date_debut && ligne.date_fin && ligne.date_fin <= ligne.date_debut) newErrors[`${ligne.id}_date_fin`] = 'Doit être postérieure à la date de début';
+      else {
+        if (ligne.date_fin <= ligne.date_debut) newErrors[`${ligne.id}_date_fin`] = 'Doit être postérieure à la date de début';
+        else if (delaiPac && ligne.date_fin > delaiPac) newErrors[`${ligne.id}_date_fin`] = `Ne doit pas dépasser le délai prescrit (${delaiPac})`;
+      }
     });
     setErrors(newErrors);
     const firstError = Object.keys(newErrors)[0];
@@ -122,6 +134,14 @@ export function SoumissionPACForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validerFormulaire()) return;
+
+    // Mode brouillon : sauvegarde locale sans transmission
+    if (onSaveDraft) {
+      onSaveDraft(lignes, fichiers);
+      return;
+    }
+
+    // Mode transmission réelle
     setIsSubmitting(true);
     try {
       const fichiersUrls = fichiers.map(f => URL.createObjectURL(f));
@@ -165,11 +185,11 @@ export function SoumissionPACForm({
               <h3 className="font-bold truncate">{aerodrome?.nom || 'Aérodrome'}</h3>
               {aerodrome?.code_oaci && <span className="code-oaci-badge">{aerodrome.code_oaci}</span>}
             </div>
-            <p className="text-sm text-muted-foreground mb-2">
-              {ecart.reference} — {ecart.libelle.substring(0, 100)}{ecart.libelle.length > 100 ? '...' : ''}
+            <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap leading-relaxed">
+              {ecart.reference} — {ecart.libelle}
             </p>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />{new Date(ecart.delai_pac).toLocaleDateString('fr-FR')}</span>
+              <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />Délai PAC : {new Date(ecart.delai_pac).toLocaleDateString('fr-FR')}</span>
               {niveauCfg && <span className={niveauCfg.badgeClass}>{niveauCfg.label}</span>}
               <span className={`px-2 py-0.5 rounded-full text-white font-semibold ${progression === 100 ? 'bg-success' : 'bg-warning'}`}>{progression}%</span>
             </div>
@@ -183,21 +203,6 @@ export function SoumissionPACForm({
             backgroundColor: progression === 100 ? 'var(--color-success)' : progression >= 50 ? 'var(--color-warning)' : 'var(--color-danger)',
           }} />
         </div>
-
-        {/* ECART DESCRIPTION */}
-        <details>
-          <summary className="text-xs font-semibold uppercase tracking-wider text-role-primary cursor-pointer mb-2">
-            Description de l'écart
-          </summary>
-          <table className="w-full text-sm">
-            <tbody>
-              <tr><td className="py-1 pr-4 text-muted-foreground w-36 align-top">Référence</td><td>{ecart.reference}</td></tr>
-              <tr><td className="py-1 pr-4 text-muted-foreground align-top">Texte réglementaire</td><td>{ecart.ref_reglementaire}</td></tr>
-              <tr><td className="py-1 pr-4 text-muted-foreground align-top">Domaine</td><td>{ecart.domaine}</td></tr>
-              <tr><td className="py-1 pr-4 text-muted-foreground align-top">Constat</td><td className="leading-relaxed">{ecart.libelle}</td></tr>
-            </tbody>
-          </table>
-        </details>
 
         {/* ACTIONS CORRECTIVES */}
         <div className="space-y-2">
@@ -280,6 +285,7 @@ export function SoumissionPACForm({
                           <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                           <input type="date" value={ligne.date_debut}
                             onChange={e => updateLigne(ligne.id, 'date_debut', e.target.value)}
+                            min={today}
                             className={`form-input text-sm pl-9 w-full ${focusClass} ${errors[`${ligne.id}_date_debut`] ? 'border-danger' : ''}`} />
                         </div>
                         {errors[`${ligne.id}_date_debut`] && <p className="field-error text-xs mt-0.5">{errors[`${ligne.id}_date_debut`]}</p>}
@@ -291,9 +297,13 @@ export function SoumissionPACForm({
                           <input type="date" value={ligne.date_fin}
                             onChange={e => updateLigne(ligne.id, 'date_fin', e.target.value)}
                             min={ligne.date_debut ? new Date(new Date(ligne.date_debut).getTime() + 86400000).toISOString().split('T')[0] : undefined}
+                            max={delaiPac || undefined}
                             className={`form-input text-sm pl-9 w-full ${focusClass} ${errors[`${ligne.id}_date_fin`] ? 'border-danger' : ''}`} />
                         </div>
                         {errors[`${ligne.id}_date_fin`] && <p className="field-error text-xs mt-0.5">{errors[`${ligne.id}_date_fin`]}</p>}
+                        {delaiPac && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && ligne.date_fin > delaiPac && (
+                          <p className="field-error text-xs mt-0.5">⚠️ Dépasse le délai prescrit ({delaiPac})</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -338,9 +348,9 @@ export function SoumissionPACForm({
 
         {/* FOOTER */}
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onCancel} disabled={isSubmitting} className="btn btn-secondary">Annuler</button>
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="btn btn-secondary">{onSaveDraft ? 'Fermer' : 'Annuler'}</button>
           <button type="submit" disabled={isSubmitting || progression < 100} className="btn btn-primary">
-            {isSubmitting ? 'Envoi...' : 'Soumettre le PAC'}
+            {isSubmitting ? 'Envoi...' : onSaveDraft ? 'Enregistrer le brouillon' : 'Soumettre le PAC'}
           </button>
         </div>
       </form>

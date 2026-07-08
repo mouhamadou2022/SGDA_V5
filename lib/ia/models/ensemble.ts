@@ -68,7 +68,7 @@ const DEFAULT_CONFIG: EnsembleConfig = {
   fallbackToMedian: true
 }
 
-const MODEL_NAMES = ['lstm', 'bayesian', 'xgboost', 'randomForest']
+const MODEL_NAMES = ['lstm', 'bayesian', 'xgboost']
 
 // ============================================================
 // MODÈLE ENSEMBLE
@@ -115,7 +115,9 @@ export class EnsembleModel {
     // 1. LSTM (deep learning — nécessite ≥30 points pour être fiable)
     if (historique.length >= 30) {
       try {
-        await lstmModel.train(historique, { epochs: 10, verbose: false })
+        if (!lstmModel.isTrained()) {
+          await lstmModel.train(historique, { epochs: 10, verbose: false })
+        }
         const lstmPred = lstmModel.predict(historique, horizon)
         predictions.push({ name: 'lstm', prediction: lstmPred.predictions[0], confidence: Math.min(80, lstmPred.confidence ? lstmPred.confidence[0] : 50) })
       } catch { predictions.push({ name: 'lstm', prediction: 50, confidence: 30 }) }
@@ -126,7 +128,23 @@ export class EnsembleModel {
       const lastScores = historique.slice(-6).map(h => h.score)
       const mean = lastScores.reduce((a, b) => a + b, 0) / lastScores.length
       const prior = mean / 100
-      const { posterior } = bayesianDynamicModel.computePosterior(prior, [0.5])
+
+      // Vraisemblance informée par la tendance récente et la volatilité
+      // (au lieu du 0.5 neutre qui diluait le prior)
+      const recent = historique.slice(-3).map(h => h.score)
+      const trend = recent.length >= 2 ? recent[recent.length - 1] - recent[0] : 0
+      const v = lastScores
+      const vMean = v.reduce((a, b) => a + b, 0) / v.length
+      const variance = v.reduce((sq, val) => sq + (val - vMean) ** 2, 0) / v.length
+      const vol = Math.sqrt(variance)
+      // Tendance négative = risque qui augmente → likelihood > 0.5
+      let lh = 0.5 + (trend < -2 ? 0.25 : trend > 2 ? -0.2 : 0)
+      // Volatilité élevée → on se rapproche de 0.5 (incertitude)
+      const volWeight = Math.min(0.3, vol / 100)
+      lh = lh * (1 - volWeight) + 0.5 * volWeight
+      const likelihood = Math.min(0.9, Math.max(0.1, lh))
+
+      const { posterior } = bayesianDynamicModel.computePosterior(prior, [likelihood])
       predictions.push({ name: 'bayesian', prediction: posterior * 100, confidence: 65 })
     } catch { predictions.push({ name: 'bayesian', prediction: 50, confidence: 30 }) }
 
@@ -207,7 +225,7 @@ export class EnsembleModel {
     
     return {
       point: finalPrediction,
-      confidence: Math.round(100 - stdDev),
+      confidence: Math.min(100, Math.max(0, Math.round(100 - stdDev))),
       interval: {
         lower: Math.max(0, finalPrediction - margin),
         upper: Math.min(100, finalPrediction + margin)

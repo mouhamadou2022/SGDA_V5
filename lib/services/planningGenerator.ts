@@ -26,10 +26,11 @@ export interface PlanningGeneratorParams {
   homologations?: Homologation[]
   inspecteurs?: { id: string; prenom: string; nom: string; competences?: any[] }[]
   historiqueSurveillances?: { type: string; date: string; domaines: string[]; score?: number }[]
+  statut_sgs?: string
 }
 
 export function genererPlanning(params: PlanningGeneratorParams): PlanningProposal[] {
-  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [] } = params
+  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [], statut_sgs } = params
   const propositions: PlanningProposal[] = []
 
   // ── Modèles mathématiques (calculés une fois, réutilisés) ──
@@ -70,14 +71,17 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
       }
 
       if (cached.nb) {
-        modelOverrides.nb = { overdispersion: cached.nb.isOverdispersed ? 2 : 1, dispersionAdjustedMean: cached.nb.mean }
-        if (cached.nb.isOverdispersed) modelOverrides.modelReason.push(`NB: surdispersion détectée (variance/moyenne = ${(cached.nb.variance / cached.nb.mean).toFixed(1)})`)
+        const dispRatio = cached.nb.variance / Math.max(cached.nb.mean, 0.01)
+        modelOverrides.nb = { overdispersion: Math.min(3, Math.round(dispRatio * 10) / 10), dispersionAdjustedMean: cached.nb.mean }
+        if (cached.nb.isOverdispersed) modelOverrides.modelReason.push(`NB: surdispersion détectée (variance/moyenne = ${dispRatio.toFixed(1)})`)
       }
 
       if (cached.copula) {
+        const taus = cached.copula.rankCorrelations
+        const meanTau = Math.round(taus.flat().reduce((a, b) => a + b, 0) / Math.max(taus.length * taus[0].length, 1) * 100) / 100
         const maxTail = Math.max(...cached.copula.tailDependence.lower.flat())
-        modelOverrides.copula = { kendallTau: maxTail, tailDependence: maxTail, copulaType: 'detected' }
-        if (maxTail > 0.3) modelOverrides.modelReason.push(`Copulas: dépendance de queue ${maxTail.toFixed(2)}`)
+        modelOverrides.copula = { kendallTau: meanTau, tailDependence: maxTail, copulaType: 'detected' }
+        if (maxTail > 0.3) modelOverrides.modelReason.push(`Copulas: dépendance de queue ${maxTail.toFixed(2)} (τ moyen=${meanTau.toFixed(2)})`)
       }
 
       if (cached.ts) {
@@ -95,22 +99,22 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
     const isCertPhase = historiqueSurveillances.some(h => h.type === 'certification')
 
     const riskLevel = profilRisque.niveau === 'critique' ? 'critique'
-      : profilRisque.niveau === 'eleve' ? 'élevé'
+      : profilRisque.niveau === 'eleve' ? 'eleve'
       : profilRisque.niveau === 'moyen' ? 'moyen'
       : 'faible'
 
-    const freqResult = computeFinalFrequency({ riskLevel: riskLevel as any })
-    let frequence = typeof freqResult === 'number' ? freqResult : (freqResult as any).frequencyPerYear || 2
-    const freqLabel = typeof freqResult === 'object' ? (freqResult as any).label || '' : ''
+    const freqResult = computeFinalFrequency({ riskLevel })
+    let frequence = freqResult.frequencyPerYear || 2
+    const freqLabel = freqResult.recommendations?.join(', ') || ''
 
-    // NB → ajustement fréquence si surdispersion
+    // NB → ajustement fréquence basé sur le ratio variance/moyenne (continu, pas binaire)
     if (modelOverrides.nb && modelOverrides.nb.overdispersion > 1) {
       frequence = Math.min(12, Math.round(frequence * modelOverrides.nb.overdispersion))
     }
 
     // Mission type — Thompson Sampling override si confiance > 70%
     let missionType = suggestMissionType({
-      riskLevel: (riskLevel as any),
+      riskLevel,
       hasCriticalEcarts: nbEcartsCritiques > 0,
       hasPacInProgress: hasPendingPac,
       isCertificationPhase: isCertPhase,
@@ -121,15 +125,17 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
 
     // Domaines — Copulas override (élargir si dépendance de queue)
     let domainesPrioritaires: string[]
+    const exclureSGS = (d: string) => !(d === 'SGS' && statut_sgs === 'non_applicable')
     if (modelOverrides.copula && modelOverrides.copula.tailDependence > 0.3) {
       // Forte dépendance → tous les domaines sont liés, inspecter large
-      domainesPrioritaires = ['SGS', 'SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS']
+      domainesPrioritaires = ['SGS', 'SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS'].filter(exclureSGS)
     } else {
-      domainesPrioritaires = profilRisque.c3 < 50
+      domainesPrioritaires = (profilRisque.c3 < 50
         ? ['PHY', 'OLS', 'ELEC', 'MFP']
         : profilRisque.c2 < 50
           ? ['SLI', 'RA', 'COP', 'OPS']
           : ['SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS']
+      ).filter(exclureSGS)
     }
 
     // Priorité — HMM + EVT override

@@ -98,6 +98,7 @@ export interface PredictionBayesienne {
   likelihood: number
   credibleInterval: [number, number]
   estBlackSwan: boolean
+  bayesFactor: number
 }
 
 // ============================================================
@@ -239,19 +240,8 @@ export interface ProactiveAlert {
 // TYPES POUR LES EXEMPTIONS ET MESURES
 // ============================================================
 
-export interface ExemptionImpact {
-  exemptionId: string
-  domaine: string
-  bonus_c3: number
-  malus_c3: number
-  efficacite_validee: number
-}
-
-export interface C3AdjustmentResult {
-  c3_ajuste: number
-  impacts: ExemptionImpact[]
-  raw_c3: number
-}
+// ExemptionImpact et C3AdjustmentResult sont définis dans lib/risque.ts (exportés)
+// pour éviter la duplication. Importer depuis '@/lib/risque'.
 
 // ============================================================
 // TYPES POUR L'HISTORIQUE DES SCORES

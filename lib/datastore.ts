@@ -4,6 +4,17 @@
 // ✅ R4 : Fichier unique, pas de doublon Supabase ailleurs.
 
 import { supabase } from './supabase'
+import { getOACIValue } from './risque/matrix'
+
+function groupEquipeIds(plannings: Planning[], equipeRows: { planning_id: string; utilisateur_id: string }[]): Planning[] {
+  const map = new Map<string, string[]>()
+  for (const row of equipeRows) {
+    if (!map.has(row.planning_id)) map.set(row.planning_id, [])
+    map.get(row.planning_id)!.push(row.utilisateur_id)
+  }
+  return plannings.map(p => ({ ...p, equipe_ids: map.get(p.id) || [] }))
+}
+
 import type {
   Aerodrome,
   Surveillance,
@@ -24,7 +35,9 @@ import type {
   KitDocument,
   Message,
   ApiKey,
+  RegistreEntry,
 } from './store'
+import type { EngineFeedbackRecord } from './ia/engines/engineFeedback'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES DATASTORE
@@ -54,11 +67,22 @@ export interface InitialData {
   kitDocuments: KitDocument[]
   messages: Message[]
   apiKeys: ApiKey[]
+  registreEntries: RegistreEntry[]
 }
 
 // ─────────────────────────────────────────────────────────────
 // CHARGEMENT INITIAL (appelé une seule fois au montage de AppShell)
 // ─────────────────────────────────────────────────────────────
+
+function normalizeInspecteurCompetences(ins: any): Inspecteur {
+  if (!ins || !Array.isArray(ins.competences)) return ins as Inspecteur
+  // Rétrocompatibilité : les competences étaient stockées en string[]
+  // Maintenant on stocke des objets { domaine, niveau, ... }
+  ins.competences = ins.competences.map((c: any) =>
+    typeof c === 'string' ? { id: crypto.randomUUID(), domaine: c, niveau: 1 } : c
+  )
+  return ins as Inspecteur
+}
 
 export async function loadInitialData(userId: string, role: string): Promise<DatastoreResult<InitialData>> {
   try {
@@ -80,6 +104,8 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       kitDocumentsRes,
       messagesRes,
       apiKeysRes,
+      planningEquipeRes,
+      registreEntriesRes,
     ] = await Promise.all([
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
@@ -98,7 +124,13 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('kit_documents').select('*').order('created_at', { ascending: false }),
       supabase.from('messages').select('*').or(`from_id.eq.${userId},to_id.eq.${userId}`).order('created_at', { ascending: false }).limit(200),
       supabase.from('api_keys').select('*').order('service').order('fallback_order'),
+      supabase.from('planning_equipe').select('*'),
+      supabase.from('registre_entries').select('*').order('date_entree', { ascending: false }),
     ])
+
+    const planningsData = (planningsRes.data ?? []) as Planning[]
+    const equipeRows = (planningEquipeRes?.data ?? []) as { planning_id: string; utilisateur_id: string }[]
+    const planningsAvecEquipe = groupEquipeIds(planningsData, equipeRows)
 
     const errors = [
       aerodromesRes.error,
@@ -111,12 +143,14 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       homologationsRes.error,
       profilsRes.error,
       notificationsRes.error,
+      codesAccesRes?.error,
       formationsRes.error,
       inspecteursRes.error,
       competencesRes.error,
       kitDocumentsRes.error,
       messagesRes?.error,
       apiKeysRes?.error,
+      registreEntriesRes?.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -129,31 +163,32 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
     const profilsMap = new Map(profilsExistants.map(p => [p.aerodrome_id, p]));
     const nouveauxProfils: ProfilRisque[] = [];
 
-    for (const aero of aerodromes) {
-      if (!profilsMap.has(aero.id)) {
+    // Importer une seule fois hors de la boucle
+    const { calculerProfilInitial } = await import('@/lib/risque/initialProfile');
+    const upsertPromises = aerodromes
+      .filter(a => !profilsMap.has(a.id))
+      .map(async (aero) => {
         try {
-          const { calculerProfilInitial } = await import('@/lib/risque/initialProfile');
           const result = calculerProfilInitial(aero as Aerodrome);
-          
-          // Sauvegarder dans Supabase
           await supabase.from('profils_risque').upsert(result.profil);
-          
-          nouveauxProfils.push(result.profil);
           console.log(`[Datastore] Profil calculé pour ${aero.code_oaci}`);
+          return result.profil;
         } catch (err) {
           console.error(`[Datastore] Erreur calcul profil pour ${aero.code_oaci}:`, err);
+          return null;
         }
-      }
-    }
+      });
+    const resolved = await Promise.all(upsertPromises);
+    nouveauxProfils.push(...resolved.filter(Boolean) as ProfilRisque[]);
 
     return {
       data: {
         aerodromes: aerodromes,
         surveillances: (surveillancesRes.data ?? []) as Surveillance[],
-        ecarts: (ecartsRes.data ?? []) as Ecart[],
+        ecarts: ((ecartsRes.data ?? []) as Ecart[]).map(sanitizeEcart),
         dossiers: (dossiersRes.data ?? []) as Dossier[],
         utilisateurs: (utilisateursRes.data ?? []) as Utilisateur[],
-        plannings: (planningsRes.data ?? []) as Planning[],
+        plannings: planningsAvecEquipe,
         certifications: (certificationsRes.data ?? []) as Certification[],
         homologations: (homologationsRes.data ?? []) as Homologation[],
         profilsRisque: [...profilsExistants, ...nouveauxProfils],
@@ -161,11 +196,21 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         checklistItems: [],
         codesAcces: (codesAccesRes.data ?? []) as CodeAcces[],
         formations: (formationsRes.data ?? []) as Formation[],
-        inspecteurs: (inspecteursRes.data ?? []) as Inspecteur[],
-        competences: (competencesRes.data ?? []) as Competence[],
+        inspecteurs: ((inspecteursRes.data ?? []) as any[]).map(ins => {
+          const normalise = normalizeInspecteurCompetences(ins)
+          // Si l'inspecteur n'a pas de compétences dans le JSONB (Path B),
+          // les récupérer depuis la table competences séparée
+          if ((!normalise.competences || normalise.competences.length === 0) && competencesRes.data) {
+            const comps = (competencesRes.data as any[]).filter(c => c.inspecteur_id === ins.id)
+            if (comps.length > 0) normalise.competences = comps
+          }
+          return normalise
+        }),
+        competences: [], // fusionné dans inspecteurs, plus besoin séparément
         kitDocuments: (kitDocumentsRes.data ?? []) as KitDocument[],
         messages: (messagesRes?.data ?? []).map(unmarshalMessage) as Message[],
         apiKeys: (apiKeysRes?.data ?? []) as ApiKey[],
+        registreEntries: (registreEntriesRes?.data ?? []) as RegistreEntry[],
       },
       error: null,
     }
@@ -345,11 +390,26 @@ export async function createSurveillance(payload: Omit<Surveillance, 'id' | 'cre
   
   const { equipe_ids, sgs_evaluation_prepa, ...payloadSansSGS } = payload as any
   
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('surveillances')
     .insert({ ...payloadSansSGS, created_at: now, updated_at: now })
     .select()
     .single()
+
+  // Sécurité : si le planning_id référence un planning inexistant en Supabase
+  // (possible avec des bundles JS obsolètes), on réessaie sans planning_id.
+  const isPlanningFkError = (err: unknown) =>
+    typeof err === 'string' && err.toLowerCase().includes('surveillances_planning_id_fkey')
+  if (error && isPlanningFkError(error.message) && 'planning_id' in payloadSansSGS) {
+    const { planning_id: _, ...payloadSansPlanning } = payloadSansSGS
+    const retry = await supabase
+      .from('surveillances')
+      .insert({ ...payloadSansPlanning, created_at: now, updated_at: now })
+      .select()
+      .single()
+    data = retry.data
+    error = retry.error
+  }
   
   if (data && equipe_ids && equipe_ids.length > 0) {
     for (const userId of equipe_ids) {
@@ -398,6 +458,19 @@ export async function deleteSurveillance(id: string): Promise<DatastoreResult<nu
   return { data: null, error: error?.message ?? null }
 }
 
+// Reconstruit ou nettoie cellule_risque_oaci — corrige "NaNE", "-", etc.
+export function sanitizeEcart(ecart: Ecart): Ecart {
+  if (!ecart.cellule_risque_oaci) return ecart;
+  if (/^[1-5][A-E]$/.test(ecart.cellule_risque_oaci)) return ecart;
+  const meilleur = getOACIValue(ecart);
+  if (meilleur) {
+    console.warn(`[datastore] Reconstruit cellule_risque_oaci "${ecart.cellule_risque_oaci}" → "${meilleur}" pour ecart ${ecart.id}`);
+    return { ...ecart, cellule_risque_oaci: meilleur };
+  }
+  console.warn(`[datastore] cellule_risque_oaci invalide "${ecart.cellule_risque_oaci}" pour ecart ${ecart.id}, impossible de reconstruire`);
+  return { ...ecart, cellule_risque_oaci: undefined };
+}
+
 // ─────────────────────────────────────────────────────────────
 // ÉCARTS
 // ─────────────────────────────────────────────────────────────
@@ -406,7 +479,7 @@ export async function fetchEcarts(surveillanceId?: string): Promise<DatastoreRes
   let query = supabase.from('ecarts').select('*').order('created_at', { ascending: false })
   if (surveillanceId) query = query.eq('surveillance_id', surveillanceId)
   const { data, error } = await query
-  return { data: data as Ecart[] | null, error: error?.message ?? null }
+  return { data: ((data ?? []) as Ecart[]).map(sanitizeEcart) as Ecart[] | null, error: error?.message ?? null }
 }
 
 export async function createEcart(payload: Omit<Ecart, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<Ecart>> {
@@ -451,6 +524,25 @@ export async function upsertEcart(payload: Ecart): Promise<DatastoreResult<Ecart
 // ÉCARTS RÉDACTION (brouillons — persistance entre sessions)
 // ─────────────────────────────────────────────────────────────
 
+// Colonnes réelles de la table Supabase `ecarts_redaction` (doit rester aligné
+// avec l'interface EcartRedaction dans store.ts). Tout champ hors de cette liste
+// est rejeté par Supabase ("Could not find the 'X' column ... in the schema cache")
+// car ces brouillons ne portent pas les champs propres à l'écart final (ex: delai_pac).
+const ECARTS_REDACTION_COLUMNS = [
+  'id', 'reference', 'ref_reglementaire', 'libelle', 'niveau', 'item_ids',
+  'surveillance_id', 'aerodrome_id', 'created_at', 'created_by', 'updated_at', 'updated_by',
+  'domaine', 'cellule_risque_oaci', 'probabilite_risque', 'gravite_risque',
+  'justification_risque_ia', 'cellule_ia_suggeree',
+] as const
+
+function toEcartRedactionRow(e: Record<string, any>): Record<string, any> {
+  const row: Record<string, any> = {}
+  for (const col of ECARTS_REDACTION_COLUMNS) {
+    if (e[col] !== undefined) row[col] = e[col]
+  }
+  return row
+}
+
 /**
  * Sauvegarde (upsert) les écarts rédaction d'une surveillance dans Supabase.
  * Appelé depuis les pages /ecarts et /ecarts/sgs après chaque modification.
@@ -460,7 +552,7 @@ export async function upsertEcartsRedaction(ecarts: any[]): Promise<void> {
   const { error } = await supabase
     .from('ecarts_redaction')
     .upsert(
-      ecarts.map(e => ({ ...e, updated_at: new Date().toISOString() })),
+      ecarts.map(e => toEcartRedactionRow({ ...e, updated_at: new Date().toISOString() })),
       { onConflict: 'id', ignoreDuplicates: false }
     )
   if (error) console.error('[datastore] upsertEcartsRedaction error:', error.message)
@@ -515,16 +607,18 @@ export async function batchUpsertChecklistItems(items: ChecklistItem[]): Promise
 // ─────────────────────────────────────────────────────────────
 
 export async function fetchPlannings(): Promise<DatastoreResult<Planning[]>> {
-  const { data, error } = await supabase
-    .from('plannings')
-    .select('*')
-    .order('date_debut', { ascending: false })
-  return { data: data as Planning[] | null, error: error?.message ?? null }
+  const [planningsRes, equipeRes] = await Promise.all([
+    supabase.from('plannings').select('*').order('date_debut', { ascending: false }),
+    supabase.from('planning_equipe').select('*'),
+  ])
+  if (planningsRes.error) return { data: null, error: planningsRes.error.message }
+  const data = groupEquipeIds(planningsRes.data as Planning[], (equipeRes.data ?? []) as any[])
+  return { data, error: null }
 }
 
 export async function createPlanning(payload: Omit<Planning, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<Planning>> {
   const now = new Date().toISOString()
-  const { equipe_ids, ...restPayload } = payload as any
+  const { equipe_ids, id: _ignoredId, ...restPayload } = payload as any
   const { data, error } = await supabase
     .from('plannings')
     .insert({ ...restPayload, created_at: now, updated_at: now })
@@ -535,10 +629,14 @@ export async function createPlanning(payload: Omit<Planning, 'id' | 'created_at'
     const rows = equipe_ids.map((uid: string) => ({ planning_id: data.id, utilisateur_id: uid }))
     await supabase.from('planning_equipe').insert(rows)
   }
-  return { data: data as Planning | null, error: null }
+  return { data: { ...data, equipe_ids: equipe_ids || [] } as Planning | null, error: null }
 }
 
 export async function updatePlanning(id: string, payload: Partial<Planning>): Promise<DatastoreResult<Planning>> {
+  if (!id || !id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+    console.error('[datastore] updatePlanning called with invalid id:', id)
+    return { data: null, error: 'ID de planning invalide' }
+  }
   const { equipe_ids, ...restPayload } = payload as any
   const { data, error } = await supabase
     .from('plannings')
@@ -554,7 +652,7 @@ export async function updatePlanning(id: string, payload: Partial<Planning>): Pr
       await supabase.from('planning_equipe').insert(rows)
     }
   }
-  return { data: data as Planning | null, error: null }
+  return { data: { ...data, equipe_ids: equipe_ids ?? [] } as Planning | null, error: null }
 }
 
 export async function deletePlanning(id: string): Promise<DatastoreResult<null>> {
@@ -579,6 +677,40 @@ export async function updateUtilisateur(id: string, payload: Partial<Utilisateur
     .select()
     .single()
   return { data: data as Utilisateur | null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// KIT DOCUMENTS
+// ─────────────────────────────────────────────────────────────
+
+export async function createKitDocument(doc: Omit<KitDocument, 'created_at' | 'updated_at'> & { created_at?: string; updated_at?: string }): Promise<DatastoreResult<KitDocument>> {
+  const now = new Date().toISOString()
+  const payload = { ...doc, created_at: doc.created_at || now, updated_at: doc.updated_at || now }
+  const { data, error } = await supabase
+    .from('kit_documents')
+    .insert(payload)
+    .select()
+    .single()
+  return { data: data as KitDocument | null, error: error?.message ?? null }
+}
+
+export async function updateKitDocument(id: string, data: Partial<KitDocument>): Promise<DatastoreResult<KitDocument>> {
+  const payload = { ...data, updated_at: new Date().toISOString() }
+  const { data: result, error } = await supabase
+    .from('kit_documents')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: result as KitDocument | null, error: error?.message ?? null }
+}
+
+export async function deleteKitDocument(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase
+    .from('kit_documents')
+    .delete()
+    .eq('id', id)
+  return { data: null, error: error?.message ?? null }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -613,6 +745,191 @@ export async function sendNotification(payload: Omit<Notification, 'id' | 'sent_
 }
 
 // ─────────────────────────────────────────────────────────────
+// IA FEEDBACK — Apprentissage continu AERORISQ
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchIAFeedbacks(aerodromeId?: string): Promise<DatastoreResult<EngineFeedbackRecord[]>> {
+  let query = supabase.from('ia_feedback').select('*').order('created_at', { ascending: false }).limit(200)
+  if (aerodromeId) query = query.eq('aerodrome_id', aerodromeId)
+  const { data, error } = await query
+  return { data: data as EngineFeedbackRecord[] | null, error: error?.message ?? null }
+}
+
+export async function createIAFeedback(payload: Omit<EngineFeedbackRecord, 'id' | 'date'>): Promise<DatastoreResult<EngineFeedbackRecord>> {
+  const { data, error } = await supabase
+    .from('ia_feedback')
+    .insert({
+      engine_type: payload.engineType,
+      aerodrome_id: payload.aerodromeId,
+      planning_id: payload.contexte?.planningId || null,
+      surveillance_id: payload.contexte?.surveillanceId || null,
+      decision_type: payload.decision.type,
+      decision_data: JSON.parse(JSON.stringify(payload.decision.donnees)),
+      vote: payload.vote,
+      commentaire: payload.commentaire || null,
+      user_id: null,
+    })
+    .select()
+    .single()
+  return { data: data as EngineFeedbackRecord | null, error: error?.message ?? null }
+}
+
+export async function syncIAFeedbacks(feedbacks: EngineFeedbackRecord[]): Promise<DatastoreResult<number>> {
+  const rows = feedbacks.map(f => ({
+    engine_type: f.engineType,
+    aerodrome_id: f.aerodromeId,
+    planning_id: f.contexte?.planningId || null,
+    surveillance_id: f.contexte?.surveillanceId || null,
+    decision_type: f.decision.type,
+    decision_data: JSON.parse(JSON.stringify(f.decision.donnees)),
+    vote: f.vote,
+    commentaire: f.commentaire || null,
+    synced_at: new Date().toISOString(),
+  }))
+  const { error, count } = await supabase.from('ia_feedback').upsert(rows, { ignoreDuplicates: true })
+  return { data: count ?? 0, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// IA THRESHOLDS — Seuils dynamiques persistés
+// ─────────────────────────────────────────────────────────────
+
+export interface ThresholdRow {
+  id: string
+  parametre: string
+  valeur: number
+  engine: string
+  raison?: string
+  actif: boolean
+}
+
+export async function fetchThresholds(): Promise<DatastoreResult<ThresholdRow[]>> {
+  const { data, error } = await supabase.from('ia_thresholds').select('*').eq('actif', true)
+  return { data: data as ThresholdRow[] | null, error: error?.message ?? null }
+}
+
+export async function upsertThreshold(parametre: string, valeur: number, engine: string, raison?: string): Promise<DatastoreResult<ThresholdRow>> {
+  const { data, error } = await supabase
+    .from('ia_thresholds')
+    .upsert({ parametre, valeur, engine, raison: raison || null, actif: true }, { onConflict: 'parametre' })
+    .select()
+    .single()
+  return { data: data as ThresholdRow | null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// IA DECISIONS — Historique des décisions AERORISQ
+// ─────────────────────────────────────────────────────────────
+
+export interface DecisionRow {
+  id: string
+  aerodrome_id: string
+  type: string
+  date_decision: string
+  recommendation_action?: string
+  recommendation_type?: string
+  recommendation_urgence?: string
+  certificat_action?: string
+  declencheur_type?: string
+  suggestion_type?: string
+  suggestion_confiance?: number
+  status: string
+  effectiveness: string
+  applied_at?: string
+  commentaire?: string
+  confiance?: number
+}
+
+export async function fetchDecisions(aerodromeId?: string): Promise<DatastoreResult<DecisionRow[]>> {
+  let query = supabase.from('ia_decisions').select('*').order('created_at', { ascending: false }).limit(100)
+  if (aerodromeId) query = query.eq('aerodrome_id', aerodromeId)
+  const { data, error } = await query
+  return { data: data as DecisionRow[] | null, error: error?.message ?? null }
+}
+
+export async function createDecision(payload: {
+  aerodrome_id: string
+  type: string
+  recommendation_action?: string
+  recommendation_type?: string
+  recommendation_urgence?: string
+  certificat_action?: string
+  declencheur_type?: string
+  suggestion_type?: string
+  suggestion_confiance?: number
+  confiance?: number
+}): Promise<DatastoreResult<DecisionRow>> {
+  const { data, error } = await supabase
+    .from('ia_decisions')
+    .insert({ ...payload, status: 'pending', effectiveness: 'non_evalue', date_decision: new Date().toISOString() })
+    .select()
+    .single()
+  return { data: data as DecisionRow | null, error: error?.message ?? null }
+}
+
+export async function updateDecisionStatus(id: string, status: string, effectiveness?: string, commentaire?: string): Promise<DatastoreResult<null>> {
+  const upd: Record<string, any> = { status }
+  if (status === 'applied') upd.applied_at = new Date().toISOString()
+  if (effectiveness) upd.effectiveness = effectiveness
+  if (commentaire) upd.commentaire = commentaire
+  const { error } = await supabase.from('ia_decisions').update(upd).eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// IA MODEL STATE — Poids des modèles ML persistés
+// ─────────────────────────────────────────────────────────────
+
+export interface ModelStateRow {
+  id: string
+  model_name: string
+  aerodrome_id?: string
+  version: number
+  weights: Record<string, number>
+  biases: Record<string, number>
+  total_feedbacks: number
+  accuracy_history: number[]
+  learning_rate: number
+  model_data: Record<string, unknown>
+}
+
+export async function fetchModelState(modelName: string, aerodromeId?: string): Promise<DatastoreResult<ModelStateRow>> {
+  let query = supabase.from('ia_model_state').select('*').eq('model_name', modelName)
+  if (aerodromeId) query = query.eq('aerodrome_id', aerodromeId)
+  const { data, error } = await query.maybeSingle()
+  return { data: data as ModelStateRow | null, error: error?.message ?? null }
+}
+
+export async function upsertModelState(payload: {
+  model_name: string
+  aerodrome_id?: string
+  version: number
+  weights: Record<string, number>
+  biases: Record<string, number>
+  total_feedbacks: number
+  accuracy_history: number[]
+  learning_rate: number
+  model_data?: Record<string, unknown>
+}): Promise<DatastoreResult<ModelStateRow>> {
+  const { data, error } = await supabase
+    .from('ia_model_state')
+    .upsert({
+      model_name: payload.model_name,
+      aerodrome_id: payload.aerodrome_id || null,
+      version: payload.version,
+      weights: payload.weights,
+      biases: payload.biases,
+      total_feedbacks: payload.total_feedbacks,
+      accuracy_history: payload.accuracy_history,
+      learning_rate: payload.learning_rate,
+      model_data: payload.model_data || {},
+    }, { onConflict: 'model_name,aerodrome_id' })
+    .select()
+    .single()
+  return { data: data as ModelStateRow | null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
 // PROFILS RISQUE
 // ─────────────────────────────────────────────────────────────
 
@@ -639,14 +956,78 @@ export async function fetchCertifications(): Promise<DatastoreResult<Certificati
   return { data: data as Certification[] | null, error: error?.message ?? null }
 }
 
+export async function createCertification(payload: Certification): Promise<DatastoreResult<Certification>> {
+  try {
+    const allowedCols = [
+      'id', 'aerodrome_id', 'reference', 'phase_active', 'phases_data',
+      'statut_global', 'numero_cert', 'date_delivrance', 'date_expiration',
+      'lettre_signee_url', 'type_certification', 'archived_at', 'exemptions_ids',
+      'created_at',
+    ]
+    const clean: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    for (const key of allowedCols) {
+      if ((payload as any)[key] !== undefined) {
+        clean[key] = (payload as any)[key]
+      }
+    }
+    if (!clean.created_at) clean.created_at = new Date().toISOString()
+
+    const { data, error } = await supabase
+      .from('certifications')
+      .insert(clean)
+      .select()
+      .single()
+    if (error) {
+      console.error('[datastore/createCertification] Supabase error:', JSON.stringify(error))
+      if ((error as any).details) console.error('[datastore/createCertification] details:', (error as any).details)
+      if ((error as any).code) console.error('[datastore/createCertification] code:', (error as any).code)
+    }
+    return { data: data as Certification | null, error: error?.message ?? JSON.stringify(error) ?? null }
+  } catch (err) {
+    console.error('[datastore/createCertification] Exception:', err)
+    return { data: null, error: String(err) }
+  }
+}
+
 export async function updateCertification(id: string, payload: Partial<Certification>): Promise<DatastoreResult<Certification>> {
-  const { data, error } = await supabase
-    .from('certifications')
-    .update({ ...payload, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single()
-  return { data: data as Certification | null, error: error?.message ?? null }
+  try {
+    // Ne transmettre que les colonnes connues de la table certifications
+    const allowedCols = [
+      'id', 'aerodrome_id', 'reference', 'phase_active', 'phases_data',
+      'statut_global', 'numero_cert', 'date_delivrance', 'date_expiration',
+      'lettre_signee_url', 'type_certification', 'archived_at', 'exemptions_ids',
+    ]
+    // Éviter d'écraser created_at
+    const clean: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    for (const key of allowedCols) {
+      if ((payload as any)[key] !== undefined) {
+        clean[key] = (payload as any)[key]
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('certifications')
+      .update(clean)
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) {
+      console.error('[datastore/updateCertification] Supabase error:', JSON.stringify(error))
+      if ((error as any).details) console.error('[datastore/updateCertification] details:', (error as any).details)
+      if ((error as any).hint) console.error('[datastore/updateCertification] hint:', (error as any).hint)
+      if ((error as any).code) console.error('[datastore/updateCertification] code:', (error as any).code)
+    }
+    return { data: data as Certification | null, error: error?.message ?? JSON.stringify(error) ?? null }
+  } catch (err) {
+    console.error('[datastore/updateCertification] Exception:', err)
+    return { data: null, error: String(err) }
+  }
+}
+
+export async function deleteCertification(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('certifications').delete().eq('id', id)
+  if (error) console.error('[datastore/deleteCertification] Supabase error:', error)
+  return { data: null, error: error?.message ?? null }
 }
 
 export async function fetchHomologations(): Promise<DatastoreResult<Homologation[]>> {
@@ -686,6 +1067,51 @@ export async function deleteFile(bucket: string, path: string): Promise<Datastor
 }
 
 // ─────────────────────────────────────────────────────────────
+// REGISTRE ENTRIES (Archivage)
+// ─────────────────────────────────────────────────────────────
+
+export async function saveRegistreEntry(entry: RegistreEntry): Promise<DatastoreResult<RegistreEntry>> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('registre_entries')
+    .upsert({
+      id: entry.id,
+      type: entry.type,
+      reference: entry.reference,
+      titre: entry.titre,
+      description: entry.description,
+      date_entree: entry.date_entree,
+      aerodrome_id: entry.aerodrome_id || null,
+      fichiers: JSON.parse(JSON.stringify(entry.fichiers)),
+      timeline: JSON.parse(JSON.stringify(entry.timeline)),
+      statut: entry.statut,
+      auto_generated: entry.auto_generated,
+      source_id: entry.source_id || null,
+      source_type: entry.source_type || null,
+      metadata: entry.metadata || null,
+      ia_analysis: entry.ia_analysis || null,
+      created_by: entry.created_by,
+      updated_at: now,
+    }, { onConflict: 'id' })
+    .select()
+    .single()
+  return { data: data as RegistreEntry | null, error: error?.message ?? null }
+}
+
+export async function deleteRegistreEntryFromDB(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('registre_entries').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+export async function getRegistreEntriesFromDB(): Promise<DatastoreResult<RegistreEntry[]>> {
+  const { data, error } = await supabase
+    .from('registre_entries')
+    .select('*')
+    .order('date_entree', { ascending: false })
+  return { data: data as RegistreEntry[] | null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
 // REALTIME SUBSCRIPTIONS
 // ─────────────────────────────────────────────────────────────
 
@@ -704,6 +1130,15 @@ export function subscribeToEcarts(
   return supabase
     .channel('ecarts_changes')
     .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'ecarts' }, callback)
+    .subscribe()
+}
+
+export function subscribeToCertifications(
+  callback: (payload: { eventType: string; new: Certification; old: Certification }) => void,
+) {
+  return supabase
+    .channel('certifications_changes')
+    .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'certifications' }, callback)
     .subscribe()
 }
 
@@ -741,7 +1176,7 @@ export function subscribeToMessages(
 
 export async function fetchInspecteurs(): Promise<DatastoreResult<Inspecteur[]>> {
   const { data, error } = await supabase.from('inspecteurs').select('*').order('nom')
-  return { data: data as Inspecteur[] | null, error: error?.message ?? null }
+  return { data: (data as any[])?.map(normalizeInspecteurCompetences) ?? null, error: error?.message ?? null }
 }
 
 export async function checkMatriculeExists(matricule: string): Promise<boolean> {
@@ -769,7 +1204,7 @@ export async function createInspecteur(payload: any): Promise<DatastoreResult<In
   
   // Nettoyer le payload pour n'envoyer que les colonnes valides
   const validColumns = [
-    'matricule', 'prenom', 'nom', 'email', 'telephone',
+    'id', 'matricule', 'prenom', 'nom', 'email', 'telephone',
     'type', 'service', 'domaine_principal', 'photo', 
     'statut', 'competences', 'created_at', 'deleted_at', 'deleted_by'
   ]
@@ -778,19 +1213,9 @@ export async function createInspecteur(payload: any): Promise<DatastoreResult<In
   
   for (const key of validColumns) {
     if (payload[key] !== undefined) {
-      // Pour competences, s'assurer que c'est un tableau de strings
+      // competences : colonne jsonb → stocker les objets complets
       if (key === 'competences') {
-        if (Array.isArray(payload[key])) {
-          cleanPayload[key] = payload[key].map((item: any) => {
-            if (typeof item === 'object' && item !== null) {
-              // Si c'est un objet, extraire le domaine ou le texte
-              return item.domaine || item.nom || JSON.stringify(item)
-            }
-            return String(item)
-          })
-        } else {
-          cleanPayload[key] = []
-        }
+        cleanPayload[key] = Array.isArray(payload[key]) ? payload[key] : []
       } else {
         cleanPayload[key] = payload[key]
       }

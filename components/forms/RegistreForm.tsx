@@ -11,6 +11,7 @@ import {
 import { useAppStore, RegistreEntry } from '@/lib/store';
 import { registreUtils } from '@/lib/registreUtils';
 import { useFormProgress } from '@/hooks/useFormProgress';
+import { uploadFile } from '@/lib/datastore';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -52,14 +53,12 @@ export function RegistreForm({
   mode, registreId, aerodromeId, typeRegistre = 'formations',
   sourceData, onSuccess, onCancel, userRole, onProgressChange
 }: RegistreFormProps) {
-  const registres = useAppStore(s => s.registres);
+  const registreEntries = useAppStore(s => s.registreEntries);
   const aerodromes = useAppStore(s => s.aerodromes);
   const utilisateurs = useAppStore(s => s.utilisateurs);
   const user = useAppStore(s => s.user);
-  const addEntreeRegistre = useAppStore(s => s.addEntreeRegistre);
   const addRegistreEntry = useAppStore(s => s.addRegistreEntry);
   const updateRegistreEntry = useAppStore(s => s.updateRegistreEntry);
-  const updateRegistre: ((id: string, data: any) => Promise<void>) | undefined = undefined;
 
   const dgUser = useMemo(() => {
     const dg = utilisateurs?.find(u => u.role === 'dg' || u.role === 'admin' || u.role === 'directeur')
@@ -119,7 +118,7 @@ export function RegistreForm({
 
   useEffect(() => {
     if (mode === 'modification' && registreId) {
-      const registre = registres?.find(r => r.id === registreId) as any;
+      const registre = registreEntries?.find(r => r.id === registreId) as any;
       if (registre) {
         const m = registre.metadata || {}
         setFormData({
@@ -199,7 +198,7 @@ export function RegistreForm({
         }));
       }
     }
-  }, [mode, registreId, sourceData, registres, typeRegistre]);
+  }, [mode, registreId, sourceData, registreEntries, typeRegistre]);
 
   const validerFormulaire = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -230,28 +229,28 @@ export function RegistreForm({
     if (!validerFormulaire()) return;
     setIsSubmitting(true);
     try {
+      const entryId = crypto.randomUUID()
+      const now = new Date().toISOString()
+
+      // Upload des nouveaux fichiers vers Supabase Storage
       const uploadedFiles = await Promise.all(
-        formData.fichiers.map(async file => ({
-          nom: file.name, url: URL.createObjectURL(file), taille: file.size, type: file.type,
-        }))
+        formData.fichiers.map(async file => {
+          const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+          const storagePath = `registre/${entryId}/${safeName}`
+          const result = await uploadFile('documents', storagePath, file)
+          if (result.error) throw new Error(result.error)
+          return {
+            nom: file.name,
+            url: result.data!.url,
+            taille: file.size,
+            type: file.type,
+          }
+        })
       );
       const tousFichiers = [...existingFichiers, ...uploadedFiles];
       const reference = formData.reference ||
-        registreUtils.genererReference(formData.type, new Date().getFullYear(), (registres?.length || 0) + 1);
+        registreUtils.genererReference(formData.type, new Date().getFullYear(), (registreEntries?.length || 0) + 1);
 
-      const entreeRegistre = {
-        type: formData.type, reference,
-        date_entree: formData.date_entree,
-        objet: formData.objet, description: formData.description,
-        aerodrome_id: formData.aerodrome_id || undefined,
-        signataire_id: formData.signataire_id || undefined,
-        signataire_nom: formData.signataire_nom || undefined,
-        fichiers: tousFichiers, statut: formData.statut,
-        lien_id: formData.lien_id || undefined, lien_type: formData.lien_type || undefined,
-        created_by: user?.id || '',
-      };
-
-      const now = new Date().toISOString()
       const entryType = formData.type === 'certifications' ? 'certification' :
             formData.type === 'homologations' ? 'homologation' :
             formData.type === 'formations' ? 'formation' :
@@ -259,8 +258,8 @@ export function RegistreForm({
             formData.type === 'surveillances' ? 'surveillance' :
             formData.type === 'ecarts' ? 'ecart' : 'document'
 
-      const buildRegistreEntry = (id: string): RegistreEntry => ({
-        id,
+      const buildRegistreEntry = (): RegistreEntry => ({
+        id: entryId,
         type: entryType,
         reference,
         titre: formData.objet,
@@ -301,11 +300,11 @@ export function RegistreForm({
       })
 
       if (mode === 'creation') {
-        await addEntreeRegistre(entreeRegistre as any);
-        addRegistreEntry(buildRegistreEntry(`reg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`));
+        const entry = buildRegistreEntry()
+        await addRegistreEntry(entry)
       } else if (registreId) {
-        updateRegistreEntry(registreId, buildRegistreEntry(registreId));
-      } else if (updateRegistre) await (updateRegistre as any)(registreId!, entreeRegistre);
+        await updateRegistreEntry(registreId, buildRegistreEntry())
+      }
 
       onSuccess?.();
     } catch (error) {

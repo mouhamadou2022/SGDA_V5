@@ -3,7 +3,8 @@
 // Modèle Bayésien avec apprentissage en ligne (online learning)
 // Combine scoring pondéré + feedback loop pour améliorer les prédictions
 
-import { Ecart, ProfilRisque, SuggestionFeedback } from '@/lib/store';
+import type { Ecart, ProfilRisque, SuggestionFeedback, Surveillance } from '@/lib/store';
+import { iaStorage } from '@/lib/persistence/iaStorage';
 
 // ============================================================
 // TYPES
@@ -45,9 +46,9 @@ export interface MLFeatures {
 export interface MLPrediction {
   type: SurveillanceType;
   confiance: number;
-  scoreSA: number;
-  scoreNS: number;
-  scoreNV: number;
+  scoreSuiviEcarts: number;
+  scoreMiseOeuvrePac: number;
+  scoreAuditComplet: number;
   featuresImportantes: string[];
   estML: boolean;
   fallbackRuleBased: boolean;
@@ -115,16 +116,31 @@ const DEFAULT_BIASES: Record<string, number> = {
 };
 
 // ============================================================
-// STOCKAGE LOCAL DES MODÈLES (persisté via localStorage)
+// STOCKAGE DURABLE DES MODÈLES (IndexedDB + Supabase)
 // ============================================================
 
 const ML_STORAGE_KEY = 'sgda_ml_model_weights';
 
-function loadModelWeights(): MLModelWeights {
-  try {
-    const raw = localStorage.getItem(ML_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
+type SyncModelCallback = (model: MLModelWeights) => void
+
+let syncCallback: SyncModelCallback | null = null
+
+let cachedModel: MLModelWeights | null = null
+
+export function onSyncModel(callback: SyncModelCallback) {
+  syncCallback = callback
+}
+
+export function initModelFromSupabase(model: MLModelWeights) {
+  if (!model) return
+  const existing = cachedModel || loadModelDefaults()
+  if (model.total_feedbacks > existing.total_feedbacks) {
+    cachedModel = model
+    saveModelWeights(model)
+  }
+}
+
+function loadModelDefaults(): MLModelWeights {
   return {
     version: 1,
     updated_at: new Date().toISOString(),
@@ -134,13 +150,23 @@ function loadModelWeights(): MLModelWeights {
     total_feedbacks: 0,
     accuracy_history: [],
     aerodrome_specific: {},
-  };
+  }
+}
+
+function loadModelWeights(): MLModelWeights {
+  if (cachedModel) return cachedModel
+  if (typeof window === 'undefined') return loadModelDefaults()
+  // Déclenche un chargement async depuis IndexedDB (cache en mémoire par la suite)
+  iaStorage.get<MLModelWeights>('ml_weights', ML_STORAGE_KEY).then(stored => {
+    if (stored) cachedModel = stored
+  })
+  return loadModelDefaults()
 }
 
 function saveModelWeights(model: MLModelWeights): void {
-  try {
-    localStorage.setItem(ML_STORAGE_KEY, JSON.stringify(model));
-  } catch {}
+  cachedModel = model
+  iaStorage.set('ml_weights', ML_STORAGE_KEY, model)
+  syncCallback?.(model)
 }
 
 // ============================================================
@@ -309,30 +335,29 @@ export function updateModelWithFeedback(
       };
     targetScores[actualType as keyof typeof targetScores] = 1;
 
+    // Gradient calculé par classe : chaque classe a un coefficient de dérivée différent
+    // pour un même poids, puisque computeRawScore utilise chaque poids différemment
     for (const [key, weight] of Object.entries(m.weights)) {
-      const featureValue = getFeatureValue(key, features);
-      const gradient = (scores.suivi_ecarts - targetScores.suivi_ecarts +
-                       scores.mise_oeuvre_pac - targetScores.mise_oeuvre_pac +
-                       scores.audit_complet - targetScores.audit_complet +
-                       scores.programmee - targetScores.programmee) * featureValue;
+      let gradient = 0;
+      for (const classType of ['suivi_ecarts', 'mise_oeuvre_pac', 'audit_complet', 'programmee'] as const) {
+        const perClassDerivative = getGradientCoefficient(key, features, classType);
+        gradient += (scores[classType] - targetScores[classType]) * perClassDerivative;
+      }
       m.weights[key] = Math.max(-1, Math.min(1, weight - lr * gradient - WEIGHT_DECAY * weight));
     }
 
-    // Ajustement adaptatif des seuils de décision
-    if (m.accuracy_history && m.accuracy_history.length >= 10) {
-      const recentAccuracy = m.accuracy_history.slice(-10).reduce((a, b) => a + b, 0) / 10
-      // Si précision < 60%: augmenter le learning rate pour accélérer l'apprentissage
-      if (recentAccuracy < 0.60) m.learning_rate = Math.min(0.15, lr * 1.2)
-      // Si précision > 85%: réduire le learning rate pour stabiliser
-      else if (recentAccuracy > 0.85) m.learning_rate = Math.max(0.01, lr * 0.9)
+    // Chaque biais est mis à jour par l'erreur de sa propre classe uniquement
+    for (const [key, bias] of Object.entries(m.biases)) {
+      const classType = key.replace('bias_', '') as keyof typeof scores;
+      const gradient = scores[classType] - targetScores[classType];
+      m.biases[key] = bias - lr * gradient;
     }
 
-    for (const [key, bias] of Object.entries(m.biases)) {
-      const gradient = (scores.suivi_ecarts - targetScores.suivi_ecarts +
-                       scores.mise_oeuvre_pac - targetScores.mise_oeuvre_pac +
-                       scores.audit_complet - targetScores.audit_complet +
-                       scores.programmee - targetScores.programmee);
-      m.biases[key] = bias - lr * gradient;
+    // Ajustement adaptatif du learning rate
+    if (m.accuracy_history && m.accuracy_history.length >= 10) {
+      const recentAccuracy = m.accuracy_history.slice(-10).reduce((a, b) => a + b, 0) / 10
+      if (recentAccuracy < 0.60) m.learning_rate = Math.min(0.15, lr * 1.2)
+      else if (recentAccuracy > 0.85) m.learning_rate = Math.max(0.01, lr * 0.9)
     }
   }
 
@@ -365,6 +390,60 @@ function getFeatureValue(weightKey: string, features: MLFeatures): number {
   }
 }
 
+/** Retourne ∂(rawScore_class)/∂(weight) — la dérivée du score brut d'une classe
+ *  par rapport à un poids donné. Puisque computeRawScore utilise chaque poids
+ *  différemment selon la classe (transformation linéaire distincte), le gradient
+ *  correct est la somme sur toutes les classes de (sigmoid_k - target_k) × ∂x_k/∂w. */
+function getGradientCoefficient(weightKey: string, features: MLFeatures, classType: string): number {
+  const { c2, scoreGlobal, celluleOACI, joursRetard, statutCycle, tendance, c4, hasPAC, pacActionsCount } = features
+  switch (weightKey) {
+    case 'w_c2':
+      switch (classType) {
+        case 'suivi_ecarts': return (100 - c2) / 100
+        case 'mise_oeuvre_pac': return c2 < 45 ? 0.8 : c2 < 70 ? 0.4 : 0.1
+        case 'audit_complet': return 0
+        case 'programmee': return c2 / 100
+        default: return 0
+      }
+    case 'w_score_global':
+      switch (classType) {
+        case 'suivi_ecarts': return (100 - scoreGlobal) / 100
+        case 'mise_oeuvre_pac': return ((100 - scoreGlobal) / 100) * 0.5
+        case 'audit_complet': return ((100 - scoreGlobal) / 100) * 1.5
+        case 'programmee': return scoreGlobal / 100
+        default: return 0
+      }
+    case 'w_cellule_oaci':
+      return classType === 'suivi_ecarts' ? celluleOACI / 25 : 0
+    case 'w_jours_retard':
+      return classType === 'suivi_ecarts' ? (joursRetard < 30 ? 1 / 30 : 0) : 0
+    case 'w_statut_cycle':
+      switch (classType) {
+        case 'suivi_ecarts': return statutCycle < 3 ? 0.8 : statutCycle < 5 ? 0.4 : 0.1
+        case 'mise_oeuvre_pac': return statutCycle >= 4 ? 0.9 : statutCycle >= 2 ? 0.5 : 0.1
+        default: return 0
+      }
+    case 'w_tendance':
+      switch (classType) {
+        case 'suivi_ecarts': return tendance <= 0 ? -1 : 0
+        case 'audit_complet': return tendance <= 0 ? -1.5 : 0
+        case 'programmee': return tendance >= 0 ? 1 : 0
+        default: return 0
+      }
+    case 'w_c4':
+      switch (classType) {
+        case 'suivi_ecarts': return (100 - c4) / 100
+        case 'audit_complet': return ((100 - c4) / 100) * 1.2
+        default: return 0
+      }
+    case 'w_has_pac':
+      return classType === 'mise_oeuvre_pac' ? (hasPAC ? 0.9 : 0) : 0
+    case 'w_pac_actions':
+      return classType === 'mise_oeuvre_pac' ? (pacActionsCount < 5 ? 1 / 5 : 0) : 0
+    default: return 0
+  }
+}
+
 // ============================================================
 // PRÉDICTION ML
 // ============================================================
@@ -394,12 +473,15 @@ export function predictSurveillanceType(
 
   const recommandation = generateRecommandation(bestType, features, confiance, hasEnoughData);
 
+  const totalScores = scores.suivi_ecarts + scores.mise_oeuvre_pac + (scores.audit_complet || 0);
+  const sumScores = totalScores > 0 ? totalScores : 1;
+
   return {
     type: bestType,
     confiance: Math.round(confiance * 100),
-    scoreSA: Math.round(scores.suivi_ecarts * 100),
-    scoreNS: Math.round(scores.mise_oeuvre_pac * 100),
-    scoreNV: Math.round((1 - scores.suivi_ecarts - scores.mise_oeuvre_pac) * 100),
+    scoreSuiviEcarts: Math.round((scores.suivi_ecarts / sumScores) * 100),
+    scoreMiseOeuvrePac: Math.round((scores.mise_oeuvre_pac / sumScores) * 100),
+    scoreAuditComplet: Math.round(((scores.audit_complet || 0) / sumScores) * 100),
     featuresImportantes,
     estML: hasEnoughData,
     fallbackRuleBased: !hasEnoughData,
@@ -564,7 +646,128 @@ export function getModelStats(): {
 // ============================================================
 
 export function resetModel(): void {
-  localStorage.removeItem(ML_STORAGE_KEY);
+  cachedModel = null
+  iaStorage.remove('ml_weights', ML_STORAGE_KEY)
+}
+
+// ============================================================
+// TIMING — Prédiction du meilleur moment pour la surveillance
+// ============================================================
+
+export interface TimingPrediction {
+  joursRecommande: number
+  fenetreDebut: number
+  fenetreFin: number
+  confiance: number
+  facteurs: string[]
+}
+
+export function predictTiming(
+  profil: ProfilRisque | null,
+  ecartsActifs: Ecart[],
+  surveillances: Surveillance[],
+  domainesCibles: string[],
+): TimingPrediction | null {
+  if (!profil) return null
+
+  const nbCritiques = ecartsActifs.filter(e => e.niveau_risque === 'critique').length
+  const nbEleves = ecartsActifs.filter(e => e.niveau_risque === 'eleve').length
+  const c4Charge = profil.c4 // 0 = surchargé, 100 = disponible
+  const scoreGlobal = profil.score_global
+  const tendance = profil.tendance
+  const mois = new Date().getMonth()
+  const saisonPluie = mois >= 6 && mois <= 9
+
+  // Intervalle moyen basé sur l'historique
+  let intervalleMoyen = 365 // défaut 1 an
+  if (surveillances.length >= 2) {
+    const dates = surveillances.map(s => new Date(s.created_at).getTime()).sort((a, b) => a - b)
+    const ecartsDates: number[] = []
+    for (let i = 1; i < dates.length; i++) {
+      ecartsDates.push(Math.round((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24)))
+    }
+    if (ecartsDates.length > 0) {
+      intervalleMoyen = Math.round(ecartsDates.reduce((a, b) => a + b, 0) / ecartsDates.length)
+    }
+  }
+
+  // Poids des facteurs
+  const facteurs: string[] = []
+  let facteurDegradation = 0
+  let facteurUrgence = 0
+  let facteurCharge = 0
+  let facteurSaison = 0
+
+  if (tendance === 'baisse') {
+    facteurDegradation += 30
+    facteurs.push(`Tendance baissière: délai réduit de 30j`)
+  } else if (tendance === 'hausse') {
+    facteurDegradation -= 30
+    facteurs.push(`Tendance haussière: délai allongé de 30j`)
+  }
+
+  if (scoreGlobal < 30) {
+    facteurUrgence += 60
+    facteurs.push(`Score critique (${scoreGlobal}): urgence +60j`)
+  } else if (scoreGlobal < 50) {
+    facteurUrgence += 30
+    facteurs.push(`Score dégradé (${scoreGlobal}): urgence +30j`)
+  }
+
+  if (nbCritiques >= 3) {
+    facteurUrgence += 45
+    facteurs.push(`${nbCritiques} écarts critiques: urgence +45j`)
+  } else if (nbCritiques >= 1) {
+    facteurUrgence += 20
+    facteurs.push(`${nbCritiques} écart critique: urgence +20j`)
+  }
+  if (nbEleves >= 5) {
+    facteurUrgence += 15
+    facteurs.push(`${nbEleves} écarts élevés: urgence +15j`)
+  }
+
+  // C4 charge équipe (0 = surchargé)
+  if (c4Charge < 30) {
+    facteurCharge += 30
+    facteurs.push(`Équipe surchargée (C4=${c4Charge}): délai +30j`)
+  } else if (c4Charge < 50) {
+    facteurCharge += 15
+    facteurs.push(`Équipe modérément chargée (C4=${c4Charge}): délai +15j`)
+  }
+
+  // Saison
+  const domainesPHY_OLS = domainesCibles.some(d => d === 'PHY' || d === 'OLS')
+  if (saisonPluie && domainesPHY_OLS) {
+    facteurSaison += 30
+    facteurs.push('Saison des pluies + domaines PHY/OLS: urgence +30j')
+  } else if (saisonPluie) {
+    facteurSaison += 15
+    facteurs.push('Saison des pluies: urgence +15j')
+  }
+
+  const ajustement = facteurUrgence + facteurSaison - facteurCharge
+  const degradationNet = facteurDegradation
+
+  let joursRecommande = Math.max(30, intervalleMoyen - degradationNet - ajustement)
+  joursRecommande = Math.min(365, joursRecommande)
+
+  // Fenêtre de ±15%
+  const fenetre = Math.round(joursRecommande * 0.15)
+  const fenetreDebut = Math.max(1, joursRecommande - fenetre)
+  const fenetreFin = joursRecommande + fenetre
+
+  // Confiance
+  const nbSurveillances = surveillances.length
+  const confianceBase = nbSurveillances >= 5 ? 80 : nbSurveillances >= 2 ? 60 : 40
+  const confiance = Math.min(95, confianceBase + (profil ? 10 : 0) - (facteurCharge > 0 ? 10 : 0))
+
+  return {
+    joursRecommande,
+    fenetreDebut,
+    fenetreFin,
+    confiance,
+    facteurs,
+  }
 }
 
 // ============================================================
@@ -580,4 +783,7 @@ export const suggestionMLAgent = {
   resetModel,
   loadModelWeights,
   saveModelWeights,
+  predictTiming,
+  onSyncModel,
+  initModelFromSupabase,
 };

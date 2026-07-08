@@ -54,11 +54,12 @@ class WorkerPool {
         console.error('[WorkerPool] Worker error:', err)
         this.worker?.terminate()
         this.worker = null
-        // Rejeter toutes les tâches en attente
+        // Rejeter toutes les tâches en attente et vider la queue
         for (const [id, pending] of this.pending) {
           pending.reject('Worker error')
           this.pending.delete(id)
         }
+        this.queue = []
       }
     } catch (err) {
       console.warn('[WorkerPool] Failed to create worker:', err)

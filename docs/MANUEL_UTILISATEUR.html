@@ -168,10 +168,46 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <tr><td>LSTM</td><td>Deep learning série temporelle</td><td>Calcul interne (≥30 points)</td></tr>
   <tr><td>Ensemble (LSTM+XGB+Bayesian)</td><td>Combinaison des modèles IA</td><td>Calcul interne (≥6 points)</td></tr>
   <tr><td>Bow-Tie</td><td>Barrières de défense par domaine</td><td>Diagnostic</td></tr>
+  <tr><td>Réseau Bayésien Causal</td><td>Inférence causale sur les barrières bow-tie (lissage Dirichlet, élimination de variables)</td><td>Diagnostic (enrichissement)</td></tr>
 </table>
 <div class="info">Tous les modèles sont calculés via un <b>ModelCache</b> partagé (TTL 5 minutes) pour éviter les doubles calculs. Les résultats sont persistés dans la base de données.</div>
 
-<h3>2.5 Calcul du niveau de maturité SGS</h3>
+<h3>2.5 Analyse Bow-Tie — Données réelles vs structure générique</h3>
+<p>La carte « Analyse Bow-Tie — Barrières de défense » affiche une <b>structure de barrières générique</b> (2 préventives + 2 correctives par domaine), enrichie par des <b>données réelles</b> :</p>
+
+<h4>Ce qui est réel (data-driven)</h4>
+<ul>
+  <li><b>Efficacité Maturité SGS</b> : égale à <code>C1</code> du profil de risque réel</li>
+  <li><b>Efficacité PAC</b> : égale à <code>C2</code> du profil de risque réel</li>
+  <li><b>Danger</b> : basé sur le nombre réel d'écarts du domaine</li>
+  <li><b>Conséquence</b> : basée sur <code>C5</code> + les événements de sécurité réels du domaine</li>
+  <li><b>Probabilité résiduelle</b> : formule combinant <code>scoreGlobal</code> et la moyenne C1/C2</li>
+  <li><b>Niveau de risque</b> : selon échelle PAOE pour SGS, OACI pour les autres domaines</li>
+</ul>
+
+<h4>Ce qui est heuristique (structure fixe)</h4>
+<ul>
+  <li><b>Nombre de barrières</b> : toujours 2 préventives + 2 correctives, quels que soient le domaine et les données</li>
+  <li><b>Barrière « Audits {domaine} »</b> : efficacité 70 si au moins une inspection existe, 30 sinon — règle arbitraire</li>
+  <li><b>Barrière « Nouvelles mesures (IA) »</b> : efficacité = <code>min(90, C2 + 15)</code> — formule linéaire simple</li>
+  <li><b>Scénario</b> : template « Si {défaillance} alors incident de sécurité {domaine} »</li>
+  <li><b>Gain estimé</b> : <code>(min(90, faible + 20) - faible) × 0.4</code> — heuristique, pas un calcul d'impact réel</li>
+</ul>
+
+<h4>Enrichissement bayésien (amélioration des efficacités)</h4>
+<p>Depuis la version 5.0, un <b>réseau bayésien causal</b> remplace les efficacités recopiées (C1/C2) par des <b>probabilités causales</b> inférées via élimination de variables :</p>
+<ul>
+  <li>Construction d'un réseau bayésien par bow-tie (nœuds = barrières + nœuds organisationnels)</li>
+  <li><b>Lissage Dirichlet</b> (α=1.0) appliqué aux tables de probabilité conditionnelle dès la création</li>
+  <li><b>Variable Elimination</b> : inférence exacte pour calculer P(Incident | État_barrières)</li>
+  <li><b>Nœuds organisationnels ancrés</b> : charge_travail, formation_adequation, supervision_quality — visibles dans la section « Facteurs organisationnels » pour les domaines COP et SGS</li>
+  <li><b>Badge de confiance</b> : chaque barrière affiche un indicateur de confiance du réseau (dots) sous son efficacité</li>
+</ul>
+
+<h4>Exclusion SGS non applicable</h4>
+<p>Si le statut SGS de l'aérodrome est « non applicable », le domaine SGS est <b>absent</b> du menu déroulant et de la vue globale. Le sélecteur n'affiche que les domaines disponibles pour l'aérodrome sélectionné.</p>
+
+<h3>2.6 Calcul du niveau de maturité SGS</h3>
 <p>Le niveau de maturité du Système de Gestion de la Sécurité (SGS) est évalué selon la méthode <b>PAOE</b> inspirée de l'Annexe 19 OACI :</p>
 
 <h4>Structure PAOE</h4>
@@ -220,7 +256,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="info"><b>Exemple :</b> Un aérodrome dont la composante « Gestion des risques » (poids 30 %) a un score de 72, « Assurance sécurité » (25 %) a 65, « Politique » (20 %) a 80, « Promotion » (15 %) a 50, « Interfaces » (10 %) a 45. Le score SGS global est : (72×0,30 + 65×0,25 + 80×0,20 + 50×0,15 + 45×0,10) / 1,00 = 65, soit <b>N4 Opérationnel</b>.</div>
 
-<h3>2.6 Calcul du profil de risque (C1-C5)</h3>
+<h3>2.7 Calcul du profil de risque (C1-C5)</h3>
 <p>Le profil de risque combine <b>5 critères</b> notés sur 100, chacun pondéré dans le score global :</p>
 <table>
   <tr><th>Critère</th><th>Poids</th><th>Description</th></tr>
@@ -476,16 +512,17 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Graphique</b> : précision par domaine</li>
   <li><b>Métriques</b> : précision globale, faux positifs/négatifs, feedbacks récents</li>
   <li><b>Corrélation ML ↔ Profil de Risque</b> : convergence, alignement, distribution des niveaux</li>
+  <li><b>Panneau confiance réseau bayésien</b> : état des nœuds bayésiens (lissage Dirichlet, inférence VE), nœuds COP avec scores de confiance</li>
   <li><b>Alertes</b> : recalibration en attente</li>
   <li><b>Actions</b> : Recalibrer, Réinitialiser</li>
 </ul>
 
 <h3>7.2 Onglet Modèles (admin only)</h3>
 <ul>
-  <li><b>Random Forest</b> : entraînement, précision, importance des caractéristiques, matrice de confusion</li>
+  <li><b>Random Forest</b> : entraînement, précision, importance des caractéristiques, matrice de confusion. Si moins de 10 échantillons, le bouton Entraîner est désactivé avec un message « 0 échantillon RF — modèle non alimenté »</li>
   <li><b>PAC Learning</b> : taux de concordance, pondérations, priorisation</li>
+  <li><b>Badges source de données</b> : chaque KPI affiche 🟢 Supabase ou 🟡 session selon l'origine</li>
   <li><b>Historique</b> : tableau des entraînements, graphique d'évolution de la précision, export CSV</li>
-  <li><b>Graph Network</b> : nœuds, arêtes, chemins critiques</li>
   <li><b>A/B Testing</b> : Neural Net vs Formules, taux de victoire, MAE</li>
   <li><b>Configuration</b> : entraînement automatique, intervalle, réinitialisation</li>
 </ul>
@@ -559,6 +596,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <tr><td><b>Negative Binomial</b></td><td>Surdispersion</td><td>Les incidents arrivent-ils par grappes (météo = FOD en série) ?</td><td>Anticipation, Actions, Diagnostic</td></tr>
   <tr><td><b>Copulas</b></td><td>Dépendance</td><td>Si C1 chute, C5 va-t-il suivre ? Quels domaines sont liés ?</td><td>Diagnostic, Actions</td></tr>
   <tr><td><b>Thompson Sampling</b></td><td>Décision</td><td>Quelle est la meilleure action à entreprendre (audit, maintien, périodique) ?</td><td>Actions</td></tr>
+  <tr><td><b>Réseau Bayésien Causal</b></td><td>Inférence</td><td>Quelle est l'efficacité réelle (causale) d'une barrière en tenant compte des facteurs organisationnels ?</td><td>Diagnostic (Bow-Tie)</td></tr>
 </table>
 
 <h3>9.4 Les 4 modèles IA (Phase 4 — Ensemble avec fallback)</h3>
@@ -594,11 +632,11 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
          │ Phase 2 : Métriques avancées         │
          │ Phase 3 : ModelCache (HMM, Survival, │
          │           EVT, NB, Copulas, TS)      │
-         │ Phase 4 : Ensemble IA                │
-         │           (BayesianDynamic, XGBoost, │
-         │            LSTM) avec fallback       │
-         │ Bow-Tie : Barrières par domaine      │
-         └──────────────┬───────────────────────┘
+   │ Phase 4 : Ensemble IA                │
+   │           (BayesianDynamic, XGBoost, │
+   │            LSTM) avec fallback       │
+   │ Bow-Tie + Réseau Bayésien Causal    │
+   └──────────────┬───────────────────────┘
                         │
                 ProfilRisque (30+ champs)
                         │

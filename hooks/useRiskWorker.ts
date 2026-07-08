@@ -18,7 +18,7 @@ interface UseRiskWorkerResult<T = any> {
 }
 
 let workerInstance: Worker | null = null
-let pendingRequests = new Map<string, { resolve: (value: any) => void; reject: (reason?: any) => void }>()
+const pendingRequests = new Map<string, { resolve: (value: any) => void; reject: (reason?: any) => void }>()
 
 export function useRiskWorker(): UseRiskWorkerResult {
   const [result, setResult] = useState<any>(null)

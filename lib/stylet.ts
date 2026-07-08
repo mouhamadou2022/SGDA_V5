@@ -2,7 +2,7 @@
 // Logique métier pour la saisie au stylet (checklist tactile).
 // Gère les résultats SA/NS/NA/NV et leur encodage pour stockage.
 
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV'
+import type { ResultatChecklist } from '@/types/checklist'
 
 export const RESULTAT_CONFIG: Record<ResultatChecklist, { label: string; color: string; bgClass: string; textClass: string; borderClass: string }> = {
   SA: {

@@ -86,7 +86,7 @@ function profilCertifie(aerodrome: Aerodrome): {
   const recents = age !== null && age < 36
   const confiance = recents ? 60 : 50
 
-  const c1 = Math.round(Math.min(95, Math.max(70, aerodrome.maturite_sgs ?? 80)))
+  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 100 : Math.round(Math.min(95, Math.max(70, aerodrome.maturite_sgs ?? 80)))
   const c2 = 95
   const c3 = 90
   const c4 = 92
@@ -105,7 +105,7 @@ function profilHomologue(aerodrome: Aerodrome): {
   const recents = age !== null && age < 36
   const confiance = recents ? 40 : 30
 
-  const c1 = Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
+  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 100 : Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
   const c2 = 85
   const c3 = 80
   const c4 = 90
@@ -140,7 +140,7 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
   }
 
   // Aucun statut → heuristique (C3) + valeurs par défaut (C4=95, C5=90)
-  const c1 = calculateC1(aerodrome.maturite_sgs ?? 50)
+  const c1 = calculateC1(aerodrome.maturite_sgs ?? 50, undefined, aerodrome.statut_sgs)
   const c3 = baselineC3(aerodrome)
   // Pas d'écarts ni d'événements à la création → scores par défaut élevés
   const c4 = 95
@@ -159,8 +159,7 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
   const c2 = degradeC2ParTemps(aerodrome)
   const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
 
-  const sgs = aerodrome.maturite_sgs ?? 50
-  const tendanceOffset = sgs >= 75 ? 2 : sgs <= 25 ? -4 : 0
+  const sgs = aerodrome.statut_sgs === 'non_applicable' ? 75 : (aerodrome.maturite_sgs ?? 50)
   const tendance: ProfilRisque['tendance'] = sgs >= 75 ? 'hausse' : sgs <= 25 ? 'baisse' : 'stable'
 
   return {
@@ -268,35 +267,37 @@ function construireProfil(aerodrome: Aerodrome, p: {
 
 function genererRecommandations(aerodrome: Aerodrome): RecommandationInitiale[] {
   const recs: RecommandationInitiale[] = []
-  const sgs   = aerodrome.maturite_sgs ?? 50
   const cat   = parseCat(aerodrome)
   const type  = aerodrome.type ?? 'national'
   const entite = aerodrome.type_entite ?? 'aerodrome'
 
-  if (sgs <= 25) {
-    recs.push({
-      domaine: 'SGS',
-      priorite: 'critique',
-      message: `Maturité SGS faible (${sgs}/100) — programme de sécurité insuffisant pour l'exploitation`,
-      action: 'Mettre en place un plan de renforcement SGS immédiatement (Annexe 19 OACI)',
-      ref_reglementaire: 'RAS 14 I §1.4 / Annexe 19 OACI',
-    })
-  } else if (sgs <= 50) {
-    recs.push({
-      domaine: 'SGS',
-      priorite: 'haute',
-      message: 'SGS en développement — progression à documenter',
-      action: 'Établir un plan de progression SGS sur 12 mois et programmer une surveillance de maturité',
-      ref_reglementaire: 'RAS 14 I §1.4',
-    })
-  } else {
-    recs.push({
-      domaine: 'SGS',
-      priorite: 'basse',
-      message: `SGS mature (${sgs}/100) — maintenir le programme de revue périodique`,
-      action: 'Planifier la revue annuelle SGS et la mise à jour du Manuel de Sécurité',
-      ref_reglementaire: 'RAS 14 I §1.4',
-    })
+  if (aerodrome.statut_sgs !== 'non_applicable') {
+    const sgs = aerodrome.maturite_sgs ?? 50
+    if (sgs <= 25) {
+      recs.push({
+        domaine: 'SGS',
+        priorite: 'critique',
+        message: `Maturité SGS faible (${sgs}/100) — programme de sécurité insuffisant pour l'exploitation`,
+        action: 'Mettre en place un plan de renforcement SGS immédiatement (Annexe 19 OACI)',
+        ref_reglementaire: 'RAS 14 I §1.4 / Annexe 19 OACI',
+      })
+    } else if (sgs <= 50) {
+      recs.push({
+        domaine: 'SGS',
+        priorite: 'haute',
+        message: 'SGS en développement — progression à documenter',
+        action: 'Établir un plan de progression SGS sur 12 mois et programmer une surveillance de maturité',
+        ref_reglementaire: 'RAS 14 I §1.4',
+      })
+    } else {
+      recs.push({
+        domaine: 'SGS',
+        priorite: 'basse',
+        message: `SGS mature (${sgs}/100) — maintenir le programme de revue périodique`,
+        action: 'Planifier la revue annuelle SGS et la mise à jour du Manuel de Sécurité',
+        ref_reglementaire: 'RAS 14 I §1.4',
+      })
+    }
   }
 
   // ── SSLIA ──
@@ -337,25 +338,28 @@ function genererRecommandations(aerodrome: Aerodrome): RecommandationInitiale[] 
     })
   }
 
-  // ── Hélistation ──
+  // ── Hélistation + Conformité physique (fusionnées si mixte) ──
   if (entite === 'helistation' || entite === 'mixte') {
     recs.push({
       domaine: 'PHY',
       priorite: 'haute',
-      message: 'Hélistation — normes surfaces de poser, marques H et obstacles spécifiques',
-      action: 'Vérifier conformité TLOF/FATO, marquages H, balise lumineuse et dégagement obstacles',
+      message: entite === 'mixte'
+        ? 'Hélistation/mixte — normes surfaces de poser ET infrastructure aérodrome à vérifier'
+        : 'Hélistation — normes surfaces de poser, marques H et obstacles spécifiques',
+      action: entite === 'mixte'
+        ? 'Vérifier TLOF/FATO + programmer surveillance PHY classique (piste, balisage, obstacles)'
+        : 'Vérifier conformité TLOF/FATO, marquages H, balise lumineuse et dégagement obstacles',
       ref_reglementaire: 'RAS 14 II / Doc OACI 9261',
     })
+  } else {
+    recs.push({
+      domaine: 'PHY',
+      priorite: type === 'international' ? 'haute' : 'moyenne',
+      message: 'Aucune surveillance physique enregistrée — état initial des infrastructures inconnu',
+      action: 'Programmer une surveillance PHY initiale dans les 60 jours (piste, balisage, clôture, obstacles)',
+      ref_reglementaire: 'RAS 14 I Partie 3',
+    })
   }
-
-  // ── Conformité physique (toujours) ──
-  recs.push({
-    domaine: 'PHY',
-    priorite: type === 'international' ? 'haute' : 'moyenne',
-    message: 'Aucune surveillance physique enregistrée — état initial des infrastructures inconnu',
-    action: 'Programmer une surveillance PHY initiale dans les 60 jours (piste, balisage, clôture, obstacles)',
-    ref_reglementaire: 'RAS 14 I Partie 3',
-  })
 
   // ── Obstacle Limitation Surface ──
   recs.push({
@@ -385,6 +389,7 @@ function genererRecommandations(aerodrome: Aerodrome): RecommandationInitiale[] 
 export function resumeRisqueInitial(result: ProfilInitialResult): string {
   const { profil, recommandations } = result
   const niveauLabel = {
+    tres_faible: '🟢 TRÈS FAIBLE',
     critique: '🔴 CRITIQUE',
     eleve:    '🟠 ÉLEVÉ',
     moyen:    '🟡 MODÉRÉ',

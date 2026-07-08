@@ -52,6 +52,7 @@ export interface CardProps
   badge?: React.ReactNode
   headerGradient?: boolean
   interactive?: boolean
+  contentClassName?: string
 }
 
 const TITLE_COLORS: Record<string, string> = {
@@ -64,7 +65,7 @@ const TITLE_COLORS: Record<string, string> = {
 const SHADOW = "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)"
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, variant, levelColor, alertBg, size, heading, title, subtitle, icon, badge, headerGradient, interactive, children, ...props }, ref) => {
+  ({ className, variant, levelColor, alertBg, size, heading, title, subtitle, icon, badge, headerGradient, interactive, children, contentClassName, ...props }, ref) => {
     const isAlert = variant === "alert" && alertBg && alertBg !== "none"
     const hasHeader = Boolean(heading || title || icon || badge)
     const resolvedVariant = interactive && (variant === "default" || variant === "role") ? "interactive" : variant
@@ -119,7 +120,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
             )}
           </div>
         )}
-        <div className={cn(bodyH, bodyV, "text-sm text-foreground/80 leading-relaxed")}>{children}</div>
+        <div className={cn(bodyH, bodyV, "text-sm leading-relaxed", contentClassName, isAlert ? "text-foreground" : "text-foreground/80")}>{children}</div>
       </div>
     )
   }

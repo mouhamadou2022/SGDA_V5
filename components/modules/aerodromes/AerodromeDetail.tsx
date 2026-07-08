@@ -19,6 +19,9 @@ import {
 } from '@/lib/store';
 import { riskAgent } from '@/lib/ia/agents/riskAgent';
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent';
+import { Card } from '@/components/ui/card';
+import AerorisqAnalyse from '@/components/ia/AerorisqAnalyse';
+import AerorisqDashboard from '@/components/ia/AerorisqDashboard';
 
 const MiniMap = dynamic(() => import('./LocationPicker'), {
   ssr: false,
@@ -266,7 +269,8 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
           { id: 'certification', label: 'Cert/Homo', icon: Shield },
           { id: 'surveillances', label: 'Surveillances', icon: Eye },
           { id: 'documents', label: 'Documents', icon: FileText },
-          { id: 'historique', label: 'Historique', icon: History }
+          { id: 'historique', label: 'Historique', icon: History },
+          { id: 'aerorisq', label: 'AERORISQ', icon: Brain }
         ].map(tab => {
           const TabIcon = tab.icon;
           return (
@@ -287,11 +291,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
         {activeTab === 'info' && (
           <div className="space-y-4 animate-fade-in">
             <div className="grid grid-cols-3 gap-4">
-              <div className="card col-span-2 bg-background border-border border-l-4 border-l-role-primary">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Informations générales</div>
-                </div>
-                <div className="card-content">
+              <Card variant="role" title="Informations générales" className="col-span-2">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-role-primary text-xs uppercase font-semibold">Code OACI</label>
@@ -364,14 +364,9 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       </p>
                     </div>
                   </div>
-                </div>
-              </div>
+              </Card>
 
-              <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Localisation</div>
-                </div>
-                <div className="card-content p-0">
+              <Card variant="role" title="Localisation" contentClassName="p-0">
                   <div className="h-[200px] rounded-b-xl overflow-hidden">
                     <MiniMap
                       latitude={aerodrome.lat || 14.7167}
@@ -379,16 +374,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       onPositionChange={() => {}}
                     />
                   </div>
-                </div>
-              </div>
+              </Card>
             </div>
 
             {(aerodrome.exploitant_nom || aerodrome.exploitant_adresse || aerodrome.exploitant_telephone) && (
-              <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Exploitant</div>
-                </div>
-                <div className="card-content">
+              <Card variant="role" title="Exploitant">
                   <div className="grid grid-cols-3 gap-4">
                     {aerodrome.exploitant_nom && (
                       <div>
@@ -412,17 +402,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
+              </Card>
             )}
 
             {personnelAerodrome.length > 0 && (
-              <div className="card bg-background border-border border-l-4 border-l-warning">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Personnel Exploitant</div>
-                  <span className="badge warning">{personnelAerodrome.length}</span>
-                </div>
-                <div className="card-content">
+              <Card variant="level" levelColor="warning" title="Personnel Exploitant" badge={<span className="badge warning">{personnelAerodrome.length}</span>}>
                   <div className="grid grid-cols-3 gap-4">
                     {personnelAerodrome.map(u => {
                       const roleLabel = u.role === 'dg_operator' ? 'DG Exploitant' : u.role === 'focal_operator' ? 'Point Focal' : 'Personnel'
@@ -441,17 +425,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       )
                     })}
                   </div>
-                </div>
-              </div>
+              </Card>
             )}
 
             {codesActifsAerodrome.length > 0 && (codesActifsAerodrome.some(c => c.dg_prenom || c.dg_nom || c.focal_prenom || c.focal_nom)) && (
-              <div className="card bg-background border-border border-l-4 border-l-success">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Responsables avec accès</div>
-                  <span className="badge success">Codes actifs</span>
-                </div>
-                <div className="card-content">
+              <Card variant="level" levelColor="success" title="Responsables avec accès" badge={<span className="badge success">Codes actifs</span>}>
                   <div className="grid grid-cols-2 gap-4">
                     {codesActifsAerodrome.map(code => {
                       const items: { label: string; prenom?: string; nom?: string; badge: string }[] = []
@@ -471,16 +449,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       ))
                     })}
                   </div>
-                </div>
-              </div>
+              </Card>
             )}
 
             {aerodrome.contacts && aerodrome.contacts.length > 0 && (
-              <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                <div className="card-header border-b border-border">
-                  <div className="card-title text-foreground">Contacts</div>
-                </div>
-                <div className="card-content">
+              <Card variant="role" title="Contacts">
                   <div className="grid grid-cols-2 gap-4">
                     {aerodrome.contacts.map((contact: { nom: string; poste: string; email: string; telephone: string }, index: number) => (
                       <div key={index} className="p-3 bg-role-primary-soft rounded-xl border border-role-primary-light">
@@ -500,8 +473,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       </div>
                     ))}
                   </div>
-                </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -535,8 +507,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
 
                 {/* Score global et tendance */}
                 <div className="grid grid-cols-4 gap-4">
-                  <div className="card col-span-1 bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-content p-4 text-center">
+                  <Card variant="role" className="col-span-1" contentClassName="p-4 text-center">
                       <p className="text-small text-muted-foreground">Score global</p>
                       <div className={`risk-badge ${profilRisque.niveau} text-lg px-3 py-1 inline-block mt-1`}>
                         {profilRisque.score_global}%
@@ -556,17 +527,9 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           <p className="text-muted-foreground">Vigilance: <span className="capitalize">{velocityMetrics.niveauVigilance}</span></p>
                         </div>
                       )}
-                    </div>
-                  </div>
+                  </Card>
 
-                  <div className="card col-span-3 bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header pb-2 border-b border-border">
-                      <div className="card-title text-base text-foreground flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-role-primary" />
-                        Prédictions IA
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" className="col-span-3" icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="Prédictions IA">
                       <div className="grid grid-cols-3 gap-4">
                         <div className="text-center p-3 bg-role-primary-soft rounded-xl border border-role-primary-light">
                           <p className="text-small text-muted-foreground">Dans 3 mois</p>
@@ -593,20 +556,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       <p className="text-xs text-center mt-2 text-muted-foreground">
                         Confiance: {predictions?.confidence || 50}% • Confiance globale analyse: {iaAnalysis?.confidence || 50}%
                       </p>
-                    </div>
-                  </div>
+                  </Card>
                 </div>
 
                 {/* Modèles avancés (survival, HMM, EVT) */}
                 {(survival || hiddenMarkov || extremeValue) && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border bg-role-primary-soft">
-                      <div className="card-title text-sm flex items-center gap-2">
-                        <Brain className="w-4 h-4 text-role-primary" />
-                        Modèles avancés
-                      </div>
-                    </div>
-                    <div className="card-content p-3 space-y-2">
+                  <Card variant="role" headerGradient icon={<Brain className="w-4 h-4 text-role-primary" />} title="Modèles avancés" contentClassName="p-3 space-y-2">
                       {hiddenMarkov && (
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${hiddenMarkov.currentState === 'critical' ? 'bg-danger animate-pulse' : hiddenMarkov.currentState === 'degrading' ? 'bg-warning' : 'bg-success'}`} />
@@ -631,20 +586,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           <span>Risque extrême: <strong className="text-danger">{extremeValue.tailRisk}%</strong></span>
                         </div>
                       )}
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Métriques Hawkes (contagion) */}
                 {iaAnalysis?.hawkesRisk && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base text-foreground flex items-center gap-2">
-                        <Zap className="h-4 w-4 text-warning" />
-                        Risque de contagion (Hawkes)
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<Zap className="h-4 w-4 text-warning" />} title="Risque de contagion (Hawkes)">
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
                           <p className="text-xs text-muted-foreground">Risque à 30j</p>
@@ -659,16 +606,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           <p className="text-xl font-bold">{iaAnalysis.hawkesRisk.currentIntensity}</p>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Détail des critères C1-C5 */}
-                <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                  <div className="card-header border-b border-border">
-                    <div className="card-title text-foreground">Détail des critères</div>
-                  </div>
-                  <div className="card-content">
+                <Card variant="role" title="Détail des critères">
                     <div className="space-y-3">
                       {[
                         { key: 'c1', label: 'C1 - Maturité & Culture SGS', value: profilRisque.c1 },
@@ -688,19 +630,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                         </div>
                       ))}
                     </div>
-                  </div>
-                </div>
+                  </Card>
 
                 {/* Prédictions d'incidents */}
                 {(profilRisque.incident_prediction_3m !== undefined || profilRisque.incident_prediction_6m !== undefined || profilRisque.incident_prediction_12m !== undefined) && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-danger" />
-                        Prédiction d'incidents
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<AlertTriangle className="h-4 w-4 text-danger" />} title="Prédiction d'incidents">
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div className="p-3 bg-role-primary-soft rounded-xl">
                           <p className="text-xs text-muted-foreground">3 mois</p>
@@ -718,25 +652,20 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       {profilRisque.ensemble_confidence !== undefined && (
                         <p className="text-xs text-center mt-2 text-muted-foreground">Confiance du modèle: {(profilRisque.ensemble_confidence * 100).toFixed(0)}%</p>
                       )}
-                    </div>
-                  </div>
+                  </Card>
                 )}
+
+                {/* AERORISQ */}
+                <AerorisqAnalyse aerodromeId={aerodrome.id} />
 
                 {/* Bayésien et black swan */}
                 {(profilRisque.bayesian_posterior !== undefined || profilRisque.bayesian_black_swan !== undefined) && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base flex items-center gap-2">
-                        <Zap className="h-4 w-4 text-role-primary" />
-                        Analyse bayésienne
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<Zap className="h-4 w-4 text-role-primary" />} title="Analyse bayésienne">
                       <div className="grid grid-cols-2 gap-4">
                         {profilRisque.bayesian_posterior !== undefined && (
                           <div className="p-3 bg-role-primary-soft rounded-xl text-center">
                             <p className="text-xs text-muted-foreground">Posterior bayésienne</p>
-                            <p className="text-lg font-bold">{(profilRisque.bayesian_posterior * 100).toFixed(1)}%</p>
+                            <p className="text-lg font-bold">{profilRisque.bayesian_posterior.toFixed(1)}%</p>
                           </div>
                         )}
                         {profilRisque.bayesian_black_swan !== undefined && (
@@ -748,20 +677,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Scénarios */}
                 {profilRisque.scenarios && profilRisque.scenarios.length > 0 && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-role-primary" />
-                        Scénarios
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="Scénarios">
                       <div className="space-y-2">
                         {profilRisque.scenarios.map((s, i) => (
                           <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-role-primary-soft">
@@ -776,20 +697,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Stress système */}
                 {iaAnalysis?.systemStress && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base text-foreground flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-warning" />
-                        Stress système: {iaAnalysis.systemStress.score}%
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<AlertTriangle className="h-4 w-4 text-warning" />} title={`Stress système: ${iaAnalysis.systemStress.score}%`}>
                       <p className="text-sm text-muted-foreground">{iaAnalysis.systemStress.recommandationAction}</p>
                       {iaAnalysis.systemStress.facteursContributeurs.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2">
@@ -798,20 +711,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           ))}
                         </div>
                       )}
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Suggestions IA */}
                 {suggestions.length > 0 && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-foreground flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-role-primary" />
-                        Suggestions IA ({suggestions.length})
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<Sparkles className="h-4 w-4 text-role-primary" />} title={`Suggestions IA (${suggestions.length})`}>
                       <div className="space-y-2">
                         {suggestions.map((s: { titre: string; description: string; priorite: string; domaines?: string[]; confiance: number }, idx: number) => (
                           <div key={idx} className={`p-3 rounded-lg border-l-4 ${
@@ -839,20 +744,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Black Swans / Signaux faibles */}
                 {blackSwans.length > 0 && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-foreground flex items-center gap-2">
-                        <AlertOctagon className="h-4 w-4 text-warning" />
-                        Signaux faibles détectés ({blackSwans.length})
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<AlertOctagon className="h-4 w-4 text-warning" />} title={`Signaux faibles détectés (${blackSwans.length})`}>
                       <div className="space-y-2">
                         {blackSwans.map((bs: { domaine: string; priorProbability: number; posteriorProbability: number; message: string }, idx: number) => (
                           <div key={idx} className="p-2 bg-warning/10 rounded-lg">
@@ -860,20 +757,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
 
                 {/* Points de changement détectés */}
                 {iaAnalysis?.changePoints && iaAnalysis.changePoints.length > 0 && (
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title text-base text-foreground flex items-center gap-2">
-                        <TrendingDown className="h-4 w-4 text-warning" />
-                        Points de rupture détectés
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<TrendingDown className="h-4 w-4 text-warning" />} title="Points de rupture détectés">
                       <div className="space-y-2">
                         {iaAnalysis.changePoints.slice(0, 3).map((cp: { date: string; scoreBefore: number; scoreAfter: number; magnitude: number; direction: string; probableCause: string | null }, idx: number) => (
                           <div key={idx} className="flex justify-between items-center text-sm">
@@ -885,18 +774,15 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
                 )}
               </>
             ) : !isLoadingIA && (
-              <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                <div className="card-content py-12 text-center">
+              <Card variant="role" contentClassName="py-12 text-center">
                   <Gauge className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <p className="text-muted-foreground">Aucun profil de risque calculé pour cet aérodrome</p>
                   <button className="btn btn-primary mt-4">Calculer le profil de risque</button>
-                </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
@@ -908,14 +794,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
             {/* ── Piste principale (aérodrome & mixte uniquement) ── */}
             {(aerodrome.type_entite === 'aerodrome' || aerodrome.type_entite === 'mixte' || !aerodrome.type_entite) && (
               <div className="grid grid-cols-2 gap-4">
-                <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                  <div className="card-header border-b border-border">
-                    <div className="card-title flex items-center gap-2 text-foreground">
-                      <Ruler className="h-5 w-5 text-role-primary" />
-                      Piste principale
-                    </div>
-                  </div>
-                  <div className="card-content">
+                <Card variant="role" icon={<Ruler className="h-5 w-5 text-role-primary" />} title="Piste principale">
                     {aerodrome.piste_principale && aerodrome.piste_principale.longueur > 0 ? (
                       <div className="space-y-3">
                         <div className="flex justify-between">
@@ -958,9 +837,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     ) : (
                       <p className="text-muted-foreground text-center py-4">Aucune donnée de piste disponible</p>
                     )}
-                  </div>
-                </div>
-
+                </Card>
               </div>
             )}
             {/* ── Séparateur Mixte ── */}
@@ -980,14 +857,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
               return (
                 <div className="space-y-4">
                   {/* Identification */}
-                  <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                    <div className="card-header border-b border-border">
-                      <div className="card-title flex items-center gap-2 text-foreground">
-                        <Navigation className="h-5 w-5 text-role-primary" />
-                        Identification FATO / TLOF
-                      </div>
-                    </div>
-                    <div className="card-content">
+                  <Card variant="role" icon={<Navigation className="h-5 w-5 text-role-primary" />} title="Identification FATO / TLOF">
                       <div className="grid grid-cols-2 gap-4">
                         {h?.indicatif_rt && (
                           <div className="flex justify-between">
@@ -1027,19 +897,11 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                           <p className="text-muted-foreground text-sm col-span-2">Aucune donnée d'identification renseignée</p>
                         )}
                       </div>
-                    </div>
-                  </div>
+                  </Card>
 
                   {/* Caractéristiques physiques */}
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                      <div className="card-header border-b border-border">
-                        <div className="card-title flex items-center gap-2 text-foreground">
-                          <Ruler className="h-5 w-5 text-role-primary" />
-                          Caractéristiques physiques
-                        </div>
-                      </div>
-                      <div className="card-content space-y-3">
+                  <Card variant="role" icon={<Ruler className="h-5 w-5 text-role-primary" />} title="Caractéristiques physiques" contentClassName="space-y-3">
                         {h?.valeur_d !== undefined && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Valeur D (FATO):</span>
@@ -1079,18 +941,10 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                         {h?.valeur_d === undefined && h?.cap === undefined && (
                           <p className="text-muted-foreground text-sm">Aucune caractéristique physique renseignée</p>
                         )}
-                      </div>
-                    </div>
+                    </Card>
 
                     {/* Communications & Équipements */}
-                    <div className="card bg-background border-border border-l-4 border-l-role-primary">
-                      <div className="card-header border-b border-border">
-                        <div className="card-title flex items-center gap-2 text-foreground">
-                          <Radio className="h-5 w-5 text-role-primary" />
-                          Communications & Équipements
-                        </div>
-                      </div>
-                      <div className="card-content space-y-3">
+                    <Card variant="role" icon={<Radio className="h-5 w-5 text-role-primary" />} title="Communications & Équipements" contentClassName="space-y-3">
                         {h?.moyen_com && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Moyen COM:</span>
@@ -1134,22 +988,14 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                         {!h?.moyen_com && !h?.frequence_com && h?.avitaillement === undefined && (
                           <p className="text-muted-foreground text-sm">Aucune donnée COM renseignée</p>
                         )}
-                      </div>
-                    </div>
+                    </Card>
                   </div>
                 </div>
               );
             })()}
 
             {/* SSLIA — commun à tous types */}
-            <div className="card bg-background border-border border-l-4 border-l-role-primary">
-              <div className="card-header border-b border-border">
-                <div className="card-title flex items-center gap-2 text-foreground">
-                  <Shield className="h-5 w-5 text-role-primary" />
-                  SSLIA
-                </div>
-              </div>
-              <div className="card-content">
+            <Card variant="role" icon={<Shield className="h-5 w-5 text-role-primary" />} title="SSLIA">
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Catégorie:</span>
@@ -1159,8 +1005,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     <p className="text-small text-muted-foreground">Véhicules et agents à renseigner</p>
                   </div>
                 </div>
-              </div>
-            </div>
+              </Card>
 
           </div>
         )}
@@ -1168,13 +1013,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
         {/* ==================== ONGLET CERTIFICATION/HOMOLOGATION ==================== */}
         {activeTab === 'certification' && (
           <div className="animate-fade-in">
-            <div className="card bg-background border-border border-l-4 border-l-role-primary">
-              <div className="card-header border-b border-border">
-                <div className="card-title text-foreground">
-                  {aerodrome.type === 'international' ? 'Certification' : 'Homologation'}
-                </div>
-              </div>
-              <div className="card-content">
+            <Card variant="role" title={aerodrome.type === 'international' ? 'Certification' : 'Homologation'}>
                 <div className="text-center py-12">
                   <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                   <p className="text-muted-foreground">Aucun processus en cours</p>
@@ -1182,19 +1021,14 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     {aerodrome.type === 'international' ? 'Lancer la certification' : "Lancer l'homologation"}
                   </button>
                 </div>
-              </div>
-            </div>
+            </Card>
           </div>
         )}
 
         {/* ==================== ONGLET SURVEILLANCES ==================== */}
         {activeTab === 'surveillances' && (
           <div className="animate-fade-in">
-            <div className="card bg-background border-border border-l-4 border-l-role-primary">
-              <div className="card-header border-b border-border">
-                <div className="card-title text-foreground">Historique des surveillances</div>
-              </div>
-              <div className="card-content">
+            <Card variant="role" title="Historique des surveillances">
                 {surveillancesAerodrome.length > 0 ? (
                   <div className="table-container">
                     <table className="table">
@@ -1244,19 +1078,14 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     <p className="text-muted-foreground">Aucune surveillance enregistrée</p>
                   </div>
                 )}
-              </div>
-            </div>
+            </Card>
           </div>
         )}
 
         {/* ==================== ONGLET DOCUMENTS ==================== */}
         {activeTab === 'documents' && (
           <div className="animate-fade-in">
-            <div className="card bg-background border-border border-l-4 border-l-role-primary">
-              <div className="card-header flex flex-row items-center justify-between border-b border-border">
-                <div className="card-title text-foreground">Documents</div>
-              </div>
-              <div className="card-content">
+            <Card variant="role" title="Documents">
                 {realDocuments.length > 0 ? (
                   <div className="table-container">
                     <table className="table">
@@ -1289,19 +1118,14 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                 ) : (
                   <p className="text-muted-foreground text-center py-4">Aucun document disponible</p>
                 )}
-              </div>
-            </div>
+            </Card>
           </div>
         )}
 
         {/* ==================== ONGLET HISTORIQUE ==================== */}
         {activeTab === 'historique' && (
           <div className="animate-fade-in">
-            <div className="card bg-background border-border border-l-4 border-l-role-primary">
-              <div className="card-header border-b border-border">
-                <div className="card-title text-foreground">Timeline des actions</div>
-              </div>
-              <div className="card-content">
+            <Card variant="role" title="Timeline des actions">
                 <div className="timeline">
                   {realHistorique.map((event) => (
                     <div key={event.id} className="timeline-item">
@@ -1317,8 +1141,15 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ==================== ONGLET AERORISQ ==================== */}
+        {activeTab === 'aerorisq' && (
+          <div className="animate-fade-in space-y-4">
+            <AerorisqAnalyse aerodromeId={aerodrome.id} />
+            <AerorisqDashboard aerodromeId={aerodrome.id} />
           </div>
         )}
       </div>

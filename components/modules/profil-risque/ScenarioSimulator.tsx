@@ -65,7 +65,7 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const suggestions = useMemo((): SmartSuggestion[] => {
     const list: SmartSuggestion[] = []
     const current = { c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }
-    const weights: Record<string, number> = { c1: 0.2, c2: 0.25, c3: 0.2, c4: 0.2, c5: 0.15 }
+    const weights: Record<string, number> = { c1: 0.2, c2: 0.2, c3: 0.2, c4: 0.15, c5: 0.25 }
 
     if (profil.score_global < 80) {
       const target = profil.score_global >= 60 ? 80 : profil.score_global >= 30 ? 60 : 30
@@ -122,25 +122,53 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Actuel */}
-        <Card variant="role" title="Scénario actuel" icon={<span className="w-2 h-2 rounded-full bg-primary animate-pulse" />}>
-          <div className="space-y-5">
-            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(profil.score_global)}`}>{profil.score_global}</span><span className="text-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(profil.score_global)}`}>{getNiveauLabel(profil.score_global)}</span></div></div>
+        <Card variant="role" title="Scénario actuel" icon={<span className="w-2 h-2 rounded-full bg-primary animate-pulse" />} size="sm">
+          <div className="space-y-3">
+            <div className="text-center">
+              <span className={`text-2xl font-bold ${getNiveauColor(profil.score_global)}`}>{profil.score_global}</span>
+              <span className="text-xs text-foreground">/100</span>
+              <div className="mt-0.5"><span className={`badge text-xs ${getNiveauBadge(profil.score_global)}`}>{getNiveauLabel(profil.score_global)}</span></div>
+            </div>
             <div className="space-y-0">
-              {CRITERES.map(c => { const v = profil[c.key]; return (<div key={c.key} className="flex items-center justify-between py-2 border-b border-border last:border-b-0"><div className="flex items-center gap-2"><span className="text-xs text-foreground">{c.label}</span><span className="badge neutral text-xs">{c.poids}%</span></div><div className="flex items-center gap-2"><div className="progress w-20 h-1.5"><div className={`progress-bar ${v >= 80 ? 'bg-success' : v >= 60 ? 'bg-primary' : v >= 30 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${v}%` }} /></div><span className={`text-xs font-semibold ${getNiveauColor(v)} w-8 text-right`}>{v}</span></div></div>) })}
+              {CRITERES.map(c => { const v = profil[c.key]; return (
+                <div key={c.key} className="flex items-center justify-between py-1.5 border-b border-border last:border-b-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-foreground">{c.label}</span>
+                    <span className="badge neutral text-[10px]">{c.poids}%</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="progress w-24 h-2">
+                      <div className={`progress-bar ${v >= 80 ? 'bg-success' : v >= 60 ? 'bg-primary' : v >= 30 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${v}%` }} />
+                    </div>
+                    <span className={`text-xs font-semibold ${getNiveauColor(v)} w-6 text-right`}>{v}</span>
+                  </div>
+                </div>
+              )})}
             </div>
           </div>
         </Card>
 
         {/* Simulé */}
-        <Card variant="role" heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-role-primary" />Scénario simulé</div><button onClick={() => { setSimC1(profil.c1); setSimC2(profil.c2); setSimC3(profil.c3); setSimC4(profil.c4); setSimC5(profil.c5) }} className="btn btn-ghost btn-sm text-xs" disabled={isReadOnly}><RotateCcw className="w-3 h-3" /></button></div>}>
-          <div className="space-y-5">
-            <div className="text-center"><span className={`text-4xl font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}</span><span className="text-foreground">/100</span><div className="mt-1"><span className={`badge ${getNiveauBadge(scoreSimule)}`}>{getNiveauLabel(scoreSimule)}</span></div></div>
-            <div className="space-y-2 max-h-[320px] overflow-y-auto">
+        <Card variant="role" heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-role-primary" />Scénario simulé</div><button onClick={() => { setSimC1(profil.c1); setSimC2(profil.c2); setSimC3(profil.c3); setSimC4(profil.c4); setSimC5(profil.c5) }} className="btn btn-ghost btn-sm text-xs" disabled={isReadOnly}><RotateCcw className="w-3 h-3" /></button></div>} size="sm">
+          <div className="space-y-3">
+            <div className="text-center">
+              <span className={`text-2xl font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}</span>
+              <span className="text-xs text-foreground">/100</span>
+              <div className="mt-0.5"><span className={`badge text-xs ${getNiveauBadge(scoreSimule)}`}>{getNiveauLabel(scoreSimule)}</span></div>
+            </div>
+            <div className="space-y-2">
               {CRITERES.map(c => {
                 const delta = simValues[c.key] - profil[c.key]
-                return (<div key={c.key} className="space-y-1 py-2 border-b border-border last:border-b-0">
-                  <div className="flex items-center justify-between"><span className="text-sm font-medium text-foreground">{c.label}</span><div className="flex items-center gap-2"><span className="text-xs text-foreground">Actuel: {profil[c.key]}</span><span className="text-base font-bold w-8 text-right text-foreground">{simValues[c.key]}</span>{delta !== 0 && <span className={`badge text-xs ${delta > 0 ? 'success' : 'danger'}`}>{delta > 0 ? '+' : ''}{delta}</span>}</div></div>
-                  <input type="range" value={simValues[c.key]} onChange={e => setters[c.key](Number(e.target.value))} min={0} max={100} step={5} className="w-full h-2 rounded-lg cursor-pointer accent-role-primary" disabled={isReadOnly} />
+                return (<div key={c.key} className="space-y-0.5 py-1.5 border-b border-border last:border-b-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-foreground">{c.label}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-foreground">{profil[c.key]}</span>
+                      <span className="text-sm font-bold w-6 text-right text-foreground">{simValues[c.key]}</span>
+                      {delta !== 0 && <span className={`badge text-[10px] ${delta > 0 ? 'success' : 'danger'}`}>{delta > 0 ? '+' : ''}{delta}</span>}
+                    </div>
+                  </div>
+                  <input type="range" value={simValues[c.key]} onChange={e => setters[c.key](Number(e.target.value))} min={0} max={100} step={5} className="w-full h-1.5 rounded-lg cursor-pointer accent-role-primary" disabled={isReadOnly} />
                 </div>)
               })}
             </div>

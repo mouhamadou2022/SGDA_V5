@@ -53,6 +53,7 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
   const addEnquete = useAppStore((s) => s.addEnquete);
   const updateEnquete = useAppStore((s) => s.updateEnquete);
   const soumettreReponse = useAppStore((s) => s.soumettreReponse);
+  const recalculerProfilRisque = useAppStore((s) => s.recalculerProfilRisque);
   const getStatistiquesEnquete = useAppStore((s) => s.getStatistiquesEnquete);
   const addNotification = useAppStore((s) => s.addNotification);
 
@@ -353,13 +354,19 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
       score_c1: scoreC1,
     });
 
+    // Recalculer le profil de risque si l'enquête impacte C1
+    if (scoreC1 !== undefined) {
+      const aerodromeCible = aerodromeId || enquete.aerodrome_ids[0]
+      recalculerProfilRisque(aerodromeCible).catch(() => {})
+    }
+
     // Notification si impact C1
     if (scoreC1) {
       addNotification({
         user_id: 'system',
         type: 'info',
-        title: 'Mise à jour profil risque',
-        message: `Le score C1 a été mis à jour suite à l'enquête ${enquete.titre}`,
+        title: 'Profil risque mis à jour',
+        message: `Le score C1 a été réévalué suite à l'enquête ${enquete.titre}`,
         canal: 'in_app',
       });
     }

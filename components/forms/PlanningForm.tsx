@@ -31,8 +31,9 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useAppStore, type Planning, type ProfilRisque } from '@/lib/store';
-import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines } from '@/lib/domaines';
+import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { getRiskLevel, suggestMissionType, computeFinalFrequency } from '@/lib/risque';
+import { useDecisionEngine } from '@/hooks/useDecisionEngine';
 import { useFormProgress } from '@/hooks/useFormProgress';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -63,6 +64,16 @@ const planningSchema = z.object({
   message: "La date de fin doit être postérieure à la date de début",
   path: ["date_fin"],
 });
+
+// Seul un inspecteur titulaire ou principal peut être chef d'équipe
+const TYPES_CHEF_AUTORISES = ['inspecteur_titulaire', 'inspecteur_principal']
+function peutEtreChef(insp: any): boolean {
+  const type = insp?.type_inspecteur || (insp as any)?._insp?.type
+  return TYPES_CHEF_AUTORISES.includes(type)
+}
+function equipeContientChefEligible(membres: any[]): boolean {
+  return membres.some(m => peutEtreChef(m))
+}
 
 type PlanningFormData = z.infer<typeof planningSchema>;
 
@@ -133,13 +144,18 @@ function getTypeSuggerer(profil: ProfilRisque | null): PlanningFormData['type'] 
 }
 
 // Générer les objectifs suggérés
-function genererObjectifsSuggeres(profil: ProfilRisque | null, domaines: string[]): string {
+function genererObjectifsSuggeres(profil: ProfilRisque | null, domaines: string[], decisionJustification?: string): string {
   if (!profil) return '';
   
   const parties: string[] = [];
   
   // Contexte
   parties.push(`Dans le cadre du suivi du profil de risque (score ${profil.score_global}/100, tendance ${profil.tendance}),`);
+  
+  // Éléments déclencheurs du decision engine
+  if (decisionJustification) {
+    parties.push(`analyse préalable: ${decisionJustification}.`);
+  }
   
   // Objectifs généraux
   if (profil.score_global < 30) {
@@ -152,7 +168,7 @@ function genererObjectifsSuggeres(profil: ProfilRisque | null, domaines: string[
   
   // Objectifs spécifiques par domaine
   if (domaines.includes('SGS')) {
-    parties.push(`Vérifier la mise en œuvre du Système de Gestion de la Sécurité (SGS) et son efficacité.`);
+    parties.push(`Vérifier la mise en oeuvre du Système de Gestion de la Sécurité (SGS) et son efficacité.`);
   }
   if (domaines.includes('PAC')) {
     parties.push(`Évaluer les délais de traitement des Plans d'Actions Correctives et identifier les retards.`);
@@ -169,7 +185,7 @@ function genererObjectifsSuggeres(profil: ProfilRisque | null, domaines: string[
   if (domaines.includes('Écarts')) {
     parties.push(`Suivre l'avancement des écarts critiques et vérifier la clôture des actions.`);
   }
-  
+
   return parties.join(' ');
 }
 
@@ -191,6 +207,7 @@ function getRiskLabel(score: number): string {
 export default memo(function PlanningForm({ planning, onClose, onSuccess, onProgressChange }: PlanningFormProps) {
   const aerodromes = useAppStore(s => s.aerodromes)
   const utilisateurs = useAppStore(s => s.utilisateurs)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const addPlanning = useAppStore(s => s.addPlanning)
   const updatePlanning = useAppStore(s => s.updatePlanning)
@@ -198,7 +215,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const getProfilRisque = useAppStore(s => s.getProfilRisque)
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user);
-  
+  const plannings = useAppStore(s => s.plannings);
   const [error, setError] = useState<string | null>(null);
   const [suggestedDomains, setSuggestedDomains] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
@@ -206,8 +223,15 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
 
   // Inspecteurs réels depuis le store
   const inspecteursReels = useMemo(() => {
-    return utilisateurs.filter(u => u.role === 'inspector' && u.statut !== 'inactif' && u.statut !== 'suspendu');
-  }, [utilisateurs]);
+    return utilisateurs
+      .filter(u => u.role === 'inspector' && u.statut !== 'inactif' && u.statut !== 'suspendu')
+      .map(u => {
+        const linkedInsp = u.inspecteur_id
+          ? inspecteurs.find(i => i.id === u.inspecteur_id)
+          : inspecteurs.find(i => i.email === u.email || (i.prenom === u.prenom && i.nom === u.nom))
+        return { ...u, _insp: linkedInsp }
+      })
+  }, [utilisateurs, inspecteurs]);
 
   // Suggérer l'équipe basée sur le profil de risque
   const getEquipeSuggerer = (profil: ProfilRisque | null, domaines: string[]) => {
@@ -316,6 +340,8 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const watchChef = watch('chef_id');
   const watchType = watch('type');
 
+  const decisionResult = useDecisionEngine(watchAerodrome);
+
   // Mettre à jour les suggestions quand l'aérodrome change
   const handleAerodromeChange = (aerodromeId: string) => {
     setSuggestionsApplied(false);
@@ -342,7 +368,9 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
       if (equipeSuggerer.length > 0) {
         const ids = equipeSuggerer.map(i => i.id);
         setValue('equipe_ids', ids, { shouldDirty: false, shouldTouch: false });
-        setValue('chef_id', equipeSuggerer[0].id, { shouldDirty: false, shouldTouch: false });
+        // Premier membre éligible comme chef (titulaire/principal)
+        const chef = equipeSuggerer.find(peutEtreChef) || equipeSuggerer[0]
+        setValue('chef_id', chef?.id || equipeSuggerer[0].id, { shouldDirty: false, shouldTouch: false });
       }
 
       // Suggérer les domaines si non sélectionnés
@@ -352,7 +380,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
 
       // Suggérer les objectifs
       if (!watch('objectifs')) {
-        setValue('objectifs', genererObjectifsSuggeres(profil, domaines), { shouldDirty: false, shouldTouch: false });
+        setValue('objectifs', genererObjectifsSuggeres(profil, domaines, decisionResult?.portee.justification), { shouldDirty: false, shouldTouch: false });
       }
     } else if (foundAero) {
       // Pas de profil encore — suggérer le type selon les caractéristiques de l'aérodrome
@@ -374,7 +402,22 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
       setLoading('planningForm', true);
       setError(null);
       const now = new Date().toISOString();
-      
+
+      // Vérifier que le chef est titulaire/principal
+      const chefUser = inspecteursReels.find(i => i.id === data.chef_id)
+      if (!chefUser || !peutEtreChef(chefUser)) {
+        setError('Le chef d\'équipe doit être un inspecteur titulaire ou principal.')
+        setLoading('planningForm', false)
+        return
+      }
+      // Vérifier que l'équipe contient au moins un titulaire/principal
+      const equipe = inspecteursReels.filter(i => data.equipe_ids.includes(i.id))
+      if (!equipeContientChefEligible(equipe)) {
+        setError('L\'équipe doit contenir au moins un inspecteur titulaire ou principal.')
+        setLoading('planningForm', false)
+        return
+      }
+
       // Notification de succès (inspecteur ANACIM)
       addNotification({
         user_id: user?.id || '',
@@ -384,7 +427,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         canal: 'in_app'
       });
 
-      if (planning) {
+      if (planning && plannings.some(p => p.id === planning.id)) {
         updatePlanning(planning.id, { ...data, updated_at: now });
       } else {
         addPlanning({
@@ -443,14 +486,15 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
       setValue('portee', domaines.slice(0, 3), { shouldDirty: false, shouldTouch: false });
       setValue('priorite', getPrioriteSuggerer(profilAerodrome), { shouldDirty: false, shouldTouch: false });
       setValue('type', getTypeSuggerer(profilAerodrome), { shouldDirty: false, shouldTouch: false });
-      setValue('objectifs', genererObjectifsSuggeres(profilAerodrome, domaines), { shouldDirty: false, shouldTouch: false });
+      setValue('objectifs', genererObjectifsSuggeres(profilAerodrome, domaines, decisionResult?.portee.justification), { shouldDirty: false, shouldTouch: false });
       
       // Suggérer l'équipe
       const equipeSuggerer = getEquipeSuggerer(profilAerodrome, domaines);
       if (equipeSuggerer.length > 0) {
         const ids = equipeSuggerer.map(i => i.id);
         setValue('equipe_ids', ids, { shouldDirty: false, shouldTouch: false });
-        setValue('chef_id', equipeSuggerer[0].id, { shouldDirty: false, shouldTouch: false });
+        const chef = equipeSuggerer.find(peutEtreChef) || equipeSuggerer[0]
+        setValue('chef_id', chef?.id || equipeSuggerer[0].id, { shouldDirty: false, shouldTouch: false });
       }
       
       setSuggestionsApplied(true);
@@ -490,14 +534,20 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
    // 'eleve'    → score 30-49 ou tendance baisse : pulse warning
    // 'actif'    → profil dispo, pas encore appliqué : ring-ping bleu
    // 'applique' → clic effectué : vert stable
-   type IaBtnState = 'loading' | 'critique' | 'eleve' | 'actif' | 'applique'
-   const iaBtnState = useMemo<IaBtnState>(() => {
-     if (!profilAerodrome) return 'loading'
-     if (suggestionsApplied) return 'applique'
-     if (profilAerodrome.score_global < 30) return 'critique'
-     if (profilAerodrome.score_global < 50 || profilAerodrome.tendance === 'baisse') return 'eleve'
-     return 'actif'
-   }, [profilAerodrome, suggestionsApplied])
+    type IaBtnState = 'loading' | 'critique' | 'eleve' | 'actif' | 'applique'
+    const iaBtnState = useMemo<IaBtnState>(() => {
+      if (!profilAerodrome) return 'loading'
+      if (suggestionsApplied) return 'applique'
+      // Détection critique via decisionEngine (certificat retrait, écarts critiques)
+      if (decisionResult) {
+        if (decisionResult.certificat.action === 'retirer') return 'critique'
+        if (decisionResult.certificat.action === 'suspendre') return 'eleve'
+        if (decisionResult.declencheurs.some(d => d.urgence === 'elevee')) return 'eleve'
+      }
+      if (profilAerodrome.score_global < 30) return 'critique'
+      if (profilAerodrome.score_global < 50 || profilAerodrome.tendance === 'baisse') return 'eleve'
+      return 'actif'
+    }, [profilAerodrome, suggestionsApplied, decisionResult])
 
    const onProgressRef = useRef(onProgressChange)
    onProgressRef.current = onProgressChange
@@ -574,7 +624,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
               <button
                 type="button"
                 onClick={handleAppliquerSuggestions}
-                className="btn btn-primary gap-2 relative"
+                className="btn btn-primary gap-2 animate-pulse relative"
                 title="Appliquer toutes les suggestions IA basées sur le profil"
               >
                 <Sparkles className="w-4 h-4" />
@@ -780,15 +830,23 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
             style={selectStyle}
           >
             {inspecteursReels.map(insp => {
-              // Afficher les spécialités (domaines de compétences) au lieu du service générique
-              const specialites = insp.competences && insp.competences.length > 0
-                ? insp.competences
-                    .slice(0, 3)
-                    .map((c: { domaine: string; niveau: string }) =>
-                      `${c.domaine}${c.niveau === 'expert' ? ' ★' : c.niveau === 'confirme' ? ' ✓' : ''}`
-                    )
-                    .join(' · ')
-                : insp.service || 'Non spécialisé';
+              const linkedInsp = (insp as any)._insp
+              // Afficher les spécialités métier depuis source de vérité unique
+              const specialitesLabels = (insp.specialites || [])
+                .map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s)
+                .join(', ');
+              const fallbackLabel = linkedInsp
+                ? `${linkedInsp.type?.replace(/_/g, ' ')} · ${linkedInsp.domaine_principal?.toUpperCase()}`
+                : undefined;
+              const specialites = specialitesLabels
+                || (insp.competences && insp.competences.length > 0
+                  ? insp.competences
+                      .slice(0, 3)
+                      .map((c: { domaine: string; niveau: string }) =>
+                        `${c.domaine}${c.niveau === 'expert' ? ' ★' : c.niveau === 'confirme' ? ' ✓' : ''}`
+                      )
+                      .join(' · ')
+                  : fallbackLabel || insp.service || 'Non spécialisé');
               return (
                 <option key={insp.id} value={insp.id}>
                   {insp.prenom} {insp.nom} — {specialites}
@@ -812,14 +870,19 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
               style={selectStyle}
             >
               <option value="">Sélectionner le chef d'équipe</option>
-              {watchEquipe.map(id => {
+              {watchEquipe
+                .filter(id => peutEtreChef(inspecteursReels.find(i => i.id === id)))
+                .map(id => {
                 const insp = inspecteursReels.find(i => i.id === id);
                 return insp ? (
                   <option key={id} value={id}>
-                    {insp.prenom} {insp.nom} {insp.competences?.some((c: { domaine: string; niveau: string }) => c.niveau === 'expert') ? '⭐ Expert' : ''}
+                    {insp.prenom} {insp.nom} {((insp as any)._insp?.competences || insp.competences)?.some((c: { domaine: string; niveau: string }) => c.niveau === 'expert') ? '⭐ Expert' : ''}
                   </option>
                 ) : null;
               })}
+              {!equipeContientChefEligible(watchEquipe.map(id => inspecteursReels.find(i => i.id === id)).filter(Boolean)) && (
+                <option value="" disabled>Aucun inspecteur éligible (titulaire/principal requis)</option>
+              )}
             </select>
             {watchChef && (
               <p className="field-description text-success">✓ Chef d'équipe sélectionné</p>
@@ -843,10 +906,10 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
           {profilAerodrome && (
             <div className="mt-2 p-2 bg-info-soft rounded-lg text-xs">
               <p className="font-semibold text-info">💡 Suggestion basée sur le profil de risque :</p>
-              <p className="text-muted-foreground">{genererObjectifsSuggeres(profilAerodrome, suggestedDomains)}</p>
+              <p className="text-muted-foreground">{genererObjectifsSuggeres(profilAerodrome, suggestedDomains, decisionResult?.portee.justification)}</p>
               <button 
                 type="button" 
-                onClick={() => setValue('objectifs', genererObjectifsSuggeres(profilAerodrome, suggestedDomains))}
+                onClick={() => setValue('objectifs', genererObjectifsSuggeres(profilAerodrome, suggestedDomains, decisionResult?.portee.justification))}
                 className="btn btn-ghost btn-sm text-xs mt-1"
               >
                 Utiliser cette suggestion
@@ -933,6 +996,22 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
             {suggestedDomains.length > 0 && <li>• Domaines prioritaires : {suggestedDomains.join(', ')}</li>}
             <li>• Type suggéré : {getTypeSuggerer(profilAerodrome).replace('_', ' ')}</li>
           </ul>
+          {decisionResult && decisionResult.declencheurs.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <p className="font-semibold mb-1">🔍 Analyse décision engine :</p>
+              <ul className="space-y-0.5">
+                {decisionResult.declencheurs.map((d, i) => (
+                  <li key={i}>• <span className={d.urgence === 'elevee' ? 'text-danger' : 'text-warning'}>{d.type}</span> — {d.description}</li>
+                ))}
+                {decisionResult.recommandations.length > 0 && (
+                  <li className="mt-1">💡 Recommandations : {decisionResult.recommandations.slice(0, 3).map(r => r.action).join(', ')}</li>
+                )}
+              </ul>
+              <p className="mt-1 text-[9px] text-muted-foreground italic">
+                Certificat : {decisionResult.certificat.action} — {decisionResult.certificat.justification}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </form>

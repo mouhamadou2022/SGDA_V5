@@ -3236,6 +3236,11 @@ html.dark .alert {
 .bg-success-soft { background: #dcfce7; }
 .bg-primary-soft { background: #dbeafe; }
 
+html.dark .bg-danger-soft  { background: #7f1d1d; }
+html.dark .bg-warning-soft { background: #713f12; }
+html.dark .bg-success-soft { background: #14532d; }
+html.dark .bg-primary-soft { background: #1e3a5f; }
+
 .module-form {
   max-width: 800px;
   margin: 0 auto;
@@ -4432,6 +4437,23 @@ html.dark .cl-btn-success.active {
   margin: 2cm;
 }
 
+/* ===== Hiérarchie typographique du rapport — source de vérité unique ===== */
+:root {
+  --rapport-hg-h1: 20pt;         /* République du Sénégal (page garde) */
+  --rapport-hg-devise: 11pt;     /* Devise nationale */
+  --rapport-hg-label: 10pt;      /* Ministère, ANACIM, direction */
+  --rapport-hg-titre: 20pt;      /* Rapport de surveillance */
+  --rapport-hg-sous-titre: 14pt; /* Aérodrome / sous-titre */
+  --rapport-hg-infos: 11pt;      /* Métadonnées (date, référentiel) */
+  --rapport-h2: 14pt;            /* Titre de section (Résumé exécutif…) */
+  --rapport-h3: 12pt;            /* Sous-section */
+  --rapport-body: 12pt;          /* Corps du texte */
+  --rapport-label: 10pt;         /* Étiquettes, métadonnées */
+  --rapport-table: 10pt;         /* Cellules de tableau */
+  --rapport-badge: 9pt;          /* Badges, codes OACI */
+  --rapport-stat: 18pt;          /* Grands chiffres statistiques */
+}
+
 /* Conteneur rapport A4 (écran) */
 .rapport-a4 {
   max-width: 210mm;
@@ -4443,7 +4465,7 @@ html.dark .cl-btn-success.active {
 .rapport-a4 .rapport-content {
   padding: 2cm;
   font-family: 'Times New Roman', Times, serif;
-  font-size: 12pt;
+  font-size: var(--rapport-body);
   line-height: 1.6;
   color: #1a1a1a;
 }
@@ -4463,7 +4485,7 @@ html.dark .cl-btn-success.active {
 }
 .rapport-a4 .rapport-content .card-title {
   font-family: 'Times New Roman', Times, serif;
-  font-size: 14pt;
+  font-size: var(--rapport-h2);
   font-weight: 700;
   color: #1a1a1a;
   text-transform: uppercase;
@@ -4499,19 +4521,19 @@ html.dark .cl-btn-success.active {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
 }
-.rapport-a4 .rapport-content h2 { font-size: 14pt; font-weight: 700; }
-.rapport-a4 .rapport-content h3 { font-size: 12pt; font-weight: 600; }
+.rapport-a4 .rapport-content h2 { font-size: var(--rapport-h2); font-weight: 700; }
+.rapport-a4 .rapport-content h3 { font-size: var(--rapport-h3); font-weight: 600; }
 /* Prose dans le rapport */
 .rapport-a4 .rapport-content .prose {
   max-width: none;
-  font-size: 12pt;
+  font-size: var(--rapport-body);
   line-height: 1.6;
 }
 .rapport-a4 .rapport-content table {
   width: 100%;
   border-collapse: collapse;
   margin: 1em 0;
-  font-size: 11pt;
+  font-size: var(--rapport-table);
 }
 .rapport-a4 .rapport-content th,
 .rapport-a4 .rapport-content td {
@@ -4535,14 +4557,14 @@ html.dark .cl-btn-success.active {
   page-break-after: always;
 }
 .rapport-a4 .rapport-content .page-garde h1 {
-  font-size: 20pt;
+  font-size: var(--rapport-hg-h1);
   font-weight: 700;
   margin-bottom: 0.5em;
   text-transform: uppercase;
   letter-spacing: 1.5px;
 }
 .rapport-a4 .rapport-content .page-garde .devise {
-  font-size: 11pt;
+  font-size: var(--rapport-hg-devise);
   font-style: italic;
   color: #555;
 }
@@ -4553,7 +4575,7 @@ html.dark .cl-btn-success.active {
   margin: 1.5em auto;
 }
 .rapport-a4 .rapport-content .page-garde .sous-titre {
-  font-size: 14pt;
+  font-size: var(--rapport-hg-sous-titre);
   margin: 1em 0;
   padding: 1em 0;
   border-top: 2px solid #1a1a1a;
@@ -4561,20 +4583,32 @@ html.dark .cl-btn-success.active {
 }
 .rapport-a4 .rapport-content .page-garde .infos {
   margin-top: 3em;
-  font-size: 11pt;
+  font-size: var(--rapport-hg-infos);
   line-height: 2;
+}
+/* Page garde — champs éditables : mêmes tailles qu'en lecture */
+.rapport-a4 .rapport-content .page-garde input.hg-titre {
+  font-size: var(--rapport-hg-titre);
+  font-weight: 700;
+}
+.rapport-a4 .rapport-content .page-garde input.hg-sous-titre {
+  font-size: var(--rapport-hg-sous-titre);
+}
+.rapport-a4 .rapport-content .page-garde input.hg-label,
+.rapport-a4 .rapport-content .page-garde .hg-label {
+  font-size: var(--rapport-hg-label);
 }
 /* Sommaire */
 .rapport-a4 .rapport-content .sommaire h1 {
   font-family: 'Times New Roman', Times, serif;
-  font-size: 16pt;
+  font-size: var(--rapport-hg-titre);
   font-weight: 700;
   margin-bottom: 1em;
 }
 .rapport-a4 .rapport-content .sommaire a {
   color: #1a1a1a;
   text-decoration: none;
-  font-size: 12pt;
+  font-size: var(--rapport-body);
 }
 .rapport-a4 .rapport-content .sommaire a:hover {
   text-decoration: underline;
@@ -4691,5 +4725,65 @@ html.dark .cl-btn-success.active {
   .rapport-a4 .accordion-content,
   .rapport-a4 .accordion {
     display: block !important;
+  }
+}
+
+/* ===== Document-style report sections ===== */
+.rapport-section {
+  margin-bottom: 1.5em;
+}
+.rapport-heading {
+  font-family: 'Times New Roman', Times, serif;
+  font-size: var(--rapport-h2);
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 0.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #ccc;
+}
+.rapport-text {
+  font-family: 'Times New Roman', Times, serif;
+  font-size: var(--rapport-body);
+  line-height: 1.6;
+  color: #1a1a1a;
+  text-align: justify;
+}
+.rapport-text p {
+  margin-bottom: 0.8em;
+}
+.rapport-text-editable {
+  font-family: 'Times New Roman', Times, serif;
+  font-size: var(--rapport-body);
+  line-height: 1.6;
+  color: #1a1a1a;
+  text-align: justify;
+  min-height: 120px;
+  padding: 0.75em;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.rapport-text-editable:focus {
+  border-color: var(--role-primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.rapport-text-editable p {
+  margin-bottom: 0.8em;
+}
+.rapport-results {
+  margin: 1em 0;
+}
+
+/* Print overrides for document sections */
+@media print {
+  .rapport-heading {
+    border-bottom: 1px solid #333;
+  }
+  .rapport-text-editable {
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
   }
 }

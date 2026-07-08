@@ -1,5 +1,5 @@
 // lib/plansActionsUtils.ts
-import { Ecart, StatistiquesPAC } from './store'
+import type { Ecart, StatistiquesPAC } from './store'
 import { NIVEAUX_RISQUE_ECART } from './config'
 
 export const plansActionsUtils = {
@@ -128,11 +128,12 @@ export const plansActionsUtils = {
     note_precision: number
     note_specificite: number
     note_coherence: number
-    note_tracabilite: number
+    note_realisme?: number
+    note_tracabilite?: number
   }): number {
     const somme = evaluation.note_pertinence + evaluation.note_exhaustivite +
                   evaluation.note_precision + evaluation.note_specificite +
-                  evaluation.note_coherence + evaluation.note_tracabilite
+                  evaluation.note_coherence + (evaluation.note_realisme ?? evaluation.note_tracabilite ?? 0)
     return Math.round((somme / 6) * 10) / 10
   },
 
@@ -184,7 +185,7 @@ export const plansActionsUtils = {
       total: filtered.length,
       en_attente: filtered.filter(e => ['pac_attendu', 'pac_soumis'].includes(e.statut)).length,
       evalues: filtered.filter(e => e.evaluation_pac).length,
-      acceptes: filtered.filter(e => e.evaluation_pac?.decision === 'accepte').length,
+      acceptes: filtered.filter(e => e.evaluation_pac?.decision === 'accepte' || e.evaluation_pac?.decision === 'reserve').length,
       refuses: filtered.filter(e => e.evaluation_pac?.decision === 'refuse').length,
       en_retard: filtered.filter(e => e.statut === 'en_retard').length,
       critiques: filtered.filter(e => e.niveau_risque === 'critique' && e.statut !== 'cloture').length,

@@ -13,19 +13,24 @@
 // - C4 UNIFIÉ (logarithmique + linéaire)
 // ============================================================
 
-import { Aerodrome, Planning, ProfilRisque, Ecart } from './store';
+import type { Aerodrome, Planning, ProfilRisque, Ecart } from './store';
 
 // Imports depuis les sous-modules pour éviter les duplications et la dépendance circulaire
-import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor } from './risque/matrix'
+import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor, getOACIValue, getRiskLevelVariant, getRiskLevelBgColor, getRiskLevelClass, getRiskLevelColor, getRiskLevelBgVariant, getRiskLevelBorderVariant } from './risque/matrix'
 import { computeBaseFrequency, computeMultipliers, computeFinalFrequency as computeFinalFrequencyObj, suggestMissionType, applyMultipliers } from './risque/frequency'
+import { computeIncidentPredictions as _computeIncidentPredictions } from './risque/predictions'
 import { detectAllTriggers, computeTriggersImpact } from './risque/triggers'
 import { detectAllAggravators, computeAggravatorsMultiplier } from './risque/aggravators'
+import type { ScoreHistoryPoint, BowTieModele } from './risque/types'
+import { fitSeasonalModel } from './risque/seasonalForecast'
+import { computeICaoMatrix, computeGlobalICaoRisk, getICaoLabels } from './risque/icaoMatrix'
 // Re-exports pour que les consommateurs de '@/lib/risque' puissent y accéder
-export { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor }
+export { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor, getOACIValue, getRiskLevelVariant, getRiskLevelBgColor, getRiskLevelClass, getRiskLevelColor, getRiskLevelBgVariant, getRiskLevelBorderVariant }
 export { computeBaseFrequency, computeMultipliers, suggestMissionType }
 export { computeFinalFrequencyObj }
 export { detectAllTriggers, computeTriggersImpact }
 export { detectAllAggravators, computeAggravatorsMultiplier }
+export { computeICaoMatrix, computeGlobalICaoRisk, getICaoLabels }
 
 // Wrapper rétrocompatible : (baseFrequency, multipliers?) => number
 // Les appelants historiques (PlanningModule, PlanningNPlus1) utilisent
@@ -50,6 +55,7 @@ function memoizeWithTTL<T extends (...args: any[]) => any>(
   resolver?: (...args: Parameters<T>) => string
 ): T {
   const cache = new Map<string, { result: ReturnType<T>; timestamp: number }>();
+  let cleanupCounter = 0;
   
   return ((...args: Parameters<T>) => {
     const key = resolver ? resolver(...args) : JSON.stringify(args);
@@ -62,12 +68,14 @@ function memoizeWithTTL<T extends (...args: any[]) => any>(
     const result = fn(...args);
     cache.set(key, { result, timestamp: Date.now() });
     
-    // Nettoyage des anciennes entrées
-    cache.forEach((value, cacheKey) => {
-      if (Date.now() - value.timestamp > ttl * 2) {
-        cache.delete(cacheKey);
-      }
-    });
+    // Nettoyage différé : 1 fois tous les 50 appels (évite boucler à chaque fois)
+    if (++cleanupCounter % 50 === 0) {
+      cache.forEach((value, cacheKey) => {
+        if (Date.now() - value.timestamp > ttl * 2) {
+          cache.delete(cacheKey);
+        }
+      });
+    }
     
     return result;
   }) as T;
@@ -221,7 +229,7 @@ export interface ActionEffectiveness {
   observationCount: number;
   averageImprovement: number;
   averageCostDays: number;
-  roi: number;
+  efficaciteTemporelle: number;
   confidence: number;
 }
 
@@ -241,6 +249,24 @@ export const RISK_LEVELS = {
   CRITIQUE: { min: 0, max: 29, label: 'Critique', color: 'danger', frequency: 12 },
 } as const;
 
+/**
+ * ATTENTION — deux échelles de niveau de risque coexistent dans le code :
+ *
+ * 1. RISK_LEVELS / getRiskLevel() (4 niveaux : FAIBLE/MOYEN/ELEVE/CRITIQUE)
+ *    → Utilisé pour le score global agrégé 0-100 (ProfilRisque.score_global)
+ *    → Seuils : ≥80 Faible, ≥60 Moyen, ≥30 Élevé, <30 Critique
+ *
+ * 2. NiveauRisque dans lib/risque/types.ts (5 niveaux : critique/eleve/moyen/faible/tres_faible)
+ *    → Utilisé pour les cellules de la matrice OACI probabilité×gravité (1A à 5E)
+ *    → Vient de getRiskLevelFromCell() dans matrix.ts
+ *
+ * Les labels sont visuellement proches mais les échelles ne sont PAS interchangeables :
+ * - Un score_global=75 → getRiskLevel() → 'MOYEN', alors que la matrice OACI peut retourner
+ *   'critique' ou 'tres_faible' selon la combinaison probabilité×gravité
+ * - computeOptimalFrequency() assure la conversion entre les deux mondes via mapScoreToRiskLevel()
+ *
+ * Ne pas supposer que les labels de RISK_LEVELS correspondent aux NiveauRisque des types.
+ */
 export const getRiskLevel = (score: number): keyof typeof RISK_LEVELS => {
   if (score >= 80) return 'FAIBLE';
   if (score >= 60) return 'MOYEN';
@@ -248,7 +274,17 @@ export const getRiskLevel = (score: number): keyof typeof RISK_LEVELS => {
   return 'CRITIQUE';
 };
 
-// Matrice de corrélation par défaut (calibrée sur données aviation)
+// Fonction de conversion score_global → NiveauRisque (vocabulaire frequency.ts / OACI 5×5 4-niveaux)
+// Centralisée pour éviter les mappings inline incohérents dans computeOptimalFrequency et ailleurs.
+// Seuils alignés sur RISK_LEVELS : <30 critique, <50 eleve, <70 moyen, ≥70 faible.
+export function mapScoreToRiskLevel(score: number): 'critique' | 'eleve' | 'moyen' | 'faible' {
+  if (score < 30) return 'critique';
+  if (score < 50) return 'eleve';
+  if (score < 70) return 'moyen';
+  return 'faible';
+}
+
+// Matrice de corrélation par défaut (hypothèses expertes — à recalibrer sur données réelles)
 export const DEFAULT_CORRELATION_MATRIX: CorrelationMatrix = {
   c1_c2: 0.72,
   c1_c3: 0.58,
@@ -284,7 +320,13 @@ export interface C3AdjustmentResult {
 // FONCTIONS EXISTANTES (conservées)
 // ============================================================
 
-export function calculateC1(maturiteSgs: number, scoreEnquetes?: number): number {
+export function calculateC1(
+  maturiteSgs: number,
+  scoreEnquetes?: number,
+  statut_sgs?: 'complet' | 'simplifie' | 'non_applicable',
+): number {
+  // SGS non applicable → score neutre (ne pénalise pas le profil global)
+  if (statut_sgs === 'non_applicable') return 100
   if (typeof maturiteSgs !== 'number' || isNaN(maturiteSgs)) maturiteSgs = 50
   const sgsScore = maturiteSgs <= 5 ? (maturiteSgs - 1) * 25 : maturiteSgs;
   let score = sgsScore;
@@ -375,6 +417,23 @@ export function calculateC5(evenements: Array<{ gravite: string; date?: string }
     }
     chargeSecurite += poids * recencyFactor;
   });
+
+  // Ajustement saisonnier : si le mois courant est historiquement à risque, pénalité de 2 pts
+  try {
+    const eventsWithMois = (evenements as Array<{ gravite: string; date: string }>)
+      .filter(e => e.date)
+      .map(e => ({ mois: new Date(e.date).getMonth(), value: GRAVITE_C5_WEIGHTS[e.gravite.toLowerCase()] || 5 }))
+    if (eventsWithMois.length >= 6) {
+      const model = fitSeasonalModel(eventsWithMois)
+      const currentMonth = new Date().getMonth()
+      const seasonalFactor = model.seasonalFactors[currentMonth] || 0
+      // Si le facteur saisonnier dépasse +1 sigma, le mois est anormalement risqué → pénalité
+      if (seasonalFactor > model.sigma) {
+        chargeSecurite += 2
+      }
+    }
+  } catch { /* seasonal non disponible */ }
+
   const score = Math.max(0, 100 - chargeSecurite);
   return Math.min(100, Math.round(score));
 }
@@ -390,50 +449,61 @@ export function calculateGlobalScore(criteria: RiskCriteria): number {
 }
 
 export function predictRiskScore(historique: Array<{ date: string; score: number }>): RiskPrediction {
-  if (historique.length < 2) {
-    return {
-      score3m: historique[0]?.score || 50,
-      score6m: historique[0]?.score || 50,
-      confidence: 30,
-      probabilityDegradation: 50,
-      trend: 'stable'
-    };
+  const n = historique.length
+
+  // Données insuffisantes (< 2 points) → valeur par défaut, confiance faible
+  if (n < 2) {
+    const score = historique[0]?.score || 50
+    return { score3m: score, score6m: score, confidence: 20, probabilityDegradation: 50, trend: 'stable' }
+  }
+
+  // Échantillon trop petit (2-4 points) → régression possible mais confiance limitée
+  if (n < 5) {
+    const score = Math.round(historique.reduce((s, h) => s + h.score, 0) / n)
+    return { score3m: score, score6m: score, confidence: 25, probabilityDegradation: 50, trend: 'stable' }
   }
 
   const points = historique
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .map((h, index) => ({ x: index, y: h.score }));
+    .map((h, index) => ({ x: index, y: h.score }))
   
-  const n = points.length;
-  const sumX = points.reduce((acc, p) => acc + p.x, 0);
-  const sumY = points.reduce((acc, p) => acc + p.y, 0);
-  const sumXY = points.reduce((acc, p) => acc + p.x * p.y, 0);
-  const sumXX = points.reduce((acc, p) => acc + p.x * p.x, 0);
+  const sumX = points.reduce((acc, p) => acc + p.x, 0)
+  const sumY = points.reduce((acc, p) => acc + p.y, 0)
+  const sumXY = points.reduce((acc, p) => acc + p.x * p.y, 0)
+  const sumXX = points.reduce((acc, p) => acc + p.x * p.x, 0)
+  const meanX = sumX / n
+  const meanY = sumY / n
+  const denom = n * sumXX - sumX * sumX
 
-  const denom = (n * sumXX - sumX * sumX)
   if (Math.abs(denom) < 1e-10) {
-    const meanY = sumY / n
     return { score3m: Math.min(100, Math.max(0, Math.round(meanY))), score6m: Math.min(100, Math.max(0, Math.round(meanY))), confidence: 30, probabilityDegradation: 50, trend: 'stable' }
   }
   
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
+  const slope = (n * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / n
   
-  const score3m = Math.min(100, Math.max(0, Math.round(intercept + slope * (n + 3))));
-  const score6m = Math.min(100, Math.max(0, Math.round(intercept + slope * (n + 6))));
+  const score3m = Math.min(100, Math.max(0, Math.round(intercept + slope * (n + 3))))
+  const score6m = Math.min(100, Math.max(0, Math.round(intercept + slope * (n + 6))))
   
-  const predicted = points.map(p => intercept + slope * p.x);
-  const residuals = points.map((p, i) => Math.pow(p.y - predicted[i], 2));
-  const variance = residuals.reduce((a, b) => a + b, 0) / n;
-  const confidence = Math.max(20, Math.min(95, Math.round(100 - Math.sqrt(variance))));
+  const predicted = points.map(p => intercept + slope * p.x)
+  const residuals = points.map((p, i) => Math.pow(p.y - predicted[i], 2))
+  const variance = residuals.reduce((a, b) => a + b, 0) / n
+  const std = Math.sqrt(variance)
   
-  const probabilityDegradation = slope < 0 
-    ? Math.min(90, Math.round(Math.abs(slope) * 20))
-    : Math.max(10, 100 - Math.round(slope * 20));
+  // Confiance basée sur le CV (coefficient de variation) de l'erreur
+  const cv = std / Math.max(Math.abs(meanY), 1)
+  const confidence = Math.max(20, Math.min(95, Math.round(100 - cv * 50)))
   
-  const trend = slope > 0.5 ? 'hausse' : slope < -0.5 ? 'baisse' : 'stable';
+  // Probabilité de dégradation : basée sur la pente relative + std résidus
+  const penteRelative = slope / Math.max(Math.abs(meanY), 1)
+  const probabilityDegradation = Math.max(5, Math.min(95, Math.round(
+    (penteRelative < 0 ? Math.abs(penteRelative) * 100 : Math.max(0, 50 - penteRelative * 50)) +
+    (std > 10 ? 10 : 0) // incertitude élevée = risque de dégradation
+  )))
   
-  return { score3m, score6m, confidence, probabilityDegradation, trend };
+  const trend = slope > 0.5 * std / 10 ? 'hausse' : slope < -0.5 * std / 10 ? 'baisse' : 'stable'
+  
+  return { score3m, score6m, confidence, probabilityDegradation, trend }
 }
 
 // ============================================================
@@ -454,11 +524,30 @@ export function predictWithEnsemble(
   const ewma3m = predictWithEWMA(historique, 0.3, 3)
   const ewma6m = predictWithEWMA(historique, 0.3, 6)
 
-  // Ensemble : 60% EWMA + 40% régression (pondération inverse de la variance)
-  const score3m = Math.round(ewma3m * 0.6 + regression.score3m * 0.4)
-  const score6m = Math.round(ewma6m * 0.6 + regression.score6m * 0.4)
+  // Pondération inverse de la variance : chaque modèle pèse selon la confiance qu'on a en lui
+  // La confiance de la régression est basée sur la variance des résidus (dans predictRiskScore)
+  // Pour EWMA, on estime l'incertitude via la volatilité récente
+  const scores = historique.sort((a, b) =>
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  ).map(h => h.score)
+  const recent = scores.slice(-3)
+  const ewmaUncertainty = recent.length > 1
+    ? Math.sqrt(recent.reduce((sq, v, _, arr) => sq + Math.pow(v - arr.reduce((s, x) => s + x, 0) / arr.length, 2), 0) / recent.length)
+    : 10
+  const regUncertainty = Math.max(1, 100 - regression.confidence) // plus confiance = moins d'incertitude
 
-  const confidence = Math.min(95, regression.confidence + 5) // léger bonus d'ensemble
+  const invVarEwma = 1 / Math.max(1, ewmaUncertainty * ewmaUncertainty)
+  const invVarReg = 1 / Math.max(1, regUncertainty * regUncertainty)
+  const wEwma = invVarEwma / (invVarEwma + invVarReg)
+  const wReg = invVarReg / (invVarEwma + invVarReg)
+
+  const score3m = Math.round(ewma3m * wEwma + regression.score3m * wReg)
+  const score6m = Math.round(ewma6m * wEwma + regression.score6m * wReg)
+
+  // Confiance d'ensemble : combinée via la variance de l'estimation pondérée
+  const ensembleVariance = 1 / (invVarEwma + invVarReg)
+  const ensembleStd = Math.sqrt(ensembleVariance)
+  const confidence = Math.min(95, Math.max(20, Math.round(100 - ensembleStd * 5)))
 
   return { score3m, score6m, confidence }
 }
@@ -503,6 +592,47 @@ export async function computeBayesianPosterior(
       posteriorProbability: result.posteriorProbability,
       priorProbability: result.priorProbability,
       estBlackSwan: result.estBlackSwan,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pont vers le réseau bayésien causal (bow-tie + nœuds org)
+ * Appelée à côté de computeBayesianPosterior — ne remplace pas le score C1-C5
+ */
+export async function computeBayesianNetworkRisk(
+  bowTieId: string,
+  aerodromeId?: string,
+  evidences: Record<string, number> = {}
+): Promise<{ probabiliteResiduelle: number; barrieresCritiques: string[]; confiance: number } | null> {
+  try {
+    const { construireReseauDepuisBowTie, computeBayesianNetworkRisk: compute } = await import('@/lib/risque/bayesianNetwork')
+    const bt: BowTieModele = {
+      id: bowTieId,
+      domaine: aerodromeId || 'SGS',
+      danger: `Danger ${bowTieId}`,
+      defaillance: `Défaillance ${bowTieId}`,
+      scenario: `Scénario ${bowTieId}`,
+      consequence: `Conséquence ${bowTieId}`,
+      barrieresPreventives: [
+        { id: `${bowTieId}_prev1`, nom: 'Barrière préventive 1', type: 'preventive', efficace: true, efficacite: 80 },
+        { id: `${bowTieId}_prev2`, nom: 'Barrière préventive 2', type: 'preventive', efficace: true, efficacite: 75 },
+      ],
+      barrieresCorrectives: [
+        { id: `${bowTieId}_corr1`, nom: 'Barrière corrective 1', type: 'corrective', efficace: true, efficacite: 70 },
+        { id: `${bowTieId}_corr2`, nom: 'Barrière corrective 2', type: 'corrective', efficace: true, efficacite: 65 },
+      ],
+      probabiliteResiduelle: 50,
+      niveauRisqueResiduel: 'moyen',
+      lastAssessed: new Date().toISOString(),
+    }
+    const result = compute(construireReseauDepuisBowTie(bt), `consequence_${bowTieId}`, evidences)
+    return {
+      probabiliteResiduelle: result.probabiliteResiduelle,
+      barrieresCritiques: result.barrieresCritiques,
+      confiance: result.confiance,
     }
   } catch {
     return null
@@ -574,13 +704,16 @@ export function computeIncidentPrediction(
   const dataPoints = recent12m.length
   const confidence = Math.min(95, Math.max(20, 40 + dataPoints * 5))
 
-  // Analyse saisonnière (nouvelle fonction partagée)
+  // Analyse saisonnière (heuristique) : seasonal.prediction3m est un score normalisé (0-1) par la
+  // moyenne historique, prob3m est une probabilité Poissonienne Hawkes-like — ce sont deux questions
+  // différentes (criticité projetée vs probabilité de survenue). Le ratio seasonalBoost est donc un
+  // facteur correctif heuristique, pas un calcul probabiliste rigoureux. À ne pas présenter comme
+  // "probabilité bayésienne" dans les rapports.
   let seasonalBoost = 1.0
   try {
-    const { computeIncidentPredictions } = require('./risque/predictions')
-    const seasonal = computeIncidentPredictions(evenements)
+    const seasonal = _computeIncidentPredictions(evenements)
     if (seasonal.prediction3m > prob3m) seasonalBoost = Math.min(seasonal.prediction3m / Math.max(prob3m, 0.01), 1.5)
-  } catch { /* predictions indisponible */ }
+  } catch { /* predictions optionnel */ }
 
   return {
     probability3m: Math.round(prob3m * seasonalBoost * 100),
@@ -684,7 +817,7 @@ export function computeVelocityMetrics(
   
   // Dérivée première (lissage exponentiel)
   let vitesse = 0;
-  let alpha = 0.3;
+  const alpha = 0.3;
   for (let i = 1; i < n; i++) {
     const delta = scores[i] - scores[i-1];
     vitesse = alpha * delta + (1 - alpha) * vitesse;
@@ -826,14 +959,6 @@ export function computeBayesianCredibleInterval(
   const lower25 = Math.max(0, Math.round(posteriorMean - 0.674 * posteriorStd));
   const upper75 = Math.min(100, Math.round(posteriorMean + 0.674 * posteriorStd));
   
-  // Skewness estimation
-  let skewness = 0;
-  if (observations.length > 2) {
-    const m3 = observations.reduce((sum, val) => sum + Math.pow(val - obsMean, 3), 0) / observations.length;
-    const m2 = obsVariance;
-    skewness = m3 / Math.pow(m2, 1.5);
-  }
-  
   return {
     mean: Math.round(posteriorMean),
     lower5,
@@ -841,7 +966,7 @@ export function computeBayesianCredibleInterval(
     lower25,
     upper75,
     credibleInterval: [lower5, upper95],
-    skewness: Math.round(skewness * 100) / 100
+    skewness: 0
   };
 }
 
@@ -861,7 +986,7 @@ export function computeHawkesContagion(
   
   const now = Date.now();
   let intensity = mu;
-  let backgroundContribution = mu;
+  const backgroundContribution = mu;
   let triggeredContribution = 0;
   
   const recentEcarts = ecarts.filter(e => {
@@ -1154,70 +1279,64 @@ export function computeProactiveAlert(
       delaiEstimeJours: null
     }
   }
-  const currentScore = profil.score_global;
-  const historiques = historiqueScores.map(h => h.score);
-  const predictions = predictRiskScore(historiqueScores);
-  
-  // Probabilités
-  let probabiliteDegradation3m = predictions.probabilityDegradation;
-  let probabiliteSeuil30_3m = 0;
-  let probabiliteSeuil30_6m = 0;
-  
-  // Calcul probabilité d'atteindre seuil 30
-  const prediction3m = predictions.score3m;
-  const prediction6m = predictions.score6m;
-  
-  if (prediction3m <= 30) probabiliteSeuil30_3m = 80;
-  else if (prediction3m <= 40) probabiliteSeuil30_3m = 40;
-  else if (prediction3m <= 50) probabiliteSeuil30_3m = 15;
-  
-  if (prediction6m <= 30) probabiliteSeuil30_6m = 70;
-  else if (prediction6m <= 40) probabiliteSeuil30_6m = 35;
-  else if (prediction6m <= 50) probabiliteSeuil30_6m = 10;
-  
-  // Ajustement par Hawkes
+  const currentScore = profil.score_global
+  const historiques = historiqueScores.map(h => h.score)
+  const predictions = predictRiskScore(historiqueScores)
+  const ic = computePredictionInterval(predictions.score3m, historiques, 0.9)
+
+  // Probabilité de dégradation : combine pente + incertitude + Hawkes
+  let probabiliteDegradation3m = predictions.probabilityDegradation
+  const incertitude = ic.margin / Math.max(Math.abs(predictions.score3m), 1) * 50
+  probabiliteDegradation3m = Math.min(95, probabiliteDegradation3m + Math.round(incertitude * 0.3))
+
+  // Probabilité d'atteindre le seuil 30 : basée sur IC bas + tendance
+  const zoneRouge3m = ic.lower < 30 ? 1 : ic.lower < 40 ? 0.6 : ic.lower < 50 ? 0.3 : 0
+  const tendanceRisque = predictions.trend === 'baisse' ? 0.2 : 0
+  const hawkesRisque = hawkes.riskNext30Days > 50 ? 0.1 : 0
+  const probabiliteSeuil30_3m = Math.min(90, Math.round((zoneRouge3m + tendanceRisque + hawkesRisque) * 100))
+  const probabiliteSeuil30_6m = Math.min(85, Math.round((zoneRouge3m * 0.8 + 0.1) * 100))
+
   if (hawkes.riskNext30Days > 50) {
-    probabiliteDegradation3m = Math.min(95, probabiliteDegradation3m + 15);
-    probabiliteSeuil30_3m = Math.min(90, probabiliteSeuil30_3m + 10);
+    probabiliteDegradation3m = Math.min(95, probabiliteDegradation3m + 5)
   }
-  
-  // Niveau d'urgence
-  let niveauUrgence: ProactiveAlert['niveauUrgence'] = 'info';
-  let messageCourt = '';
-  let messageLong = '';
-  let actionSuggerer = '';
-  let delaiEstimeJours: number | null = null;
-  
+
+  // Niveau d'urgence basé sur le score + proba de seuil 30
+  let niveauUrgence: ProactiveAlert['niveauUrgence'] = 'info'
+  let messageCourt = ''
+  let messageLong = ''
+  let actionSuggerer = ''
+  let delaiEstimeJours: number | null = null
+
   if (currentScore < 30) {
-    niveauUrgence = 'critique';
-    messageCourt = 'Score critique - Action immédiate requise';
-    messageLong = `Le score actuel est de ${currentScore}/100, en dessous du seuil critique. Une surveillance inopinée doit être déclenchée dans les 7 jours.`;
-    actionSuggerer = 'Déclencher mission inopinée immédiate';
-    delaiEstimeJours = 7;
-  } else if (probabiliteSeuil30_3m > 60 || (predictions.trend === 'baisse' && currentScore < 45)) {
-    niveauUrgence = 'alerte';
-    messageCourt = 'Risque élevé de bascule en critique';
-    messageLong = `Le modèle prédit ${probabiliteSeuil30_3m}% de chances d\'atteindre le seuil critique dans 3 mois. La tendance est à la ${predictions.trend === 'baisse' ? 'dégradation' : 'stabilité précaire'}.`;
-    actionSuggerer = 'Programmer surveillance renforcée dans les 30 jours';
-    delaiEstimeJours = 30;
+    niveauUrgence = 'critique'
+    messageCourt = 'Score critique — action immédiate requise'
+    messageLong = `Score ${currentScore}/100 — IC bas à ${ic.lower}. Surveillance inopinée requise sous 7 jours.`
+    actionSuggerer = 'Déclencher mission inopinée immédiate'
+    delaiEstimeJours = 7
+  } else if (probabiliteSeuil30_3m > 55) {
+    niveauUrgence = 'alerte'
+    messageCourt = 'Risque élevé de bascule en critique'
+    messageLong = `IC90 bas à ${ic.lower} et tendance ${predictions.trend}. Probabilité estimée à ${probabiliteSeuil30_3m}% d\'atteindre le seuil critique.`
+    actionSuggerer = 'Programmer surveillance renforcée dans les 30 jours'
+    delaiEstimeJours = 30
   } else if (predictions.trend === 'baisse' && currentScore < 55) {
-    niveauUrgence = 'vigilance';
-    messageCourt = 'Tendance à la dégradation';
-    messageLong = `Le score diminue progressivement (${predictions.score3m}/100 prévu dans 3 mois). Une vigilance accrue est recommandée.`;
-    actionSuggerer = 'Surveillance programmée maintenue, suivi mensuel';
-    delaiEstimeJours = 60;
+    niveauUrgence = 'vigilance'
+    messageCourt = 'Tendance à la dégradation'
+    messageLong = `Score ${currentScore}/100 → ${predictions.score3m}/100 prévu (IC90: ${ic.lower}-${ic.upper}). Suivi mensuel recommandé.`
+    actionSuggerer = 'Surveillance programmée maintenue, suivi mensuel'
+    delaiEstimeJours = 60
   } else if (hawkes.riskNext30Days > 60) {
-    niveauUrgence = 'alerte';
-    messageCourt = 'Risque de cascade d\'écarts';
-    messageLong = `Le modèle Hawkes détecte un risque de ${hawkes.riskNext30Days}% de nouveaux écarts dans les 30 jours.`;
-    actionSuggerer = 'Renforcer le suivi des écarts ouverts';
-    delaiEstimeJours = 30;
+    niveauUrgence = 'alerte'
+    messageCourt = 'Risque de cascade d\'écarts'
+    messageLong = `Modèle Hawkes : ${hawkes.riskNext30Days}% de nouveaux écarts dans les 30 jours.`
+    actionSuggerer = 'Renforcer le suivi des écarts ouverts'
+    delaiEstimeJours = 30
   } else {
-    messageCourt = 'Profil stable';
-    messageLong = 'Aucune alerte particulière à signaler. Maintenir le planning de surveillance existant.';
-    actionSuggerer = 'Poursuivre le programme en cours';
+    messageCourt = 'Profil stable'
+    messageLong = 'Aucune alerte particulière. Maintenir le planning de surveillance existant.'
+    actionSuggerer = 'Poursuivre le programme en cours'
   }
-  
+
   return {
     niveauUrgence,
     probabiliteDegradation3m: Math.round(probabiliteDegradation3m),
@@ -1227,7 +1346,7 @@ export function computeProactiveAlert(
     messageLong,
     actionSuggerer,
     delaiEstimeJours
-  };
+  }
 }
 
 // ============================================================
@@ -1306,7 +1425,7 @@ export function computeActionEffectiveness(
   for (const [type, data] of grouped) {
     const avgImprovement = data.improvements.reduce((a,b) => a+b, 0) / data.improvements.length;
     const avgCost = data.costs.reduce((a,b) => a+b, 0) / data.costs.length;
-    const roi = avgImprovement / Math.max(1, avgCost);
+    const efficaciteTemporelle = avgImprovement / Math.max(1, avgCost);
     
     const stdDev = Math.sqrt(
       data.improvements.reduce((sq, val) => sq + Math.pow(val - avgImprovement, 2), 0) / data.improvements.length
@@ -1320,18 +1439,28 @@ export function computeActionEffectiveness(
       observationCount: data.improvements.length,
       averageImprovement: Math.round(avgImprovement * 10) / 10,
       averageCostDays: Math.round(avgCost),
-      roi: Math.round(roi * 10) / 10,
+      efficaciteTemporelle: Math.round(efficaciteTemporelle * 10) / 10,
       confidence: Math.round(confidence)
     });
   }
   
-  return results.sort((a,b) => b.roi - a.roi);
+  return results.sort((a,b) => b.efficaciteTemporelle - a.efficaciteTemporelle);
 }
 
 // ============================================================
 // 11. DÉTECTION DE POINTS DE CHANGEMENT
 // ============================================================
 
+/**
+ * Détection de points de changement par fenêtre glissante avant/après.
+ * Complémentaire à detectChangePointCUSUM :
+ * - CUSUM = détection cumulative précoce (alerte en temps réel dès que la dérive dépasse un seuil)
+ * - detectChangePoints = confirmation a posteriori plus robuste au bruit ponctuel (seuil 8 pts)
+ * Les deux peuvent donner des résultats différents sur la même série : CUSUM peut détecter une
+ * rupture avant que la fenêtre glissante ne la confirme, et inversement la fenêtre glissante
+ * peut lisser un pic isolé que CUSUM signale comme rupture. À présenter comme complémentaires
+ * dans l'interface (CUSUM en alerte précoce, detectChangePoints en analyse rétrospective).
+ */
 export function detectChangePoints(
   historique: { date: string; score: number }[]
 ): ChangePoint[] {
@@ -1389,7 +1518,20 @@ export function calculateC2FromEcarts(ecarts: Ecart[], aerodromeId?: string): nu
     const dateCreation = new Date(ecart.created_at);
     const dateCloture = new Date(ecart.cloture_le || ecart.updated_at);
     const dateEcheance = new Date(ecart.delai_regularisation);
-    const delaiEffectif = Math.max(1, Math.ceil((dateCloture.getTime() - dateCreation.getTime()) / (1000 * 60 * 60 * 24)));
+    const delaiTotal = Math.max(1, Math.ceil((dateCloture.getTime() - dateCreation.getTime()) / (1000 * 60 * 60 * 24)));
+    // Soustraire le temps d'attente inspecteur (si l'écart a été retardé par l'évaluation)
+    let tempsAttenteInsp = 0
+    if (ecart.retard_inspecteur && ecart.evaluation_pac?.deadline && ecart.evaluation_pac?.evalue_le) {
+      const deadline = new Date(ecart.evaluation_pac.deadline)
+      const evalueLe = new Date(ecart.evaluation_pac.evalue_le)
+      tempsAttenteInsp += Math.max(0, Math.ceil((evalueLe.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24)))
+    }
+    if (ecart.retard_inspecteur && ecart.validation_preuves?.deadline && ecart.validation_preuves?.valide_le) {
+      const deadline = new Date(ecart.validation_preuves.deadline)
+      const valideLe = new Date(ecart.validation_preuves.valide_le)
+      tempsAttenteInsp += Math.max(0, Math.ceil((valideLe.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24)))
+    }
+    const delaiEffectif = Math.max(1, delaiTotal - tempsAttenteInsp);
     const delaiEcheance = Math.max(1, Math.ceil((dateEcheance.getTime() - dateCreation.getTime()) / (1000 * 60 * 60 * 24)));
     const ratio = Math.min(1, delaiEcheance / Math.max(1, delaiEffectif));
     return ratio * 100;
@@ -1506,10 +1648,7 @@ function computeOptimalFrequency(
   const justification: string[] = []
 
   // Déléguer le calcul de base à frequency.ts (source unique)
-  const riskLevel = profilRisque.score_global < 30 ? 'critique' as const
-    : profilRisque.score_global < 50 ? 'eleve' as const
-    : profilRisque.score_global < 70 ? 'moyen' as const
-    : 'faible' as const
+  const riskLevel = mapScoreToRiskLevel(profilRisque.score_global)
 
   const { frequencyPerYear, recommendations } = computeFinalFrequencyObj({
     riskLevel,
@@ -1520,22 +1659,16 @@ function computeOptimalFrequency(
     hasAggravators: (aggravators?.length || 0) > 0,
   })
   justification.push(...recommendations)
-  let finalFreq = frequencyPerYear
 
-  // Ajustement complémentaire : velocity metrics (non couvert par frequency.ts)
-  if (profilRisque.velocity_metrics) {
-    const vitesse = profilRisque.velocity_metrics.vitesse
-    if (vitesse < -2) {
-      finalFreq = Math.round(finalFreq * 1.5)
-      justification.push(`Dégradation rapide (${Math.abs(vitesse).toFixed(1)} pts/mois) → ×1.5`)
-    } else if (vitesse < -1) {
-      finalFreq = Math.round(finalFreq * 1.2)
-      justification.push(`Dégradation modérée (${Math.abs(vitesse).toFixed(1)} pts/mois) → ×1.2`)
-    }
-  }
+  // NOTE : vélocité retirée — elle mesurait le même signal que la tendance (via profondeur et direction
+  // de la pente), déjà prise en compte par frequency.ts (×1.3 si 'baisse'). Le double comptage
+  // amplifIAIT artificiellement la fréquence (jusqu'à ×1.95 cumulé). frequency.ts est désormais
+  // la seule source de vérité pour l'effet tendance sur la fréquence.
 
-  finalFreq = Math.min(12, Math.max(1, Math.round(finalFreq)))
-  
+  // finalFreq vient de computeFinalFrequencyObj, déjà clampé dans [1,12] par applyMultipliers.
+  // Pas de second clamp — éviter la cascade rounding/clamping qui complique le débogage.
+  const finalFreq = frequencyPerYear
+
   let label = ''
   if (finalFreq >= 12) label = 'Mensuelle (×12/an)'
   else if (finalFreq >= 6) label = 'Bimensuelle (×6/an)'
@@ -1664,10 +1797,11 @@ function getSousDomainesCritiquesOptimises(
       }
     })
   } else {
+    console.warn('[getSousDomainesCritiquesOptimises] Fallback utilisé — pas de checklistHierarchy. Les sous-domaines par défaut peuvent ne plus correspondre à la structure réelle.')
     // Fallback (valeurs par défaut si pas de checklist)
     if (profilRisque.c3 < 50) {
       sousDomaines.push('PHY/Piste')
-      sousDomaines.push('PHY/Balisege')
+      sousDomaines.push('PHY/Balisage')
     }
     if (profilRisque.c1 < 50) {
       sousDomaines.push('SGS/Documentation')
@@ -1770,85 +1904,7 @@ function genererObjectifsOptimises(
   return `${baseObjectif} / ${justification} / ${typeJustification}`
 }
 
-export function genererPlanningN1(
-  aerodromeId: string,
-  annee: number,
-  profilRisque: ProfilRisque,
-  historiqueSurveillances: Array<{ type: string; date: string; domaines: string[] }>,
-  ecartsActifs?: { niveau_risque: string; domaine?: string }[],
-  evenementsRecents?: { gravite: string }[],
-  aerodromeType?: 'international' | 'national',
-  triggers?: FacteurDeclencheur[],
-  aggravators?: FacteurAggravant[],
-  inspecteurs?: { id: string; nom: string; prenom: string; competences?: { domaine: string; niveau: string }[]; statut?: string }[]
-): Partial<Planning>[] {
-  const propositions: Partial<Planning>[] = [];
-  
-  const nbEcartsCritiquesActifs = ecartsActifs?.filter(e => e.niveau_risque === 'critique').length || 0
-  const hasPendingPac = ecartsActifs?.some(e => e.niveau_risque === 'eleve' || e.niveau_risque === 'critique') || false
-  const hasActiveIncidents = evenementsRecents?.some(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE') || false
-  const typeAero = aerodromeType || 'national'
-  
-  const { frequency: frequence, label: frequenceLabel, justification: freqJustification } = computeOptimalFrequency(
-    profilRisque,
-    typeAero,
-    nbEcartsCritiquesActifs,
-    hasActiveIncidents,
-    triggers,
-    aggravators
-  )
-  
-  const isCertificationPhase = historiqueSurveillances.some(h => h.type === 'certification')
-  const { type: typeMission, justification: typeJustification } = computeOptimalMissionType(
-    profilRisque,
-    nbEcartsCritiquesActifs,
-    hasPendingPac,
-    isCertificationPhase,
-    triggers
-  )
-  
-  const domainesPrioritaires = getDomainesPrioritairesOptimises(profilRisque, ecartsActifs)
-  const sousDomainesCritiques = getSousDomainesCritiquesOptimises(profilRisque)
-  const equipeSuggerer = getEquipeSuggererOptimisee(domainesPrioritaires, inspecteurs || [])
-  
-  const moisDansAnnee = 12
-  const intervalle = Math.floor(moisDansAnnee / frequence)
-  
-  for (let i = 0; i < frequence; i++) {
-    const mois = i * intervalle + 1
-    const dateDebut = new Date(annee, mois - 1, 1)
-    const dateFin = new Date(annee, mois - 1, 3)
-    
-    const domainesSelectionnes = domainesPrioritaires.slice(0, 3)
-    
-    const objectifs = genererObjectifsOptimises(
-      typeMission,
-      domainesSelectionnes,
-      profilRisque,
-      freqJustification,
-      typeJustification
-    )
-    
-    propositions.push({
-      aerodrome_id: aerodromeId,
-      type: typeMission as Planning['type'],
-      date_debut: dateDebut.toISOString(),
-      date_fin: dateFin.toISOString(),
-      portee: domainesSelectionnes,
-      equipe_ids: equipeSuggerer.map(m => m.id),
-      chef_id: equipeSuggerer[0]?.id || '',
-      statut: 'planifiee',
-      priorite: profilRisque.score_global < 30 ? 'critique' : 
-                profilRisque.score_global < 50 ? 'haute' : 
-                profilRisque.score_global < 70 ? 'moyenne' : 'basse',
-      objectifs,
-      est_proposition: true,
-      annee_cible: annee,
-    })
-  }
-  
-  return propositions
-}
+// genererPlanningN1 supprimé — remplacé par planningGenerator.ts dans store.ts
 
 // ============================================================
 // NOUVELLE FONCTION : CALCUL C3 AVEC EXEMPTIONS (AJOUT)
@@ -2016,11 +2072,6 @@ export interface TemporalPattern {
   confidence: number
 }
 
-export interface ScoreHistoryPoint {
-  date: string;
-  score: number;
-}
-
 export function detectSeasonalPatterns(historiqueScores: ScoreHistoryPoint[]): TemporalPattern[] {
   if (historiqueScores.length < 12) return []
   const patterns: TemporalPattern[] = []
@@ -2086,9 +2137,82 @@ export function testCorrelation(dataA: number[], dataB: number[], alpha: number 
 }
 
 function studentTCDF(t: number, df: number): number {
-  if (t > 3) return 0.999
-  if (t < -3) return 0.001
-  return 0.5 + t / 6
+  if (t < 0) return 1 - studentTCDF(-t, df)
+  if (df < 1) return 0.5
+  if (Math.abs(t) < 1e-12) return 0.5
+  if (t > 15) return 1 - 1e-12
+
+  const x = df / (df + t * t)
+  const a = df / 2
+  const b = 0.5
+  const ibeta = regularizedIncompleteBeta(x, a, b)
+  return 1 - 0.5 * ibeta
+}
+
+function regularizedIncompleteBeta(x: number, a: number, b: number): number {
+  if (x < 0 || x > 1) return 0
+  if (x === 0 || x === 1) return x === 0 ? 0 : 1
+
+  // Symétrie pour stabilité numérique
+  if (x > (a + 1) / (a + b + 2)) return 1 - regularizedIncompleteBeta(1 - x, b, a)
+
+  const lbeta = lgamma(a) + lgamma(b) - lgamma(a + b)
+  const logTerm = Math.log(x) * a + Math.log(1 - x) * b - lbeta
+  const front = Math.exp(logTerm) / a
+
+  const MAX_ITER = 200
+  const EPS = 3e-12
+
+  let f = 1.0
+  let c = 1.0
+  let d = 1.0 - (a + b) * x / (a + 1)
+  if (Math.abs(d) < EPS) d = EPS
+  d = 1.0 / d
+  f = d
+
+  for (let m = 1; m <= MAX_ITER; m++) {
+    let numerator = m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m))
+    d = 1.0 + numerator * d
+    if (Math.abs(d) < EPS) d = EPS
+    c = 1.0 + numerator / c
+    if (Math.abs(c) < EPS) c = EPS
+    d = 1.0 / d
+    f *= d * c
+
+    numerator = -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))
+    d = 1.0 + numerator * d
+    if (Math.abs(d) < EPS) d = EPS
+    c = 1.0 + numerator / c
+    if (Math.abs(c) < EPS) c = EPS
+    d = 1.0 / d
+    const delta = d * c
+    f *= delta
+
+    if (Math.abs(delta - 1.0) < EPS) break
+  }
+
+  return front * f
+}
+
+function lgamma(z: number): number {
+  if (z < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z)
+  }
+  const g = 7
+  const c = [
+    0.99999999999980993,
+    676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059,
+    12.507343278686905, -0.13857109526572012,
+    9.9843695780195716e-6, 1.5056327351493116e-7
+  ]
+  let x = c[0]
+  const zp = z - 1
+  for (let i = 1; i < g + 2; i++) {
+    x += c[i] / (zp + i)
+  }
+  const t = zp + g + 0.5
+  return 0.5 * Math.log(2 * Math.PI) + (zp + 0.5) * Math.log(t) - t + Math.log(x)
 }
 
 // 6. GENERIC BOWTIE + AI
@@ -2137,29 +2261,35 @@ export function computePredictionInterval(
   historique: number[],
   confidence: number = 0.95
 ): { lower: number; upper: number; margin: number } {
-  if (historique.length < 3) {
-    const margin = 15;
+  const n = historique.length
+  if (n < 2) {
+    const margin = Math.max(10, Math.round(Math.abs(prediction) * 0.2))
     return {
       lower: Math.max(0, prediction - margin),
       upper: Math.min(100, prediction + margin),
       margin
-    };
+    }
   }
   
-  const errors: number[] = [];
-  for (let i = 1; i < historique.length; i++) {
-    errors.push(Math.abs(historique[i] - historique[i-1]));
+  // Écart-type des résidus (différences successives)
+  const diffs: number[] = []
+  for (let i = 1; i < n; i++) {
+    diffs.push(historique[i] - historique[i-1])
   }
+  const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length
+  const variance = diffs.reduce((a, b) => a + (b - meanDiff) ** 2, 0) / diffs.length
+  const sigma = Math.sqrt(variance) || Math.max(1, Math.abs(prediction) * 0.1)
   
-  const meanError = errors.reduce((a, b) => a + b, 0) / errors.length;
-  const z = confidence === 0.95 ? 1.96 : confidence === 0.9 ? 1.645 : 1.28;
-  const margin = meanError * z;
+  const z = confidence >= 0.95 ? 1.96 : confidence >= 0.9 ? 1.645 : 1.28
+  // Erreur standard de la prédiction : sigma * sqrt(1 + 1/n)
+  const se = sigma * Math.sqrt(1 + 1 / n)
+  const margin = Math.round(se * z)
   
   return {
     lower: Math.max(0, prediction - margin),
     upper: Math.min(100, prediction + margin),
-    margin: Math.round(margin)
-  };
+    margin
+  }
 }
 
 /**
@@ -2169,17 +2299,25 @@ export function computePredictionConfidence(
   historique: number[],
   prediction: number
 ): number {
-  if (historique.length < 3) return 50;
-  
-  const lastValues = historique.slice(-3);
-  const mean = lastValues.reduce((a, b) => a + b, 0) / lastValues.length;
-  const deviation = Math.abs(prediction - mean);
-  
-  if (deviation <= 5) return 90;
-  if (deviation <= 10) return 75;
-  if (deviation <= 15) return 60;
-  if (deviation <= 25) return 45;
-  return 30;
+  const n = historique.length
+  if (n < 2) return 40 + (n === 1 ? 5 : 0)
+
+  const mean = historique.reduce((a, b) => a + b, 0) / n
+  const residuals = historique.map(v => Math.pow(v - mean, 2))
+  const variance = residuals.reduce((a, b) => a + b, 0) / n
+  const std = Math.sqrt(variance)
+  const cv = std / Math.max(Math.abs(mean), 1)
+
+  // Confiance basée sur le coefficient de variation
+  let confidence = Math.round(100 - cv * 60)
+  confidence = Math.max(20, Math.min(95, confidence))
+
+  // Pénalité si prédiction s'éloigne de la moyenne
+  const zScore = std > 0 ? Math.abs(prediction - mean) / std : 0
+  if (zScore > 2) confidence -= 15
+  else if (zScore > 1.5) confidence -= 8
+
+  return Math.max(15, confidence)
 }
 
 // ============================================================
@@ -2253,6 +2391,64 @@ export function computeHistoricalVolatility(scores: number[]): number {
 }
 
 // ============================================================
+// QUALITÉ / FIABILITÉ DES DONNÉES
+// ============================================================
+
+/**
+ * Évalue la fiabilité des données qui alimentent le profil de risque.
+ * Se base sur la complétude des PAC, le respect des délais, et la fraîcheur des écarts.
+ */
+export function computeQualityScore(ecarts: Ecart[]): { qualityScore: number; qualite: 'excellente' | 'bonne' | 'moyenne' | 'faible' } {
+  if (ecarts.length === 0) return { qualityScore: 100, qualite: 'excellente' }
+
+  let score = 0
+  let totalWeight = 0
+
+  // 1. Complétude PAC (35%)
+  const ecartsNonOuverts = ecarts.filter(e => e.statut !== 'ouvert')
+  if (ecartsNonOuverts.length > 0) {
+    const avecPAC = ecartsNonOuverts.filter(e =>
+      ['pac_soumis', 'pac_accepte', 'pac_refuse', 'preuves_soumises', 'preuves_evaluees', 'cloture', 'en_attente_validation_chef'].includes(e.statut)
+    ).length
+    score += (avecPAC / ecartsNonOuverts.length) * 35
+    totalWeight += 35
+  }
+
+  // 2. Respect délais évaluation PAC (25%)
+  const ecartsAvecEval = ecarts.filter(e => e.evaluation_pac?.deadline && e.evaluation_pac?.evalue_le)
+  if (ecartsAvecEval.length > 0) {
+    const dansLesTemps = ecartsAvecEval.filter(e =>
+      new Date(e.evaluation_pac!.evalue_le!) <= new Date(e.evaluation_pac!.deadline!)
+    ).length
+    score += (dansLesTemps / ecartsAvecEval.length) * 25
+    totalWeight += 25
+  }
+
+  // 3. Fraîcheur des données (20%)
+  const douzeMois = new Date()
+  douzeMois.setFullYear(douzeMois.getFullYear() - 1)
+  const recents = ecarts.filter(e => new Date(e.created_at) >= douzeMois).length
+  if (recents > 0) {
+    score += (recents / ecarts.length) * 20
+    totalWeight += 20
+  }
+
+  // 4. Ratio clôturé / total (20%)
+  const clotures = ecarts.filter(e => e.statut === 'cloture').length
+  score += (clotures / ecarts.length) * 20
+  totalWeight += 20
+
+  const qualityScore = totalWeight > 0 ? Math.round(score / totalWeight * 100) : 100
+  const qualite =
+    qualityScore >= 90 ? 'excellente' as const
+    : qualityScore >= 70 ? 'bonne' as const
+    : qualityScore >= 40 ? 'moyenne' as const
+    : 'faible'
+
+  return { qualityScore, qualite }
+}
+
+// ============================================================
 // EXPORT FINAL (conservé + ajout des nouvelles fonctions)
 // ============================================================
 
@@ -2265,7 +2461,6 @@ export const risqueUtils = {
   calculateGlobalScore,
   getRiskLevel,
   predictRiskScore,
-  genererPlanningN1,
   calculateC2FromEcarts,
   calculateC4FromEcarts,
   mettreAJourProfilRisque,
@@ -2300,4 +2495,10 @@ export const risqueUtils = {
   computeEventTrendAnalysis,
   predictWithEnsemble,
   predictWithEWMA,
+  // Quality / Données
+  computeQualityScore,
+  // ICAO matrix
+  computeICaoMatrix,
+  computeGlobalICaoRisk,
+  getICaoLabels,
 };

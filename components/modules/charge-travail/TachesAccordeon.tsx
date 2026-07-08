@@ -67,6 +67,14 @@ export function TachesAccordeon({ userRole, userId }: TachesAccordeonProps) {
       if (e.inspecteur_ref_id) {
         taches.push({ ...chargeUtils.ecartVersTache(e, aerodromes), lien_id: e.inspecteur_ref_id });
       }
+      const tachePAC = chargeUtils.ecartVersTacheEvaluationPAC(e, aerodromes)
+      if (tachePAC && e.inspecteur_ref_id) {
+        taches.push({ ...tachePAC, lien_id: e.inspecteur_ref_id })
+      }
+      const tachePreuves = chargeUtils.ecartVersTacheValidationPreuves(e, aerodromes)
+      if (tachePreuves && e.inspecteur_ref_id) {
+        taches.push({ ...tachePreuves, lien_id: e.inspecteur_ref_id })
+      }
     });
 
     evenements?.forEach(e => {

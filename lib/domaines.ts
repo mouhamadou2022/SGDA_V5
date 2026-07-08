@@ -52,6 +52,15 @@ export const getDomaineInfo = (code: string) =>
 export const getDomaineLabel = (code: string): string =>
   getDomaineInfo(code)?.label ?? code;
 
+// Obtenir le sigle d'un domaine (code) — gère aussi le cas où la valeur stockée est le label
+export function getDomaineCode(value: string): string {
+  const byCode = DOMAINES_SURVEILLANCE.find(d => d.code === value);
+  if (byCode) return byCode.code;
+  const byLabel = DOMAINES_SURVEILLANCE.find(d => d.label === value);
+  if (byLabel) return byLabel.code;
+  return value;
+}
+
 // Si AGA est sélectionné, retourne tous les domaines individuels
 // Si AGA/XXX est sélectionné, retourne les domaines correspondants
 export const expandDomaines = (domaines: string[]): string[] => {
@@ -130,7 +139,7 @@ export function grouperParDomaine<T extends { domaine?: string }>(
   const groupes: Map<string, T[]> = new Map();
 
   items.forEach(item => {
-    const domaine = (item.domaine || domaineParDefaut) as string;
+    const domaine = getDomaineCode((item.domaine || domaineParDefaut) as string);
     if (!groupes.has(domaine)) {
       groupes.set(domaine, []);
     }
@@ -263,4 +272,56 @@ typesChecklist: ['suivi_ecarts', ...(params.ecartsActifs.some(e => e.pac) ? ['pa
   }
 
   return suggestions.sort((a, b) => b.confiance - a.confiance);
+}
+
+// ── Spécialités métier des inspecteurs (réalité terrain) ──────────
+export const SPECIALITES_INSPECTEUR: Array<{ code: string; label: string; domaines: string[] }> = [
+  { code: 'EXPL',   label: 'Exploitation',          domaines: ['COP', 'OPS', 'OLS', 'SGS'] },
+  { code: 'GC',     label: 'Génie Civil',           domaines: ['PHY'] },
+  { code: 'GE',     label: 'Génie Électrique',      domaines: ['ELEC', 'MFP'] },
+  { code: 'SLI_RA', label: 'SLI et Risque Animalier', domaines: ['SLI', 'RA'] },
+];
+
+export type SpecialiteCode = 'EXPL' | 'GC' | 'GE' | 'SLI_RA';
+
+export function getDomainesFromSpecialites(specialites: string[]): string[] {
+  return specialites.flatMap(sp => {
+    const found = SPECIALITES_INSPECTEUR.find(s => s.code === sp)
+    return found ? found.domaines : []
+  })
+}
+
+export function couvertureSuffisante(
+  domainesRequis: string[],
+  specialitesEquipe: string[],
+): { couvert: boolean; manquants: string[]; message: string } {
+  const domainesCouverts = getDomainesFromSpecialites(specialitesEquipe)
+  const manquants = domainesRequis.filter(d => !domainesCouverts.includes(d))
+  if (manquants.length === 0) {
+    return { couvert: true, manquants: [], message: '' }
+  }
+  return {
+    couvert: false,
+    manquants,
+    message: `Domaines non couverts par l'équipe : ${manquants.join(', ')}`,
+  }
+}
+
+export function verifierCompositionEquipe(
+  equipeIds: string[],
+  utilisateurs: any[],
+  domainesRequis: string[],
+): { valide: boolean; erreurs: string[] } {
+  const erreurs: string[] = []
+  const equipe = utilisateurs.filter(u => equipeIds.includes(u.id))
+  const specialitesEquipe = equipe.flatMap(u => (u as any).specialites || [])
+  const aUnExpl = specialitesEquipe.includes('EXPL')
+  if (!aUnExpl) {
+    erreurs.push('L\'équipe doit contenir au moins un inspecteur Exploitation (EXPL)')
+  }
+  const { couvert, manquants } = couvertureSuffisante(domainesRequis, specialitesEquipe)
+  if (!couvert) {
+    erreurs.push(`Couverture insuffisante — domaines manquants : ${manquants.join(', ')}`)
+  }
+  return { valide: erreurs.length === 0, erreurs }
 }

@@ -52,6 +52,13 @@ export function applyMultipliers(
 
 /**
  * Calcule les multiplicateurs selon le contexte
+ *
+ * ATTENTION — hasCriticalEcarts et hasAggravators peuvent se recouper :
+ * un écart critique active à la fois le multiplicateur 1.5 (hasCriticalEcarts)
+ * ET potentiellement hasAggravators (via surcharge si ≥5 écarts). Le double-comptage
+ * est intentionnel dans la mesure où ces deux canaux représentent des mécanismes distincts
+ * (écart critique immédiat vs dégradation globale), mais l'appelant doit être conscient
+ * que leur produit multiplicatif (1.5 × 1.3 = 1.95×) peut amplifier un même signal.
  */
 export function computeMultipliers(params: {
   typeAeroport?: 'international' | 'national'

@@ -3,7 +3,7 @@
 
 const DB_NAME = 'sgda_ia_state'
 const DB_VERSION = 1
-const STORES = ['decisions', 'feedbacks', 'thresholds', 'ml_weights'] as const
+const STORES = ['decisions', 'feedbacks', 'thresholds', 'ml_weights', 'bayes_cpts'] as const
 export type IaStoreName = typeof STORES[number]
 
 function openDB(): Promise<IDBDatabase> {

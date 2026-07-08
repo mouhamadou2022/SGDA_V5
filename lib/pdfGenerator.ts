@@ -97,7 +97,7 @@ export async function generatePDFFromHTML(
 
     const availableWidth = imgWidth - marginLeft - marginRight;
     const imgHeight = (canvas.height * availableWidth) / canvas.width;
-    let position = marginTop;
+    const position = marginTop;
 
     // Création du PDF
     const pdf = new jsPDF({
@@ -220,7 +220,7 @@ export async function generatePDFFromHTMLString(
 
     const availableWidth = imgWidth - marginLeft - marginRight;
     const imgHeight = (canvas.height * availableWidth) / canvas.width;
-    let position = marginTop;
+    const position = marginTop;
 
     const pdf = new jsPDF({
       unit: 'mm',

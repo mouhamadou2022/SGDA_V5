@@ -213,7 +213,7 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
       'en_retard': 'bg-danger',
     };
     const bg = bgMap[event.statut] || 'bg-role-primary';
-    return { className: `${bg} text-white rounded-lg border-none text-xs font-medium px-2 py-1 shadow-sm`, style: {} };
+    return { className: `${bg} !text-white rounded-lg border-none text-xs font-medium px-2 py-1 shadow-sm`, style: {} };
   }, []);
 
   const EventComponent = useCallback(({ event }: any) => {

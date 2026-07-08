@@ -23,10 +23,10 @@ const PRIOR_PAR_DEFAUT: Record<string, number> = {
   'SLI': 0.20,
   'PHY': 0.25,
   'OLS': 0.18,
-  'RA': 0.22,
+  'RA': 0.10,
   'ELEC': 0.22,
   'MFP': 0.16,
-  'COP': 0.14,
+  'COP': 0.12,
   'OPS': 0.20,
 }
 
@@ -127,16 +127,21 @@ export function computeCredibleInterval(
 }
 
 /**
- * Détection des Black Swans (événements improbables mais catastrophiques)
- * Condition: posterior > seuil ALORS que prior < seuil_faible
+ * Détection des Black Swans par Bayes factor
+ * Bayes factor = (posterior/(1-posterior)) / (prior/(1-prior))
+ * Seuils Jeffreys : >3 substantiel, >10 fort, >100 décisif
  */
 export function detectBlackSwan(
   prior: number,
   posterior: number,
-  seuilPosterior: number = 0.3,
-  seuilPrior: number = 0.1
+  seuilBayesFactor: number = 5
 ): boolean {
-  return posterior > seuilPosterior && prior < seuilPrior
+  if (prior <= 0 || prior >= 1) return posterior > 0.5
+  if (posterior <= prior) return false
+  const priorOdds = prior / (1 - prior)
+  const posteriorOdds = posterior / (1 - posterior)
+  const bayesFactor = posteriorOdds / priorOdds
+  return bayesFactor > seuilBayesFactor
 }
 
 /**
@@ -147,17 +152,20 @@ export function computeBayesianPrediction(
   signaux: Array<{ type: string; likelihood?: number }>,
   incidentsCount: number,
   moisSansIncident: number,
+  totalObservations: number,
   customPrior?: number,
-  sampleSize: number = 50
 ): PredictionBayesienne {
   const prior = computePriorProbability(domaine, incidentsCount, moisSansIncident, customPrior)
   const posterior = computeCombinedPosterior(prior, signaux)
   const credibleInterval = computeCredibleInterval(
-    Math.round(posterior * sampleSize),
-    sampleSize,
+    Math.round(posterior * totalObservations),
+    totalObservations,
     0.95
   )
   const estBlackSwan = detectBlackSwan(prior, posterior)
+  const priorOdds = prior / (1 - prior)
+  const posteriorOdds = posterior / (1 - posterior)
+  const bayesFactor = Math.round((posteriorOdds / priorOdds) * 10) / 10
   
   // Calcul de la vraisemblance moyenne des signaux
   let avgLikelihood = 0
@@ -172,6 +180,7 @@ export function computeBayesianPrediction(
     likelihood: Math.round(avgLikelihood * 100),
     credibleInterval,
     estBlackSwan,
+    bayesFactor,
   }
 }
 

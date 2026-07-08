@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { WifiOff, RefreshCw, Wifi, CloudOff, AlertCircle, X } from 'lucide-react'
-import { onNetworkChange, getPendingSyncCount } from '@/lib/offline'
+import { onNetworkChange, getPendingSyncCount, flushSyncQueue } from '@/lib/offline'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/lib/store'
 
@@ -20,11 +20,13 @@ export function OfflineBanner() {
 
     const unsubscribe = onNetworkChange((online) => {
       if (!online) {
-        // Passage en hors-ligne → afficher avec animation
         setIsVisible(true)
         setIsOnline(false)
       } else {
-        // Reconnexion → attendre 2s puis masquer
+        // Auto-flush de la sync queue au retour en ligne
+        getPendingSyncCount().then((count) => {
+          if (count > 0) flushSyncQueue()
+        })
         setTimeout(() => {
           setIsVisible(false)
           setTimeout(() => setIsOnline(true), 300)
@@ -44,8 +46,7 @@ export function OfflineBanner() {
   const handleRetrySync = async () => {
     setIsRetrying(true)
     try {
-      // Simuler une tentative de synchronisation
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await flushSyncQueue()
       const count = await getPendingSyncCount()
       setPendingCount(count)
       if (count === 0 && navigator.onLine) {

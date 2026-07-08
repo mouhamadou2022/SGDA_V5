@@ -10,6 +10,8 @@ import {
   Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { SGSLearningPanel } from './SGSLearningPanel';
+import { uploadPreuveFile } from '@/lib/preuves';
 import {
   SGS_COMPOSANTES,
   PAOE_LABELS,
@@ -154,21 +156,30 @@ interface PreuveModalProps {
   preuves: { id: string; nom: string; url: string; dateUpload: string }[];
   onAddPreuve: (preuve: { id: string; nom: string; url: string; dateUpload: string }) => void;
   onRemovePreuve: (preuveId: string) => void;
+  uploadFile?: (file: File) => Promise<string>;
 }
 
-function PreuveModal({ isOpen, onClose, questionRef, preuves, onAddPreuve, onRemovePreuve }: PreuveModalProps) {
+function PreuveModal({ isOpen, onClose, questionRef, preuves, onAddPreuve, onRemovePreuve, uploadFile }: PreuveModalProps) {
   const [newPreuveNom, setNewPreuveNom] = useState('');
   const [newPreuveFile, setNewPreuveFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleAddPreuve = () => {
+  const handleAddPreuve = async () => {
     if (!newPreuveFile) return;
-    const url = URL.createObjectURL(newPreuveFile);
-    const nom = newPreuveNom.trim() || newPreuveFile.name;
-    onAddPreuve({ id: `proof-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, nom, url, dateUpload: new Date().toISOString() });
-    setNewPreuveNom('');
-    setNewPreuveFile(null);
+    setUploading(true);
+    try {
+      const url = uploadFile ? await uploadFile(newPreuveFile) : URL.createObjectURL(newPreuveFile);
+      const nom = newPreuveNom.trim() || newPreuveFile.name;
+      onAddPreuve({ id: `proof-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, nom, url, dateUpload: new Date().toISOString() });
+      setNewPreuveNom('');
+      setNewPreuveFile(null);
+    } catch (e) {
+      console.error('[SGSPreuveModal] Erreur upload:', e);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return createPortal(
@@ -239,11 +250,10 @@ function PreuveModal({ isOpen, onClose, questionRef, preuves, onAddPreuve, onRem
                 <button
                   type="button"
                   onClick={handleAddPreuve}
-                  disabled={!newPreuveFile}
-                  className={`btn btn-sm w-full gap-1.5 ${!newPreuveFile ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}
+                  disabled={!newPreuveFile || uploading}
+                  className={`btn btn-sm w-full gap-1.5 ${!newPreuveFile || uploading ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}
                 >
-                  <Upload className="w-3 h-3" />
-                  Ajouter la preuve
+                  {uploading ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Upload...</> : <><Upload className="w-3 h-3" /> Ajouter la preuve</>}
                 </button>
               </div>
             </div>
@@ -271,7 +281,13 @@ interface ElementTableProps {
   onAddPreuve: (questionId: string, preuve: { id: string; nom: string; url: string; dateUpload: string }) => void;
   onRemovePreuve: (questionId: string, preuveId: string) => void;
   onObservationChange: (questionId: string, observation: string, stylusData?: string) => void;
+  /** readOnly = verrouillage évaluation (niveau PAOE, preuves, observations) */
   readOnly: boolean;
+  /** structureReadOnly = verrouillage structure (questions, IA, sourceRégl) */
+  structureReadOnly?: boolean;
+  /** Données IA — directives et guide étapes générés par l'IA (remplacent les hardcodés) */
+  iaDirectives?: SGSDirectives;
+  iaGuideEtapes?: SGSGuideEtape[];
   onGenerateByIA?: () => void;
   isGeneratingIA?: boolean;
   hasGeneratedIA?: boolean;
@@ -280,9 +296,17 @@ interface ElementTableProps {
   noteDirectives?: string;
   noteGuide?: string;
   onNoteChange?: (col: keyof SGSElementNotes, val: string) => void;
+  surveillanceId?: string;
 }
 
-function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, onModeSaisieChange, onQuestionChange, onAddQuestion, onRemoveQuestion, onAddPreuve, onRemovePreuve, onObservationChange, readOnly, onGenerateByIA, isGeneratingIA, hasGeneratedIA, noteQuestions, noteDirectives, noteGuide, onNoteChange }: ElementTableProps) {
+function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, onModeSaisieChange, onQuestionChange, onAddQuestion, onRemoveQuestion, onAddPreuve, onRemovePreuve, onObservationChange, readOnly, structureReadOnly = false, onGenerateByIA, isGeneratingIA, hasGeneratedIA, noteQuestions, noteDirectives, noteGuide, onNoteChange, surveillanceId }: ElementTableProps) {
+  // Utiliser les directives/guide du template IA si fournis, sinon les hardcodés
+  const [localDirectives, setLocalDirectives] = useState<SGSDirectives>(
+    ((elementDef as any).iaDirectives as SGSDirectives) || elementDef.directives
+  );
+  const [localGuideEtapes, setLocalGuideEtapes] = useState<SGSGuideEtape[]>(
+    ((elementDef as any).iaGuideEtapes as SGSGuideEtape[]) || elementDef.guideEtapes
+  );
   const [preuveModalOpen, setPreuveModalOpen] = useState<string | null>(null);
   const [observationEdit, setObservationEdit] = useState<string | null>(null);
   const [observationTemp, setObservationTemp] = useState('');
@@ -299,8 +323,6 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
   const [editingGuideActionTemp, setEditingGuideActionTemp] = useState('');
   const [editingSourceReg, setEditingSourceReg] = useState<string | null>(null);
   const [editingSourceRegTemp, setEditingSourceRegTemp] = useState('');
-  const [localDirectives, setLocalDirectives] = useState(elementDef.directives);
-  const [localGuideEtapes, setLocalGuideEtapes] = useState(elementDef.guideEtapes);
   // Ouverture des zones de notes
   const [noteQuestionsOpen, setNoteQuestionsOpen] = useState(!!noteQuestions);
   const [noteDirectivesOpen, setNoteDirectivesOpen] = useState(!!noteDirectives);
@@ -343,7 +365,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
           <span className={`${getPAOEBadgeClass(niveauGlobal)} text-[10px] font-semibold`}>
             {getNiveauLabel(niveauGlobal)} — {score}%
           </span>
-          {onGenerateByIA && !readOnly && (
+          {onGenerateByIA && !structureReadOnly && (
             <button
               type="button"
               onClick={onGenerateByIA}
@@ -358,7 +380,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
               )}
             </button>
           )}
-          {!readOnly && (
+          {!structureReadOnly && (
             <button type="button" onClick={() => setShowAddQuestion(!showAddQuestion)} className="btn btn-sm px-2 py-1 btn-ghost text-primary" title="Ajouter une question">
               <Plus className="w-3 h-3" />
             </button>
@@ -366,8 +388,8 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
         </div>
       </div>
 
-      {/* Add question form */}
-      {showAddQuestion && !readOnly && (
+      {/* Add question form — structureLocked */}
+      {showAddQuestion && !structureReadOnly && (
         <div className="p-3 bg-primary/5 border-b border-border">
           <div className="flex gap-2">
             <input
@@ -395,7 +417,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                 <th className="text-center p-2 text-sm font-bold text-foreground w-28 min-w-[7rem] max-w-[7rem] border-r border-blue-100">État</th>
                 <th className="text-center p-2 text-sm font-bold text-foreground w-28 min-w-[7rem] max-w-[8rem] border-r border-blue-100">Preuves</th>
                 <th className="text-left p-2 text-sm font-bold text-foreground min-w-[8rem] max-w-[12rem]">Observations</th>
-                {!readOnly && <th className="w-8 min-w-[2rem] max-w-[2rem]"></th>}
+                {!structureReadOnly && <th className="w-8 min-w-[2rem] max-w-[2rem]"></th>}
               </tr>
             </thead>
             <tbody>
@@ -434,11 +456,11 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                         />
                       ) : (
                         <span
-                          onClick={() => { if (!readOnly) { setEditingSourceReg(q.id); setEditingSourceRegTemp(q.sourceReglementaire || ''); } }}
+                          onClick={() => { if (!structureReadOnly) { setEditingSourceReg(q.id); setEditingSourceRegTemp(q.sourceReglementaire || ''); } }}
                           className={`block text-[11px] font-mono leading-tight px-1 py-0.5 rounded ${q.sourceReglementaire ? 'text-blue-700 bg-blue-50 cursor-pointer hover:bg-blue-100' : 'text-gray-300 cursor-pointer hover:bg-blue-50'}`}
                           title={q.sourceReglementaire || 'Cliquer pour ajouter une référence'}
                         >
-                          {q.sourceReglementaire || (readOnly ? '—' : '+ Ajouter')}
+                          {q.sourceReglementaire || (structureReadOnly ? '—' : '+ Ajouter')}
                         </span>
                       )}
                     </td>
@@ -457,7 +479,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                         />
                       ) : (
                         <div className="flex items-start gap-1.5">
-                          <span className="cursor-pointer hover:bg-blue-50 px-1 py-0.5 rounded flex-1 text-sm text-foreground leading-snug" onClick={() => { setEditingQuestion(q.id); setEditingQuestionTemp(q.texte); }}>{q.texte}</span>
+                          <span className={`${structureReadOnly ? '' : 'cursor-pointer hover:bg-blue-50'} px-1 py-0.5 rounded flex-1 text-sm text-foreground leading-snug`} onClick={() => { if (!structureReadOnly) { setEditingQuestion(q.id); setEditingQuestionTemp(q.texte); } }}>{q.texte}</span>
                           <div className="flex flex-col gap-0.5 flex-shrink-0">
                             {q.generatedByIA && (
                               <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border ${
@@ -603,7 +625,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                         </button>
                       )}
                     </td>
-                    {!readOnly && (
+                    {!structureReadOnly && (
                       <td className="p-2 text-center">
                         <button type="button" onClick={() => onRemoveQuestion(q.id)} className="btn btn-sm px-1 py-1 btn-ghost text-red-600" title="Supprimer">
                           <Trash2 className="w-3 h-3" />
@@ -833,6 +855,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
           preuves={currentPreuveQuestion.preuves || []}
           onAddPreuve={(preuve) => onAddPreuve(currentPreuveQuestion.id, preuve)}
           onRemovePreuve={(preuveId) => onRemovePreuve(currentPreuveQuestion.id, preuveId)}
+          uploadFile={surveillanceId ? (file) => uploadPreuveFile(file, surveillanceId, `sgs-${currentPreuveQuestion.id}`) : undefined}
         />
       )}
     </div>
@@ -855,7 +878,9 @@ interface SGSEvaluationModalProps {
   existingEvaluation?: EvaluationSGS | null;
   previousEvaluation?: EvaluationSGS | null;
   readOnly?: boolean;
+  structureReadOnly?: boolean;
   riskTrend?: 'stable' | 'improving' | 'degrading';
+  sgsTemplate?: Record<string, unknown>;
   onGenerateByIA?: (composanteId: number, elementId: string) => Promise<{
     questions: { ref: string; texte: string; sourceReglementaire: string }[]
     directives: { present: string[]; approprie: string[]; operationnel: string[]; efficace: string[] }
@@ -865,7 +890,8 @@ interface SGSEvaluationModalProps {
 
 export function SGSEvaluationModal({
   isOpen, onClose, aerodromeId, surveillanceId, aerodromeNom, surveillanceType, surveillanceDate, equipeCount,
-  inspecteurId, inspecteurNom, onSave, existingEvaluation, previousEvaluation, readOnly = false, riskTrend = 'stable',
+  inspecteurId, inspecteurNom, onSave, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, riskTrend = 'stable',
+  sgsTemplate,
   onGenerateByIA,
 }: SGSEvaluationModalProps) {
   const [questionsByElement, setQuestionsByElement] = useState<{ [elementId: string]: SGSQuestion[] }>({});
@@ -876,6 +902,22 @@ export function SGSEvaluationModal({
   const [elementNotes, setElementNotes] = useState<Record<string, SGSElementNotes>>({});
   const [iaGenerating, setIaGenerating] = useState<string | null>(null);
   const [iaGeneratedElements, setIaGeneratedElements] = useState<Set<string>>(new Set());
+
+  // Données IA (directives + guide) extraites du template SGS si disponible
+  const iaDataByElement = useMemo(() => {
+    if (!sgsTemplate) return {};
+    const map: Record<string, { directives: SGSDirectives; guideEtapes: SGSGuideEtape[] }> = {};
+    for (const key of Object.keys(sgsTemplate)) {
+      const val = sgsTemplate[key];
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        const obj = val as Record<string, unknown>;
+        if (obj.directives && obj.guideEtapes) {
+          map[key] = { directives: obj.directives as SGSDirectives, guideEtapes: obj.guideEtapes as SGSGuideEtape[] };
+        }
+      }
+    }
+    return map;
+  }, [sgsTemplate]);
 
   const handleElementNoteChange = useCallback((elementId: string, col: keyof SGSElementNotes, val: string) => {
     setElementNotes(prev => ({ ...prev, [elementId]: { ...prev[elementId], [col]: val } }));
@@ -977,10 +1019,18 @@ export function SGSEvaluationModal({
   const handleQuestionChange = useCallback((elementId: string, questionId: string, niveau: PAOELevel) => {
     setQuestionsByElement(prev => {
       const questions = prev[elementId] || [];
+      const oldQ = questions.find(q => q.id === questionId);
+      if (oldQ && oldQ.niveau !== niveau && (oldQ.generatedByIA || oldQ.prefilled)) {
+        const composanteId = parseInt(elementId.split('.')[0], 10);
+        import('@/lib/sgsMemory').then(m => m.recordSGSLevelCorrection(
+          aerodromeId, surveillanceId, composanteId, elementId, questionId,
+          oldQ.ref, oldQ.texte, oldQ.niveau, niveau
+        ));
+      }
       const updated = questions.map(q => q.id === questionId ? { ...q, niveau } : q);
       return { ...prev, [elementId]: updated };
     });
-  }, []);
+  }, [aerodromeId, surveillanceId]);
 
   const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion) => {
     setQuestionsByElement(prev => {
@@ -1073,6 +1123,9 @@ export function SGSEvaluationModal({
                 <div className="flex items-center gap-2"><Users className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Équipe</p><p className="font-medium">{equipeCount ? `${equipeCount} inspecteurs` : inspecteurNom}</p></div></div>
               </div>
             </div>
+
+            {/* Panneau apprentissage SGS */}
+            <SGSLearningPanel aerodromeId={aerodromeId} />
 
             {/* Statistiques temps réel */}
             <div className="mb-4 p-3 bg-role-primary/5 rounded-lg border border-role-primary/20">
@@ -1173,7 +1226,7 @@ export function SGSEvaluationModal({
                             </div>
                             {isElementExpanded && (
                               <ElementTable
-                                elementDef={elemDef}
+                                elementDef={{ ...elemDef, iaDirectives: iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: iaDataByElement[elemDef.id]?.guideEtapes } as any}
                                 composantePrefixe={compDef.prefixe}
                                 questions={questions}
                                 modeSaisie={modeSaisieByElement[elemDef.id] || 'clavier'}
@@ -1185,6 +1238,7 @@ export function SGSEvaluationModal({
                                 onRemovePreuve={(questionId, preuveId) => handleRemovePreuve(elemDef.id, questionId, preuveId)}
                                 onObservationChange={(questionId, obs, stylus) => handleObservationChange(elemDef.id, questionId, obs, stylus)}
                                 readOnly={readOnly}
+                                structureReadOnly={structureReadOnly}
                                 onGenerateByIA={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id) : undefined}
                                 isGeneratingIA={iaGenerating === `${compDef.id}-${elemDef.id}`}
                                 hasGeneratedIA={iaGeneratedElements.has(elemDef.id)}
@@ -1192,6 +1246,7 @@ export function SGSEvaluationModal({
                                 noteDirectives={elementNotes[elemDef.id]?.directives}
                                 noteGuide={elementNotes[elemDef.id]?.guide}
                                 onNoteChange={(col, val) => handleElementNoteChange(elemDef.id, col, val)}
+                                surveillanceId={surveillanceId}
                               />
                             )}
                           </div>
@@ -1245,9 +1300,12 @@ interface SGSEvaluationContentProps {
   onSave: (evaluation: EvaluationSGS) => void;
   onComplete?: () => void;
   onSigner?: (signatureUrl: string) => void;
+  onSaveSGSTemplate?: (template: Record<string, unknown[]>) => void;
+  sgsTemplate?: Record<string, unknown>;
   existingEvaluation?: EvaluationSGS | null;
   previousEvaluation?: EvaluationSGS | null;
   readOnly?: boolean;
+  structureReadOnly?: boolean;
   isSigned?: boolean;
   riskTrend?: 'stable' | 'improving' | 'degrading';
   onGenerateByIA?: (composanteId: number, elementId: string) => Promise<{
@@ -1260,7 +1318,7 @@ interface SGSEvaluationContentProps {
 
 export function SGSEvaluationContent({
   aerodromeId, surveillanceId, aerodromeNom, surveillanceType, surveillanceDate, equipeCount,
-  inspecteurId, inspecteurNom, onSave, onComplete, onSigner, existingEvaluation, previousEvaluation, readOnly = false, isSigned = false, riskTrend = 'stable',
+  inspecteurId, inspecteurNom, onSave, onComplete, onSigner, onSaveSGSTemplate, sgsTemplate, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, isSigned = false, riskTrend = 'stable',
   onGenerateByIA, onBack,
 }: SGSEvaluationContentProps) {
   const [questionsByElement, setQuestionsByElement] = useState<{ [elementId: string]: SGSQuestion[] }>({});
@@ -1272,6 +1330,22 @@ export function SGSEvaluationContent({
   const [iaGenerating, setIaGenerating] = useState<string | null>(null);
   const [iaGeneratedElements, setIaGeneratedElements] = useState<Set<string>>(new Set());
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
+
+  // Données IA (directives + guide) extraites du template SGS si disponible
+  const iaDataByElement = useMemo(() => {
+    if (!sgsTemplate) return {};
+    const map: Record<string, { directives: SGSDirectives; guideEtapes: SGSGuideEtape[] }> = {};
+    for (const key of Object.keys(sgsTemplate)) {
+      const val = sgsTemplate[key];
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        const obj = val as Record<string, unknown>;
+        if (obj.directives && obj.guideEtapes) {
+          map[key] = { directives: obj.directives as SGSDirectives, guideEtapes: obj.guideEtapes as SGSGuideEtape[] };
+        }
+      }
+    }
+    return map;
+  }, [sgsTemplate]);
 
   const handleElementNoteChange = useCallback((elementId: string, col: keyof SGSElementNotes, val: string) => {
     setElementNotes(prev => ({ ...prev, [elementId]: { ...prev[elementId], [col]: val } }));
@@ -1355,6 +1429,30 @@ export function SGSEvaluationContent({
       setQuestionsByElement(byElem);
       setModeSaisieByElement(modes);
       setObservations('');
+    } else if (sgsTemplate) {
+      const initial: { [elementId: string]: SGSQuestion[] } = {};
+      const modes: { [elementId: string]: ModeSaisie } = {};
+      SGS_COMPOSANTES.forEach(comp => {
+        comp.elements.forEach(elem => {
+          const val = sgsTemplate[elem.id];
+          if (Array.isArray(val) && val.length > 0) {
+            initial[elem.id] = (val as any[]).map(q => ({ ...q, niveau: 'absent' as PAOELevel }));
+          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            const obj = val as Record<string, unknown>;
+            if (Array.isArray(obj.questions) && obj.questions.length > 0) {
+              initial[elem.id] = (obj.questions as any[]).map(q => ({ ...q, niveau: 'absent' as PAOELevel }));
+            } else {
+              initial[elem.id] = elem.questions.map(q => ({ ...q }));
+            }
+          } else {
+            initial[elem.id] = elem.questions.map(q => ({ ...q }));
+          }
+          modes[elem.id] = 'clavier';
+        });
+      });
+      setQuestionsByElement(initial);
+      setModeSaisieByElement(modes);
+      setObservations('');
     } else {
       const initial: { [elementId: string]: SGSQuestion[] } = {};
       const modes: { [elementId: string]: ModeSaisie } = {};
@@ -1368,15 +1466,23 @@ export function SGSEvaluationContent({
       setModeSaisieByElement(modes);
       setObservations('');
     }
-  }, [existingEvaluation, previousEvaluation, riskTrend]);
+  }, [existingEvaluation, previousEvaluation, sgsTemplate, riskTrend]);
 
   const handleQuestionChange = useCallback((elementId: string, questionId: string, niveau: PAOELevel) => {
     setQuestionsByElement(prev => {
       const questions = prev[elementId] || [];
+      const oldQ = questions.find(q => q.id === questionId);
+      if (oldQ && oldQ.niveau !== niveau && (oldQ.generatedByIA || oldQ.prefilled)) {
+        const composanteId = parseInt(elementId.split('.')[0], 10);
+        import('@/lib/sgsMemory').then(m => m.recordSGSLevelCorrection(
+          aerodromeId, surveillanceId, composanteId, elementId, questionId,
+          oldQ.ref, oldQ.texte, oldQ.niveau, niveau
+        ));
+      }
       const updated = questions.map(q => q.id === questionId ? { ...q, niveau } : q);
       return { ...prev, [elementId]: updated };
     });
-  }, []);
+  }, [aerodromeId, surveillanceId]);
 
   const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion) => {
     setQuestionsByElement(prev => {
@@ -1499,6 +1605,9 @@ export function SGSEvaluationContent({
           </div>
         </div>
 
+        {/* Panneau apprentissage SGS */}
+        <SGSLearningPanel aerodromeId={aerodromeId} />
+
         {/* Statistiques temps réel PAOE */}
         <div className="mb-4 bg-white rounded-lg border border-border overflow-hidden">
           <div className="p-3 border-b border-border bg-gray-50">
@@ -1611,7 +1720,7 @@ export function SGSEvaluationContent({
                         </div>
                         {isElementExpanded && (
                           <ElementTable
-                            elementDef={elemDef}
+                            elementDef={{ ...elemDef, iaDirectives: iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: iaDataByElement[elemDef.id]?.guideEtapes } as any}
                             composantePrefixe={compDef.prefixe}
                             questions={questions}
                             modeSaisie={modeSaisieByElement[elemDef.id] || 'clavier'}
@@ -1623,6 +1732,7 @@ export function SGSEvaluationContent({
                             onRemovePreuve={(questionId, preuveId) => handleRemovePreuve(elemDef.id, questionId, preuveId)}
                             onObservationChange={(questionId, obs, stylus) => handleObservationChange(elemDef.id, questionId, obs, stylus)}
                             readOnly={readOnly}
+                            structureReadOnly={structureReadOnly}
                             onGenerateByIA={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id) : undefined}
                             isGeneratingIA={iaGenerating === `${compDef.id}-${elemDef.id}`}
                             hasGeneratedIA={iaGeneratedElements.has(elemDef.id)}
@@ -1630,6 +1740,7 @@ export function SGSEvaluationContent({
                             noteDirectives={elementNotes[elemDef.id]?.directives}
                             noteGuide={elementNotes[elemDef.id]?.guide}
                             onNoteChange={(col, val) => handleElementNoteChange(elemDef.id, col, val)}
+                            surveillanceId={surveillanceId}
                           />
                         )}
                       </div>
@@ -1694,6 +1805,19 @@ export function SGSEvaluationContent({
                   onSave={(signatureUrl) => {
                     onSave({ ...evaluation, observations, elementNotes });
                     onSigner?.(signatureUrl);
+                    // Sauvegarder le template SGS (structure sans les évaluations)
+                    if (onSaveSGSTemplate) {
+                      const template: Record<string, any[]> = {};
+                      Object.entries(questionsByElement).forEach(([elemId, questions]) => {
+                        template[elemId] = (questions as SGSQuestion[]).map(q => ({
+                          id: q.id, ref: q.ref, texte: q.texte,
+                          sourceReglementaire: q.sourceReglementaire,
+                          generatedByIA: q.generatedByIA,
+                          statutIA: q.statutIA,
+                        }));
+                      });
+                      onSaveSGSTemplate(template);
+                    }
                     setSignatureDialogOpen(false);
                     onComplete?.();
                   }}

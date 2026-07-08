@@ -16,7 +16,7 @@ export type TypeNoeud = 'barriere' | 'organisationnel' | 'evenement_redoute' | '
 
 export interface CPT {
   table: Record<string, number[]>
-  observations: Record<string, number>
+  observations: Record<string, number[]>
 }
 
 export interface BayesNode {
@@ -64,14 +64,14 @@ function etatIndex(evidence: number | undefined, etats: string[]): number {
 
 function defaultCPT(etats: string[], parentEtatsListe: string[][]): CPT {
   const table: Record<string, number[]> = {}
-  const observations: Record<string, number> = {}
+  const observations: Record<string, number[]> = {}
 
   function genererCombinaisons(idx: number, courante: string): void {
     if (idx >= parentEtatsListe.length) {
       const probs = etats.map(() => Math.random() * 0.3 + 0.1)
       const total = probs.reduce((a, b) => a + b, 0)
       table[courante] = probs.map(p => Math.round((p / total) * 100) / 100)
-      observations[courante] = 0
+      observations[courante] = etats.map(() => 0)
       return
     }
     for (let i = 0; i < parentEtatsListe[idx].length; i++) {
@@ -82,7 +82,7 @@ function defaultCPT(etats: string[], parentEtatsListe: string[][]): CPT {
   if (parentEtatsListe.length === 0) {
     const probs = etats.map(() => 1 / etats.length)
     table[''] = probs
-    observations[''] = 0
+    observations[''] = etats.map(() => 0)
   } else {
     genererCombinaisons(0, '')
   }
@@ -408,7 +408,7 @@ export function computeBayesianNetworkRisk(
     .map(n => n.id)
 
   const totalObs = reseau.reduce((sum, n) => {
-    const obs = Object.values(n.cpt.observations).reduce((s, v) => s + v, 0)
+    const obs = Object.values(n.cpt.observations).reduce((s, v) => s + v.reduce((a, b) => a + b, 0), 0)
     return sum + obs
   }, 0)
   const confiance = Math.min(100, Math.round((totalObs / 100) * 100))
@@ -446,13 +446,14 @@ export function computeBarrierEfficacite(
   c2: number,
   ca: number,
   c5: number,
+  reseauPreconstruit?: BayesNode[],
 ): {
   barrieresPreventives: Barriere[]
   barrieresCorrectives: Barriere[]
   probabiliteResiduelle: number
   confiance: number
 } {
-  const reseau = construireReseauDepuisBowTie(bowTie)
+  const reseau = reseauPreconstruit ?? construireReseauDepuisBowTie(bowTie)
   const evidences: Record<string, number> = {}
 
   for (const b of bowTie.barrieresPreventives) {
@@ -494,11 +495,99 @@ export function computeBarrierEfficacite(
   })
 
   const totalObs = reseau.reduce((sum, n) => {
-    return sum + Object.values(n.cpt.observations).reduce((s, v) => s + v, 0)
+    return sum + Object.values(n.cpt.observations).reduce((s, v) => s + v.reduce((a, b) => a + b, 0), 0)
   }, 0)
   const confiance = Math.min(100, Math.round((totalObs / 100) * 100))
 
   return { barrieresPreventives, barrieresCorrectives, probabiliteResiduelle: probResiduelle, confiance }
+}
+
+// ============================================================
+// APPRENTISSAGE — MISE À JOUR DES CPT PAR OBSERVATION
+// ============================================================
+
+export function recomputeCPTFromObservations(node: BayesNode): BayesNode {
+  const cpt = node.cpt
+  const newTable: Record<string, number[]> = {}
+  const alpha = ALPHA_DEFAUT
+  const etatsCount = node.etats.length
+
+  for (const [key, priorProbs] of Object.entries(cpt.table)) {
+    const stateCounts = cpt.observations[key]
+    if (!stateCounts || stateCounts.every(c => c === 0)) {
+      newTable[key] = [...priorProbs]
+      continue
+    }
+
+    const totalObs = stateCounts.reduce((a, b) => a + b, 0)
+    const smoothed = stateCounts.map((count, i) => count + alpha)
+    const total = smoothed.reduce((a, b) => a + b, 0)
+    newTable[key] = smoothed.map(v => Math.round((v / total) * 100) / 100)
+  }
+
+  return {
+    ...node,
+    cpt: { ...cpt, table: newTable }
+  }
+}
+
+export function incrementAndRecalibrate(
+  node: BayesNode,
+  parentKey: string,
+  observedStateIndex: number
+): BayesNode {
+  const key = parentKey || ''
+  const cpt = node.cpt
+  const current = cpt.observations[key]
+  const newCounts = current
+    ? current.map((c, i) => i === observedStateIndex ? c + 1 : c)
+    : node.etats.map((_, i) => i === observedStateIndex ? 1 : 0)
+
+  const newObservations = { ...cpt.observations, [key]: newCounts }
+  const newNode = {
+    ...node,
+    cpt: { ...cpt, observations: newObservations }
+  }
+
+  return recomputeCPTFromObservations(newNode)
+}
+
+export async function computeBarrierEfficaciteAvecApprentissage(
+  bowTie: BowTieModele,
+  c1: number,
+  c2: number,
+  ca: number,
+  c5: number,
+): Promise<{
+  barrieresPreventives: Barriere[]
+  barrieresCorrectives: Barriere[]
+  probabiliteResiduelle: number
+  confiance: number
+}> {
+  const reseau = construireReseauDepuisBowTie(bowTie)
+
+  const storeKey = `cpts_bt-${bowTie.domaine}`
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      const { iaStorage } = await import('@/lib/persistence/iaStorage')
+      const savedData = await iaStorage.get<Record<string, { observations: Record<string, number[]> }>>('bayes_cpts', storeKey)
+      if (savedData) {
+        for (const node of reseau) {
+          const nodeData = savedData[node.id]
+          if (nodeData) {
+            node.cpt.observations = nodeData.observations
+          }
+        }
+        for (let i = 0; i < reseau.length; i++) {
+          reseau[i] = recomputeCPTFromObservations(reseau[i])
+        }
+      }
+    } catch {
+      // Silently fall back to default CPTs if IndexedDB unavailable
+    }
+  }
+
+  return computeBarrierEfficacite(bowTie, c1, c2, ca, c5, reseau)
 }
 
 export function getConfianceLabel(confiance: number): string {

@@ -41,7 +41,7 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
       .map(a => ({ aerodrome: a, profil: profilsRisque[a.id] || null }))
       .filter(e => e.profil) as { aerodrome: Aerodrome; profil: ProfilRisque }[]
 
-    let filtered = filterRegion === 'all' ? list : list.filter(e => e.aerodrome.region === filterRegion)
+    const filtered = filterRegion === 'all' ? list : list.filter(e => e.aerodrome.region === filterRegion)
 
     const sortFn: Record<string, (a: any, b: any) => number> = {
       score: (a, b) => b.profil.score_global - a.profil.score_global,

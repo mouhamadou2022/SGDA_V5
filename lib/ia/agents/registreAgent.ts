@@ -193,7 +193,7 @@ export class RegistreAgent {
 
     // Commande: recherche
     if (lower.startsWith('recherche') || lower.startsWith('trouve') || lower.startsWith('cherche')) {
-      let query = command.replace(/^(recherche|trouve|cherche)\s+/, '')
+      const query = command.replace(/^(recherche|trouve|cherche)\s+/, '')
       
       // Appliquer le contexte d'onglet si fourni
       const typeMap: Record<string, string> = {
@@ -278,7 +278,7 @@ export class RegistreAgent {
         else tendances.stable++
       }
       
-      let message = `Tendances: ${tendances.hausse} mois en hausse, ${tendances.baisse} mois en baisse`
+      const message = `Tendances: ${tendances.hausse} mois en hausse, ${tendances.baisse} mois en baisse`
       
       return {
         success: true,

@@ -1,9 +1,33 @@
 // lib/ia/aiClient.ts
 // Client IA partagé — utilisé par tous les agents SGDA
-// Gère les appels à /api/ia/analyze avec retry et fallback
+// Gère les appels à /api/ia/analyze avec retry, fallback et cache persistant
 // Inclut un layer de déduplication pour éviter les appels simultanés identiques
 
 'use client'
+
+import { makeStorageKey, getCached, setCached } from './cache'
+
+function extractBalancedJSON(text: string): string | null {
+  let depth = 0
+  let start = -1
+  let inString = false
+  let escape = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (escape) { escape = false; continue }
+    if (ch === '\\') { escape = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (ch === '{') {
+      if (start === -1) start = i
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0 && start !== -1) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
 
 export interface AICallOptions {
   systemPrompt: string
@@ -56,6 +80,7 @@ class AIClientClass {
         { role: 'user', content: options.userMessage },
       ]
 
+      const timeout = options.maxTokens && options.maxTokens > 12000 ? 120000 : 60000
       const res = await fetch('/api/ia/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,41 +91,115 @@ class AIClientClass {
           maxTokens: options.maxTokens ?? 2048,
           responseFormat: options.responseFormat,
         }),
+        signal: AbortSignal.timeout(timeout),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }))
         this.available = false
-        return { content: '', ok: false, error: err.error ?? 'Erreur API' }
+        const errMsg = err.code ? `${err.error ?? 'Erreur API'} [${err.code}]` : (err.error ?? res.statusText)
+        console.error(`[aiClient] API ${res.status}:`, errMsg)
+        return { content: '', ok: false, error: errMsg }
       }
 
       const data = await res.json()
       this.available = true
+      if (!data.content) {
+        console.error('[aiClient] Réponse API vide — données brutes:', JSON.stringify(data).slice(0, 300))
+      }
       return { content: data.content ?? '', ok: true }
     } catch (err: any) {
       this.available = false
+      console.error('[aiClient] Exception appel API:', err.message)
       return { content: '', ok: false, error: err.message }
     }
   }
 
   // Retourne du JSON parsé ; en cas d'erreur retourne fallback
   async callJSON<T>(options: AICallOptions, fallback: T): Promise<T> {
-    const result = await this.call({ ...options, responseFormat: 'json_object' })
-    if (!result.ok || !result.content) return fallback
-    try {
-      return JSON.parse(result.content) as T
-    } catch {
-      // Le LLM peut parfois entourer le JSON de texte — on cherche le premier {...}
-      const match = result.content.match(/\{[\s\S]*\}/)
-      if (match) {
-        try {
-          return JSON.parse(match[0]) as T
-        } catch {
-          return fallback
-        }
-      }
-      return fallback
+    const cacheKey = await makeStorageKey({
+      systemPrompt: options.systemPrompt,
+      userMessage: options.userMessage,
+      history: options.history,
+      responseFormat: 'json_object',
+    })
+
+    const cached = await getCached<T>(cacheKey)
+    if (cached !== null) {
+      console.log(`[aiClient] Cache HIT (${cacheKey.slice(0, 16)}...)`)
+      return cached
     }
+
+    // Paliers de maxTokens progressifs pour retry
+    const tokenTiers = options.maxTokens
+      ? [...new Set([options.maxTokens, Math.floor(options.maxTokens / 2), Math.floor(options.maxTokens / 4)])]
+      : [24000, 12000, 6000]
+
+    for (const maxTokens of tokenTiers) {
+      const result = await this._call({ ...options, maxTokens, responseFormat: 'json_object' })
+      if (!result.ok || !result.content) {
+        continue
+      }
+
+      const parsed = this._tryParseJSON(result.content)
+      if (parsed !== null) {
+        setCached(cacheKey, parsed).catch(() => {})
+        return parsed as T
+      }
+
+      console.warn(`[aiClient] JSON invalide avec maxTokens=${maxTokens}, retry...`)
+    }
+
+    console.error('[aiClient] Échec après tous les paliers maxTokens')
+    return fallback
+  }
+
+  private _tryParseJSON<T>(content: string): T | null {
+    const tentatives = [
+      () => JSON.parse(content),
+      // Bloc markdown ```json ... ```
+      () => {
+        const m = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+        return m ? JSON.parse(m[1]) : null
+      },
+      // Premier objet JSON { ... } — extraction par comptage d'accolades (supporte l'imbrication)
+      () => {
+        const json = extractBalancedJSON(content)
+        return json ? JSON.parse(json) : null
+      },
+      // Réparation JSON tronqué : ferme les guillemets/accolades/crochets manquants
+      () => {
+        let fixed = content.trim()
+        const stack: string[] = []
+        let inString = false
+        let escape = false
+        for (const ch of fixed) {
+          if (escape) { escape = false; continue }
+          if (ch === '\\') { escape = true; continue }
+          if (ch === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']')
+          if (ch === '}' || ch === ']') {
+            if (stack.length > 0 && stack[stack.length - 1] === ch) stack.pop()
+          }
+        }
+        if (inString) fixed += '"'
+        for (let i = stack.length - 1; i >= 0; i--) fixed += stack[i]
+        return JSON.parse(fixed)
+      },
+    ]
+
+    for (const t of tentatives) {
+      try {
+        const parsed = t()
+        if (parsed !== null) return parsed as T
+      } catch {
+        continue
+      }
+    }
+
+    console.error('[aiClient] Échec parsing JSON — réponse brute:', content.slice(0, 500))
+    return null
   }
 
   /** Vide le cache de déduplication (utile après changement significatif de données) */

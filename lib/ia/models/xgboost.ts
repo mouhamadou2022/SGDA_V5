@@ -74,7 +74,7 @@ export class XGBoostModel {
   private trees: DecisionTreeNode[] = []
   private trained: boolean = false
   private featureNames: string[] = []
-  private classMapping: Map<string, number> = new Map()
+  protected classMapping: Map<string, number> = new Map()
   private isClassifier: boolean = true
   
   constructor(config: Partial<XGBoostConfig> = {}) {
@@ -111,7 +111,7 @@ export class XGBoostModel {
     
     // Entraînement des arbres (Gradient Boosting simplifié)
     this.trees = []
-    let currentPredictions = new Array(samples.length).fill(0)
+    const currentPredictions = new Array(samples.length).fill(0)
     
     for (let iter = 0; iter < this.config.nEstimators; iter++) {
       // Calculer les résidus
@@ -146,7 +146,7 @@ export class XGBoostModel {
       }
       
       // Calculer la loss
-      let trainLoss = this.computeLoss(samples, currentPredictions)
+      const trainLoss = this.computeLoss(samples, currentPredictions)
       
       if (options?.verbose && (iter + 1) % 10 === 0) {
         console.log(`[XGBoost] Iteration ${iter + 1}/${this.config.nEstimators}, Loss: ${trainLoss.toFixed(4)}`)
@@ -544,6 +544,12 @@ export class XGBoostModel {
 // ============================================================
 
 export class RiskLevelClassifier extends XGBoostModel {
+  private static readonly LABEL_SCORES: Record<string, number> = {
+    critique: 20, eleve: 45, moyen: 65, faible: 85,
+  }
+  private static readonly SCORE_LABELS: Array<{ label: 'critique' | 'eleve' | 'moyen' | 'faible'; score: number }> =
+    Object.entries(RiskLevelClassifier.LABEL_SCORES).map(([l, s]) => ({ label: l as any, score: s }))
+
   constructor() {
     super({ nEstimators: 50, maxDepth: 4 })
   }
@@ -552,11 +558,14 @@ export class RiskLevelClassifier extends XGBoostModel {
     features: number[][],
     labels: ('critique' | 'eleve' | 'moyen' | 'faible')[]
   ): Promise<void> {
+    // Conversion en régression ordinale : les 4 niveaux sont ordonnés,
+    // la régression est plus appropriée que la classification multi-classes
     const samples: TrainingSample[] = features.map((f, i) => ({
       features: f,
-      label: labels[i]
+      label: RiskLevelClassifier.LABEL_SCORES[labels[i]] ?? 50
     }))
     await this.train(samples)
+    this.classMapping.clear()  // désactive le mode classification
   }
   
   predictRiskLevel(features: number[]): {
@@ -565,10 +574,24 @@ export class RiskLevelClassifier extends XGBoostModel {
     probabilities: Record<string, number>
   } {
     const result = this.predict(features)
+    const score = result.prediction as number
+    // Trouver la classe la plus proche du score prédit
+    let best = RiskLevelClassifier.SCORE_LABELS[0]
+    let minDist = Infinity
+    for (const entry of RiskLevelClassifier.SCORE_LABELS) {
+      const d = Math.abs(score - entry.score)
+      if (d < minDist) { minDist = d; best = entry }
+    }
+    // Confiance basée sur la distance à la classe la plus proche
+    const confidence = Math.round(Math.max(30, 100 - minDist * 2))
+    const probs: Record<string, number> = {}
+    for (const entry of RiskLevelClassifier.SCORE_LABELS) {
+      probs[entry.label] = entry === best ? Math.round(confidence) / 100 : Math.round((100 - confidence) / 3) / 100
+    }
     return {
-      niveau: result.prediction as 'critique' | 'eleve' | 'moyen' | 'faible',
-      confidence: result.confidence,
-      probabilities: result.probabilities || {}
+      niveau: best.label,
+      confidence,
+      probabilities: probs,
     }
   }
 }

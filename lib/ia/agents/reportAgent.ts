@@ -2,8 +2,8 @@
 // Agent 4 - Rapport de surveillance (VERSION COMPLÈTE AVEC ANALYSE ET CHARGEMENT)
 // Supporte l'analyse de rapports existants, suggestions d'amélioration,
 // chargement de fichiers, versioning, et génération avancée
-// Toutes les données passent par le store
-// 0 API externe, 0 coût, 100% local
+// Les données métier passent par le store. La génération de contenu IA
+// utilise aiClient (Ollama local ou API cloud selon configuration).
 
 'use client'
 
@@ -11,6 +11,7 @@ import { useAppStore, Surveillance, ChecklistItem, Ecart, Aerodrome, ProfilRisqu
 import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { REPORT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
+import { generateEquipeTableHtml, generateEcartsTableHtml, generateResultsSimpleHtml } from '@/lib/rapportHtml'
 
 // ============================================================
 // TYPES
@@ -834,7 +835,7 @@ Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore
     const previous = versions[versions.length - 2]
     const changes = this.detectChanges(previous.content, latest.content)
     
-    let diffHtml = `
+    const diffHtml = `
       <div class="space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">Comparaison v${previous.version} → v${latest.version}</h3>
@@ -1058,34 +1059,13 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
     }
   }
 
-  private async generateResults(surveillanceId: string): Promise<string> {
+  private generateResults(surveillanceId: string): string {
     const store = useAppStore.getState()
     const checklistItems = store.checklistItems[surveillanceId] || []
-    
     const saCount = checklistItems.filter(i => i.resultat === 'SA').length
     const nsCount = checklistItems.filter(i => i.resultat === 'NS').length
     const nvCount = checklistItems.filter(i => i.resultat === 'NV' || !i.resultat).length
-    const naCount = checklistItems.filter(i => i.resultat === 'NA').length
-    const total = checklistItems.length
-    const denominator = saCount + nsCount + nvCount
-    const tauxConformite = denominator > 0 ? Math.round((saCount / denominator) * 100) : 0
-    
-    let html = `
-      <div>
-        <h3>Synthèse des constats</h3>
-        <ul>
-          <li>Satisfaisant (SA): ${saCount}</li>
-          <li>Non satisfaisant (NS): ${nsCount}</li>
-          <li>Non vérifié (NV): ${nvCount}</li>
-          <li>Non applicable (NA): ${naCount}</li>
-          <li><strong>Taux de conformité: ${tauxConformite}%</strong></li>
-        </ul>
-        <div class="progress h-2 mt-2">
-          <div class="progress-bar" style="width: ${tauxConformite}%; background-color: ${tauxConformite >= 70 ? '#10b981' : tauxConformite >= 50 ? '#f59e0b' : '#ef4444'}"></div>
-        </div>
-      </div>
-    `
-    return html
+    return generateResultsSimpleHtml({ total: checklistItems.length, sa: saCount, ns: nsCount, nv: nvCount })
   }
 
   private async generateSummary(surveillanceId: string): Promise<string> {
@@ -1198,26 +1178,10 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
     }
   }
 
-  private async generateEcartsTable(surveillanceId: string): Promise<string> {
+  private generateEcartsTable(surveillanceId: string): string {
     const store = useAppStore.getState()
     const ecarts = store.ecarts.filter(e => e.surveillance_id === surveillanceId)
-    
-    if (ecarts.length === 0) {
-      return '<p>Aucun écart constaté</p>'
-    }
-    
-    let html = '<table class="table">'
-    html += '<thead><tr><th>Référence</th><th>Libellé</th><th>Niveau</th><th>Statut</th></tr></thead><tbody>'
-    for (const e of ecarts) {
-      html += `<tr>
-        <td class="code-oaci-badge">${e.reference}</td>
-        <td>${e.libelle}</td>
-        <td><span class="badge ${e.niveau_risque === 'critique' ? 'danger' : e.niveau_risque === 'eleve' ? 'warning' : 'primary'}">${e.niveau_risque}</span></td>
-        <td>${e.statut}</td>
-      </tr>`
-    }
-    html += '</tbody></table>'
-    return html
+    return generateEcartsTableHtml(ecarts)
   }
 
   private async generateRiskProfile(surveillanceId: string): Promise<string> {
@@ -1269,27 +1233,12 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
     `
   }
 
-  private async generateEquipeInspection(surveillanceId: string): Promise<string> {
+  private generateEquipeInspection(surveillanceId: string): string {
     const store = useAppStore.getState()
     const surveillance = store.surveillances.find(s => s.id === surveillanceId)
     const userIds = surveillance?.equipe_ids || []
-    const utilisateurs = userIds.map(id => store.utilisateurs.find(u => u.id === id)).filter(Boolean)
-    
-    if (utilisateurs.length === 0) {
-      return '<p>Aucune équipe assignée</p>'
-    }
-    
-    let html = '<table class="table">'
-    html += '<thead><tr><th>Nom</th><th>Fonction</th><th>Rôle</th></tr></thead><tbody>'
-    for (const u of utilisateurs) {
-      html += `<tr>
-        <td>${u?.prenom} ${u?.nom}</td>
-        <td>${u?.service || '-'}</td>
-        <td>${u?.role === 'chef_equipe' ? 'Chef d\'équipe' : 'Inspecteur'}</td>
-      </tr>`
-    }
-    html += '</tbody></table>'
-    return html
+    const membres = userIds.map(id => store.utilisateurs.find(u => u.id === id)).filter(Boolean) as Array<{ prenom?: string; nom?: string; service?: string; role?: string; id?: string }>
+    return generateEquipeTableHtml(membres, surveillance?.chef_id)
   }
 
   private generateAnnexes(surveillance: Surveillance, aerodrome?: Aerodrome, profil?: ProfilRisque, ecarts?: Ecart[]): string {

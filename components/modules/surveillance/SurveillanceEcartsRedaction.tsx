@@ -35,7 +35,9 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
-import { recordRiskIndexFeedback, getRiskLevelFromCell } from '@/lib/riskIndex';
+import { recordRiskIndexFeedback } from '@/lib/riskIndex';
+import { getRiskLevelFromCell, getCellColor, getRiskLevelClass, getRiskLevelVariant } from '@/lib/risque';
+import { generateEcartReference, computeNextEcartCounter, getTypeAbbr } from '@/lib/surveillanceUtils';
 
 // Classes CSS réutilisées depuis globals.css
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -51,7 +53,7 @@ export interface EcartRedaction {
   reference: string;
   ref_reglementaire: string;
   libelle: string;
-  niveau: 'critique' | 'eleve' | 'moyen' | 'faible';
+  niveau: 'critique' | 'eleve' | 'moyen' | 'faible' | 'tres_faible';
   item_ids: string[];
   created_at: string;
   updated_at: string;
@@ -70,6 +72,10 @@ export interface EcartRedaction {
   created_by?: string;
   /** ID du dernier modificateur */
   updated_by?: string;
+  /** Délai de soumission du PAC (en jours) — prérempli par l'IA, ajustable */
+  delai_pac?: number;
+  /** Délai de régularisation complète (en jours) — prérempli par l'IA, ajustable */
+  delai_regularisation?: number;
 }
 
 export interface QuestionNSNV {
@@ -95,6 +101,12 @@ interface SurveillanceEcartsRedactionProps {
   isSigned?: boolean;
   userRole?: string;
   aerodromeId: string;
+  /** Type de la surveillance pour l'abréviation dans la référence */
+  surveillanceType?: string;
+  /** Code OACI de l'aérodrome */
+  aerodromeCode?: string;
+  /** Préfixe de l'écart : SDT (standard) ou SGS */
+  ecartPrefix?: 'SDT' | 'SGS';
 }
 
 const NIVEAUX = [
@@ -104,21 +116,8 @@ const NIVEAUX = [
   { value: 'faible', label: 'Faible', variant: 'success', delais: { pac: 30, regularisation: 180 } },
 ];
 
-const NIVEAU_VARIANTS: Record<string, string> = {
-  critique: 'danger',
-  eleve: 'warning',
-  moyen: 'primary',
-  faible: 'success',
-};
-
-function getNiveauRisqueBadge(niveau: string): string {
-  switch (niveau) {
-    case 'critique': return 'badge danger';
-    case 'eleve': return 'badge warning';
-    case 'moyen': return 'badge primary';
-    case 'faible': return 'badge success';
-    default: return 'badge neutral';
-  }
+function isValidOACI(cellule: string | undefined | null): cellule is string {
+  return typeof cellule === 'string' && /^[1-5][A-E]$/.test(cellule);
 }
 
 function getProgressBarColorDynamic(taux: number): string {
@@ -163,6 +162,11 @@ function EcartCard({
       >
         <div className="flex items-center gap-3 flex-1 flex-wrap">
           <span className="code-oaci-badge text-xs">{ecart.reference}</span>
+              {isValidOACI(ecart.cellule_risque_oaci) && (
+            <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCellColor(ecart.cellule_risque_oaci)}`}>
+              {ecart.cellule_risque_oaci}
+            </span>
+          )}
           <span className={getNiveauBadge()}>{ecart.niveau}</span>
           <span className="text-sm text-foreground flex-1 truncate">{ecart.libelle}</span>
           <span className="text-xs text-muted-foreground">{ecart.item_ids.length} item(s)</span>
@@ -202,6 +206,20 @@ function EcartCard({
             <div>
               <p className="text-xs text-muted-foreground">Référence réglementaire</p>
               <p className="text-sm">{ecart.ref_reglementaire}</p>
+            </div>
+            <div className="flex items-center gap-3">
+          {isValidOACI(ecart.cellule_risque_oaci) && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Cellule OACI</p>
+                  <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wide mt-0.5 ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                    {ecart.cellule_risque_oaci}
+                  </span>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground">Niveau de risque</p>
+                <span className={`${getNiveauBadge()} mt-0.5 inline-block`}>{ecart.niveau}</span>
+              </div>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Libellé</p>
@@ -245,7 +263,7 @@ function IaSuggestionBanner({
 }: {
   suggestion: { libelle: string; niveau: string; ref_reglementaire: string; justification: string; confiance: number; cellule: string; probabilite: 1 | 2 | 3 | 4 | 5; gravite: 'A' | 'B' | 'C' | 'D' | 'E' } | null;
   onApply: () => void;
-  onAdjustAndApply: (probabilite: 1 | 2 | 3 | 4 | 5, gravite: 'A' | 'B' | 'C' | 'D' | 'E') => void;
+  onAdjustAndApply: (probabilite: 1 | 2 | 3 | 4 | 5, gravite: 'A' | 'B' | 'C' | 'D' | 'E', libelle?: string) => void;
   onIgnore: () => void;
   isLoading: boolean;
   /** Masquer l'indice OACI — utilisé pour le domaine SGS */
@@ -253,17 +271,10 @@ function IaSuggestionBanner({
 }) {
   const [adjustMode, setAdjustMode] = useState(false);
   const [adjProb, setAdjProb] = useState<1 | 2 | 3 | 4 | 5>(suggestion?.probabilite ?? 3);
-  const [adjGrav, setAdjGrav] = useState<'A' | 'B' | 'C' | 'D' | 'E'>(suggestion?.gravite ?? 'C');
+  const [adjGrav, setAdjGrav] = useState<'A' | 'B' | 'C' | 'D' | 'E'>(String(suggestion?.gravite ?? 'C') as 'A' | 'B' | 'C' | 'D' | 'E');
+  const [adjLibelle, setAdjLibelle] = useState(suggestion?.libelle || '');
 
-  const adjCellule = `${adjProb}${adjGrav}`;
-
-  const getCelluleBadgeCls = (cellule: string) => {
-    const n = getRiskLevelFromCell(cellule);
-    if (n === 'critique') return 'bg-red-600 text-white';
-    if (n === 'eleve') return 'bg-amber-500 text-white';
-    if (n === 'moyen') return 'bg-blue-500 text-white';
-    return 'bg-green-500 text-white';
-  };
+  const adjCellule = `${Number(adjProb)}${String(adjGrav)}`;
 
   if (isLoading) {
     return (
@@ -291,7 +302,7 @@ function IaSuggestionBanner({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">Indice OACI:</span>
                 <span
-                  className={`inline-flex items-center justify-center rounded font-bold text-sm px-2.5 py-1 font-mono tracking-widest ${getCelluleBadgeCls(suggestion.cellule)}`}
+                  className={`inline-flex items-center justify-center rounded font-bold text-sm px-2.5 py-1 font-mono tracking-widest ${getCellColor(suggestion.cellule)}`}
                   title={suggestion.justification}
                 >
                   {suggestion.cellule}
@@ -301,7 +312,7 @@ function IaSuggestionBanner({
                 Probabilité <strong>{suggestion.probabilite}</strong>/5 × Gravité <strong>{suggestion.gravite}</strong>
               </div>
               <div>
-                <span className={`badge ${getNiveauRisqueBadge(suggestion.niveau)} text-xs`}>{suggestion.niveau}</span>
+                <span className={`badge ${getRiskLevelClass(suggestion.niveau)} text-xs`}>{suggestion.niveau}</span>
               </div>
               <div className="text-xs text-muted-foreground">Confiance: <strong>{suggestion.confiance}%</strong></div>
             </div>
@@ -322,8 +333,8 @@ function IaSuggestionBanner({
           </div>
           <p className="text-xs text-muted-foreground italic">{suggestion.justification}</p>
 
-          {/* Mode ajustement inspecteur */}
-          {adjustMode && (
+          {/* Mode ajustement inspecteur — OACI */}
+          {adjustMode && !hideCellule && (
             <div className="mt-2 p-3 bg-white rounded-lg border border-primary/30 space-y-2">
               <p className="text-xs font-semibold text-foreground">Ajuster l'indice OACI :</p>
               <div className="flex items-center gap-4 flex-wrap">
@@ -351,7 +362,7 @@ function IaSuggestionBanner({
                     ))}
                   </select>
                 </div>
-                <span className={`inline-flex items-center justify-center rounded font-bold text-sm px-2 py-0.5 font-mono ${getCelluleBadgeCls(adjCellule)}`}>
+                <span className={`inline-flex items-center justify-center rounded font-bold text-sm px-2 py-0.5 font-mono ${getCellColor(adjCellule)}`}>
                   {adjCellule}
                 </span>
               </div>
@@ -369,6 +380,30 @@ function IaSuggestionBanner({
               </div>
             </div>
           )}
+
+          {/* Mode ajustement — SGS : uniquement la constatation */}
+          {adjustMode && hideCellule && (
+            <div className="mt-2 p-3 bg-white rounded-lg border border-primary/30 space-y-2">
+              <p className="text-xs font-semibold text-foreground">Ajuster la constatation :</p>
+              <textarea
+                value={adjLibelle}
+                onChange={e => setAdjLibelle(e.target.value)}
+                className="form-input text-sm w-full min-h-[80px]"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onAdjustAndApply(adjProb, adjGrav, adjLibelle)}
+                  className="btn btn-sm px-3 py-1 btn-primary gap-1"
+                >
+                  <Zap className="w-3 h-3" />
+                  Appliquer
+                </button>
+                <button onClick={() => setAdjustMode(false)} className="btn btn-sm px-3 py-1 btn-secondary">
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {!adjustMode && (
@@ -378,10 +413,10 @@ function IaSuggestionBanner({
             Valider
           </button>
           <button
-            onClick={() => { setAdjProb(suggestion.probabilite); setAdjGrav(suggestion.gravite); setAdjustMode(true); }}
+            onClick={() => { setAdjProb(suggestion.probabilite); setAdjGrav(suggestion.gravite); setAdjLibelle(suggestion.libelle); setAdjustMode(true); }}
             className="btn btn-sm px-3 py-1 btn-secondary gap-1 whitespace-nowrap"
           >
-            Ajuster
+            {hideCellule ? 'Ajuster la constatation' : 'Ajuster'}
           </button>
           <button onClick={onIgnore} className="btn btn-sm px-2 py-1 btn-ghost text-xs">
             Ignorer
@@ -459,6 +494,9 @@ export default function SurveillanceEcartsRedaction({
   isSigned = false,
   userRole = 'inspector',
   aerodromeId,
+  surveillanceType,
+  aerodromeCode,
+  ecartPrefix = 'SDT',
 }: SurveillanceEcartsRedactionProps) {
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
@@ -469,8 +507,17 @@ export default function SurveillanceEcartsRedaction({
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === aerodromeId);
+  const oaciCode = aerodromeCode || aerodrome?.code_oaci || '';
+  const typeAbbr = getTypeAbbr(surveillanceType || surveillance?.type || '');
 
+  const officialEcarts = useAppStore(s => s.ecarts).filter(e => e.surveillance_id === surveillanceId);
   const [ecarts, setEcarts] = useState<EcartRedaction[]>(ecartsExistants || []);
+
+  const getNouvelleReference = useCallback((prefix: 'SDT' | 'SGS' = ecartPrefix): string => {
+    const year = new Date().getFullYear();
+    const nextNum = computeNextEcartCounter(ecarts, officialEcarts, year, oaciCode, typeAbbr, prefix);
+    return generateEcartReference(oaciCode, year, typeAbbr, prefix, nextNum);
+  }, [ecarts, officialEcarts, oaciCode, typeAbbr, ecartPrefix]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [formEcart, setFormEcart] = useState<Partial<EcartRedaction>>({ niveau: 'moyen' });
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
@@ -589,17 +636,18 @@ export default function SurveillanceEcartsRedaction({
   const handleApplyIaSuggestion = (
     adjustedProbabilite?: 1 | 2 | 3 | 4 | 5,
     adjustedGravite?: 'A' | 'B' | 'C' | 'D' | 'E',
+    adjustedLibelle?: string,
   ) => {
     if (!iaSuggestion) return;
 
-    const finalProbabilite = adjustedProbabilite ?? iaSuggestion.probabilite;
-    const finalGravite = adjustedGravite ?? iaSuggestion.gravite;
+    const finalProbabilite = (adjustedProbabilite ?? iaSuggestion?.probabilite ?? 3) as 1 | 2 | 3 | 4 | 5;
+    const finalGravite = adjustedGravite ?? iaSuggestion?.gravite ?? 'C';
     const finalCellule = `${finalProbabilite}${finalGravite}`;
-    const wasAdjusted = adjustedProbabilite !== undefined || adjustedGravite !== undefined;
+    const wasAdjusted = adjustedProbabilite !== undefined || adjustedGravite !== undefined || adjustedLibelle !== undefined;
 
     setFormEcart(prev => ({
       ...prev,
-      libelle: iaSuggestion.libelle,
+      libelle: adjustedLibelle ?? iaSuggestion.libelle,
       niveau: iaSuggestion.niveau as EcartRedaction['niveau'],
       ref_reglementaire: iaSuggestion.ref_reglementaire,
       cellule_risque_oaci: finalCellule,
@@ -607,6 +655,8 @@ export default function SurveillanceEcartsRedaction({
       gravite_risque: finalGravite,
       justification_risque_ia: iaSuggestion.justification,
       cellule_ia_suggeree: iaSuggestion.cellule,
+      delai_pac: NIVEAUX.find(n => n.value === iaSuggestion.niveau)?.delais.pac,
+      delai_regularisation: NIVEAUX.find(n => n.value === iaSuggestion.niveau)?.delais.regularisation,
     }));
 
     if (profilAerodrome) {
@@ -628,7 +678,7 @@ export default function SurveillanceEcartsRedaction({
           probabilite: iaSuggestion.probabilite,
           gravite: iaSuggestion.gravite,
           cellule: iaSuggestion.cellule,
-          niveau: getRiskLevelFromCell(iaSuggestion.cellule),
+          niveau: getRiskLevelFromCell(iaSuggestion.cellule) as any,
           score: 0,
           confidence: iaSuggestion.confiance,
           volatilite: 0,
@@ -638,7 +688,7 @@ export default function SurveillanceEcartsRedaction({
           probabilite: finalProbabilite,
           gravite: finalGravite,
           cellule: finalCellule,
-          niveau: getRiskLevelFromCell(finalCellule),
+          niveau: getRiskLevelFromCell(finalCellule) as any,
           score: 0,
           confidence: iaSuggestion.confiance,
           volatilite: 0,
@@ -677,7 +727,6 @@ export default function SurveillanceEcartsRedaction({
         userRole: userRole,
       });
       setIaAnswer(result.message);
-      setTimeout(() => setIaAnswer(null), 8000);
     } catch (error) {
       addNotification({
         user_id: user?.id || '',
@@ -714,7 +763,7 @@ export default function SurveillanceEcartsRedaction({
     const domaineDeduit = domaineItems[0] || formEcart.domaine || '';
     const newEcart: EcartRedaction = {
       id: editingId || crypto.randomUUID(),
-      reference: formEcart.reference || `ECA-${new Date().getFullYear()}-${String(ecarts.length + 1).padStart(3, '0')}`,
+      reference: formEcart.reference || getNouvelleReference(),
       ref_reglementaire: formEcart.ref_reglementaire || '',
       libelle: formEcart.libelle || '',
       niveau: (formEcart.niveau as EcartRedaction['niveau']) || 'moyen',
@@ -728,6 +777,8 @@ export default function SurveillanceEcartsRedaction({
       gravite_risque: domaineDeduit === 'SGS' ? undefined : formEcart.gravite_risque,
       justification_risque_ia: formEcart.justification_risque_ia,
       cellule_ia_suggeree: formEcart.cellule_ia_suggeree,
+      delai_pac: formEcart.delai_pac ?? NIVEAUX.find(n => n.value === formEcart.niveau)?.delais.pac,
+      delai_regularisation: formEcart.delai_regularisation ?? NIVEAUX.find(n => n.value === formEcart.niveau)?.delais.regularisation,
     };
 
     if (editingId) {
@@ -769,6 +820,11 @@ export default function SurveillanceEcartsRedaction({
       ref_reglementaire: ecart.ref_reglementaire,
       libelle: ecart.libelle,
       niveau: ecart.niveau,
+      cellule_risque_oaci: ecart.cellule_risque_oaci,
+      probabilite_risque: ecart.probabilite_risque,
+      gravite_risque: ecart.gravite_risque,
+      delai_pac: ecart.delai_pac,
+      delai_regularisation: ecart.delai_regularisation,
     });
     setSelectedItems(ecart.item_ids);
     setIaSuggestion(null);
@@ -827,10 +883,14 @@ export default function SurveillanceEcartsRedaction({
       } catch { /* ignoré */ }
     }
 
-    updateSurveillance(surveillanceId, {
-      statut: allDelegatedSigned ? 'ecarts_signes' : fullSurv?.statut || 'checklist_signee',
-      signatures_ecarts: allSigs,
-    });
+    // Si un onSigner est fourni (page parente), c'est le parent qui gère le statut global
+    // (permet la validation SGS+standard avant de passer à ecarts_signes)
+    if (!onSigner) {
+      updateSurveillance(surveillanceId, {
+        statut: allDelegatedSigned ? 'ecarts_signes' : fullSurv?.statut || 'checklist_signee',
+      });
+    }
+    updateSurveillance(surveillanceId, { signatures_ecarts: allSigs });
     onSigner?.(signatureUrl);
     setSignatureDialogOpen(false);
     onSave?.(ecarts);
@@ -880,67 +940,18 @@ export default function SurveillanceEcartsRedaction({
     [itemsNSNV]
   );
 
-  if (isSigned) {
-    return (
-      <Card variant="level" levelColor="success" className="border-success bg-success/10 text-center" data-role={userRole}>
-        <CheckCircle className="h-12 w-12 text-success mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-success-800 mb-2">Document des écarts signé</h3>
-        <p className="text-small text-success-600">Tous les écarts ont été rédigés et le document est signé.</p>
-        <div className="flex justify-center gap-3 mt-4">
-          <button onClick={() => onSave?.(ecarts)} className="btn btn-secondary gap-2">
-            <Download className="w-4 h-4" />
-            Exporter les écarts
-          </button>
-        </div>
-      </Card>
-    );
-  }
+  const shouldShowSignedBanner = isSigned || readOnly;
 
   return (
     <div className="space-y-6" data-role={userRole} data-module="ecarts-redaction">
-      
-      {/* En-tête avec infos surveillance */}
-      <Card variant="level" levelColor="danger" className="bg-gradient-to-r from-danger/10 to-danger/5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-danger" />
-              <div>
-                <p className="text-xs text-muted-foreground">Aérodrome</p>
-                <p className="font-bold text-sm">{aerodrome?.nom} ({aerodrome?.code_oaci})</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-danger" />
-              <div>
-                <p className="text-xs text-muted-foreground">Période</p>
-                <p className="text-sm">
-                  {surveillance ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} → {surveillance ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-danger" />
-              <div>
-                <p className="text-xs text-muted-foreground">Équipe</p>
-                <p className="text-sm">{surveillance?.equipe_ids?.length || 0} inspecteur(s)</p>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="progress w-32 h-2">
-              <div className={`progress-bar ${getProgressBarColorDynamic(progression)}`} style={{ width: `${progression}%` }} />
-            </div>
-            <span className="text-sm font-medium">{progression}%</span>
-            {lastSaved && (
-              <span className="text-xs text-muted-foreground">
-                Sauvegardé à {lastSaved.toLocaleTimeString()}
-              </span>
-            )}
-            <IaAssistant onQuestion={handleAskAssistant} isAsking={isAskingAssistant} />
-          </div>
+
+      {/* Bannière lecture seule / signé */}
+      {shouldShowSignedBanner && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-success/10 border border-success/30 text-success">
+          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <span className="font-medium text-sm">Écarts signés — consultation en lecture seule</span>
         </div>
-      </Card>
+      )}
 
       {/* Réponse assistant IA */}
       {iaAnswer && (
@@ -967,7 +978,7 @@ export default function SurveillanceEcartsRedaction({
             </div>
           }
         >
-          <div className="max-h-[300px] overflow-y-auto space-y-2">
+          <div className={`${readOnly ? '' : 'max-h-[300px]'} overflow-y-auto space-y-2`}>
             {ecartsExistants.map(ecart => (
               <EcartCard
                 key={ecart.id}
@@ -982,7 +993,8 @@ export default function SurveillanceEcartsRedaction({
         </Card>
       )}
 
-      {/* Grille items — NS/NV (standard) ou PAOE (SGS) */}
+      {/* Grille items — NS/NV (standard) ou PAOE (SGS) — masquée en lecture seule */}
+      {!readOnly && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Colonne gauche: Items à traiter */}
@@ -1093,6 +1105,7 @@ export default function SurveillanceEcartsRedaction({
         </Card>
 
         {/* Colonne droite: Formulaire de saisie avec IA */}
+        {!readOnly && (
         <Card
           icon={<PenLine className="w-4 h-4 text-role-primary" />}
           title={`${editingId ? 'Modifier' : 'Nouvel'} écart`}
@@ -1114,6 +1127,9 @@ export default function SurveillanceEcartsRedaction({
               />
             )}
 
+            {/* Assistant IA — question libre */}
+            <IaAssistant onQuestion={handleAskAssistant} isAsking={isAskingAssistant} />
+
             {errors.selectItems && (
               <div className="alert alert-danger p-2 text-sm">
                 <AlertCircle className="alert-icon w-4 h-4" />
@@ -1125,13 +1141,40 @@ export default function SurveillanceEcartsRedaction({
               <label className="filter-label">Référence (auto-générée)</label>
               <input
                 type="text"
-                value={formEcart.reference || (editingId ? '' : `ECA-${new Date().getFullYear()}-${String(ecarts.length + 1).padStart(3, '0')}`)}
+                value={formEcart.reference || (editingId ? '' : getNouvelleReference())}
                 onChange={(e) => setFormEcart({ ...formEcart, reference: e.target.value })}
-                placeholder="ECA-2025-001"
+                placeholder="2026-GOBD-CERT-SDT-01"
                 className={`form-input bg-gray-50 ${focusClass}`}
                 disabled={!editingId}
               />
-              <p className="field-description">La référence est générée automatiquement</p>
+              <p className="field-description">Année-Code OACI-Type-Prefix-Numéro</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="form-field">
+                <label className="filter-label">Délai PAC (jours)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={formEcart.delai_pac ?? NIVEAUX.find(n => n.value === formEcart.niveau)?.delais.pac ?? 15}
+                  onChange={(e) => setFormEcart({ ...formEcart, delai_pac: parseInt(e.target.value) || undefined })}
+                  className={`form-input ${focusClass}`}
+                />
+                <p className="field-description">Soumission du plan d'actions correctives</p>
+              </div>
+              <div className="form-field">
+                <label className="filter-label">Délai régularisation (jours)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={formEcart.delai_regularisation ?? NIVEAUX.find(n => n.value === formEcart.niveau)?.delais.regularisation ?? 90}
+                  onChange={(e) => setFormEcart({ ...formEcart, delai_regularisation: parseInt(e.target.value) || undefined })}
+                  className={`form-input ${focusClass}`}
+                />
+                <p className="field-description">Régularisation complète de l'écart</p>
+              </div>
             </div>
 
             <div className="form-field">
@@ -1152,31 +1195,101 @@ export default function SurveillanceEcartsRedaction({
               )}
             </div>
 
-            {/* Niveau de risque — masqué pour le domaine SGS (pas d'évaluation OACI) */}
+            {/* Matrice OACI + Niveau de risque — masqué pour le domaine SGS */}
             {!isAllSGSDomain && (
-              <div className="form-field">
-                <label className="filter-label">
-                  Niveau de risque <span className="text-danger">*</span>
-                </label>
-                <select
-                  className={`form-select ${focusClass}`}
-                  style={selectStyle}
-                  value={formEcart.niveau || 'moyen'}
-                  onChange={e => setFormEcart({ ...formEcart, niveau: e.target.value as any })}
-                >
-                  {NIVEAUX.map(n => (
-                    <option key={n.value} value={n.value}>{n.label}</option>
-                  ))}
-                </select>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
-                  {NIVEAUX.map(n => (
-                    <div key={n.value} className={`p-1.5 rounded ${formEcart.niveau === n.value ? `bg-${n.variant}/10 border border-${n.variant}` : ''}`}>
-                      <span className={`badge ${getNiveauRisqueBadge(n.value)} mr-1`}>{n.label}</span>
-                      <span>PAC: {n.delais.pac}j • Régul: {n.delais.regularisation}j</span>
+              <>
+                <div className="form-field">
+                  <label className="filter-label">
+                    Matrice OACI <span className="text-danger">*</span>
+                  </label>
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label className="text-[10px] text-muted-foreground mb-1 block">Probabilité</label>
+                      <select
+                        className={`form-select ${focusClass}`}
+                        style={selectStyle}
+                        value={formEcart.probabilite_risque ?? 3}
+                        onChange={e => {
+                          const prob = parseInt(e.target.value) as 1|2|3|4|5;
+                          const grav = String(formEcart.gravite_risque ?? 'C');
+                          const cellule = `${prob}${grav}`;
+                          setFormEcart({
+                            ...formEcart,
+                            probabilite_risque: prob,
+                            cellule_risque_oaci: cellule,
+                            niveau: getRiskLevelFromCell(cellule) as any,
+                          });
+                        }}
+                      >
+                        {[1,2,3,4,5].map(p => (
+                          <option key={p} value={p}>{p} — {p <= 2 ? 'Improbable' : p === 3 ? 'Occasionnel' : p === 4 ? 'Probable' : 'Très probable'}</option>
+                        ))}
+                      </select>
                     </div>
-                  ))}
+                    <div className="flex-1">
+                      <label className="text-[10px] text-muted-foreground mb-1 block">Gravité</label>
+                      <select
+                        className={`form-select ${focusClass}`}
+                        style={selectStyle}
+                        value={formEcart.gravite_risque ?? 'C'}
+                        onChange={e => {
+                          const grav = e.target.value as 'A'|'B'|'C'|'D'|'E';
+                          const prob = Number(formEcart.probabilite_risque) || 3;
+                          const cellule = `${prob}${grav}`;
+                          setFormEcart({
+                            ...formEcart,
+                            gravite_risque: grav,
+                            cellule_risque_oaci: cellule,
+                            niveau: getRiskLevelFromCell(cellule) as any,
+                          });
+                        }}
+                      >
+                        {[
+                          { v: 'A', l: 'A — Catastrophique' },
+                          { v: 'B', l: 'B — Dangereuse' },
+                          { v: 'C', l: 'C — Majeure' },
+                          { v: 'D', l: 'D — Mineure' },
+                          { v: 'E', l: 'E — Négligeable' },
+                        ].map(g => (
+                          <option key={g.v} value={g.v}>{g.l}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1 pb-1">
+                      {isValidOACI(formEcart.cellule_risque_oaci) && (
+                        <span className={`inline-flex items-center justify-center rounded font-bold text-sm px-2.5 py-1 font-mono tracking-widest ${getCellColor(formEcart.cellule_risque_oaci)}`}>
+                          {formEcart.cellule_risque_oaci}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="field-description mt-1">La combinaison probabilité × gravité détermine automatiquement le niveau de risque</p>
                 </div>
-              </div>
+
+                <div className="form-field">
+                  <label className="filter-label">
+                    Niveau de risque
+                  </label>
+                  <select
+                    className={`form-select ${focusClass}`}
+                    style={selectStyle}
+                    value={formEcart.niveau || 'moyen'}
+                    onChange={e => setFormEcart({ ...formEcart, niveau: e.target.value as any })}
+                  >
+                    {NIVEAUX.map(n => (
+                      <option key={n.value} value={n.value}>{n.label}</option>
+                    ))}
+                  </select>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                    {NIVEAUX.map(n => (
+                      <div key={n.value} className={`p-1.5 rounded ${formEcart.niveau === n.value ? `bg-${n.variant}/10 border border-${n.variant}` : ''}`}>
+                        <span className={`badge ${getRiskLevelClass(n.value)} mr-1`}>{n.label}</span>
+                        <span>PAC: {n.delais.pac}j • Régul: {n.delais.regularisation}j</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="form-field">
@@ -1241,9 +1354,12 @@ export default function SurveillanceEcartsRedaction({
             </div>
           </div>
         </Card>
+      )}
       </div>
+      )}
 
-      {/* Liste des écarts rédigés */}
+      {/* Liste des écarts rédigés — masqué en lecture seule (déjà dans "Écarts déjà rédigés") */}
+      {!readOnly && (
       <Card
         icon={<FileText className="w-4 h-4 text-role-primary" />}
         title={`Écarts rédigés (${ecarts.length})`}
@@ -1282,9 +1398,10 @@ export default function SurveillanceEcartsRedaction({
           )}
         </div>
       </Card>
+      )}
 
-      {/* Récapitulatif des délais suggérés */}
-      {formEcart.niveau && (
+      {/* Récapitulatif des délais suggérés — masqué en lecture seule */}
+      {!readOnly && formEcart.niveau && (
         <Card className="bg-role-primary-soft">
           <div className="p-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
@@ -1308,7 +1425,8 @@ export default function SurveillanceEcartsRedaction({
         </Card>
       )}
 
-      {/* Note info */}
+      {/* Note info — masquée en lecture seule */}
+      {!readOnly && (
       <div className="alert alert-info">
         <AlertCircle className="alert-icon h-4 w-4" />
         <span>
@@ -1316,6 +1434,7 @@ export default function SurveillanceEcartsRedaction({
           lorsque tous les items NS/NV sont traités.
         </span>
       </div>
+      )}
 
       {/* Modal détails écart */}
       {selectedEcartDetails && (
@@ -1335,9 +1454,16 @@ export default function SurveillanceEcartsRedaction({
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Niveau</p>
-                  <span className={`badge ${NIVEAU_VARIANTS[selectedEcartDetails.niveau]}`}>
-                    {selectedEcartDetails.niveau}
-                  </span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {isValidOACI(selectedEcartDetails.cellule_risque_oaci) && (
+                      <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wide ${getCellColor(selectedEcartDetails.cellule_risque_oaci)}`}>
+                        {selectedEcartDetails.cellule_risque_oaci}
+                      </span>
+                    )}
+                    <span className={`badge ${getRiskLevelVariant(selectedEcartDetails.niveau)}`}>
+                      {selectedEcartDetails.niveau}
+                    </span>
+                  </div>
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground">Référence réglementaire</p>

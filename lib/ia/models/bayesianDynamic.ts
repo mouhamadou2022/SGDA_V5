@@ -84,6 +84,8 @@ const UPDATE_THRESHOLD = 10
 // MODÈLE BAYÉSIEN DYNAMIQUE
 // ============================================================
 
+const STATE_STORAGE_KEY = 'sgda_bayesian_dynamic_state'
+
 export class BayesianDynamicModel {
   private state: BayesianState
   private transferConfig: TransferLearningConfig
@@ -102,6 +104,22 @@ export class BayesianDynamicModel {
       maxSourceAerodromes: 3,
       weightSimilarity: true,
     }
+    this.loadState()
+  }
+
+  private loadState(): void {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = localStorage.getItem(STATE_STORAGE_KEY)
+      if (raw) this.importState(raw)
+    } catch {}
+  }
+
+  private persistState(): void {
+    if (typeof window === 'undefined') return
+    try {
+      localStorage.setItem(STATE_STORAGE_KEY, this.exportState())
+    } catch {}
   }
 
   // ============================================================
@@ -312,9 +330,11 @@ export class BayesianDynamicModel {
     const totalWeight = currentPrior.sampleSize + weight
     const newMean = (currentPrior.mean * currentPrior.sampleSize + newPosterior * weight) / totalWeight
     
-    // Mise à jour de la variance (estimateur incrémental)
-    const newVariance = currentPrior.variance * (currentPrior.sampleSize / totalWeight) +
-      (Math.pow(newPosterior - currentPrior.mean, 2) * currentPrior.sampleSize * weight) / Math.pow(totalWeight, 2)
+    // Mise à jour de la variance (estimateur incrémental — version corrigée de Welford)
+    const δ = newPosterior - currentPrior.mean
+    const newVariance = currentPrior.sampleSize > 0
+      ? (currentPrior.variance * currentPrior.sampleSize + weight * δ * (newPosterior - newMean)) / totalWeight
+      : 0
     
     this.state.priors.set(domaine, {
       ...currentPrior,
@@ -332,6 +352,9 @@ export class BayesianDynamicModel {
       this.state.observations.set(domaine, [])
     }
     this.state.observations.get(domaine)!.push(newPosterior)
+
+    // Persister après chaque mise à jour
+    this.persistState()
   }
 
   // ============================================================
@@ -371,8 +394,11 @@ export class BayesianDynamicModel {
   /**
    * Détecte un Black Swan (événement improbable mais catastrophique)
    */
-  detectBlackSwan(prior: number, posterior: number): boolean {
-    return posterior > 0.3 && prior < 0.1
+  detectBlackSwan(prior: number, posterior: number, bayesFactorThreshold: number = 5): boolean {
+    const priorOdds = prior / Math.max(1 - prior, 1e-10)
+    const posteriorOdds = posterior / Math.max(1 - posterior, 1e-10)
+    const bayesFactor = posteriorOdds / priorOdds
+    return bayesFactor > bayesFactorThreshold
   }
 
   /**
@@ -548,6 +574,10 @@ export class BayesianDynamicModel {
     this.state.lastUpdate = new Date().toISOString()
     this.state.totalUpdates = 0
     this.aerodromeSimilarityCache.clear()
+    // Nettoyer le stockage persistant
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(STATE_STORAGE_KEY) } catch {}
+    }
   }
 
   /**

@@ -11,80 +11,80 @@ import {
   XCircle,
   AlertCircle,
   PenLine,
-  Download,
-  Trash2,
-  Plus,
   Eye,
-  Calendar,
-  Users,
-  MapPin,
+  Trash2,
   Edit3,
   Check,
   X,
   ChevronDown,
-  ChevronRight,
-  Target,
-  UserCheck,
   AlertTriangle,
-  Clock,
-  Upload,
-  Camera,
-  Info,
-  Zap,
-  Sparkles,
   Brain,
   Wifi,
   WifiOff,
-  RefreshCw,
-  Flame,
-  Send,
-  TrendingUp,
+  Zap,
+  Info,
+  Shield,
+  Upload,
 } from 'lucide-react';
 import { FileUploader } from '@/components/ui/FileUploader';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
-import { DomaineCode, getDomaineInfo, getDomaineLabel, grouperParDomaine, DomaineItems } from '@/lib/domaines';
-import { EvaluationTerrain, computeEvaluationTerrainScore } from '@/types/checklist';
+import { DomaineCode } from '@/lib/domaines';
+import type { PAOELevel, EvaluationSGS } from '@/types/checklist';
+import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
 // Types
 export type ResultatSuivi = 'SA' | 'NS' | 'NV';
-export type ModeSaisie = 'clavier' | 'stylet' | 'ocr';
+export type StatutMesure = 'aucune' | 'prevue' | 'en_cours' | 'realisee';
+export type NiveauRisque = 'faible' | 'moyen' | 'eleve' | 'critique';
+export type { PAOELevel };
 
-export interface SuiviItem {
+export interface Preuve {
   id: string;
-  numero: string;
-  domaine?: DomaineCode;
-  reference_reglementaire: string;
-  point_verification: string;
-  directive_preuve: string;
-  resultat?: ResultatSuivi;
-  observation?: string;
-  fichiers?: { id: string; nom: string; url: string; dateUpload: string }[];
-  ordre: number;
-  prediction?: ResultatSuivi;
-  confiance?: number;
-  justification?: string;
-  alerte?: boolean;
-  prefill?: boolean;
-  evaluationTerrain?: EvaluationTerrain;
+  nom: string;
+  url: string;
+  dateUpload: string;
 }
 
-export interface EcartSuiviVerification {
+export interface CritereCriticite {
+  valeur: boolean | null;
+  justification?: string;
+}
+
+export interface CriticiteEvaluation {
+  defenses_existantes: CritereCriticite;
+  facteurs_aggravants: CritereCriticite;
+  recurrence: CritereCriticite;
+  impact_operationnel: CritereCriticite;
+  delai_correction: CritereCriticite;
+}
+
+export interface EcartEvaluation {
   id: string;
   ecart_id: string;
+  reference: string;
+  libelle: string;
   domaine?: DomaineCode;
-  ecart_reference: string;
-  ecart_libelle: string;
-  ecart_niveau: 'critique' | 'eleve' | 'moyen' | 'faible';
-  date_echeance: string;
-  statut: string;
-  progression_pac?: number;
-  items: SuiviItem[];
-  observations_generales?: string;
-  progression: number;
+  niveau_risque: NiveauRisque;
+
+  statut_mesure: StatutMesure;
+  mesure_description?: string;
+  mesure_incidence?: string;
+  preuves: Preuve[];
+
+  risque_initial: NiveauRisque;
+  risque_residuel?: NiveauRisque;
+  niveau_maturite?: PAOELevel;
+  niveau_maturite_residuel?: PAOELevel;
+  criticite: CriticiteEvaluation;
+
+  commentaire?: string;
+  conclusion?: ResultatSuivi;
+
+  ordre: number;
   isExpanded: boolean;
 }
 
@@ -94,22 +94,70 @@ export const RESULTAT_LABELS = {
   NV: { label: 'À vérifier', variant: 'warning', icon: AlertCircle, color: 'bg-warning/20 text-warning-800 border-warning', short: 'NV' },
 };
 
-// Composant: Indicateur de confiance
+const RISQUE_CONFIG = {
+  critique: { label: 'Critique', color: 'text-danger', badge: 'badge danger', gradient: 'from-red-500/10 to-transparent', border: 'border-l-danger', icon: AlertTriangle, bg: 'bg-danger/5' },
+  eleve: { label: 'Élevé', color: 'text-warning', badge: 'badge warning', gradient: 'from-orange-500/10 to-transparent', border: 'border-l-warning', icon: AlertTriangle, bg: 'bg-warning/5' },
+  moyen: { label: 'Moyen', color: 'text-primary', badge: 'badge primary', gradient: 'from-blue-500/10 to-transparent', border: 'border-l-primary', icon: Shield, bg: 'bg-primary/5' },
+  faible: { label: 'Faible', color: 'text-success', badge: 'badge success', gradient: 'from-emerald-500/10 to-transparent', border: 'border-l-success', icon: Shield, bg: 'bg-success/5' },
+};
+
+const MATURITE_CONFIG: Record<PAOELevel, { label: string; color: string; badge: string; gradient: string; border: string; icon: React.ComponentType<{ className?: string }>; bg: string }> = {
+  absent: { label: 'Absent', color: 'text-danger', badge: 'badge danger', gradient: 'from-red-500/10 to-transparent', border: 'border-l-danger', icon: AlertTriangle, bg: 'bg-danger/5' },
+  present: { label: 'Présent', color: 'text-warning', badge: 'badge warning', gradient: 'from-orange-500/10 to-transparent', border: 'border-l-warning', icon: AlertTriangle, bg: 'bg-warning/5' },
+  approprie: { label: 'Approprié', color: 'text-yellow-600', badge: 'bg-yellow-100 text-yellow-700', gradient: 'from-yellow-500/10 to-transparent', border: 'border-l-yellow-500', icon: Shield, bg: 'bg-yellow-50/50' },
+  operationnel: { label: 'Opérationnel', color: 'text-success', badge: 'badge success', gradient: 'from-emerald-500/10 to-transparent', border: 'border-l-success', icon: Shield, bg: 'bg-success/5' },
+  efficace: { label: 'Efficace', color: 'text-emerald-600', badge: 'bg-emerald-100 text-emerald-700', gradient: 'from-emerald-500/10 to-transparent', border: 'border-l-emerald-500', icon: Shield, bg: 'bg-emerald-50/50' },
+};
+
+function getCoherence(initial: NiveauRisque, residuel?: NiveauRisque): { badge: string; label: string; message: string; requireJustification: boolean } {
+  if (!residuel) return { badge: 'badge neutral', label: 'Non évalué', message: '', requireJustification: false };
+  const levels = ['faible', 'moyen', 'eleve', 'critique'];
+  const diff = levels.indexOf(residuel) - levels.indexOf(initial);
+  if (diff <= 0) {
+    if (diff === 0) return { badge: 'badge success', label: 'Stable ✓', message: 'Le niveau de risque n\'a pas évolué', requireJustification: false };
+    if (diff === -1) return { badge: 'badge success', label: 'Amélioration ✓', message: `Risque passé de ${RISQUE_CONFIG[initial].label} à ${RISQUE_CONFIG[residuel].label}`, requireJustification: false };
+    return { badge: 'badge warning', label: 'Amélioration marquée ⚠', message: `Baisse de ${Math.abs(diff)} niveau(x) — vérifier la cohérence`, requireJustification: true };
+  }
+  return { badge: 'badge danger', label: 'Aggravation 🔴', message: `Le risque a augmenté — justifiez impérativement`, requireJustification: true };
+}
+
+const MATURITE_ORDER: PAOELevel[] = ['absent', 'present', 'approprie', 'operationnel', 'efficace'];
+
+function getMaturiteCoherence(initial?: PAOELevel, residuel?: PAOELevel): { badge: string; label: string; message: string; requireJustification: boolean } {
+  if (!initial || !residuel) return { badge: 'badge neutral', label: 'Non évalué', message: '', requireJustification: false };
+  const diff = MATURITE_ORDER.indexOf(residuel) - MATURITE_ORDER.indexOf(initial);
+  if (diff >= 0) {
+    if (diff === 0) return { badge: 'badge success', label: 'Stable ✓', message: 'Le niveau de maturité n\'a pas évolué', requireJustification: false };
+    if (diff === 1) return { badge: 'badge success', label: 'Progression ✓', message: `Maturité passée de ${MATURITE_CONFIG[initial].label} à ${MATURITE_CONFIG[residuel].label}`, requireJustification: false };
+    return { badge: 'badge warning', label: 'Progression marquée ⚠', message: `Hausse de ${diff} niveau(x) — vérifier la cohérence`, requireJustification: true };
+  }
+  return { badge: 'badge danger', label: 'Régression 🔴', message: `La maturité a baissé — justifiez impérativement`, requireJustification: true };
+}
+
+const NIVEAU_RISQUE_TO_MATURITE: Record<string, PAOELevel> = { critique: 'absent', eleve: 'present', moyen: 'approprie', faible: 'operationnel' };
+
+function getNiveauMaturiteForEcartInline(ec: any, sgsEval?: EvaluationSGS | null): PAOELevel | undefined {
+  if (ec.domaine !== 'SGS') return undefined;
+  if (sgsEval?.composantes) {
+    const m = ec.ref_reglementaire?.match(/Composante\s+(\d)/i);
+    if (m) {
+      const comp = sgsEval.composantes.find(c => c.id === parseInt(m[1]) as 1|2|3|4|5);
+      if (comp) return comp.niveauGlobal;
+    }
+    for (const comp of sgsEval.composantes) {
+      if (ec.ref_reglementaire?.includes(comp.label)) return comp.niveauGlobal;
+    }
+  }
+  return NIVEAU_RISQUE_TO_MATURITE[ec.niveau_risque] || 'present';
+}
+
 function ConfidenceIndicator({ confiance }: { confiance: number }) {
   let color = 'bg-gray-200';
-  
-  if (confiance >= 85) {
-    color = 'bg-success';
-  } else if (confiance >= 70) {
-    color = 'bg-primary';
-  } else if (confiance >= 50) {
-    color = 'bg-warning';
-  } else if (confiance >= 30) {
-    color = 'bg-orange-400';
-  } else {
-    color = 'bg-danger';
-  }
-  
+  if (confiance >= 85) color = 'bg-success';
+  else if (confiance >= 70) color = 'bg-primary';
+  else if (confiance >= 50) color = 'bg-warning';
+  else if (confiance >= 30) color = 'bg-orange-400';
+  else color = 'bg-danger';
   return (
     <div className="flex items-center gap-1" title={`Confiance: ${confiance}%`}>
       <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -120,29 +168,19 @@ function ConfidenceIndicator({ confiance }: { confiance: number }) {
   );
 }
 
-// Composant: Bouton info pour suggestion
 function SuggestionInfoButton({ justification, confiance }: { justification: string; confiance: number }) {
   const [showPopup, setShowPopup] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
-  
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setShowPopup(false);
-      }
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) setShowPopup(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
   return (
     <div className="relative inline-block" ref={popupRef}>
-      <button
-        type="button"
-        onClick={() => setShowPopup(!showPopup)}
-        className="btn btn-sm px-3 py-1 btn-ghost p-0 h-5 w-5 text-blue-600"
-        title="Pourquoi cette suggestion ?"
-      >
+      <button type="button" onClick={() => setShowPopup(!showPopup)} className="btn btn-sm btn-ghost p-0 h-5 w-5 text-blue-600" title="Pourquoi cette suggestion ?">
         <Info className="w-3 h-3" />
       </button>
       {showPopup && (
@@ -152,225 +190,336 @@ function SuggestionInfoButton({ justification, confiance }: { justification: str
             <span className="text-xs font-semibold">Pourquoi cette suggestion ?</span>
           </div>
           <p className="text-xs text-muted-foreground mb-2">{justification}</p>
-          <div className="text-[10px] text-muted-foreground pt-1 border-t border-border">
-            Confiance: {confiance}%
-          </div>
+          <div className="text-[10px] text-muted-foreground pt-1 border-t border-border">Confiance: {confiance}%</div>
         </div>
       )}
     </div>
   );
 }
 
-// Composant: Carte d'item à vérifier
-function SuiviItemCard({
+const CRITERES_CRITICITE = [
+  { key: 'defenses_existantes' as const, label: 'Défenses existantes', question: 'Des mesures compensatoires sont-elles en place ?' },
+  { key: 'facteurs_aggravants' as const, label: 'Facteurs aggravants', question: 'Des éléments aggravent-ils la situation ?' },
+  { key: 'recurrence' as const, label: 'Récurrence', question: 'Cet écart est-il récurrent ?' },
+  { key: 'impact_operationnel' as const, label: 'Impact opérationnel', question: 'L\'écart impacte-t-il les opérations ?' },
+  { key: 'delai_correction' as const, label: 'Délai de correction', question: 'Le délai de correction est-il dépassé ou urgent ?' },
+];
+
+// ─── PreuveModal ──────────────────────────────────────────────────────────────
+
+function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
+  isOpen: boolean; onClose: () => void; itemRef: string;
+  preuves: Preuve[]; onAdd: (p: Preuve) => void; onRemove: (id: string) => void;
+}) {
+  const [nom, setNom] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  if (!isOpen) return null;
+
+  const handleAdd = () => {
+    if (!file) return;
+    onAdd({ id: `pf-${Date.now()}`, nom: nom.trim() || file.name, url: URL.createObjectURL(file), dateUpload: new Date().toISOString() });
+    setNom(''); setFile(null);
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content max-w-lg" onClick={e => e.stopPropagation()}>
+        <div className="border-t-4 border-t-role-primary rounded-2xl overflow-hidden">
+          <div className="modal-header">
+            <div className="modal-title flex items-center gap-2">
+              <FileText className="w-4 h-4 text-role-primary" />
+              Preuves — <span className="font-mono font-bold text-role-primary">{itemRef}</span>
+            </div>
+            <button className="modal-close" onClick={onClose}><X className="w-4 h-4" /></button>
+          </div>
+          <div className="modal-body p-4 space-y-3">
+            {preuves.length > 0 && (
+              <div className="mb-3">
+                <p className="text-[12px] font-semibold text-muted-foreground mb-1.5">{preuves.length} preuve(s)</p>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {preuves.map(p => (
+                    <div key={p.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-border">
+                      <div className="w-7 h-7 rounded bg-role-gradient flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <p className="flex-1 text-[12px] font-medium truncate">{p.nom}</p>
+                      <button onClick={() => window.open(p.url, '_blank')} className="btn btn-sm px-1.5 py-1 btn-ghost"><Eye className="w-3 h-3" /></button>
+                      <button onClick={() => onRemove(p.id)} className="btn btn-sm px-1.5 py-1 btn-ghost text-red-600"><Trash2 className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="border border-border rounded-lg p-3 bg-gray-50 space-y-2">
+              <p className="text-[12px] font-semibold flex items-center gap-1"><Upload className="w-3.5 h-3.5 text-role-primary" /> Ajouter une preuve</p>
+              <input type="text" value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom de la preuve…" className="form-input w-full text-xs" />
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); if (f && !nom) setNom(f.name); }} className="form-input w-full text-xs" />
+              <button type="button" onClick={handleAdd} disabled={!file}
+                className={`btn btn-sm w-full gap-1.5 ${!file ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}>
+                <Upload className="w-3 h-3" /> Ajouter
+              </button>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-sm btn-primary px-4" onClick={onClose}>Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+export function EcartEvaluationCard({
   item,
-  index,
   readOnly,
   onUpdate,
   onAddFile,
   onDeleteFile,
 }: {
-  item: SuiviItem;
-  index: number;
+  item: EcartEvaluation;
   readOnly: boolean;
-  onUpdate: (item: SuiviItem) => void;
-  onAddFile: (itemId: string, file: { id: string; nom: string; url: string; dateUpload: string }) => void;
+  onUpdate: (item: EcartEvaluation) => void;
+  onAddFile: (itemId: string, file: Preuve) => void;
   onDeleteFile: (itemId: string, fileId: string) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [observation, setObservation] = useState(item.observation || '');
-  const [selectedResultat, setSelectedResultat] = useState<ResultatSuivi>(item.resultat || item.prediction || 'NV');
-  
-  const hasPrediction = item.prediction && !item.resultat;
-  const isPrefilled = item.prefill === true;
-  const isAlerte = item.alerte === true;
-  
-  const handleResultatChange = (resultat: ResultatSuivi) => {
-    setSelectedResultat(resultat);
-    onUpdate({ ...item, resultat });
+  const [preuveOpen, setPreuveOpen] = useState(false);
+  const isSGS = item.domaine === 'SGS';
+  const risqueConfig = isSGS && item.niveau_maturite ? MATURITE_CONFIG[item.niveau_maturite] : RISQUE_CONFIG[item.niveau_risque];
+  const RisqueIcon = risqueConfig.icon;
+  const coherence = isSGS
+    ? getMaturiteCoherence(item.niveau_maturite, item.niveau_maturite_residuel)
+    : getCoherence(item.risque_initial, item.risque_residuel);
+  const aUneMesure = item.statut_mesure !== 'aucune';
+  const statutMesureBtns = [
+    { s: 'prevue' as StatutMesure, label: 'Prévue', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { s: 'en_cours' as StatutMesure, label: 'En cours', cls: 'bg-amber-100 text-amber-700 border-amber-300' },
+    { s: 'realisee' as StatutMesure, label: 'Réalisée', cls: 'bg-green-100 text-green-700 border-green-300' },
+  ];
+
+  const handleCritereToggle = (critereKey: keyof CriticiteEvaluation, value: boolean) => {
+    const current = item.criticite[critereKey];
+    const updated = current.valeur === value ? { valeur: null, justification: undefined } : { valeur: value };
+    onUpdate({ ...item, criticite: { ...item.criticite, [critereKey]: updated } });
   };
-  
-  const handleObservationChange = (obs: string) => {
-    setObservation(obs);
-    onUpdate({ ...item, observation: obs });
+
+  const handleCritereJustification = (critereKey: keyof CriticiteEvaluation, justification: string) => {
+    onUpdate({ ...item, criticite: { ...item.criticite, [critereKey]: { ...item.criticite[critereKey], justification } } });
   };
-  
-  const currentResultat = item.resultat || item.prediction || 'NV';
-  const resultatConfig = RESULTAT_LABELS[currentResultat as ResultatSuivi];
-  const ResultatIcon = resultatConfig.icon;
-  
+
   return (
-    <div className={`card border-border mb-3 overflow-hidden ${isAlerte ? 'border-l-4 border-l-danger' : ''}`}>
-      {/* En-tête de l'item */}
-      <div
-        className="flex items-center justify-between p-3 cursor-pointer hover:bg-role-primary-soft transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="code-oaci-badge text-xs">{item.numero}</span>
-            {isPrefilled && (
-              <Sparkles className="w-3 h-3 text-primary" />
-            )}
-            {isAlerte && (
-              <AlertTriangle className="w-3 h-3 text-danger" />
-            )}
-          </div>
-          <span className="text-sm text-foreground flex-1">{item.point_verification}</span>
-        </div>
+    <div className={`card border-border mb-3 overflow-hidden ${risqueConfig.border} border-l-4`}>
+      {/* Header */}
+      <div className={`flex items-center justify-between px-3 py-2 bg-gradient-to-r ${risqueConfig.gradient}`}>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100">
-            <ResultatIcon className="w-3 h-3" />
-            <span className={`text-xs font-medium ${resultatConfig.color.split(' ')[0]}`}>
-              {currentResultat === 'NV' ? 'À vérifier' : currentResultat}
+          <span className="inline-flex items-center justify-center w-7 h-6 rounded-md text-[11px] font-bold bg-blue-900 text-white">{item.domaine || 'SGS'}</span>
+          <span className="code-oaci-badge text-[12px]">{item.reference}</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${risqueConfig.badge}`}>
+            <RisqueIcon className="w-3 h-3" />
+            {risqueConfig.label}
+          </span>
+        </div>
+        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${item.conclusion ? RESULTAT_LABELS[item.conclusion].color : 'bg-gray-100 text-gray-500'}`}>
+          {item.conclusion ? RESULTAT_LABELS[item.conclusion].short : 'NV'}
+        </span>
+      </div>
+
+      {/* Libellé */}
+      <div className="px-3 py-1.5 text-[13px] text-foreground border-b border-blue-100">
+        {item.libelle}
+      </div>
+
+      {/* Row 1: Mesure de réduction des risques */}
+      <div className="bg-gray-50/70 px-3 py-1.5 border-b border-blue-100">
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] font-semibold text-muted-foreground whitespace-nowrap">Mesure de réduction des risques :</span>
+          {!readOnly ? (
+            <div className="flex gap-1">
+              <button type="button" onClick={() => onUpdate({ ...item, statut_mesure: 'prevue' })}
+                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-bold border transition-all ${aUneMesure ? 'bg-success text-white border-success' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>Oui</button>
+              <button type="button" onClick={() => { onUpdate({ ...item, statut_mesure: 'aucune', risque_residuel: undefined, mesure_description: undefined, mesure_incidence: undefined, preuves: [], commentaire: undefined }); }}
+                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-bold border transition-all ${!aUneMesure ? 'bg-gray-400 text-white border-gray-400' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>Non</button>
+            </div>
+          ) : (
+            <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded text-[11px] font-bold border ${aUneMesure ? 'bg-success text-white border-success' : 'bg-gray-400 text-white border-gray-400'}`}>
+              {aUneMesure ? 'Oui' : 'Non'}
             </span>
+          )}
+        </div>
+        {aUneMesure && (
+          <div className="mt-2 border border-blue-100 rounded-lg overflow-hidden">
+            <table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="bg-blue-50 border-b border-blue-200">
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[15%]">Mesure prévue ou mise en œuvre</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[30%]">Description</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[20%]">Incidence sur l'écart</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[15%]">Preuves</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground w-[20%]">Observations</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-blue-100">
+                  <td className="p-1 border-r border-blue-100 align-top">
+                    <div className="flex flex-col gap-1">
+                      {statutMesureBtns.map(({ s, label, cls }) => (
+                        <button key={s} type="button" onClick={() => onUpdate({ ...item, statut_mesure: s })} disabled={readOnly}
+                          className={`text-[11px] px-1.5 py-0.5 rounded border text-left transition-all ${item.statut_mesure === s ? cls : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="p-1 border-r border-blue-100 align-top">
+                    <textarea value={item.mesure_description || ''} onChange={e => onUpdate({ ...item, mesure_description: e.target.value })}
+                      placeholder="Décrivez la mesure..." rows={2} disabled={readOnly}
+                      className="form-textarea w-full text-[13px] resize-none" />
+                  </td>
+                  <td className="p-1 border-r border-blue-100 align-top">
+                    <textarea value={item.mesure_incidence || ''} onChange={e => onUpdate({ ...item, mesure_incidence: e.target.value })}
+                      placeholder="Impact de la mesure..." rows={2} disabled={readOnly}
+                      className="form-textarea w-full text-[13px] resize-none" />
+                  </td>
+                  <td className="p-1.5 text-center border-r border-blue-100 w-32 min-w-[7rem] max-w-[9rem] align-middle">
+                    <button type="button" onClick={() => setPreuveOpen(true)}
+                      className="inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 w-full justify-center">
+                      <FileText className="w-3.5 h-3.5" />
+                      {item.preuves.length > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5 w-full">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-[11px] font-bold text-primary">{item.preuves.length}</span>
+                          {item.preuves.slice(0, 2).map(p => (
+                            <span key={p.id} className="text-[9px] text-primary truncate max-w-[90px] text-center">{p.nom}</span>
+                          ))}
+                          {item.preuves.length > 2 && <span className="text-[9px] text-muted-foreground">+{item.preuves.length - 2}</span>}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">Ajouter</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="p-1 align-top">
+                    <textarea value={item.commentaire || ''} onChange={e => onUpdate({ ...item, commentaire: e.target.value })}
+                      placeholder="Observations terrain..." rows={2} disabled={readOnly}
+                      className="form-textarea w-full text-[13px] resize-none" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+        )}
+      </div>
+
+      {/* Row 2: Évolution de la criticité */}
+      <div className="bg-blue-50/60 px-3 py-1.5 border-b border-blue-100">
+        <p className="text-[12px] font-semibold text-muted-foreground mb-1.5">Évolution de la criticité</p>
+        <div className="border border-blue-100 rounded-lg overflow-hidden">
+          <div className="grid grid-cols-5">
+            {CRITERES_CRITICITE.map(({ key, label, question }) => {
+              const critere = item.criticite[key] || { valeur: null };
+              return (
+                <div key={key} className="p-1.5 border-r border-blue-100 last:border-r-0 border-b border-blue-100">
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="text-[11px] font-bold text-foreground truncate" title={question}>{label}</span>
+                    {!readOnly ? (
+                      <div className="flex gap-0.5 flex-shrink-0">
+                        <button type="button" onClick={() => handleCritereToggle(key, true)}
+                          className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${critere.valeur === true ? 'bg-success text-white border-success' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>Oui</button>
+                        <button type="button" onClick={() => handleCritereToggle(key, false)}
+                          className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${critere.valeur === false ? 'bg-danger text-white border-danger' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>Non</button>
+                      </div>
+                    ) : (
+                      <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${critere.valeur === true ? 'bg-success text-white border-success' : critere.valeur === false ? 'bg-danger text-white border-danger' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                        {critere.valeur === true ? 'Oui' : critere.valeur === false ? 'Non' : '—'}
+                      </span>
+                    )}
+                  </div>
+                  {critere.valeur === true && (
+                    <textarea value={critere.justification || ''} onChange={e => handleCritereJustification(key, e.target.value)}
+                      placeholder="Justification..." rows={2} disabled={readOnly}
+                      className="form-textarea w-full text-[11px] resize-none" />
+                  )}
+                  {readOnly && critere.valeur === true && critere.justification && (
+                    <p className="text-[11px] text-muted-foreground">{critere.justification}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-      
-      {isExpanded && (
-        <div className="p-3 pt-0 space-y-3">
-          {/* Directive preuve */}
-          <div className="p-2 bg-blue-50 rounded-lg text-[12px] text-blue-700">
-            <span className="font-semibold">Directive de preuve : </span>
-            {item.directive_preuve}
-          </div>
-          
-          {/* Prédiction système */}
-          {hasPrediction && !readOnly && (
-            <div className="p-2 bg-primary/5 rounded-lg border border-primary/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-3 h-3 text-primary" />
-                  <span className="text-xs text-primary">Prédiction système</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-primary">{item.prediction}</span>
-                  <ConfidenceIndicator confiance={item.confiance || 0} />
-                  <SuggestionInfoButton justification={item.justification || ''} confiance={item.confiance || 0} />
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Zone de vérification */}
-          <div className="border-t border-border pt-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              🔍 Vérification sur site
-            </p>
-            
-            {/* Boutons résultat SA/NS */}
-            <div className="checklist-etat mb-3">
-              <button
-                type="button"
-                onClick={() => handleResultatChange('SA')}
-                className={`checklist-etat-btn ${selectedResultat === 'SA' ? 'active-sa' : ''}`}
-                disabled={readOnly}
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>SA</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleResultatChange('NS')}
-                className={`checklist-etat-btn ${selectedResultat === 'NS' ? 'active-ns' : ''}`}
-                disabled={readOnly}
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>NS</span>
-              </button>
-            </div>
-            
-            {/* Observations */}
-            <div className="mb-3">
-              <textarea
-                value={observation}
-                onChange={(e) => handleObservationChange(e.target.value)}
-                placeholder="Notez vos observations sur site..."
-                rows={2}
-                className={`form-textarea text-sm w-full ${focusClass}`}
-                disabled={readOnly}
-              />
-            </div>
-            
-            {/* Preuves */}
-            <div>
-              {item.fichiers && item.fichiers.length > 0 && (
-                <div className="space-y-1 mb-2">
-                  {item.fichiers.map((proof: any) => (
-                    <div key={proof.id} className="flex items-center gap-2 text-xs bg-role-primary-soft p-2 rounded-lg">
-                      <FileText className="w-4 h-4 text-primary" />
-                      <span className="flex-1 truncate text-sm">{proof.nom}</span>
-                      <button
-                        type="button"
-                        className="btn btn-sm px-3 py-1 btn-ghost"
-                        onClick={() => window.open(proof.url, '_blank')}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          className="btn btn-sm px-3 py-1 btn-ghost text-red-600"
-                          onClick={() => onDeleteFile(item.id, proof.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {!readOnly && (
-                <div className="flex gap-2">
-                  <FileUploader
-                    onUpload={(file) => onAddFile(item.id, {
-                      id: `proof-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-                      nom: file.nom,
-                      url: file.url,
-                      dateUpload: new Date().toISOString(),
-                    })}
-                    accept=".pdf,.jpg,.jpeg,.png"
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-sm px-3 py-1 btn-secondary text-sm"
-                    onClick={() => {
-                      const input = document.createElement('input');
-                      input.type = 'file';
-                      input.accept = 'image/*';
-                      input.capture = 'environment';
-                      input.onchange = (e) => {
-                        const file = (e.target as HTMLInputElement).files?.[0];
-                        if (file) {
-                          const url = URL.createObjectURL(file);
-                          onAddFile(item.id, {
-                            id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-                            nom: `photo_${new Date().toISOString().slice(0, 19)}.jpg`,
-                            url,
-                            dateUpload: new Date().toISOString(),
-                          });
-                        }
-                      };
-                      input.click();
-                    }}
-                  >
-                    <Camera className="w-4 h-4" />
-                    Photo
+
+      {/* Row 3: Risque résiduel / Maturité résiduelle + Conclusion */}
+      <div className="px-3 py-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-[12px] font-semibold text-muted-foreground whitespace-nowrap">
+            {isSGS ? 'Maturité initiale' : 'Risque initial'} :
+          </span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${risqueConfig.badge}`}>
+            <RisqueIcon className="w-3 h-3" />
+            {risqueConfig.label}
+          </span>
+          <span className="text-blue-200 text-[13px]">→</span>
+          <span className="text-[12px] font-semibold text-muted-foreground whitespace-nowrap">
+            {isSGS ? 'Maturité résiduelle' : 'Risque résiduel'} :
+          </span>
+          {!readOnly ? (
+            <div className="flex gap-1 flex-wrap">
+              {isSGS ? (
+                (Object.entries(MATURITE_CONFIG) as [PAOELevel, typeof MATURITE_CONFIG[PAOELevel]][]).map(([niveau, config]) => (
+                  <button key={niveau} type="button" onClick={() => onUpdate({ ...item, niveau_maturite_residuel: item.niveau_maturite_residuel === niveau ? undefined : niveau })}
+                    className={`text-[11px] px-2 py-0.5 rounded font-medium border transition-all ${item.niveau_maturite_residuel === niveau ? `${config.bg} ${config.color} border-current` : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                    {config.label}
                   </button>
-                </div>
+                ))
+              ) : (
+                (Object.entries(RISQUE_CONFIG) as [NiveauRisque, typeof RISQUE_CONFIG[NiveauRisque]][]).map(([niveau, config]) => (
+                  <button key={niveau} type="button" onClick={() => onUpdate({ ...item, risque_residuel: item.risque_residuel === niveau ? undefined : niveau })}
+                    className={`text-[11px] px-2 py-0.5 rounded font-medium border transition-all ${item.risque_residuel === niveau ? `${config.bg} ${config.color} border-current` : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                    {config.label}
+                  </button>
+                ))
               )}
             </div>
+          ) : (
+            <span className={`text-[13px] font-bold ${isSGS ? (item.niveau_maturite_residuel ? MATURITE_CONFIG[item.niveau_maturite_residuel].color : 'text-gray-400') : (item.risque_residuel ? RISQUE_CONFIG[item.risque_residuel].color : 'text-gray-400')}`}>
+              {isSGS
+                ? (item.niveau_maturite_residuel ? MATURITE_CONFIG[item.niveau_maturite_residuel].label : 'Non défini')
+                : (item.risque_residuel ? RISQUE_CONFIG[item.risque_residuel].label : 'Non défini')}
+            </span>
+          )}
+          {isSGS ? (item.niveau_maturite_residuel && (
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-medium border ${coherence.badge}`}>{coherence.label}</span>
+          )) : (item.risque_residuel && (
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-medium border ${coherence.badge}`}>{coherence.label}</span>
+          ))}
+          <span className="text-blue-200 text-[13px]">|</span>
+          <span className="text-[12px] font-semibold text-muted-foreground whitespace-nowrap">Conclusion :</span>
+          <div className="checklist-etat checklist-etat-3 !gap-1">
+            {(['SA', 'NS', 'NV'] as ResultatSuivi[]).map((resultat) => {
+              const config = RESULTAT_LABELS[resultat];
+              const Icon = config.icon;
+              return (
+                <button key={resultat} type="button" onClick={() => onUpdate({ ...item, conclusion: item.conclusion === resultat ? undefined : resultat })}
+                  className={`checklist-etat-btn ${item.conclusion === resultat ? `active-${resultat.toLowerCase()}` : ''}`} disabled={readOnly}>
+                  <Icon className="w-3 h-3" /><span>{config.short}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
+        {(isSGS ? item.niveau_maturite_residuel : item.risque_residuel) && (
+          <p className="text-[11px] text-muted-foreground mt-1">{coherence.message}</p>
+        )}
+      </div>
+
+      <PreuveModal isOpen={preuveOpen} onClose={() => setPreuveOpen(false)} itemRef={item.reference}
+        preuves={item.preuves}
+        onAdd={p => onAddFile(item.id, p)}
+        onRemove={id => onDeleteFile(item.id, id)} />
     </div>
   );
 }
 
-// Composant: Bandeau de suggestions
 function SuggestionsBanner({
   suggestions,
   onAcceptAll,
@@ -382,42 +531,23 @@ function SuggestionsBanner({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [accepted, setAccepted] = useState<string[]>([]);
-  
   if (suggestions.length === 0) return null;
-  
   const remainingSuggestions = suggestions.filter(s => !accepted.includes(s.itemId));
-  
   if (remainingSuggestions.length === 0) return null;
-  
   return (
     <Card variant="role" className="bg-primary/5 mb-4">
-      <button
-        className="w-full flex items-center justify-between p-4"
-        onClick={() => setExpanded(!expanded)}
-      >
+      <button className="w-full flex items-center justify-between p-4" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-primary" />
           <span className="font-semibold text-sm">Suggestions intelligentes ({remainingSuggestions.length})</span>
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">Basées sur historique</span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); onAcceptAll(); }}
-            className="btn btn-sm px-3 py-1 btn-primary"
-          >
-            <Zap className="w-3 h-3" />
-            Accepter tout
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onIgnore(); }}
-            className="btn btn-sm px-3 py-1 btn-secondary"
-          >
-            Ignorer
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); onAcceptAll(); }} className="btn btn-sm px-3 py-1 btn-primary"><Zap className="w-3 h-3" /> Accepter tout</button>
+          <button onClick={(e) => { e.stopPropagation(); onIgnore(); }} className="btn btn-sm px-3 py-1 btn-secondary">Ignorer</button>
           <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
       </button>
-      
       {expanded && (
         <div className="p-4 pt-0 space-y-2">
           {remainingSuggestions.map(suggestion => (
@@ -427,15 +557,7 @@ function SuggestionsBanner({
                 <span className="text-sm text-muted-foreground flex-1">{suggestion.justification}</span>
                 <ConfidenceIndicator confiance={suggestion.confiance} />
               </div>
-              <button
-                onClick={() => {
-                  setAccepted(prev => [...prev, suggestion.itemId]);
-                }}
-                className="btn btn-sm px-3 py-1 btn-primary"
-              >
-                <Check className="w-3 h-3" />
-                Appliquer SA
-              </button>
+              <button onClick={() => setAccepted(prev => [...prev, suggestion.itemId])} className="btn btn-sm px-3 py-1 btn-primary"><Check className="w-3 h-3" /> Appliquer SA</button>
             </div>
           ))}
         </div>
@@ -444,7 +566,6 @@ function SuggestionsBanner({
   );
 }
 
-// Composant: Modal observations générales
 function GeneralObservationsModal({
   isOpen,
   onClose,
@@ -459,35 +580,18 @@ function GeneralObservationsModal({
   readOnly: boolean;
 }) {
   const [tempObservations, setTempObservations] = useState(observations);
-  
-  useEffect(() => {
-    setTempObservations(observations);
-  }, [observations]);
-  
+  useEffect(() => { setTempObservations(observations); }, [observations]);
   if (!isOpen) return null;
-  
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content max-w-2xl" onClick={e => e.stopPropagation()}>
         <div className="border-t-4 border-t-role-primary rounded-2xl overflow-hidden">
           <div className="modal-header bg-gradient-to-r from-role-primary/10 to-transparent">
-            <div className="modal-title">
-              <FileText className="w-5 h-5 text-role-primary" />
-              Observations générales
-            </div>
-            <button className="modal-close" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </button>
+            <div className="modal-title"><FileText className="w-5 h-5 text-role-primary" /> Observations générales</div>
+            <button className="modal-close" onClick={onClose}><X className="w-4 h-4" /></button>
           </div>
           <div className="modal-body p-5">
-            <textarea
-              value={tempObservations}
-              onChange={(e) => setTempObservations(e.target.value)}
-              placeholder="Observations générales sur le suivi des écarts..."
-              rows={6}
-              className={`form-textarea w-full ${focusClass}`}
-              disabled={readOnly}
-            />
+            <textarea value={tempObservations} onChange={(e) => setTempObservations(e.target.value)} placeholder="Observations générales sur le suivi des écarts..." rows={6} className={`form-textarea w-full ${focusClass}`} disabled={readOnly} />
           </div>
           <div className="modal-footer">
             <button className="btn btn-sm px-3 py-1 btn-secondary" onClick={onClose}>Annuler</button>
@@ -500,7 +604,6 @@ function GeneralObservationsModal({
   );
 }
 
-// Composant principal
 export function SurveillanceChecklistSuiviEcarts({
   surveillanceId,
   aerodromeId,
@@ -520,322 +623,170 @@ export function SurveillanceChecklistSuiviEcarts({
   const addNotification = useAppStore(s => s.addNotification);
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
   const ecarts = useOptimizedStore(s => s.ecarts);
-  
-  // Trouver l'écart associé à cette surveillance
-  const ecart = useMemo(() => {
-    return ecarts.find(e => e.surveillance_id === surveillanceId);
-  }, [ecarts, surveillanceId]);
-  
-  // État principal
-  const [verification, setVerification] = useState<EcartSuiviVerification | null>(null);
+  const surveillances = useAppStore(s => s.surveillances);
+  const certifications = useAppStore(s => s.certifications);
+  const homologations = useAppStore(s => s.homologations);
+  const surveillance = useMemo(() => surveillances.find(s => s.id === surveillanceId), [surveillances, surveillanceId]);
+
+  const ecart = useMemo(() => ecarts.find(e => e.surveillance_id === surveillanceId), [ecarts, surveillanceId]);
+
+  const [evaluations, setEvaluations] = useState<EcartEvaluation[]>([]);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSigned, setIsSigned] = useState(false);
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [observationsModalOpen, setObservationsModalOpen] = useState(false);
+  const [observationsGenerales, setObservationsGenerales] = useState('');
   const [suggestions, setSuggestions] = useState<{ itemId: string; itemNumero: string; justification: string; confiance: number }[]>([]);
-  
-  // Détection offline
+
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     setIsOffline(!navigator.onLine);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
   }, []);
-  
-  // Générer les items de vérification à partir des vrais écarts
+
   useEffect(() => {
-    // Récupérer tous les écarts de l'aérodrome qui nécessitent un suivi
-    // États concernés : 
-    // - ouvert (pas encore de PAC), pac_attendu (PAC demandé non soumis)
-    // - pac_soumis (PAC soumis mais pas encore évalué), pac_refuse (PAC refusé)
-    // - en_retard (délai dépassé)
-    // Ne PAS inclure pac_accepte, preuves_soumises, preuves_evaluees → ceux-là vont dans la checklist PAC
     const ecartsASuivre = ecarts.filter(e => {
-      if (e.aerodrome_id !== aerodromeId) return false
-      if (e.statut === 'cloture') return false
-      return ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut)
-    })
+      if (e.aerodrome_id !== aerodromeId) return false;
+      if (e.statut === 'cloture') return false;
+      if (!['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut)) return false;
+      // Exclure les écarts issus de certification/homologation non terminée
+      if (isEcartProcessusActif(e.surveillance_id, aerodromeId, certifications, homologations)) return false;
+      return true;
+    });
 
     if (ecartsASuivre.length === 0) {
-      setVerification(null)
-      return
+      setEvaluations([]);
+      return;
     }
 
-    // Construire les items pour chaque écart
-    const tousItems: SuiviItem[] = []
-    let itemCounter = 1
+    const newEvaluations: EcartEvaluation[] = ecartsASuivre.map((ec, idx) => {
+      const domaine = (ec as any).domaine as DomaineCode | undefined;
+      const ref = ec.ref_reglementaire || ec.reference;
+      return {
+        id: `eval-${ec.id}-${Date.now()}`,
+        ecart_id: ec.id,
+        reference: ref,
+        libelle: ec.libelle || 'Écart sans libellé',
+        domaine,
+        niveau_risque: (ec.niveau_risque || 'moyen') as NiveauRisque,
+        statut_mesure: 'aucune',
+        preuves: [],
+        risque_initial: (ec.niveau_risque || 'moyen') as NiveauRisque,
+        criticite: {
+          defenses_existantes: { valeur: null },
+          facteurs_aggravants: { valeur: null },
+          recurrence: { valeur: null },
+          impact_operationnel: { valeur: null },
+          delai_correction: { valeur: null },
+        },
+        ordre: idx,
+        isExpanded: true,
+        niveau_maturite: getNiveauMaturiteForEcartInline(ec, surveillance?.sgs_evaluation_prepa as EvaluationSGS | null | undefined),
+        niveau_maturite_residuel: undefined,
+      };
+    });
+    setEvaluations(newEvaluations);
+  }, [aerodromeId, ecarts, surveillanceId, certifications, homologations]);
 
-    for (const ec of ecartsASuivre) {
-      const domaineEcart = (ec as any).domaine as DomaineCode | undefined
-      const ref = ec.ref_reglementaire || ec.reference
-      const echeance = ec.delai_regularisation
-        ? new Date(ec.delai_regularisation).toLocaleDateString('fr-FR')
-        : ec.delai_pac
-          ? new Date(ec.delai_pac).toLocaleDateString('fr-FR')
-          : 'Non définie'
-
-      // Item 1 : état d'avancement
-      tousItems.push({
-        id: `suivi-${ec.id}-1`,
-        numero: `${itemCounter++}.1`,
-        domaine: domaineEcart,
-        reference_reglementaire: ref,
-        point_verification: `[${ec.reference}] Vérifier l'état d'avancement — ${ec.libelle?.substring(0, 100) || 'écart sans libellé'}`,
-        directive_preuve: 'Constats terrain, photos, documents',
-        ordre: tousItems.length + 1,
-      })
-
-      // Item 2 : actions correctives engagées
-      tousItems.push({
-        id: `suivi-${ec.id}-2`,
-        numero: `${itemCounter++}.2`,
-        domaine: domaineEcart,
-        reference_reglementaire: ref,
-        point_verification: `[${ec.reference}] Vérifier les actions correctives engagées — délai régularisation : ${echeance}`,
-        directive_preuve: 'Preuves de mise en œuvre, devis, planning travaux',
-        ordre: tousItems.length + 1,
-      })
-
-      // Item 3 : évaluation de l'efficacité (seulement si actions engagées)
-      if (ec.pac || ec.date_detection) {
-        tousItems.push({
-          id: `suivi-${ec.id}-3`,
-          numero: `${itemCounter++}.3`,
-          domaine: domaineEcart,
-          reference_reglementaire: ref,
-          point_verification: `[${ec.reference}] Évaluer l'efficacité des mesures prises — écart ${ec.niveau_risque}, ${ec.statut}`,
-          directive_preuve: 'Rapport d\'évaluation, mesures avant/après, indicateurs',
-          ordre: tousItems.length + 1,
-        })
-      }
-    }
-
-    // Créer l'objet de vérification
-    const premierEcart = ecartsASuivre[0]
-    const verif: EcartSuiviVerification = {
-      id: `suivi-${surveillanceId}-${Date.now()}`,
-      ecart_id: premierEcart.id,
-      domaine: (premierEcart as any).domaine,
-      ecart_reference: `${ecartsASuivre.length} écart(s) à suivre`,
-      ecart_libelle: ecartsASuivre.map(e => `${e.reference} (${e.niveau_risque})`).join(', '),
-      ecart_niveau: premierEcart.niveau_risque as 'critique' | 'eleve' | 'moyen' | 'faible',
-      date_echeance: premierEcart.delai_regularisation || premierEcart.delai_pac || new Date().toISOString(),
-      statut: premierEcart.statut,
-      progression_pac: premierEcart.pac?.version,
-      items: tousItems,
-      progression: 0,
-      isExpanded: true,
-    }
-    setVerification(verif)
-  }, [aerodromeId, ecarts, surveillanceId])
-  
-  // Générer les suggestions
   useEffect(() => {
-    if (verification && !readOnly && !isSigned) {
-      const newSuggestions = verification.items
-        .filter(item => !item.resultat && item.prediction === 'SA' && (item.confiance || 0) >= 70)
+    if (evaluations.length > 0 && !readOnly && !isSigned) {
+      const newSuggestions = evaluations
+        .filter(item => !item.conclusion && item.niveau_risque === 'critique')
         .map(item => ({
           itemId: item.id,
-          itemNumero: item.numero,
-          justification: item.justification || 'Conforme lors des vérifications précédentes',
-          confiance: item.confiance || 0,
+          itemNumero: item.reference,
+          justification: 'Écart critique nécessitant une évaluation prioritaire',
+          confiance: 85,
         }));
       setSuggestions(newSuggestions);
     }
-  }, [verification, readOnly, isSigned]);
-  
-  // Mettre à jour la progression
-  const updateProgression = useCallback((items: SuiviItem[]) => {
-    const total = items.length;
-    const verifiees = items.filter(i => i.resultat).length;
-    const progression = total > 0 ? Math.round((verifiees / total) * 100) : 0;
-    setVerification(prev => prev ? { ...prev, items, progression } : null);
-  }, []);
-  
-  // Handlers
-  const handleUpdateItem = useCallback((updatedItem: SuiviItem) => {
-    setVerification(prev => {
-      if (!prev) return prev;
-      const newItems = prev.items.map(i => i.id === updatedItem.id ? updatedItem : i);
-      updateProgression(newItems);
-      return { ...prev, items: newItems };
-    });
-  }, [updateProgression]);
-  
-  const handleAddFile = useCallback((itemId: string, file: { id: string; nom: string; url: string; dateUpload: string }) => {
-    setVerification(prev => {
-      if (!prev) return prev;
-      const newItems = prev.items.map(i => 
-        i.id === itemId 
-          ? { ...i, fichiers: [...(i.fichiers || []), file] }
-          : i
-      );
-      return { ...prev, items: newItems };
-    });
-  }, []);
-  
-  const handleDeleteFile = useCallback((itemId: string, fileId: string) => {
-    setVerification(prev => {
-      if (!prev) return prev;
-      const newItems = prev.items.map(i => 
-        i.id === itemId 
-          ? { ...i, fichiers: i.fichiers?.filter(p => p.id !== fileId) || [] }
-          : i
-      );
-      return { ...prev, items: newItems };
-    });
-  }, []);
-  
-  const handleSaveObservations = useCallback((observations: string) => {
-    setVerification(prev => prev ? { ...prev, observations_generales: observations } : null);
-    setLastSaved(new Date());
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Observations sauvegardées',
-      message: 'Les observations générales ont été sauvegardées',
-      canal: 'in_app',
-    });
-  }, [user, addNotification]);
-  
-  // Auto-save
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (verification && !readOnly && !isSigned) {
-        setLastSaved(new Date());
-        onSave?.(verification);
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [verification, readOnly, isSigned, onSave]);
-  
-  // Accepter toutes les suggestions
+  }, [evaluations, readOnly, isSigned]);
+
   const handleAcceptAllSuggestions = () => {
-    setVerification(prev => {
-      if (!prev) return prev;
-      const newItems: SuiviItem[] = prev.items.map(item => {
-        const suggestion = suggestions.find(s => s.itemId === item.id);
-        if (suggestion && !item.resultat) {
-          return { ...item, resultat: 'SA' as const, prefill: true };
-        }
-        return item;
-      });
-      updateProgression(newItems);
-      return { ...prev, items: newItems };
-    });
+    setEvaluations(prev => prev.map(item => {
+      const suggestion = suggestions.find(s => s.itemId === item.id);
+      if (suggestion && !item.conclusion) return { ...item, conclusion: 'SA' as const };
+      return item;
+    }));
     setSuggestions([]);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Suggestions appliquées',
-      message: `${suggestions.length} suggestion(s) appliquée(s)`,
-      canal: 'in_app',
-    });
+    addNotification({ user_id: user?.id || '', type: 'success', title: 'Suggestions appliquées', message: `${suggestions.length} suggestion(s) appliquée(s)`, canal: 'in_app' });
   };
-  
+
   const handleIgnoreSuggestions = () => {
     setSuggestions([]);
   };
-  
-  // Signature
+
+  const updateProgression = useCallback((items: EcartEvaluation[]) => {
+    return items;
+  }, []);
+
+  const handleUpdateItem = useCallback((updatedItem: EcartEvaluation) => {
+    setEvaluations(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+  }, []);
+
+  const handleAddFile = useCallback((itemId: string, file: Preuve) => {
+    setEvaluations(prev => prev.map(i => i.id === itemId ? { ...i, preuves: [...i.preuves, file] } : i));
+  }, []);
+
+  const handleDeleteFile = useCallback((itemId: string, fileId: string) => {
+    setEvaluations(prev => prev.map(i => i.id === itemId ? { ...i, preuves: i.preuves.filter(p => p.id !== fileId) } : i));
+  }, []);
+
+  const handleSaveObservations = useCallback((observations: string) => {
+    setObservationsGenerales(observations);
+    setLastSaved(new Date());
+    addNotification({ user_id: user?.id || '', type: 'success', title: 'Observations sauvegardées', message: 'Les observations générales ont été sauvegardées', canal: 'in_app' });
+  }, [user, addNotification]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (evaluations.length > 0 && !readOnly && !isSigned) {
+        setLastSaved(new Date());
+        onSave?.({ items: evaluations, observations_generales: observationsGenerales });
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [evaluations, readOnly, isSigned, onSave, observationsGenerales]);
+
+  const stats = useMemo(() => {
+    const total = evaluations.length;
+    const sa = evaluations.filter(i => i.conclusion === 'SA').length;
+    const ns = evaluations.filter(i => i.conclusion === 'NS').length;
+    const nv = evaluations.filter(i => !i.conclusion || i.conclusion === 'NV').length;
+    const progression = total > 0 ? Math.round(((sa + ns) / total) * 100) : 0;
+    return { total, sa, ns, nv, progression };
+  }, [evaluations]);
+
   const handleSign = () => {
-    if (verification && verification.progression < 100) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'warning',
-        title: 'Vérification incomplète',
-        message: `${100 - verification.progression}% des items non vérifiés`,
-        canal: 'in_app',
-      });
+    if (stats.progression < 100) {
+      addNotification({ user_id: user?.id || '', type: 'warning', title: 'Évaluation incomplète', message: `${100 - stats.progression}% des écarts non conclus`, canal: 'in_app' });
       return;
     }
     setSignatureDialogOpen(true);
   };
-  
+
   const onSignatureSave = async (signatureUrl: string) => {
     setIsSigned(true);
     setSignatureDialogOpen(false);
 
-    const itemsEvalues = verification?.items.filter(i => i.evaluationTerrain) || [];
-    const scoreSuivi = itemsEvalues.length > 0
-      ? Math.round(itemsEvalues.reduce((sum, i) => sum + i.evaluationTerrain!.score, 0) / itemsEvalues.length)
-      : (verification?.progression || 0);
-
+    const scoreSuivi = stats.progression;
     updateSurveillance(surveillanceId, {
       statut: 'checklist_signee',
       score_global: scoreSuivi,
-      signatures_checklist: [{
-        signataire_id: user?.id || '',
-        signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
-        date_signature: new Date().toISOString(),
-        signature_url: signatureUrl,
-      }],
+      signatures_checklist: [{ signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }],
     });
 
     const { recalculerProfilRisque } = useAppStore.getState();
     await recalculerProfilRisque(aerodromeId);
-
     onComplete?.();
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Suivi des écarts complété',
-      message: 'La vérification des écarts a été signée',
-      canal: 'in_app',
-    });
+    addNotification({ user_id: user?.id || '', type: 'success', title: 'Suivi des écarts complété', message: 'La vérification des écarts a été signée', canal: 'in_app' });
   };
-  
-  // Calcul des stats
-  const stats = useMemo(() => {
-    if (!verification) return { total: 0, sa: 0, ns: 0, nv: 0, progression: 0 };
-    
-    const total = verification.items.length;
-    const sa = verification.items.filter(i => i.resultat === 'SA').length;
-    const ns = verification.items.filter(i => i.resultat === 'NS').length;
-    const nv = verification.items.filter(i => !i.resultat || i.resultat === 'NV').length;
-    
-    return { total, sa, ns, nv, progression: verification.progression };
-  }, [verification]);
-  
-  const getEcartNiveauBadge = () => {
-    if (!verification) return 'badge neutral';
-    switch (verification.ecart_niveau) {
-      case 'critique': return 'badge danger';
-      case 'eleve': return 'badge warning';
-      case 'moyen': return 'badge primary';
-      default: return 'badge neutral';
-    }
-  };
-  
-  const getStatutBadge = () => {
-    if (!verification) return 'badge neutral';
-    switch (verification.statut) {
-      case 'en_retard': return 'badge danger animate-pulse';
-      case 'pac_attendu': return 'badge warning';
-      case 'pac_soumis': return 'badge primary';
-      case 'pac_accepte': return 'badge success';
-      default: return 'badge neutral';
-    }
-  };
-  
-  const getStatutLabel = () => {
-    if (!verification) return '';
-    switch (verification.statut) {
-      case 'en_retard': return 'En retard';
-      case 'pac_attendu': return 'PAC attendu';
-      case 'pac_soumis': return 'PAC soumis';
-      case 'pac_accepte': return 'PAC accepté';
-      default: return verification.statut;
-    }
-  };
-  
-  if (!verification || !ecart) {
+
+  if (!evaluations.length || !ecart) {
     return (
       <Card className="text-center text-muted-foreground">
         <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
@@ -843,11 +794,9 @@ export function SurveillanceChecklistSuiviEcarts({
       </Card>
     );
   }
-  
+
   return (
     <div className="space-y-6" data-role={userRole} data-module="checklist-suivi-ecarts">
-      
-      {/* En-tête */}
       <Card variant="level" levelColor="warning">
         <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
           <div className="flex items-center gap-2">
@@ -861,64 +810,30 @@ export function SurveillanceChecklistSuiviEcarts({
           </div>
           <div className="flex items-center gap-2">
             {isOffline ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
-                <WifiOff className="w-3 h-3" />
-                Hors ligne
-              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200"><WifiOff className="w-3 h-3" /> Hors ligne</span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200">
-                <Wifi className="w-3 h-3" />
-                En ligne
-              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-green-100 text-green-700 border border-green-200"><Wifi className="w-3 h-3" /> En ligne</span>
             )}
-            {lastSaved && (
-              <span className="text-xs text-muted-foreground">
-                Sauvegardé à {lastSaved.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
-        </div>
-        
-        {/* Carte écart */}
-        <div className="bg-white rounded-lg border border-gray-200 p-3">
-          <div className="flex items-center gap-2 flex-wrap mb-2">
-            <span className="code-oaci-badge text-xs">{verification.ecart_reference}</span>
-            <span className={getEcartNiveauBadge()}>{verification.ecart_niveau}</span>
-            <span className={getStatutBadge()}>{getStatutLabel()}</span>
-          </div>
-          <p className="text-sm text-foreground mb-2">{verification.ecart_libelle}</p>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1">
-              <Calendar className="w-3 h-3" />
-              Échéance: <span className="font-medium">{new Date(verification.date_echeance).toLocaleDateString('fr-FR')}</span>
-            </span>
-            {verification.progression_pac !== undefined && (
-              <span className="flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                Progression PAC: <span className="font-medium">{verification.progression_pac}%</span>
-              </span>
-            )}
+            {lastSaved && <span className="text-xs text-muted-foreground">Sauvegardé à {lastSaved.toLocaleTimeString()}</span>}
           </div>
         </div>
       </Card>
-      
-      {/* Barre de progression */}
+
       <Card>
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-4 flex-wrap">
-              <span className="text-small font-medium">Items: {stats.total}</span>
+              <span className="text-small font-medium">Écarts: {stats.total}</span>
               <div className="flex items-center gap-2">
                 <span className="badge success text-[12px]">SA: {stats.sa}</span>
                 <span className="badge danger text-[12px]">NS: {stats.ns}</span>
-                <span className="badge warning text-[12px]">À vérifier: {stats.nv}</span>
+                <span className="badge warning text-[12px]">NV: {stats.nv}</span>
               </div>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-small">Progression: {stats.progression}%</span>
-              <button type="button" onClick={() => onSave?.(verification)} className="btn btn-sm px-3 py-1 btn-secondary">
-                <Save className="w-4 h-4" />
-                Sauvegarder
+              <button type="button" onClick={() => onSave?.({ items: evaluations, observations_generales: observationsGenerales })} className="btn btn-sm px-3 py-1 btn-secondary">
+                <Save className="w-4 h-4" /> Sauvegarder
               </button>
             </div>
           </div>
@@ -930,69 +845,42 @@ export function SurveillanceChecklistSuiviEcarts({
           </div>
         </div>
       </Card>
-      
+
       {/* Suggestions */}
       <SuggestionsBanner
         suggestions={suggestions}
         onAcceptAll={handleAcceptAllSuggestions}
         onIgnore={handleIgnoreSuggestions}
       />
-      
-      {/* Liste des items groupés par domaine */}
-      {(() => {
-        const itemsParDomaine = grouperParDomaine(verification.items, verification.domaine || 'SGS');
-        return (
-          <div className="space-y-4">
-            {itemsParDomaine.map((groupe: DomaineItems<SuiviItem>) => (
-              <div key={groupe.domaine} className="border rounded-lg overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600/5 to-transparent border-b">
-                  <span className="inline-flex items-center justify-center w-7 h-6 rounded-md text-[10px] font-bold bg-blue-600 text-white">
-                    {groupe.domaine}
-                  </span>
-                  <span className="text-sm font-medium text-foreground">{groupe.domaineLabel}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                    {groupe.items.length} item(s)
-                  </span>
-                </div>
-                <div className="p-2 space-y-2 bg-white">
-                  {groupe.items.map((item, idx) => (
-                    <SuiviItemCard
-                      key={item.id}
-                      item={item}
-                      index={idx}
-                      readOnly={readOnly || isSigned}
-                      onUpdate={handleUpdateItem}
-                      onAddFile={handleAddFile}
-                      onDeleteFile={handleDeleteFile}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-      
+
+      {/* Liste des écarts */}
+      <div className="space-y-4">
+        {evaluations.map((item) => (
+          <EcartEvaluationCard
+            key={item.id}
+            item={item}
+            readOnly={readOnly || isSigned}
+            onUpdate={handleUpdateItem}
+            onAddFile={handleAddFile}
+            onDeleteFile={handleDeleteFile}
+          />
+        ))}
+      </div>
+
       {/* Observations générales */}
       <Card icon={<FileText className="w-4 h-4 text-role-primary" />} title="Observations générales">
         <div className="flex items-start gap-3">
           <div className="flex-1">
-            <p className="text-sm text-muted-foreground">
-              {verification.observations_generales || 'Aucune observation générale'}
-            </p>
+            <p className="text-sm text-muted-foreground">{observationsGenerales || 'Aucune observation générale'}</p>
           </div>
           {!readOnly && !isSigned && (
-            <button
-              onClick={() => setObservationsModalOpen(true)}
-              className="action-button"
-              title="Modifier les observations"
-            >
+            <button onClick={() => setObservationsModalOpen(true)} className="action-button" title="Modifier les observations">
               <Edit3 className="w-4 h-4" />
             </button>
           )}
         </div>
       </Card>
-      
+
       {/* Signature */}
       {!readOnly && !isSigned && (
         <Card className={`border-2 border-dashed text-center ${stats.progression === 100 ? 'border-success bg-success/10' : 'border-gray-300 bg-gray-50 opacity-50'}`}>
@@ -1000,45 +888,33 @@ export function SurveillanceChecklistSuiviEcarts({
           <h3 className="text-lg font-medium mb-2">Signature des inspecteurs</h3>
           {stats.progression === 100 ? (
             <>
-              <p className="text-small text-gray-600 mb-4">✅ Tous les items sont vérifiés ({stats.progression}%)</p>
-              <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">
-                Signer le suivi des écarts
-              </button>
+              <p className="text-small text-gray-600 mb-4">✅ Tous les écarts sont évalués ({stats.progression}%)</p>
+              <button type="button" onClick={handleSign} className="btn btn-sm px-3 py-1 btn-primary">Signer le suivi des écarts</button>
             </>
           ) : (
-            <p className="text-small text-gray-500">
-              ⏳ Progression: {stats.progression}% - {stats.nv} item(s) non vérifié(s)
-            </p>
+            <p className="text-small text-gray-500">⏳ Progression: {stats.progression}% - {stats.nv} écart(s) non conclu(s)</p>
           )}
         </Card>
       )}
-      
-      {/* Modal observations générales */}
+
       <GeneralObservationsModal
         isOpen={observationsModalOpen}
         onClose={() => setObservationsModalOpen(false)}
-        observations={verification.observations_generales || ''}
+        observations={observationsGenerales}
         onSave={handleSaveObservations}
         readOnly={readOnly || isSigned}
       />
-      
-      {/* Modal signature */}
+
       {signatureDialogOpen && typeof window !== 'undefined' && createPortal(
         <div className="modal-overlay" onClick={() => setSignatureDialogOpen(false)}>
           <div className="modal-content max-w-2xl" onClick={e => e.stopPropagation()}>
             <div className="border-t-4 border-t-role-primary rounded-2xl overflow-hidden">
               <div className="modal-header bg-gradient-to-r from-role-primary/10 to-transparent">
                 <div className="modal-title">Signature du suivi des écarts</div>
-                <button className="modal-close" onClick={() => setSignatureDialogOpen(false)}>
-                  <X className="w-4 h-4" />
-                </button>
+                <button className="modal-close" onClick={() => setSignatureDialogOpen(false)}><X className="w-4 h-4" /></button>
               </div>
               <div className="modal-body">
-                <SignaturePadWithColor
-                  onSave={onSignatureSave}
-                  onCancel={() => setSignatureDialogOpen(false)}
-                  signataireNom={`${user?.prenom || ''} ${user?.nom || ''}`}
-                />
+                <SignaturePadWithColor onSave={onSignatureSave} onCancel={() => setSignatureDialogOpen(false)} signataireNom={`${user?.prenom || ''} ${user?.nom || ''}`} />
               </div>
             </div>
           </div>

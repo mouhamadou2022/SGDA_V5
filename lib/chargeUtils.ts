@@ -215,6 +215,62 @@ export const chargeUtils = {
   },
 
   /**
+   * Convertit un écart en tâche d'évaluation PAC (pour l'inspecteur)
+   */
+  ecartVersTacheEvaluationPAC(ecart: Ecart, aerodromes: any[]): Tache | null {
+    if (ecart.statut !== 'pac_soumis' || !ecart.evaluation_pac?.deadline) return null
+    const aerodrome = aerodromes.find(a => a.id === ecart.aerodrome_id)
+    const maintenant = new Date()
+    const deadline = new Date(ecart.evaluation_pac.deadline)
+    const estEnRetard = ecart.retard_inspecteur || deadline < maintenant
+    const prioriteMap: Record<string, 'basse' | 'moyenne' | 'haute' | 'critique'> = {
+      'critique': 'critique', 'eleve': 'haute', 'moyen': 'moyenne', 'faible': 'basse'
+    }
+    return {
+      id: `eval-pac-${ecart.id}`,
+      type: 'ecart',
+      titre: `Évaluer PAC — ${ecart.reference}`,
+      description: ecart.libelle,
+      priorite: prioriteMap[ecart.niveau_risque] || 'moyenne',
+      statut: estEnRetard ? 'en_retard' : 'en_cours',
+      date_echeance: ecart.evaluation_pac.deadline,
+      date_debut: ecart.pac?.soumis_le || ecart.created_at,
+      temps_estime: 1,
+      progression: 0,
+      aerodrome_id: ecart.aerodrome_id,
+      lien_id: ecart.id,
+    }
+  },
+
+  /**
+   * Convertit un écart en tâche de validation preuves (pour l'inspecteur)
+   */
+  ecartVersTacheValidationPreuves(ecart: Ecart, aerodromes: any[]): Tache | null {
+    if (ecart.statut !== 'preuves_soumises' || !ecart.validation_preuves?.deadline) return null
+    const aerodrome = aerodromes.find(a => a.id === ecart.aerodrome_id)
+    const maintenant = new Date()
+    const deadline = new Date(ecart.validation_preuves.deadline)
+    const estEnRetard = ecart.retard_inspecteur || deadline < maintenant
+    const prioriteMap: Record<string, 'basse' | 'moyenne' | 'haute' | 'critique'> = {
+      'critique': 'critique', 'eleve': 'haute', 'moyen': 'moyenne', 'faible': 'basse'
+    }
+    return {
+      id: `val-preuves-${ecart.id}`,
+      type: 'ecart',
+      titre: `Valider preuves — ${ecart.reference}`,
+      description: ecart.libelle,
+      priorite: prioriteMap[ecart.niveau_risque] || 'moyenne',
+      statut: estEnRetard ? 'en_retard' : 'en_cours',
+      date_echeance: ecart.validation_preuves.deadline,
+      date_debut: ecart.preuves?.soumis_le || ecart.created_at,
+      temps_estime: 1,
+      progression: 0,
+      aerodrome_id: ecart.aerodrome_id,
+      lien_id: ecart.id,
+    }
+  },
+
+  /**
    * Calcule la charge de travail pour un inspecteur
    */
   calculerChargeInspecteur(

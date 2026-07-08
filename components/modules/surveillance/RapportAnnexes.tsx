@@ -33,6 +33,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Ecart, ProfilRisque, type PresenceEntry } from '@/lib/store';
+import { getCellColor, getRiskLevelClass } from '@/lib/risque';
 import { PresenceSheet } from './PresenceSheet';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -123,7 +124,7 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
           <Users className="w-5 h-5 text-role-primary" />
           <span className="font-semibold text-foreground">Annexe A-1: Fiches de présence</span>
           <span className="badge outline text-xs">{stats.total} participant(s)</span>
-          <span className="badge success text-[10px]">{stats.signees}/{stats.total} signé(s)</span>
+          <span className="badge success text-xs">{stats.signees}/{stats.total} signé(s)</span>
         </div>
         <div className="flex items-center gap-2">
           {!readOnly && (
@@ -248,11 +249,16 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 
 function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; readOnly: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const [selectedEcart, setSelectedEcart] = useState<Ecart | null>(null);
   const [editedEcarts, setEditedEcarts] = useState<Ecart[]>([]);
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
   const ecarts = useOptimizedStore(s => s.ecarts);
+  const surveillances = useAppStore(s => s.surveillances);
+  const aerodromes = useAppStore(s => s.aerodromes);
+
+  const surveillance = surveillances.find(s => s.id === surveillanceId);
+  const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
+  const sigs = surveillance?.signatures_ecarts || [];
 
   const realEcarts = useMemo(() => ecarts.filter(e => e.surveillance_id === surveillanceId), [ecarts, surveillanceId]);
   const displayedEcarts = editedEcarts.length > 0 ? editedEcarts : realEcarts;
@@ -359,9 +365,9 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
           <span className="font-semibold text-foreground">Annexe A-2: Écarts constatés</span>
           <span className="badge outline text-xs">{stats.total} écart(s)</span>
           {stats.critiques > 0 && (
-            <span className="badge danger animate-pulse text-[10px]">{stats.critiques} critique(s)</span>
+            <span className="badge danger animate-pulse text-xs">{stats.critiques} critique(s)</span>
           )}
-          <span className="badge success text-[10px]">{stats.clos} clôturé(s)</span>
+          <span className="badge success text-xs">{stats.clos} clôturé(s)</span>
         </div>
         <div className="flex items-center gap-2">
           {editedEcarts.length > 0 && (
@@ -420,67 +426,91 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
           </div>
 
           {displayedEcarts.length > 0 ? (
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th>Référence</th>
-                    <th>Réf. réglementaire</th>
-                    <th>Libellé</th>
-                    <th>Niveau</th>
-                    <th>Statut</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayedEcarts.map((ecart, idx) => (
-                    <tr key={ecart.id} className="border-b border-border hover:bg-role-primary-soft">
-                      <td className="code-oaci-badge text-xs">{ecart.reference}</td>
-                      <td>
-                        {readOnly ? (
-                          <span className="text-sm">{ecart.ref_reglementaire}</span>
-                        ) : (
-                          <input
-                            type="text"
-                            value={ecart.ref_reglementaire}
-                            onChange={(e) => handleEditEcart(idx, 'ref_reglementaire', e.target.value)}
-                            className={`form-input text-sm w-full ${focusClass}`}
-                          />
-                        )}
-                      </td>
-                      <td>
-                        {readOnly ? (
-                          <span className="text-sm">{ecart.libelle}</span>
-                        ) : (
-                          <textarea
-                            value={ecart.libelle}
-                            onChange={(e) => handleEditEcart(idx, 'libelle', e.target.value)}
-                            className={`form-textarea text-sm w-full ${focusClass}`}
-                            rows={2}
-                          />
-                        )}
-                      </td>
-                      <td>
-                        <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
-                      </td>
-                      <td>
-                        <span className={`badge ${ecart.statut === 'cloture' ? 'success' : 'warning'}`}>
-                          {ecart.statut}
+            <div className="space-y-3">
+              {displayedEcarts.map((ecart, idx) => {
+                const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
+                return (
+                  <div key={ecart.id} className="border border-border rounded-xl overflow-hidden bg-white">
+                    {/* Ligne 1: Aérodrome · Date · Référence */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b border-border">
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {aerodrome?.code_oaci || 'N/A'}
                         </span>
-                       </td>
-                      <td>
-                        <button
-                          onClick={() => setSelectedEcart(ecart)}
-                          className="action-button"
-                          title="Voir détails"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                       </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <span className="text-border">|</span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {surveillance?.date_fin
+                            ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <span className="font-semibold text-sm text-foreground">{ecart.reference}</span>
+                    </div>
+
+                    {/* Ligne 2: Libellé */}
+                    <div className="px-4 py-3 border-b border-border">
+                      {readOnly ? (
+                        <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
+                      ) : (
+                        <textarea
+                          value={ecart.libelle}
+                          onChange={(e) => handleEditEcart(idx, 'libelle', e.target.value)}
+                          className={`form-textarea text-sm w-full ${focusClass}`}
+                          rows={2}
+                        />
+                      )}
+                    </div>
+
+                    {/* Ligne 3: Niveau de risque + Indice OACI */}
+                    <div className="px-4 py-2 bg-muted/10 border-b border-border flex items-center gap-3 flex-wrap">
+                      <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
+                      {ecart.cellule_risque_oaci && (
+                        <>
+                          <span className="text-xs text-muted-foreground">|</span>
+                          <span className="text-xs text-muted-foreground">Indice OACI :</span>
+                          <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                            {ecart.cellule_risque_oaci}
+                          </span>
+                          {ecart.probabilite_risque && ecart.gravite_risque && (
+                            <span className="text-xs text-muted-foreground">
+                              P{ecart.probabilite_risque} × G{ecart.gravite_risque}
+                            </span>
+                          )}
+                        </>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {ecart.ref_reglementaire}
+                      </span>
+                    </div>
+
+                    {/* Ligne 4: Inspecteur + Signature */}
+                    <div className="px-4 py-2 flex items-center gap-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span className="font-medium text-foreground">
+                          {sig?.signataire_nom || 'Inspecteur non renseigné'}
+                        </span>
+                      </div>
+                      {sig?.signature_url ? (
+                        <img
+                          src={sig.signature_url}
+                          alt="Signature"
+                          className="h-8 w-auto object-contain ml-2"
+                        />
+                      ) : (
+                        <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground ml-2">
+                          Signature
+                        </div>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
@@ -488,57 +518,6 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
               <p className="text-sm">Aucun écart constaté</p>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Modal détail écart */}
-      {selectedEcart && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedEcart(null)}>
-          <div className="bg-background rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Détail de l'écart</h2>
-              <button className="modal-close" onClick={() => setSelectedEcart(null)}>
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="modal-body p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Référence</p>
-                  <p className="code-oaci-badge text-sm">{selectedEcart.reference}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Niveau</p>
-                  <span className={getNiveauBadge(selectedEcart.niveau_risque)}>{selectedEcart.niveau_risque}</span>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground">Référence réglementaire</p>
-                  <p className="text-sm">{selectedEcart.ref_reglementaire}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground">Libellé</p>
-                  <p className="text-sm">{selectedEcart.libelle}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Statut</p>
-                  <p className="text-sm">{selectedEcart.statut}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Créé le</p>
-                  <p className="text-sm">{new Date(selectedEcart.created_at).toLocaleDateString('fr-FR')}</p>
-                </div>
-                {selectedEcart.delai_regularisation && (
-                  <div className="col-span-2">
-                    <p className="text-xs text-muted-foreground">Délai de régularisation</p>
-                    <p className="text-sm">{new Date(selectedEcart.delai_regularisation).toLocaleDateString('fr-FR')}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setSelectedEcart(null)}>Fermer</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -671,64 +650,68 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
             <div className={`progress-bar ${getProgressClass(profil.score_global)}`} style={{ width: `${profil.score_global}%` }} />
           </div>
 
-          <div className="space-y-3 mb-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Détail des critères</p>
+          <div className="space-y-4 mb-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Analyse détaillée par critère</p>
             {[
-              { key: 'c1', label: 'C1 — Maturité SGS', value: profil.c1 },
-              { key: 'c2', label: 'C2 — Efficacité PAC', value: profil.c2 },
-              { key: 'c3', label: 'C3 — Conformité', value: profil.c3 },
-              { key: 'c4', label: 'C4 — Charge critique', value: profil.c4 },
-              { key: 'c5', label: 'C5 — Résilience', value: profil.c5 },
+              { key: 'c1', label: 'C1 — Maturité SGS', value: profil.c1,
+                interp: profil.c1 >= 80 ? 'Votre système de gestion de la sécurité est mature et pleinement opérationnel : procédures documentées, comprises et appliquées par tous.' :
+                  profil.c1 >= 60 ? 'Votre SGS est opérationnel mais perfectible. Renforcez la documentation des procédures et la formation continue du personnel.' :
+                  profil.c1 >= 30 ? 'Votre SGS est partiellement déployé. Priorités : formaliser votre politique sécurité, nommer un responsable SGS, structurer le traitement des événements de sécurité.' :
+                  'Votre SGS est insuffisant ou inexistant. Une structure minimale (politique de sécurité, responsabilités, procédures écrites) est requise d\'urgence pour la conformité réglementaire.' },
+              { key: 'c2', label: 'C2 — Efficacité des PAC', value: profil.c2,
+                interp: profil.c2 >= 80 ? 'Vos actions correctives sont traitées dans les délais et leur efficacité fait l\'objet d\'une vérification systématique.' :
+                  profil.c2 >= 60 ? 'Le suivi des PAC est globalement correct mais des retards ponctuels existent. Renforcez la traçabilité des clôtures et les relances.' :
+                  profil.c2 >= 30 ? 'Trop de PAC ne sont pas clôturés dans les délais impartis. Mettez en place un tableau de bord de suivi et désignez des responsables par écart.' :
+                  'Le suivi des PAC est quasi inexistant. Action prioritaire : établir un processus formel de traitement et de suivi des actions correctives avec échéances.' },
+              { key: 'c3', label: 'C3 — Conformité réglementaire', value: profil.c3,
+                interp: profil.c3 >= 80 ? 'Votre niveau de conformité est satisfaisant. Maintenez la veille réglementaire et les auto-évaluations périodiques.' :
+                  profil.c3 >= 60 ? 'Des écarts de conformité existent mais ne sont pas critiques. Planifiez leur résolution par ordre de priorité (échéances, criticité).' :
+                  profil.c3 >= 30 ? 'Plusieurs non-conformités réglementaires nécessitent une attention immédiate. Réalisez un audit interne systématique pour les identifier et les traiter.' :
+                  'Le niveau de conformité réglementaire est préoccupant. Une action corrective globale et structurée est nécessaire pour éviter des mesures de suspension.' },
+              { key: 'c4', label: 'C4 — Charge critique', value: profil.c4,
+                interp: profil.c4 >= 80 ? 'La charge de travail et les facteurs de risque humains sont bien maîtrisés. Poursuivez la surveillance.' :
+                  profil.c4 >= 60 ? 'Quelques facteurs de charge critique sont présents. Surveillez les pics d\'activité, les rotations de personnel et la charge mentale.' :
+                  profil.c4 >= 30 ? 'La charge critique est élevée. Évaluez les risques de fatigue, l\'adéquation des effectifs et la répartition des tâches opérationnelles.' :
+                  'La charge critique est excessive, augmentant le risque d\'erreur humaine. Réorganisez les plannings, renforcez les effectifs et réduisez les tâches simultanées.' },
+              { key: 'c5', label: 'C5 — Résilience', value: profil.c5,
+                interp: profil.c5 >= 80 ? 'Votre organisation est résiliente : capacité démontrée à absorber et à se remettre des perturbations.' :
+                  profil.c5 >= 60 ? 'La résilience est correcte mais des scénarios de continuité d\'activité doivent être formalisés et testés.' :
+                  profil.c5 >= 30 ? 'La capacité de réaction face aux imprévus est limitée. Élaborez un plan de continuité d\'activité et organisez des exercices.' :
+                  'Votre organisation est fragile face aux perturbations. Un plan de continuité d\'activité détaillé est urgent, accompagné de formations aux procédures d\'urgence.' },
             ].map(crit => {
               const critConfig = getNiveauConfig(crit.value);
               return (
-                <div key={crit.key} className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-8">{crit.key}</span>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs text-foreground">{crit.label}</span>
-                      <span className={`text-xs font-semibold ${critConfig.color}`}>{crit.value}/100</span>
+                <div key={crit.key} className="p-3 rounded-lg border border-border/60 bg-white">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-xs font-mono font-bold text-muted-foreground w-8">{crit.key.toUpperCase()}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-sm font-medium text-foreground">{crit.label}</span>
+                        <span className={`text-sm font-bold ${critConfig.color}`}>{crit.value}/100</span>
+                      </div>
+                      <div className="progress h-1.5">
+                        <div className={`progress-bar ${getProgressClass(crit.value)}`} style={{ width: `${crit.value}%` }} />
+                      </div>
                     </div>
-                    <div className="progress h-1.5">
-                      <div className={`progress-bar ${getProgressClass(crit.value)}`} style={{ width: `${crit.value}%` }} />
-                    </div>
+                    {!readOnly && (
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={crit.value}
+                        onChange={(e) => handleEdit(crit.key, parseInt(e.target.value))}
+                        className="w-20 accent-role-primary"
+                      />
+                    )}
                   </div>
-                  {!readOnly && (
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={crit.value}
-                      onChange={(e) => handleEdit(crit.key, parseInt(e.target.value))}
-                      className="w-24 accent-role-primary"
-                    />
-                  )}
+                  <p className="text-xs text-muted-foreground leading-relaxed pl-10">{crit.interp}</p>
                 </div>
               );
             })}
           </div>
 
-          {profil.velocity_metrics && (
-            <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
-              <div className="text-center">
-                <p className="text-[10px] text-muted-foreground">Vitesse</p>
-                <p className={`text-sm font-semibold ${profil.velocity_metrics.vitesse < 0 ? 'text-danger' : 'text-success'}`}>
-                  {profil.velocity_metrics.vitesse > 0 ? '+' : ''}{profil.velocity_metrics.vitesse.toFixed(1)} pts/mois
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-[10px] text-muted-foreground">Accélération</p>
-                <p className="text-sm font-semibold">{profil.velocity_metrics.acceleration.toFixed(1)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-[10px] text-muted-foreground">Volatilité</p>
-                <p className="text-sm font-semibold">{profil.velocity_metrics.volatilite.toFixed(1)}%</p>
-              </div>
-            </div>
-          )}
-
           <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-            <p className="text-xs text-muted-foreground">Dernier calcul</p>
+            <p className="text-xs text-muted-foreground">Dernier calcul du profil</p>
             <p className="text-sm">{new Date(profil.computed_at).toLocaleString('fr-FR')}</p>
           </div>
         </div>
@@ -869,8 +852,8 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
                     <div className="flex items-center gap-3">
                       <Target className="w-4 h-4 text-role-primary" />
                       <span className="font-semibold text-sm">{domaine.nom}</span>
-                      <span className="badge outline text-[10px]">{domaine.sousDomaines?.length || 0} sous-domaine(s)</span>
-                      <span className={`badge ${stats.taux >= 70 ? 'success' : stats.taux >= 50 ? 'warning' : 'danger'} text-[10px]`}>
+                      <span className="badge outline text-xs">{domaine.sousDomaines?.length || 0} sous-domaine(s)</span>
+                      <span className={`badge ${stats.taux >= 70 ? 'success' : stats.taux >= 50 ? 'warning' : 'danger'} text-xs`}>
                         {stats.taux}%
                       </span>
                     </div>
@@ -889,7 +872,7 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
                             >
                               <ChevronRight className={`w-3 h-3 transition-transform ${isSdExpanded ? 'rotate-90' : ''}`} />
                               <span className="font-medium text-sm">{sd.nom}</span>
-                              <span className="badge outline text-[10px]">{sd.sousSousDomaines?.length || 0} sous-sous-domaine(s)</span>
+                              <span className="badge outline text-xs">{sd.sousSousDomaines?.length || 0} sous-sous-domaine(s)</span>
                             </button>
                             
                             {isSdExpanded && (
@@ -898,7 +881,7 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
                                   <div key={ssd.id} className="border-l-2 border-border pl-3">
                                     <div className="flex items-center gap-2 mb-2">
                                       <span className="text-sm font-medium">{ssd.nom}</span>
-                                      <span className="badge neutral text-[10px]">{ssd.items?.length || 0} item(s)</span>
+                                      <span className="badge neutral text-xs">{ssd.items?.length || 0} item(s)</span>
                                     </div>
                                     
                                     {ssd.items && ssd.items.length > 0 && (
@@ -908,10 +891,10 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
                                           const currentResultat = editedItem?.resultat || item.resultat || 'NV';
                                           return (
                                             <div key={item.id} className="text-xs text-muted-foreground flex items-center gap-2 py-1">
-                                              <span className="code-oaci-badge text-[9px]">{item.numero}</span>
+                                              <span className="code-oaci-badge text-xs">{item.numero}</span>
                                               <span className="truncate flex-1">{item.point_verification}</span>
                                               {readOnly ? (
-                                                <span className={`badge ${currentResultat === 'SA' ? 'success' : currentResultat === 'NS' ? 'danger' : currentResultat === 'NA' ? 'neutral' : 'warning'} text-[8px]`}>
+                                                <span className={`badge ${currentResultat === 'SA' ? 'success' : currentResultat === 'NS' ? 'danger' : currentResultat === 'NA' ? 'neutral' : 'warning'} text-xs`}>
                                                   {currentResultat}
                                                 </span>
                                               ) : (

@@ -1,7 +1,15 @@
 // lib/notifications.ts - Système de notifications pour suppressions en cascade
 
-import { useAppStore } from './store'
-const get = () => useAppStore.getState()
+import type { AppStore } from './store'
+
+let _getState: (() => AppStore) | null = null
+async function getState(): Promise<AppStore> {
+  if (!_getState) {
+    const { useAppStore } = await import('./store')
+    _getState = () => useAppStore.getState()
+  }
+  return _getState!()
+}
 
 export interface CascadeResult {
   type: string
@@ -32,7 +40,7 @@ export async function notifyDeletionCascade(
   cascadeResults: CascadeResult[],
   deletedBy: string
 ): Promise<void> {
-  const state = get()
+  const state = await getState()
   
   // 1. Récupérer les admins
   const admins = state.utilisateurs.filter(u => 
@@ -108,7 +116,7 @@ export async function notifyFormationDeleted(
   formationTitle: string,
   inspecteurId: string
 ): Promise<void> {
-  const state = get()
+  const state = await getState()
   const inspecteur = state.inspecteurs.find(i => i.id === inspecteurId)
   
   if (!inspecteur) return
@@ -139,7 +147,7 @@ export async function notifySurveillanceDeleted(
   surveillanceDate: string,
   equipeIds: string[]
 ): Promise<void> {
-  const state = get()
+  const state = await getState()
   
   for (const userId of equipeIds) {
     const user = state.utilisateurs.find(u => u.id === userId)
@@ -173,21 +181,21 @@ export async function notifyAerodromeDeleted(
   aerodromeCodeOaci: string,
   deletedBy: string
 ): Promise<void> {
-  const state = get()
+  const state = await getState()
   
   // Récupérer les utilisateurs liés à cet aérodrome (DG, focal)
   const aerodromeUsers = state.utilisateurs.filter(u =>
     ['dg_operator', 'focal_operator'].includes(u.role) &&
     u.aerodrome_id &&
-    u.email
+    (u.notification_email || u.email)
   )
-  
+
   // Aussi notifier les admins
   const admins = state.utilisateurs.filter(u =>
     ['admin', 'dg_anacim'].includes(u.role) && u.email
   )
-  
-  const allRecipients = [...new Map([...aerodromeUsers, ...admins].map(u => [u.email, u])).values()]
+
+  const allRecipients = [...new Map([...aerodromeUsers, ...admins].map(u => [u.notification_email || u.email, u])).values()]
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -217,9 +225,10 @@ export async function notifyAerodromeDeleted(
   `
   
   for (const user of allRecipients) {
-    if (!user.email) continue;
+    const emailTo = user.notification_email || user.email
+    if (!emailTo) continue;
     await sendEmail({
-      to: user.email,
+      to: emailTo,
       subject: `[SGDA] Aérodrome supprimé - ${aerodromeNom} (${aerodromeCodeOaci})`,
       html
     })

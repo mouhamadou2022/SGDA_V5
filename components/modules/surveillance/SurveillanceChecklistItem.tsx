@@ -22,7 +22,7 @@ import { FileUploader } from '@/components/ui/FileUploader';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
+import type { ResultatChecklist } from '@/types/checklist'
 
 export interface ChecklistItemData {
   id: string;

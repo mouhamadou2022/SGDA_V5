@@ -11,6 +11,9 @@ import {
 } from 'lucide-react'
 import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
 import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/ChargerRedigerRapportModal'
+import { useAppStore } from '@/lib/store'
+import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
+import { getBadgeClassFromScore } from '@/lib/config'
 
 const TypeEntiteBadge = ({ typeEntite }: { typeEntite?: string }) => {
   switch (typeEntite) {
@@ -40,6 +43,9 @@ interface SurveillanceCardProps {
   onViewTransmission?: () => void
   userRole?: string
   variant?: 'list' | 'grid'
+  /** Nombre d'écarts identifiés (affiché si transmise/archivée) */
+  nbEcarts?: number
+  profilScore?: number
 }
 
 const STATUT_CONFIG: Record<SurveillanceStatut, {
@@ -158,13 +164,6 @@ const STATUT_TO_STEP: Record<string, number> = {
   archivee: 6,
 }
 
-const MOCK_INSPECTEURS: Record<string, { nom: string; prenom: string; domaine?: string }> = {
-  'insp1': { nom: 'Diop', prenom: 'Mamadou', domaine: 'SGS' },
-  'insp2': { nom: 'Fall', prenom: 'Aminata', domaine: 'SLI' },
-  'insp3': { nom: 'Sow', prenom: 'Oumar', domaine: 'PHY' },
-  'insp4': { nom: 'Ndiaye', prenom: 'Fatou', domaine: 'OPS' },
-}
-
 function getProgressColor(progression: number): string {
   if (progression >= 80) return 'progress-faible'
   if (progression >= 60) return 'progress-moyen'
@@ -256,8 +255,20 @@ export function SurveillanceCard({
   onViewTransmission,
   userRole = 'inspector',
   variant = 'list',
+  nbEcarts,
+  profilScore,
 }: SurveillanceCardProps) {
   const router = useRouter()
+  const utilisateurs = useAppStore(s => s.utilisateurs)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
+
+  const getInspectorLabel = (u: typeof utilisateurs[0]) => {
+    const specs = (u.specialites || []).map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s).join(', ')
+    if (specs) return specs
+    const linked = u.inspecteur_id ? inspecteurs.find((i: any) => i.id === u.inspecteur_id) : inspecteurs.find((i: any) => i.email === u.email || (i.prenom === u.prenom && i.nom === u.nom))
+    if (linked) return `${linked.type?.replace(/_/g, ' ')} · ${linked.domaine_principal?.toUpperCase()}`
+    return u.service || ''
+  }
   const statut = STATUT_CONFIG[surveillance.statut]
   const NextActionIcon = statut.nextActionIcon
   const StatutIcon = statut.icon
@@ -265,16 +276,15 @@ export function SurveillanceCard({
   // État local du modal — géré dans la carte, pas dans le parent
   const [showRapportModal, setShowRapportModal] = useState(false)
 
-  const getInitiales = (id: string) => {
-    const insp = MOCK_INSPECTEURS[id]
-    return insp ? `${insp.prenom.charAt(0)}${insp.nom.charAt(0)}`.toUpperCase() : '??'
-  }
+  const getInitiales = (prenom: string, nom: string) =>
+    `${prenom.charAt(0)}${nom.charAt(0)}`.toUpperCase()
 
   const peutEditer = ['planifiee', 'en_cours'].includes(surveillance.statut)
   const peutContinuer = surveillance.statut === 'en_cours'
+  const isTransmisOuArchive = ['transmise', 'archivee'].includes(surveillance.statut)
   const peutAfficherChecklist = ['en_cours', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
   const peutAfficherRapport = ['rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
-  const peutAfficherEcarts = ['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
+  const peutAfficherEcarts = ['ecarts_signes', 'rapport_signe', 'lettre_signee'].includes(surveillance.statut)
   const peutAfficherLettre = ['lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
   const peutTransmettre = surveillance.statut === 'lettre_signee'
   const peutSupprimer = ['planifiee', 'archivee'].includes(surveillance.statut)
@@ -294,7 +304,7 @@ export function SurveillanceCard({
     year: 'numeric',
   })
 
-  const chef = surveillance.chef_id ? MOCK_INSPECTEURS[surveillance.chef_id] : null
+  const chef = surveillance.chef_id ? utilisateurs.find(u => u.id === surveillance.chef_id) : null
   const borderCls = `${STATUT_CONFIG[surveillance.statut]?.borderColor || 'border-l-role-primary'} ${STATUT_CONFIG[surveillance.statut]?.borderAnimation || ''}`
   const progressColor = getProgressColor(surveillance.progression || 0)
 
@@ -359,7 +369,7 @@ export function SurveillanceCard({
           onViewEcarts()
         } else {
           const isSGS = (surveillance.portee || []).length === 1 && surveillance.portee?.[0] === 'SGS';
-          router.push(isSGS ? `/surveillance/${surveillance.id}/ecarts/sgs` : `/surveillance/${surveillance.id}/ecarts`);
+          router.push(isSGS ? `/surveillance/${surveillance.id}/ecarts/sgs` : `/surveillance/${surveillance.id}/reconciliation`);
         }
         break
       case 'rapport':
@@ -403,7 +413,7 @@ export function SurveillanceCard({
       onViewEcarts()
     } else {
       const isSGS = (surveillance.portee || []).length === 1 && surveillance.portee?.[0] === 'SGS';
-      router.push(isSGS ? `/surveillance/${surveillance.id}/ecarts/sgs` : `/surveillance/${surveillance.id}/ecarts`);
+      router.push(isSGS ? `/surveillance/${surveillance.id}/ecarts/sgs` : `/surveillance/${surveillance.id}/reconciliation`);
     }
   }
 
@@ -452,6 +462,12 @@ export function SurveillanceCard({
                     <StatutIcon className="h-2 w-2 mr-0.5 inline" />
                     {statut.label}
                   </span>
+                  {isTransmisOuArchive && nbEcarts !== undefined && (
+                    <span className="badge danger text-[8px] flex items-center gap-0.5 ml-1">
+                      <AlertCircle className="w-2 h-2" />
+                      {nbEcarts}
+                    </span>
+                  )}
                 </div>
               </div>
               <button
@@ -469,6 +485,9 @@ export function SurveillanceCard({
               <MapPin className="h-3 w-3 text-role-primary flex-shrink-0" />
               <span className="code-oaci-badge text-[10px]">{aerodrome?.code_oaci}</span>
               <span className="text-muted-foreground text-[10px] truncate">{aerodrome?.nom}</span>
+              {profilScore !== undefined && profilScore !== null && (
+                <span className={getBadgeClassFromScore(profilScore)}>{profilScore}/100</span>
+              )}
             </div>
             <div className="mb-2">
               <TypeEntiteBadge typeEntite={aerodrome?.type_entite} />
@@ -612,6 +631,12 @@ export function SurveillanceCard({
                   {surveillance.transmitted_at && (
                     <span className="badge neutral text-[10px]">
                       Transmis le {new Date(surveillance.transmitted_at).toLocaleDateString('fr-FR')}
+                    </span>
+                  )}
+                  {isTransmisOuArchive && nbEcarts !== undefined && (
+                    <span className="badge danger text-[10px] flex items-center gap-1">
+                      <AlertCircle className="w-2.5 h-2.5" />
+                      {nbEcarts} écart{nbEcarts > 1 ? 's' : ''}
                     </span>
                   )}
                 </div>
@@ -768,23 +793,23 @@ export function SurveillanceCard({
             </div>
             <div className="flex flex-wrap gap-2">
               {(surveillance.equipe_ids || []).map((id: string) => {
-                const insp = MOCK_INSPECTEURS[id]
+                const insp = utilisateurs.find(u => u.id === id)
                 if (!insp) return null
                 const estChef = id === surveillance.chef_id
                 return (
                   <div
                     key={id}
                     className={`flex items-center gap-1 bg-background px-2 py-1 rounded-full border text-xs ${estChef ? 'border-warning bg-warning/5' : 'border-border'}`}
-                    title={estChef ? "Chef d'équipe" : `Inspecteur - ${insp.domaine}`}
+                    title={estChef ? "Chef d'équipe" : `Inspecteur - ${getInspectorLabel(insp)}`}
                   >
-                    <span className="w-5 h-5 rounded-full bg-role-gradient text-white text-[9px] flex items-center justify-center font-bold">
-                      {getInitiales(id)}
+                    <span className="w-5 h-5 rounded-full bg-role-gradient !text-white text-[9px] flex items-center justify-center font-bold">
+                      {getInitiales(insp.prenom, insp.nom)}
                     </span>
                     <span className="badge outline text-[10px]">
                       {insp.prenom} {insp.nom}
                     </span>
                     {estChef && <Star className="h-3 w-3 text-warning" />}
-                    <span className="badge outline text-[8px] py-0 ml-0.5">{insp.domaine}</span>
+                    <span className="badge outline text-[8px] py-0 ml-0.5">{getInspectorLabel(insp)}</span>
                   </div>
                 )
               })}

@@ -1,11 +1,11 @@
 ﻿// components/modules/certification/CertificationDocumentUpload.tsx
 'use client';
 
-import React, { useState } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Eye } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Eye, Loader2 } from 'lucide-react';
 
 interface DocumentUploadProps {
-  documents: Record<string, boolean>;
+  documents: Record<string, string | boolean>;
   onDocumentChange: (docKey: string, uploaded: boolean, file?: File, fileUrl?: string) => void;
   disabled?: boolean;
   type?: 'certification' | 'homologation';
@@ -36,12 +36,27 @@ export function CertificationDocumentUpload({
   onDocumentChange, 
   disabled = false,
   type = 'certification',
-  userRole 
+  userRole
 }: DocumentUploadProps) {
   const [uploading, setUploading] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
-  const [previewDoc, setPreviewDoc] = useState<string | null>(null);
+  const [fileUrls, setFileUrls] = useState<Record<string, string>>(() => {
+    const urls: Record<string, string> = {};
+    for (const [key, val] of Object.entries(documents)) {
+      if (typeof val === 'string') urls[key] = val;
+    }
+    return urls;
+  });
+
+  useEffect(() => {
+    setFileUrls(prev => {
+      const merged = { ...prev };
+      for (const [key, val] of Object.entries(documents)) {
+        if (typeof val === 'string') merged[key] = val;
+      }
+      return merged;
+    });
+  }, [documents]);
 
   const DOCS = type === 'certification' ? DOCUMENTS_CERTIFICATION : DOCUMENTS_HOMOLOGATION;
 
@@ -49,25 +64,27 @@ export function CertificationDocumentUpload({
     setUploading(docKey);
     setProgress(0);
 
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    try {
+      // Upload vers Supabase Storage
+      const { uploadFile } = await import('@/lib/datastore');
+      const aerodromeId = window.location.pathname.includes('portail')
+        ? (document.querySelector('[data-aerodrome-id]')?.getAttribute('data-aerodrome-id') || 'general')
+        : 'general';
+      const path = `certifications/documents/${aerodromeId}/${Date.now()}_${file.name}`;
+      const result = await uploadFile('documents', path, file);
+      if (result.error) throw new Error(result.error);
 
-    const url = URL.createObjectURL(file);
-    setFileUrls(prev => ({ ...prev, [docKey]: url }));
-    setPreviewDoc(docKey);
+      const url = result.data?.url || '';
+      setFileUrls(prev => ({ ...prev, [docKey]: url }));
+      setProgress(100);
 
-    setTimeout(() => {
-      clearInterval(interval);
-      setUploading(null);
       onDocumentChange(docKey, true, file, url);
-    }, 2000);
+    } catch (err) {
+      console.error('[CertificationDocumentUpload] Upload error:', err);
+    } finally {
+      setUploading(null);
+      setProgress(0);
+    }
   };
 
   const handleRemoveDocument = (docKey: string) => {
@@ -77,17 +94,6 @@ export function CertificationDocumentUpload({
       delete next[docKey];
       return next;
     });
-    if (previewDoc === docKey) {
-      setPreviewDoc(null);
-    }
-  };
-
-  const handlePreview = (docKey: string) => {
-    const url = fileUrls[docKey];
-    if (url) {
-      setPreviewDoc(docKey);
-      window.open(url, '_blank');
-    }
   };
 
   const totalDocs = DOCS.length;
@@ -178,14 +184,16 @@ export function CertificationDocumentUpload({
                     <>
                       {isUploaded ? (
                         <div className="flex items-center gap-1">
-                          <button
-                            className="action-button"
-                            onClick={() => handlePreview(doc.key)}
-                            disabled={disabled}
+                          <a
+                            href={fileUrls[doc.key] || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`action-button ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+                            onClick={e => { if (!fileUrls[doc.key]) e.preventDefault(); }}
                             title="Aperçu"
                           >
                             <Eye className="h-4 w-4" />
-                          </button>
+                          </a>
                           <button
                             className="action-button hover:text-danger"
                             onClick={() => handleRemoveDocument(doc.key)}

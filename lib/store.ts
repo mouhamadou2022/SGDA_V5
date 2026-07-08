@@ -4,7 +4,6 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { useRef } from 'react'
 import { AuthUser, buildIdentifiant, PosteANACIM } from './auth'
 import { notifyDeletionCascade, notifyAerodromeDeleted } from './notifications'
 import { toast } from './toast'
@@ -13,6 +12,7 @@ import { plansActionsUtils } from './plansActionsUtils'
 import { NIVEAUX_RISQUE_ECART } from './config'
 import { riskEngine, DecisionChecklist, DomainDegradation, EcartUrgent } from './riskEngine';
 import { checklistMemory, ItemHistoryRecord, PredictionResult, BatchValidationResult } from './checklistMemory';
+import type { TypeSurveillanceContinue, TypeChecklist } from './domaines';
 import { supabase } from './supabase'
 import * as datastore from './datastore'
 import { learningEngine, LearningFeedback, ModelCalibration, RecalibrationAlert } from './learningEngine';
@@ -22,23 +22,28 @@ import { syncLearningFromStore, syncPACFromStore, startScheduledLearningRecalibr
 import { codeAccesUtils } from './codeAccesUtils';
 import { registreUtils } from './registreUtils';
 import { genererPlanning } from './services/planningGenerator';
-import type { ResultatChecklist } from './stylet';
+import type { ResultatChecklist } from '@/types/checklist';
 import type { HelistationData } from './types/helistation'
 import type { SuggestionDetaillee } from './checklistMemory';
+import type { NiveauRisque, ScoreHistoryPoint } from './risque/types';
+// Ré-exporter ScoreHistoryPoint depuis risque/types.ts (type canonique unique)
+// pour les modules qui importent depuis '@/lib/store' sans changer leurs imports.
+export type { ScoreHistoryPoint } from './risque/types';
 
 // ============================================================
 // Types métier existants
 // ============================================================
 
-export interface ChecklistMemoryRecord extends ItemHistoryRecord {}
-export interface LearningFeedbackRecord extends LearningFeedback {}
-export interface ModelCalibrationRecord extends ModelCalibration {}
-export interface RecalibrationAlertRecord extends RecalibrationAlert {}
-export interface DecisionChecklistRecord extends DecisionChecklist {}
-export interface PACLearningFeedbackRecord extends PACLearningFeedback {}
-export interface PreuveLearningFeedbackRecord extends PreuveLearningFeedback {}
+export type ChecklistMemoryRecord = ItemHistoryRecord;
+export type LearningFeedbackRecord = LearningFeedback;
+export type ModelCalibrationRecord = ModelCalibration;
+export type RecalibrationAlertRecord = RecalibrationAlert;
+export type DecisionChecklistRecord = DecisionChecklist;
+export type PACLearningFeedbackRecord = PACLearningFeedback;
+export type PreuveLearningFeedbackRecord = PreuveLearningFeedback;
 
 export type { SuggestionDetaillee as ChecklistSuggestion } from './checklistMemory';
+import { evaluatePAC, computeInitialCell } from './risque/bowTieEngine';
 
 // ============================================================
 // TYPES POUR EXEMPTIONS ET MESURES D'ATTÉNUATION
@@ -147,6 +152,9 @@ export interface Aerodrome {
   numero_homologation?: string
   phases_certification?: PhaseCertification[]
   phases_homologation?: PhaseCertification[]
+  checklist_template?: any[]
+  sgs_checklist_template?: Record<string, any[]>
+  sgs_checklist_template_version?: string
   contacts?: {
     nom: string
     poste: string
@@ -176,7 +184,7 @@ export interface Surveillance {
   id: string
   aerodrome_id: string
   planning_id?: string
-  type: 'programmee' | 'inopinee' | 'speciale' | 'suivi_ecarts' | 'mise_oeuvre_pac' | 'certification' | 'homologation' | 'audit_complet' | 'urgence' | 'periodique' | 'inopine' | 'maintien'
+  type: TypeSurveillanceContinue | 'programmee' | 'inopinee' | 'speciale' | 'suivi_ecarts' | 'mise_oeuvre_pac' | 'certification' | 'homologation' | 'audit_complet' | 'urgence'
   portee: string[]
   equipe_ids: string[]
   chef_id: string
@@ -191,11 +199,12 @@ export interface Surveillance {
   justification_declenchement?: string
   suggestions_maintien?: {
     domaines: string[]
-    types_checklist: ('standard' | 'ecarts' | 'pac')[]
+    types_checklist: TypeChecklist[]
     raison: string
   }[]
   
   rapport_html?: string
+  rapport_sections?: string  // JSON des sections du rapport (persistance locale)
   rapport_type?: 'redige' | 'charge'
   rapport_fichier_url?: string
   rapport_fichier_nom?: string
@@ -217,6 +226,8 @@ export interface Surveillance {
   progression?: number
   checklist_hierarchy?: DomaineChecklist[]
   sgs_evaluation_prepa?: any  // EvaluationSGS — transférée depuis le planning lors du lancement
+  sgs_evaluation_signee_le?: string  // date ISO de signature de l'évaluation SGS (PAOE)
+  sgs_ecarts_signes_le?: string      // date ISO de signature des écarts SGS
   deleted_at?: string
   deleted_by?: string
 }
@@ -230,7 +241,7 @@ export interface Ecart {
   reference: string
   ref_reglementaire: string
   libelle: string
-  niveau_risque: 'critique' | 'eleve' | 'moyen' | 'faible'
+  niveau_risque: 'critique' | 'eleve' | 'moyen' | 'faible' | 'tres_faible'
   // Matrice de risque OACI (ex: probabilite=4, gravite='C' → cellule='4C')
   cellule_risque_oaci?: string
   probabilite_risque?: 1 | 2 | 3 | 4 | 5
@@ -241,6 +252,7 @@ export interface Ecart {
     | 'ouvert' | 'pac_attendu' | 'pac_soumis' | 'pac_refuse'
     | 'pac_accepte' | 'preuves_soumises' | 'preuves_evaluees'
     | 'en_retard' | 'cloture'
+    | 'en_attente_validation_chef'
   delai_pac: string
   delai_regularisation: string
   inspecteur_ref_id: string
@@ -268,12 +280,19 @@ export interface Ecart {
     note_specificite: number
     note_coherence: number
     note_tracabilite: number
+    note_realisme?: number
     note_globale: number
-    decision: 'accepte' | 'refuse'
+    decision: 'accepte' | 'reserve' | 'refuse'
     commentaire_refus?: string
     evalue_par: string
     evalue_le: string
     delai_traitement?: number
+    /** Date butoir pour l'évaluation par l'inspecteur */
+    deadline?: string
+    /** True si l'inspecteur a dépassé le délai d'évaluation */
+    retard_inspecteur?: boolean
+    risque_residuel_cible_niveau?: 'critique' | 'eleve' | 'moyen' | 'faible'
+    risque_residuel_cible_cellule?: string
   }
   preuves?: {
     fichiers: {
@@ -299,6 +318,10 @@ export interface Ecart {
       efficacite: number
     }
     note_globale?: number
+    /** Date butoir pour la validation par l'inspecteur */
+    deadline?: string
+    /** True si l'inspecteur a dépassé le délai de validation */
+    retard_inspecteur?: boolean
     verification_ia?: {
       conforme: boolean
       niveauConfiance: number
@@ -319,10 +342,23 @@ export interface Ecart {
     evalue_le: string
   }
   cloture_le?: string
+  motif_cloture?: 'resolu_normal' | 'resolu_reconciliation' | 'obsolete' | 'fusionne'
+  fusionne_vers_id?: string
+  fusion_depuis_id?: string
   rappels_envoyes?: {
     j7?: boolean
     j3?: boolean
     j1?: boolean
+  }
+  /** True si le retard actuel est dû à l'inspecteur (évaluation PAC/preuves dépassée) */
+  retard_inspecteur?: boolean
+  /** Validation par le chef d'équipe après évaluation inspecteur */
+  validation_chef?: {
+    type: 'evaluation_pac' | 'validation_preuves'
+    statut: 'en_attente' | 'approuve' | 'revision'
+    approuve_par?: string
+    approuve_le?: string
+    commentaire?: string
   }
   
   created_at: string
@@ -435,8 +471,9 @@ export interface EvaluationPAC {
   note_specificite: number
   note_coherence: number
   note_tracabilite: number
+  note_realisme: number
   note_globale: number
-  decision: 'accepte' | 'refuse'
+  decision: 'accepte' | 'reserve' | 'refuse'
   commentaire_refus?: string
   evalue_par: string
   evalue_le?: string
@@ -481,7 +518,7 @@ export interface ValidationPreuves {
 
 export interface HistoriqueEcart {
   id: string
-  type: 'creation' | 'notification' | 'soumission_pac' | 'evaluation_pac' | 'soumission_preuves' | 'validation_preuves' | 'cloture' | 'rappel' | 'retard'
+  type: 'creation' | 'notification' | 'soumission_pac' | 'evaluation_pac' | 'soumission_preuves' | 'validation_preuves' | 'cloture' | 'reconciliation' | 'rappel' | 'retard'
   date: string
   acteur: string
   role_acteur: string
@@ -507,16 +544,6 @@ export interface StatistiquesPAC {
 // ============================================================
 
 // Types pour les modèles avancés
-export interface ScoreHistoryPoint {
-  date: string
-  score: number
-  c1?: number
-  c2?: number
-  c3?: number
-  c4?: number
-  c5?: number
-}
-
 export interface VelocityMetricsStored {
   vitesse: number
   acceleration: number
@@ -530,20 +557,29 @@ export interface SystemStressStored {
   niveau_stress: 'faible' | 'modere' | 'eleve' | 'critique'
   facteurs_contributeurs: string[]
   recommandation: string
+  stressIndicators: {
+    velocityStress: number
+    ecartsStress: number
+    c4Stress: number
+    resilienceStress: number
+  }
 }
 
 export interface ProactiveAlertStored {
   niveau_urgence: 'info' | 'vigilance' | 'alerte' | 'critique'
   probabilite_degradation_3m: number
   probabilite_seuil30_3m: number
+  probabilite_seuil30_6m: number
   message_court: string
+  message_long: string
   action_suggerer: string
+  delai_estime_jours: number | null
 }
 
 export interface ProfilRisque {
   aerodrome_id: string
   score_global: number
-  niveau: 'critique' | 'eleve' | 'moyen' | 'faible'
+  niveau: NiveauRisque
   c1: number
   c2: number
   c3: number
@@ -585,6 +621,9 @@ export interface ProfilRisque {
   negbin_metrics?: { isOverdispersed: boolean; dispersion: number; mean: number; variance: number }
   copula_metrics?: { maxTailDependence: number; worstCaseProbability: number; worstCaseDescription: string }
   ts_metrics?: { recommendedAction: string; bestProbability: number }
+  // Fiabilité des données (qualityScore)
+  qualityScore?: number
+  qualite?: 'excellente' | 'bonne' | 'moyenne' | 'faible'
   // Bow-Tie HIRM — modèles Bow-Tie enrichis par domaine
   bowtie_metrics?: import('./risque/types').BowTieModele[]
   // SNAPSHOT INFRASTRUCTURE (au moment du calcul)
@@ -834,7 +873,7 @@ export interface EcartRedaction {
   reference: string;
   ref_reglementaire: string;
   libelle: string;
-  niveau: 'critique' | 'eleve' | 'moyen' | 'faible';
+  niveau: 'critique' | 'eleve' | 'moyen' | 'faible' | 'tres_faible';
   item_ids: string[];
   surveillance_id: string;
   aerodrome_id: string;
@@ -931,6 +970,7 @@ export interface Certification {
         nature_demande: string
         description: string
         lettre_intent_url?: string
+        lettre_intent_name?: string
         rapport_preliminaire_url?: string
         lettre_transmission_url?: string
         cloture_le?: string
@@ -945,7 +985,7 @@ export interface Certification {
         date_reception: string
         numero_dossier: string
         responsable_id: string
-        documents: Record<string, boolean>
+        documents: Record<string, string | boolean>
         completude: number
         rapport_evaluation_url?: string
         lettre_transmission_url?: string
@@ -960,8 +1000,11 @@ export interface Certification {
         date_decision?: string
       }
     phase3?: {
+      planning_id?: string
       surveillance_id: string
       date_verification: string
+      date_debut?: string
+      date_fin?: string
       equipe_ids: string[]
       chef_id: string
       score_conformite: number
@@ -1017,7 +1060,7 @@ export interface Homologation {
     phase1?: {
       date_reception: string
       responsable_id: string
-      documents: Record<string, boolean>
+      documents: Record<string, string | boolean>
       completude: number
       observations?: string
       rapport_evaluation_url?: string
@@ -1036,6 +1079,8 @@ export interface Homologation {
     phase2?: {
       surveillance_id: string
       date_verification: string
+      date_debut?: string
+      date_fin?: string
       equipe_ids: string[]
       chef_id: string
       rapport_verification_url?: string
@@ -1114,6 +1159,8 @@ export interface Planning {
   checklist_pac?: any[]
   checklist_suivi_ecarts?: any[]
   sgs_evaluation_prepa?: any  // EvaluationSGS — sauvegardée lors de la préparation
+  // Délégations préparatoires { domaine_code → inspecteur_id }
+  delegations?: Record<string, string>
   // Rappels avant surveillance
   rappels_envoyes?: { j30?: boolean; j15?: boolean; j7?: boolean }
   // Confirmation par l'inspecteur
@@ -1141,16 +1188,19 @@ export interface Utilisateur {
   telephone?: string
   poste?: string
   superieur_id?: string
+  type_inspecteur?: string
   fonction?: string
   service?: string
   service_rattache?: string
   competences?: any[]
+  specialites?: string[]
   matricule?: string
   inspecteur_id?: string
   last_login?: string
   password_temporaire?: boolean
   notifications_email?: boolean
   notifications_sms?: boolean
+  notification_email?: string
   bio?: string
   photo_url?: string
   date_embauche?: string
@@ -1185,9 +1235,11 @@ export interface EvenementSecurite {
   dommages_estimation?: number
   actions_immediates: string
   services_alertes: string[]
-  statut: 'recu' | 'en_cours' | 'analyse' | 'ecart_cree' | 'rapport_redige' | 'cloture'
+  statut: 'recu' | 'assigne' | 'accepte' | 'refuse' | 'attente_operateur' | 'en_cours' | 'analyse' | 'ecart_cree' | 'rapport_redige' | 'soumis_validation' | 'retourne' | 'cloture'
   inspecteur_id?: string
   date_assignation?: string
+  date_acceptation?: string
+  motif_refus?: string
   date_cloture?: string
   ecart_ids?: string[]
   rapport_final_url?: string
@@ -1195,10 +1247,15 @@ export interface EvenementSecurite {
   classification?: 'accident' | 'incident' | 'incident_grave'
   analyse_preliminaire?: string
   recommandations?: string
+  demande_complement?: string
+  reponse_operateur?: string
+  date_reponse_operateur?: string
   causes?: string[]
   facteurs_contributifs?: { humain: boolean; technique: boolean; environnemental: boolean; organisationnel: boolean }
   rapport_investigation?: string
   rapport_final_contenu?: string
+  validation_admin?: 'en_attente' | 'valide' | 'retourne'
+  validation_admin_commentaire?: string
   impact_securite?: 'moyen' | 'faible'
   created_at: string
   updated_at: string
@@ -1283,29 +1340,6 @@ export interface Conversation {
   dernier_message: string
   non_lus: number
   updated_at: string
-}
-
-export interface EntreeRegistre {
-  id: string
-  aerodrome_id?: string
-  type: 'formation' | 'evenement' | 'surveillance' | 'certification' | 'homologation' | 'ecart' | 'exploitation' | 'dossier'
-  reference: string
-  date_entree: string
-  objet: string
-  description: string
-  lien_id?: string
-  lien_type?: string
-  signataire_id?: string
-  signataire_nom?: string
-  fichiers?: {
-    nom: string
-    url: string
-    taille: number
-    type: string
-  }[]
-  statut: 'provisoire' | 'valide' | 'archive'
-  created_at: string
-  created_by: string
 }
 
 export interface DossierExtension {
@@ -1496,6 +1530,22 @@ export interface KitDocExtrait {
   detecte_le: string
 }
 
+export interface KitChecklistItemGenere {
+  id: string
+  numero: string
+  reference_reglementaire: string
+  point_verification: string
+  directive_preuve: string
+  directive_sa?: string
+  directive_ns?: string
+  directive_nv?: string
+  directive_na?: string
+  domaine: string
+  sous_domaine?: string
+  type_entite_cible: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+  source_document_id: string
+}
+
 export interface KitDocument {
   id: string
   nom: string
@@ -1526,6 +1576,12 @@ export interface KitDocument {
     message?: string
     actif: boolean
   }[]
+  contenu_complet?: string
+  texte_extrait_le?: string
+  texte_extrait_version?: string
+  items_generes?: KitChecklistItemGenere[]
+  items_generes_le?: string
+  items_generes_version?: string
   created_at: string
   updated_at: string
   created_by: string
@@ -1809,9 +1865,11 @@ interface EcartSlice {
   evaluerPAC: (ecartId: string, evaluation: EvaluationPAC) => Promise<void>
   soumettrePreuves: (ecartId: string, preuves: SoumissionPreuves) => Promise<void>
   evaluerPreuves: (ecartId: string, validation: ValidationPreuves) => Promise<void>
+  validerEvaluationChef: (ecartId: string, action: 'approuve' | 'revision', commentaire?: string) => Promise<void>
   getEcartsByType: (aerodromeId?: string, typeSource?: 'surveillance' | 'evenement') => Ecart[]
   getDelaiRestant: (ecart: Ecart) => { jours: number; couleur: 'vert' | 'orange' | 'rouge'; depasse: boolean }
   getHistoriqueEcart: (ecartId: string) => HistoriqueEcart[]
+  addHistoriqueEntry: (ecartId: string, entry: Omit<HistoriqueEcart, 'id'>) => void
   getStatistiquesPAC: (aerodromeId?: string) => StatistiquesPAC
   verifierRappelsAutomatiques: () => void
   marquerEcartEnRetard: (ecartId: string) => void
@@ -1839,7 +1897,7 @@ interface NotificationSlice {
   addNotification: (notification: Omit<Notification, 'id' | 'sent_at'>) => void
   markAsRead: (id: string) => void
   markAllAsRead: () => void
-  envoyerNotificationMultiCanal: (userId: string, notification: Omit<Notification, 'id' | 'sent_at' | 'user_id'>, canaux: ('in_app' | 'email' | 'sms')[]) => Promise<void>
+  envoyerNotificationMultiCanal: (userId: string, notification: Omit<Notification, 'id' | 'sent_at' | 'user_id'>, canaux: Notification['canal'][]) => Promise<void>
 }
 
 interface CertificationSlice {
@@ -1938,6 +1996,14 @@ interface EvenementSlice {
   updateEvenement: (id: string, data: Partial<EvenementSecurite>) => Promise<void>
   deleteEvenement: (id: string) => void
   assignerInspecteur: (evenementId: string, inspecteurId: string) => void
+  accepterAssignation: (evenementId: string) => void
+  refuserAssignation: (evenementId: string, motif: string) => void
+  soumettreValidation: (evenementId: string) => void
+  validerCloture: (evenementId: string) => void
+  retournerInspecteur: (evenementId: string, commentaire: string) => void
+  demanderComplement: (evenementId: string, question: string) => void
+  repondreComplement: (evenementId: string, reponse: string) => void
+  relancerOperateur: (evenementId: string) => void
   creerEcartLie: (evenementId: string, ecartData: Partial<Ecart>) => void
   getEvenementsByAerodrome: (aerodromeId: string) => EvenementSecurite[]
   getEvenementsUrgents: () => EvenementSecurite[]
@@ -1970,15 +2036,6 @@ interface MessagerieSlice {
   getConversations: (userId: string) => Conversation[]
   getMessagesConversation: (conversationId: string) => Message[]
   getMessagesNonLus: (userId: string) => number
-}
-
-interface RegistreSlice {
-  registres: EntreeRegistre[]
-  setRegistres: (registres: EntreeRegistre[]) => void
-  addEntreeRegistre: (entree: Omit<EntreeRegistre, 'id' | 'created_at'>) => void
-  getRegistresByType: (type: string, aerodromeId?: string) => EntreeRegistre[]
-  getRegistresByAerodrome: (aerodromeId: string) => EntreeRegistre[]
-  genererEntreeFromSource: (source: Record<string, unknown>, type: string) => EntreeRegistre
 }
 
 interface DossierSlice {
@@ -2025,7 +2082,7 @@ interface FormationSlice {
 interface KitSlice {
   kitDocuments: KitDocument[]
   setKitDocuments: (documents: KitDocument[]) => void
-  addKitDocument: (document: Omit<KitDocument, 'id' | 'created_at' | 'updated_at' | 'telechargements'>) => void
+  addKitDocument: (document: Omit<KitDocument, 'id' | 'created_at' | 'updated_at' | 'telechargements'> & { id?: string }) => Promise<KitDocument>
   updateKitDocument: (id: string, data: Partial<KitDocument>) => void
   deleteKitDocument: (id: string) => void
   getDocumentsByDomaine: (domaine: string) => KitDocument[]
@@ -2148,7 +2205,7 @@ export interface AppStore extends
   CertificationSlice,
   HomologationSlice,
    UISlice,
-   RegistreSlice,      
+   RegistreSlice,
    ChecklistSlice,      
    EcartsRedactionSlice, 
    WorkflowSlice,
@@ -2173,8 +2230,11 @@ export interface AppStore extends
   DelegationSlice,
   AlerteSlice,
   PresenceSlice,
-  RiskIndexFeedbackSlice,
-  SuggestionFeedbackSlice {}
+   RiskIndexFeedbackSlice,
+   IaSuggestionSlice,
+   SuggestionFeedbackSlice,
+   SgsMemorySlice {}
+
 
 interface DelegationSlice {
   delegations: Delegation[];
@@ -2215,6 +2275,23 @@ interface RiskIndexFeedbackSlice {
   getRiskIndexLearningStats: () => { totalFeedbacks: number; modelVersion: number; lastCalibrated: string; adjustmentsCount: number };
 }
 
+export interface IaSuggestion {
+  id: string;
+  aerodrome_id: string;
+  type: Planning['type'];
+  portee: string[];
+  date_debut: string;
+  date_fin: string;
+  equipe_ids: string[];
+  chef_id: string;
+  priorite: Planning['priorite'];
+  objectifs: string;
+  raison: string;
+  confiance: number;
+  source: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' | 'ecart_actif' | 'evenement' | 'periodique';
+  created_at: string;
+}
+
 export interface SuggestionFeedback {
   id: string;
   aerodrome_id: string;
@@ -2227,6 +2304,20 @@ export interface SuggestionFeedback {
   ecart_ids?: string[];
   date_suggestion: string;
   date_feedback?: string;
+}
+
+interface IaSuggestionSlice {
+  iaSuggestions: IaSuggestion[];
+  setIaSuggestions: (suggestions: IaSuggestion[]) => void;
+  addIaSuggestion: (suggestion: IaSuggestion) => void;
+  removeIaSuggestion: (id: string) => void;
+  clearIaSuggestions: () => void;
+  getIaSuggestionsByAerodrome: (aerodromeId: string) => IaSuggestion[];
+}
+
+interface SgsMemorySlice {
+  sgsMemoryRecords: import('./sgsMemory').SGSLevelCorrection[];
+  setSgsMemoryRecords: (records: import('./sgsMemory').SGSLevelCorrection[]) => void;
 }
 
 interface SuggestionFeedbackSlice {
@@ -2319,6 +2410,9 @@ function extractEcartsFromRapportHtml(surveillance: Surveillance): Partial<Ecart
     .filter((ecart): ecart is Exclude<typeof ecart, null> => !!ecart && !!ecart.reference && !!ecart.libelle)
 }
 
+// Timer pour vérifier les rappels + vigie risque toutes les heures
+let rappelsTimerId: ReturnType<typeof setInterval> | null = null
+
 export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
@@ -2333,8 +2427,8 @@ export const useAppStore = create<AppStore>()(
           import('@/lib/datastore').then(({ fetchNotifications }) => {
             fetchNotifications(user.id).then((res) => {
               if (res.data) get().setNotifications(res.data as Notification[])
-            })
-          }).catch(() => {})
+            }).catch((err) => console.error('[Notifications] Échec fetch:', err))
+          }).catch((err) => console.error('[Notifications] Échec import datastore:', err))
         }
       },
       authLoading: false,
@@ -2348,17 +2442,59 @@ export const useAppStore = create<AppStore>()(
       getUtilisateur: (id) => get().utilisateurs.find(u => u.id === id),
       addUtilisateur: async (u) => {
         set((state) => ({ utilisateurs: [...state.utilisateurs, u] }))
-        // L'API /api/auth/create-user gère déjà la création Supabase
-        // On ne fait qu'ajouter au store local
+
+        // Sauvegarder l'utilisateur dans Supabase
+        const { error: userErr } = await supabase.from('utilisateurs').insert(u).select().single()
+        if (userErr) console.error('[addUtilisateur] Erreur création utilisateur Supabase:', userErr)
+
+        // Si le rôle est inspector, créer aussi un inspecteur correspondant
+        if (u.role === 'inspector') {
+          const inspecteurId = crypto.randomUUID()
+          const inspecteur: Inspecteur = {
+            id: inspecteurId,
+            matricule: u.matricule || '',
+            prenom: u.prenom || '',
+            nom: u.nom || '',
+            email: u.email || '',
+            telephone: u.telephone || '',
+            type: (u.type_inspecteur || 'inspecteur_titulaire') as Inspecteur['type'],
+            service: (u.service || 'normes_aerodromes') as Inspecteur['service'],
+            poste: (u.poste || undefined) as Inspecteur['poste'],
+            superieur_id: u.superieur_id || undefined,
+            domaine_principal: 'exploitation',
+            photo: u.photo_url || undefined,
+            statut: 'en_service',
+            competences: u.competences || [],
+            formations: [],
+            user_id: u.id,
+            created_at: new Date().toISOString(),
+          }
+          set((state) => ({ inspecteurs: [...state.inspecteurs, inspecteur] }))
+          // Mise à jour du lien inverse sur l'utilisateur
+          set((state) => ({
+            utilisateurs: state.utilisateurs.map(us => us.id === u.id ? { ...us, inspecteur_id: inspecteurId } : us)
+          }))
+          await datastore.createInspecteur(inspecteur).catch(err =>
+            console.error('[addUtilisateur] Erreur création inspecteur Supabase:', err)
+          )
+        }
       },
       updateUtilisateur: async (id, data) => {
         set((state) => ({ utilisateurs: state.utilisateurs.map(u => u.id === id ? { ...u, ...data } : u) }))
-        datastore.updateUtilisateur(id, data).then(r => { if (r.error) console.error('Erreur update utilisateur Supabase:', r.error) })
-        // Sync vers Inspecteur si poste ou superieur_id change
-        if (data.poste !== undefined || data.superieur_id !== undefined) {
-          const user = get().utilisateurs.find(u => u.id === id)
-          if (user?.inspecteur_id) {
-            get().updateInspecteur(user.inspecteur_id, { poste: data.poste as PosteANACIM, superieur_id: data.superieur_id })
+        datastore.updateUtilisateur(id, data).then(r => { if (r.error) console.error('Erreur update utilisateur Supabase:', r.error) }).catch(() => {})
+        // Sync vers Inspecteur (sans boucle : on vérifie que la valeur a changé)
+        const user = get().utilisateurs.find(u => u.id === id)
+        if (user?.inspecteur_id) {
+          const insp = get().inspecteurs.find(i => i.id === user.inspecteur_id)
+          const syncToInsp: Record<string, any> = {}
+          if (data.poste !== undefined) syncToInsp.poste = data.poste
+          if (data.superieur_id !== undefined) syncToInsp.superieur_id = data.superieur_id
+          if (data.type_inspecteur !== undefined && data.type_inspecteur !== insp?.type) syncToInsp.type = data.type_inspecteur
+          if (data.service !== undefined && data.service !== insp?.service) syncToInsp.service = data.service
+          if (data.competences !== undefined) syncToInsp.competences = data.competences
+          if (data.specialites !== undefined) syncToInsp.specialites = data.specialites
+          if (Object.keys(syncToInsp).length) {
+            get().updateInspecteur(user.inspecteur_id, syncToInsp)
           }
         }
       },
@@ -2504,15 +2640,41 @@ ajouterMesureAtténuation: (exemptionId, mesure) => set((state) => ({
 // Dans le create, ajouter les implémentations
 registreEntries: [],
 setRegistreEntries: (entries) => set({ registreEntries: entries }),
-addRegistreEntry: (entry) => set((state) => ({ 
-  registreEntries: [...state.registreEntries, entry] 
-})),
-updateRegistreEntry: (id, data) => set((state) => ({
-  registreEntries: state.registreEntries.map(e => e.id === id ? { ...e, ...data } : e)
-})),
-deleteRegistreEntry: (id) => set((state) => ({
-  registreEntries: state.registreEntries.filter(e => e.id !== id)
-})),
+addRegistreEntry: async (entry) => {
+  const result = await datastore.saveRegistreEntry(entry)
+  if (result.error) {
+    console.error('[store] Erreur sauvegarde registre Supabase:', result.error)
+    toast('error', 'Erreur archivage', result.error)
+    return
+  }
+  const saved = result.data as RegistreEntry
+  set((state) => ({ registreEntries: [...state.registreEntries, saved] }))
+},
+updateRegistreEntry: async (id, data) => {
+  const existing = get().registreEntries.find(e => e.id === id)
+  if (!existing) return
+  const updated = { ...existing, ...data }
+  const result = await datastore.saveRegistreEntry(updated as RegistreEntry)
+  if (result.error) {
+    console.error('[store] Erreur mise à jour registre Supabase:', result.error)
+    toast('error', 'Erreur mise à jour', result.error)
+    return
+  }
+  set((state) => ({
+    registreEntries: state.registreEntries.map(e => e.id === id ? result.data as RegistreEntry : e)
+  }))
+},
+deleteRegistreEntry: async (id) => {
+  const result = await datastore.deleteRegistreEntryFromDB(id)
+  if (result.error) {
+    console.error('[store] Erreur suppression registre Supabase:', result.error)
+    toast('error', 'Erreur suppression', result.error)
+    return
+  }
+  set((state) => ({
+    registreEntries: state.registreEntries.filter(e => e.id !== id)
+  }))
+},
 getRegistreByType: (type) => get().registreEntries.filter(e => e.type === type),
 getRegistreByAerodrome: (aerodromeId) => get().registreEntries.filter(e => e.aerodrome_id === aerodromeId),
       // ============================================================
@@ -2578,9 +2740,35 @@ deleteAerodrome: async (id: string) => {
   // Supprimer dans Supabase (cascade sur toutes les tables liées)
   await datastore.deleteAerodrome(id)
 
+  // Désaffecter les utilisateurs rattachés à cet aérodrome
+  const exploitants = state.utilisateurs.filter(u => u.aerodrome_id === id)
+  if (exploitants.length > 0) {
+    await Promise.allSettled(exploitants.map(u =>
+      datastore.updateUtilisateur(u.id, { aerodrome_id: null } as any)
+    ))
+    // Notifier chaque exploitant par email personnalisé
+    exploitants.forEach(u => {
+      const prenom = u.prenom || u.email || 'Cher exploitant'
+      const emailTo = u.notification_email || u.email
+      if (emailTo) {
+        fetch('/api/notifications/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: emailTo,
+            subject: `SGDA - Aérodrome ${aerodrome.code_oaci} supprimé`,
+            message: `Bonjour ${prenom},\n\nL'aérodrome ${aerodrome.nom} (${aerodrome.code_oaci}) a été supprimé du système SGDA par ${deletedBy}.\n\nVotre compte utilisateur est conservé mais n'est plus rattaché à aucun aérodrome.\n\nCordialement,\nANACIM - SGDA`,
+            link: `${typeof window !== 'undefined' ? window.location.origin : ''}/parametres`,
+          })
+        }).catch(() => {})
+      }
+    })
+  }
+
   // Hard delete du store local avec cascade
   set((state) => ({
     aerodromes: state.aerodromes.filter(a => a.id !== id),
+    utilisateurs: state.utilisateurs.map(u => u.aerodrome_id === id ? { ...u, aerodrome_id: undefined } : u),
     surveillances: state.surveillances.filter(s => s.aerodrome_id !== id),
     certifications: state.certifications.filter(c => c.aerodrome_id !== id),
     homologations: state.homologations.filter(h => h.aerodrome_id !== id),
@@ -2596,14 +2784,18 @@ deleteAerodrome: async (id: string) => {
   const { notifyAerodromeDeleted } = await import('./notifications')
   notifyAerodromeDeleted(aerodrome.nom, aerodrome.code_oaci, deletedBy)
 
+  const cascadeMsg = exploitants.length > 0
+    ? `, ${exploitants.length} exploitant(s) désaffecté(s)`
+    : ''
+
   get().addNotification({
     user_id: userId,
     type: 'warning',
-    message: `L'aérodrome ${aerodrome.code_oaci} - ${aerodrome.nom} a été supprimé avec cascade (codes révoqués, surveillances, certifications, homologations, écarts, plannings)`,
-          canal: 'in_app'
-        })
-        get().incrementerVersion()
-      },
+    message: `L'aérodrome ${aerodrome.code_oaci} - ${aerodrome.nom} a été supprimé avec cascade (codes révoqués, surveillances, certifications, homologations, écarts, plannings${cascadeMsg})`,
+    canal: 'in_app'
+  })
+  get().incrementerVersion()
+},
 
 getActiveAerodromes: () => {
   return get().aerodromes.filter(a => !a.deleted_at)
@@ -2618,6 +2810,28 @@ getActiveAerodromes: () => {
       setCurrentSurveillance: (surveillance) => set({ currentSurveillance: surveillance }),
       addSurveillance: async (surveillanceData) => {
         const now = new Date().toISOString()
+
+        // Vérifier que le planning_id référence bien un planning existant (FK Supabase).
+        // On interroge toujours Supabase en priorité (source de vérité), et on ne se
+        // rabat sur le store local qu'en cas d'échec réseau de la requête elle-même.
+        if (surveillanceData.planning_id) {
+          let planningExiste = false
+          try {
+            const { data: planning, error } = await supabase
+              .from('plannings')
+              .select('id')
+              .eq('id', surveillanceData.planning_id)
+              .maybeSingle()
+            if (error) throw error
+            planningExiste = !!planning
+          } catch {
+            planningExiste = !!get().plannings?.some(p => p.id === surveillanceData.planning_id)
+          }
+          if (!planningExiste) {
+            delete (surveillanceData as any).planning_id
+          }
+        }
+
         // Chef par défaut si vide
         const defautChefId = surveillanceData.chef_id && surveillanceData.chef_id !== '00000000-0000-0000-0000-000000000000'
           ? surveillanceData.chef_id
@@ -2631,8 +2845,17 @@ getActiveAerodromes: () => {
               const userDefaut = get().user
                 || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
                 || utilisateurs.find(u => u.statut === 'actif')
-              return userDefaut?.id || crypto.randomUUID()
+              // Ne JAMAIS inventer un UUID aléatoire ici : un chef_id qui ne référence
+              // aucun utilisateur/inspecteur réel provoque la même violation de
+              // contrainte FK que pour planning_id, mais sans message clair pour l'aider
+              // à diagnostiquer. On préfère échouer tôt avec un message explicite.
+              return userDefaut?.id || null
             })()
+        if (!defautChefId) {
+          const message = 'Impossible de déterminer un chef de mission valide : aucun inspecteur ou utilisateur actif disponible.'
+          toast('error', 'Erreur création surveillance', message)
+          throw new Error(message)
+        }
         const newSurveillance: Surveillance = {
           id: crypto.randomUUID(),
           ...surveillanceData,
@@ -2647,7 +2870,14 @@ getActiveAerodromes: () => {
           created_by: get().user?.id || defautChefId,
           updated_by: get().user?.id || defautChefId,
         }
-        const result = await datastore.createSurveillance({ ...surveillanceData, chef_id: defautChefId, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any)
+        const payload = { ...surveillanceData, chef_id: defautChefId, created_by: newSurveillance.created_by, updated_by: newSurveillance.updated_by } as any
+        let result = await datastore.createSurveillance(payload)
+        const isPlanningFkError = (err: unknown) =>
+          typeof err === 'string' && err.toLowerCase().includes('surveillances_planning_id_fkey')
+        if (result.error && isPlanningFkError(result.error) && 'planning_id' in payload) {
+          delete payload.planning_id
+          result = await datastore.createSurveillance(payload)
+        }
         if (result.error) {
           console.error('Erreur création surveillance Supabase:', result.error)
           toast('error', 'Erreur création surveillance', result.error)
@@ -2677,7 +2907,7 @@ getActiveAerodromes: () => {
           surveillances: state.surveillances.map((s) => s.id === id ? { ...s, ...data, updated_at: new Date().toISOString() } : s),
           currentSurveillance: state.currentSurveillance?.id === id ? { ...state.currentSurveillance, ...data } : state.currentSurveillance,
         }))
-        const { sgs_evaluation_prepa, ...dataSansSGS } = data;
+        const { sgs_evaluation_prepa, sgs_evaluation_signee_le, sgs_ecarts_signes_le, rapport_sections, ...dataSansSGS } = data;
         const result = await datastore.updateSurveillance(id, dataSansSGS)
         if (result.error) {
           console.error('Erreur update surveillance Supabase, rollback:', result.error)
@@ -2714,8 +2944,8 @@ getActiveAerodromes: () => {
             )
             break
           case 'checklist_signee':
-            _equipeIds.forEach(uid =>
-              _addN({ user_id: uid, type: 'success', title: `✅ Checklist signée — ${_codeOaci}`, message: `La checklist de la surveillance ${_typeLabel} de ${_codeOaci} a été signée par tous les inspecteurs.`, canal: 'in_app', link: _link })
+            ;[..._equipeIds, ..._exploitants.map(u => u.id)].forEach(uid =>
+              _addN({ user_id: uid, type: 'success', title: `✅ Checklist signée — ${_codeOaci}`, message: `La checklist de la surveillance ${_typeLabel} de ${_codeOaci} a été signée. Les résultats sont disponibles.`, canal: 'in_app', link: _link })
             )
             break
           case 'ecarts_signes':
@@ -2781,6 +3011,24 @@ getActiveAerodromes: () => {
             canal: 'in_app'
           })
         })
+
+        // ── Nettoyer les références dans les processus liés ──
+        if (surveillance.planning_id) {
+          const planning = state.plannings.find(p => p.id === surveillance.planning_id);
+          if (planning?.type === 'certification') {
+            const cert = state.certifications.find(c => c.aerodrome_id === planning.aerodrome_id && (c.phases_data as any)?.phase3?.surveillance_id === id);
+            if (cert) {
+              const phase3 = { ...(cert.phases_data as any).phase3, surveillance_id: '' };
+              get().updateCertification(cert.id, { phases_data: { ...cert.phases_data, phase3 } } as any);
+            }
+          } else if (planning?.type === 'homologation') {
+            const homo = state.homologations.find((h: any) => h.aerodrome_id === planning.aerodrome_id && (h.phases_data as any)?.phase2?.surveillance_id === id);
+            if (homo) {
+              const phase2 = { ...(homo.phases_data as any).phase2, surveillance_id: '' };
+              get().updateHomologation(homo.id, { phases_data: { ...homo.phases_data, phase2 } } as any);
+            }
+          }
+        }
 
         // ── Rappels planning (surveillances programmées) ──
         const maintenant2 = new Date()
@@ -2854,10 +3102,6 @@ getActiveAerodromes: () => {
             }
           })
         })
-      },
-      
-      getActiveSurveillances: () => {
-        return get().surveillances.filter(s => !s.deleted_at)
       },
       
       // ============================================================
@@ -2957,24 +3201,34 @@ getActiveAerodromes: () => {
         }
 
         // Supabase OK → mise à jour du store local + Bow-Tie risk evaluation
+        // Calculer la deadline pour l'évaluation par l'inspecteur
+        const niveau = ecart.niveau_risque as keyof typeof NIVEAUX_RISQUE_ECART
+        const delaiEvalJours = NIVEAUX_RISQUE_ECART[niveau]?.delai_evaluation_pac ?? 15
+        const deadlineEval = new Date(Date.now() + delaiEvalJours * 24 * 60 * 60 * 1000).toISOString()
         // Bow-Tie : évaluer le risque résiduel après PAC
         let pacCellule: string | undefined
         let pacJustification: string | undefined
         try {
-          const { evaluatePAC } = require('@/lib/risque/bowTieEngine')
-          const celluleInit = { probabilite: ecart.probabilite_risque || 3, gravite: ecart.gravite_risque || 'C', cellule: ecart.cellule_risque_oaci || '3C', niveau: ecart.niveau_risque || 'moyen', couleur: '#eab308' }
+          const celluleInit = { probabilite: ecart.probabilite_risque || 3, gravite: ecart.gravite_risque || 'C', cellule: ecart.cellule_risque_oaci || '3C', niveau: (ecart.niveau_risque || 'moyen') as 'critique' | 'eleve' | 'moyen' | 'faible', couleur: '#eab308' }
           const nbActions = (pacData.actions || []).length
           const assessment = evaluatePAC(celluleInit, nbActions, pacData.actions || [])
           if (assessment.celluleResiduelle) {
             pacCellule = assessment.celluleResiduelle.cellule
             pacJustification = assessment.gainPAC
           }
-        } catch { /* Bow-Tie indisponible */ }
+        } catch (err) { console.warn('[BowTie] evaluatePAC échoué:', err) }
 
         set((state) => {
           const updatedEcarts = (state.ecarts.map(e =>
             e.id === ecartId
-              ? { ...e, statut: 'pac_soumis', pac: pacPayload, updated_at: now, ...(pacCellule ? { cellule_risque_reevalue: pacCellule, justification_risque_pac: pacJustification } : {}) }
+              ? {
+                  ...e,
+                  statut: 'pac_soumis',
+                  pac: pacPayload,
+                  evaluation_pac: { ...(e.evaluation_pac || {} as any), deadline: deadlineEval } as any,
+                  updated_at: now,
+                  ...(pacCellule ? { cellule_risque_reevalue: pacCellule, justification_risque_pac: pacJustification } : {})
+                }
               : e
           ) as Ecart[])
           const historiqueEntry: HistoriqueEcart = {
@@ -2999,11 +3253,12 @@ getActiveAerodromes: () => {
         })
 
         const utilisateur = get().getUtilisateur(ecart.inspecteur_ref_id)
+        const dateButoir = new Date(deadlineEval).toLocaleDateString('fr-FR')
         get().addNotification({
           user_id: ecart.inspecteur_ref_id,
           type: 'info',
           title: 'Nouveau PAC soumis',
-          message: `PAC soumis pour l'écart ${ecart.reference}`,
+          message: `PAC soumis pour l'écart ${ecart.reference} — À évaluer avant le ${dateButoir}`,
           link: `/plans-actions/${ecartId}`,
           canal: 'in_app'
         })
@@ -3012,7 +3267,7 @@ getActiveAerodromes: () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              to: utilisateur.email,
+              to: utilisateur.notification_email || utilisateur.email,
               subject: `SGDA - Nouveau PAC soumis - ${ecart.reference}`,
               template: 'pac-soumis',
               data: {
@@ -3039,7 +3294,20 @@ getActiveAerodromes: () => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) throw new Error('Écart introuvable')
-        const nouveauStatut = evaluation.decision === 'accepte' ? 'pac_accepte' : 'pac_refuse'
+        // Vérifier que l'évaluateur a participé à la surveillance
+        if (ecart.surveillance_id) {
+          const surv = state.surveillances.find(s => s.id === ecart.surveillance_id)
+          const delegue = state.delegations.find(d =>
+            d.surveillance_id === ecart.surveillance_id &&
+            d.domaine === ecart.domaine &&
+            d.assigne_a === evaluation.evalue_par
+          )
+          const estMembreEquipe = surv?.equipe_ids?.includes(evaluation.evalue_par)
+          const estChef = surv?.chef_id === evaluation.evalue_par
+          if (!estMembreEquipe && !estChef && !delegue) {
+            throw new Error('Vous n\'êtes pas autorisé à évaluer cet écart — seuls les membres de l\'équipe de surveillance peuvent évaluer les PAC')
+          }
+        }
         const now = new Date().toISOString()
         const dateSoumission = new Date(ecart.pac?.soumis_le || ecart.created_at)
         const dateEvaluation = new Date(evaluation.evalue_le || now)
@@ -3049,12 +3317,14 @@ getActiveAerodromes: () => {
           note_globale: plansActionsUtils.calculerNoteGlobale(evaluation),
           delai_traitement: delaiTraitement
         }
+        const validationChef = { type: 'evaluation_pac' as const, statut: 'en_attente' as const }
 
         // Supabase EN PREMIER
         const syncResult = await datastore.upsertEcart({
           ...ecart,
-          statut: nouveauStatut,
+          statut: 'en_attente_validation_chef',
           evaluation_pac: evaluationPac,
+          validation_chef: validationChef,
           updated_at: now
         })
         if (syncResult.error) {
@@ -3063,7 +3333,7 @@ getActiveAerodromes: () => {
 
         // Supabase OK → store local
         set((state) => {
-          const updatedFields: any = { statut: nouveauStatut, evaluation_pac: evaluationPac, updated_at: now }
+          const updatedFields: any = { statut: 'en_attente_validation_chef', evaluation_pac: evaluationPac, validation_chef: validationChef, updated_at: now }
           if (evaluation.niveau_risque_reevalue) {
             updatedFields.niveau_risque = evaluation.niveau_risque_reevalue
             updatedFields.evaluation_niveau_risque = {
@@ -3087,7 +3357,7 @@ getActiveAerodromes: () => {
             date: now,
             acteur: evaluation.evalue_par,
             role_acteur: 'inspector',
-            description: `PAC ${evaluation.decision === 'accepte' ? 'accepté' : 'refusé'}`,
+            description: `Évaluation PAC soumise au chef — ${evaluation.decision === 'accepte' ? 'accepté' : evaluation.decision === 'reserve' ? 'accepté avec réserves' : 'refusé'}`,
             details: {
               note_globale: evaluationPac.note_globale,
               commentaire_refus: evaluation.commentaire_refus
@@ -3102,76 +3372,24 @@ getActiveAerodromes: () => {
           }
         })
 
-        // Auto-créer une surveillance de suivi PAC si accepté
-        if (evaluation.decision === 'accepte' && ecart.surveillance_id) {
-          const surveillanceOriginale = get().surveillances.find(s => s.id === ecart.surveillance_id);
-          if (surveillanceOriginale && !('surveillance_id' in surveillanceOriginale)) {
-            const nowSuivi = new Date().toISOString();
-            const delaiReg = new Date(ecart.delai_regularisation);
-            const newSurveillance: Surveillance = {
-              id: crypto.randomUUID(),
-              aerodrome_id: ecart.aerodrome_id,
-              planning_id: surveillanceOriginale.planning_id,
-              type: 'mise_oeuvre_pac',
-              portee: surveillanceOriginale.portee,
-              equipe_ids: surveillanceOriginale.equipe_ids,
-              chef_id: surveillanceOriginale.chef_id,
-              date_debut: nowSuivi,
-              date_fin: delaiReg.toISOString(),
-              statut: 'planifiee',
-              progression: 0,
-              created_at: nowSuivi,
-              updated_at: nowSuivi,
-              created_by: get().user?.id || '',
-              updated_by: get().user?.id || '',
-            };
-            set((state) => ({ surveillances: [...state.surveillances, newSurveillance] }));
-            get().addNotification({
-              user_id: surveillanceOriginale.chef_id,
-              type: 'info',
-              title: 'Surveillance de suivi PAC créée',
-              message: `Suivi PAC automatique pour l'écart ${ecart.reference} — ${get().aerodromes.find((a: { id: string; code_oaci?: string }) => a.id === ecart.aerodrome_id)?.code_oaci || ''}`,
-              link: `/surveillance/${newSurveillance.id}/checklist`,
-              canal: 'in_app',
-            });
-          }
+        // Si l'évaluateur est le chef lui-même (participation directe), auto-validation
+        const surveillance = get().surveillances.find(s => s.id === ecart.surveillance_id)
+        const chefId = surveillance?.chef_id
+        if (chefId === evaluation.evalue_par) {
+          // Auto-validation : le chef évalue son propre domaine → appliquer directement
+          await get().validerEvaluationChef(ecartId, 'approuve')
+          return
         }
-
-        const soumisPar = ecart.pac?.soumis_par
-        if (soumisPar) {
-          const utilisateur = get().getUtilisateur(soumisPar)
+        // Notification au chef d'équipe
+        if (chefId) {
           get().addNotification({
-            user_id: soumisPar,
-            type: evaluation.decision === 'accepte' ? 'success' : 'warning',
-            title: `PAC ${evaluation.decision === 'accepte' ? 'accepté' : 'refusé'}`,
-            message: `Votre PAC pour l'écart ${ecart.reference} a été ${evaluation.decision === 'accepte' ? 'accepté' : 'refusé'}${evaluation.decision === 'refuse' ? '. Veuillez le réviser et le soumettre à nouveau.' : ''}`,
-            link: utilisateur?.role === 'focal_operator' || utilisateur?.role === 'dg_operator'
-              ? `/portail-exploitant/ecarts`
-              : `/plans-actions/${ecartId}`,
+            user_id: chefId,
+            type: 'info',
+            title: 'Validation chef requise',
+            message: `L'évaluation du PAC pour l'écart ${ecart.reference} est en attente de votre validation`,
+            link: `/plans-actions/${ecartId}`,
             canal: 'in_app'
           })
-          if (utilisateur?.notifications_email) {
-            await fetch('/api/notifications/email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: utilisateur.email,
-                subject: `SGDA - PAC ${evaluation.decision === 'accepte' ? 'accepté' : 'refusé'} - ${ecart.reference}`,
-                template: evaluation.decision === 'accepte' ? 'pac-accepte' : 'pac-refuse',
-                data: {
-                  reference: ecart.reference,
-                  commentaire: evaluation.commentaire_refus,
-                  lien: utilisateur?.role === 'focal_operator' || utilisateur?.role === 'dg_operator'
-                    ? `/portail-exploitant/ecarts`
-                    : `/plans-actions/${ecartId}`
-                }
-              })
-            })
-          }
-        }
-        // Réévaluation du risque → recalculer le profil
-        if (ecart.aerodrome_id) {
-          get().recalculerProfilRisque(ecart.aerodrome_id)
         }
       },
 
@@ -3182,11 +3400,17 @@ getActiveAerodromes: () => {
         const now = new Date().toISOString()
         const preuvesPayload = { ...preuves, soumis_le: now }
 
+        // Calculer la deadline pour la validation par l'inspecteur
+        const niveau = ecart.niveau_risque as keyof typeof NIVEAUX_RISQUE_ECART
+        const delaiEvalJours = NIVEAUX_RISQUE_ECART[niveau]?.delai_evaluation_preuves ?? 10
+        const deadlineValidation = new Date(Date.now() + delaiEvalJours * 24 * 60 * 60 * 1000).toISOString()
+
         // Supabase EN PREMIER
         const syncResult = await datastore.upsertEcart({
           ...ecart,
           statut: 'preuves_soumises',
           preuves: preuvesPayload,
+          validation_preuves: { ...(ecart.validation_preuves || {} as any), deadline: deadlineValidation } as any,
           updated_at: now
         })
         if (syncResult.error) {
@@ -3197,7 +3421,13 @@ getActiveAerodromes: () => {
         set((state) => {
           const updatedEcarts = (state.ecarts.map(e =>
             e.id === ecartId
-              ? { ...e, statut: 'preuves_soumises', preuves: preuvesPayload, updated_at: now }
+              ? {
+                  ...e,
+                  statut: 'preuves_soumises',
+                  preuves: preuvesPayload,
+                  validation_preuves: { ...(e.validation_preuves || {} as any), deadline: deadlineValidation } as any,
+                  updated_at: now
+                }
               : e
           ) as Ecart[])
           const historiqueEntry: HistoriqueEcart = {
@@ -3217,11 +3447,12 @@ getActiveAerodromes: () => {
             }
           }
         })
+        const dateButoirPreuves = new Date(deadlineValidation).toLocaleDateString('fr-FR')
         get().addNotification({
           user_id: ecart.inspecteur_ref_id,
           type: 'info',
           title: 'Preuves soumises',
-          message: `Des preuves ont été soumises pour l'écart ${ecart.reference}`,
+          message: `Des preuves ont été soumises pour l'écart ${ecart.reference} — À valider avant le ${dateButoirPreuves}`,
           link: `/plans-actions/${ecartId}`,
           canal: 'in_app'
         })
@@ -3231,15 +3462,29 @@ getActiveAerodromes: () => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) throw new Error('Écart introuvable')
-        const nouveauStatut = validation.decision === 'valide' ? 'cloture' : 'preuves_evaluees'
+        // Vérifier que le validateur a participé à la surveillance
+        if (ecart.surveillance_id) {
+          const surv = state.surveillances.find(s => s.id === ecart.surveillance_id)
+          const delegue = state.delegations.find(d =>
+            d.surveillance_id === ecart.surveillance_id &&
+            d.domaine === ecart.domaine &&
+            d.assigne_a === validation.valide_par
+          )
+          const estMembreEquipe = surv?.equipe_ids?.includes(validation.valide_par)
+          const estChef = surv?.chef_id === validation.valide_par
+          if (!estMembreEquipe && !estChef && !delegue) {
+            throw new Error('Vous n\'êtes pas autorisé à valider cet écart — seuls les membres de l\'équipe de surveillance peuvent valider les preuves')
+          }
+        }
         const now = new Date().toISOString()
+        const validationChef = { type: 'validation_preuves' as const, statut: 'en_attente' as const }
 
         // Supabase EN PREMIER
         const syncResult = await datastore.upsertEcart({
           ...ecart,
-          statut: nouveauStatut,
+          statut: 'en_attente_validation_chef',
           validation_preuves: validation,
-          cloture_le: validation.decision === 'valide' ? now : undefined,
+          validation_chef: validationChef,
           updated_at: now
         })
         if (syncResult.error) {
@@ -3249,9 +3494,9 @@ getActiveAerodromes: () => {
         // Supabase OK → store local
         set((state) => {
           const updatedFields: any = {
-            statut: nouveauStatut,
+            statut: 'en_attente_validation_chef',
             validation_preuves: validation,
-            cloture_le: validation.decision === 'valide' ? now : undefined,
+            validation_chef: validationChef,
             updated_at: now
           }
           if (validation.niveau_risque_reevalue) {
@@ -3266,13 +3511,13 @@ getActiveAerodromes: () => {
               : e
           ) as Ecart[])
           const descriptionMap = {
-            valide: 'Écart clôturé - preuves validées',
-            reserve: 'Preuves acceptées avec réserves - corrections demandées',
-            refuse: 'Preuves refusées - demande de complément',
+            valide: 'Validation preuves soumise au chef',
+            reserve: 'Preuves acceptées avec réserves (attente chef)',
+            refuse: 'Preuves refusées (attente chef)',
           }
           const historiqueEntry: HistoriqueEcart = {
             id: crypto.randomUUID(),
-            type: validation.decision === 'valide' ? 'cloture' : 'validation_preuves',
+            type: 'validation_preuves',
             date: now,
             acteur: validation.valide_par,
             role_acteur: 'inspector',
@@ -3293,47 +3538,248 @@ getActiveAerodromes: () => {
             }
           }
         })
-        if (validation.decision === 'valide') {
-          const soumisPar = ecart.preuves?.soumis_par
-          if (soumisPar) {
-            get().addNotification({
-              user_id: soumisPar,
-              type: 'success',
-              title: 'Écart clôturé',
-              message: `L'écart ${ecart.reference} a été clôturé avec succès`,
-              link: `/plans-actions/${ecartId}`,
-              canal: 'in_app'
+
+        // Si l'évaluateur est le chef lui-même (participation directe), auto-validation
+        const surveillance = get().surveillances.find(s => s.id === ecart.surveillance_id)
+        const chefId = surveillance?.chef_id
+        if (chefId === validation.valide_par) {
+          await get().validerEvaluationChef(ecartId, 'approuve')
+          return
+        }
+        // Notification au chef d'équipe
+        if (chefId) {
+          get().addNotification({
+            user_id: chefId,
+            type: 'info',
+            title: 'Validation chef requise',
+            message: `La validation des preuves pour l'écart ${ecart.reference} est en attente de votre validation`,
+            link: `/plans-actions/${ecartId}`,
+            canal: 'in_app'
+          })
+        }
+      },
+
+      validerEvaluationChef: async (ecartId, action, commentaire) => {
+        const state = get()
+        const ecart = state.ecarts.find(e => e.id === ecartId)
+        if (!ecart) throw new Error('Écart introuvable')
+        if (ecart.statut !== 'en_attente_validation_chef') throw new Error('Écart non en attente de validation chef')
+        if (!ecart.validation_chef) throw new Error('Aucune validation chef en attente')
+
+        const now = new Date().toISOString()
+        const currentUser = state.user
+
+        if (action === 'approuve') {
+          // ── PAC ──────────────────────────────────
+          if (ecart.validation_chef.type === 'evaluation_pac') {
+            const decision = ecart.evaluation_pac?.decision
+            const nouveauStatut = (decision === 'accepte' || decision === 'reserve') ? 'pac_accepte' : 'pac_refuse'
+
+            const syncResult = await datastore.upsertEcart({
+              ...ecart,
+              statut: nouveauStatut,
+              validation_chef: { ...ecart.validation_chef, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire },
+              updated_at: now
             })
+            if (syncResult.error) throw new Error(`Erreur sync: ${syncResult.error}`)
+
+            set((s) => ({
+              ecarts: s.ecarts.map(e =>
+                e.id === ecartId
+                  ? { ...e, statut: nouveauStatut, validation_chef: { ...e.validation_chef!, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire }, updated_at: now }
+                  : e
+              )
+            }))
+
+            // Création surveillance suivi PAC (anciennement dans evaluerPAC)
+            if ((decision === 'accepte' || decision === 'reserve') && ecart.surveillance_id) {
+              const surveillanceOriginale = state.surveillances.find(s => s.id === ecart.surveillance_id)
+              if (surveillanceOriginale) {
+                const delaiReg = new Date(ecart.delai_regularisation)
+                const newSurveillance: Surveillance = {
+                  id: crypto.randomUUID(),
+                  aerodrome_id: ecart.aerodrome_id,
+                  planning_id: surveillanceOriginale.planning_id,
+                  type: 'mise_oeuvre_pac',
+                  portee: surveillanceOriginale.portee,
+                  equipe_ids: surveillanceOriginale.equipe_ids,
+                  chef_id: surveillanceOriginale.chef_id,
+                  date_debut: now,
+                  date_fin: delaiReg.toISOString(),
+                  statut: 'planifiee',
+                  progression: 0,
+                  created_at: now,
+                  updated_at: now,
+                  created_by: currentUser?.id || '',
+                  updated_by: currentUser?.id || '',
+                }
+                set((s) => ({ surveillances: [...s.surveillances, newSurveillance] }))
+                get().addNotification({
+                  user_id: surveillanceOriginale.chef_id,
+                  type: 'info',
+                  title: 'Surveillance de suivi PAC créée',
+                  message: `Suivi PAC automatique pour l'écart ${ecart.reference}`,
+                  link: `/surveillance/${newSurveillance.id}/checklist`,
+                  canal: 'in_app',
+                })
+              }
+            }
+
+            // Notification exploitant (anciennement dans evaluerPAC)
+            const soumisPar = ecart.pac?.soumis_par
+            if (soumisPar) {
+              const decisionLabel = decision === 'accepte' || decision === 'reserve' ? 'accepté' : 'refusé'
+              const utilisateur = get().getUtilisateur(soumisPar)
+              get().addNotification({
+                user_id: soumisPar,
+                type: (decision === 'accepte' || decision === 'reserve') ? 'success' : 'warning',
+                title: `PAC ${decisionLabel}`,
+                message: `Votre PAC pour l'écart ${ecart.reference} a été ${decisionLabel}${decision === 'refuse' ? '. Veuillez le réviser et le soumettre à nouveau.' : ''}`,
+                link: utilisateur?.role === 'focal_operator' || utilisateur?.role === 'dg_operator'
+                  ? `/portail-exploitant/ecarts` : `/plans-actions/${ecartId}`,
+                canal: 'in_app'
+              })
+              if (utilisateur?.notifications_email) {
+                await fetch('/api/notifications/email', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    to: utilisateur.notification_email || utilisateur.email,
+                    subject: `SGDA - PAC ${decisionLabel} - ${ecart.reference}`,
+                    template: decision === 'accepte' || decision === 'reserve' ? 'pac-accepte' : 'pac-refuse',
+                    data: {
+                      reference: ecart.reference,
+                      commentaire: ecart.evaluation_pac?.commentaire_refus,
+                      lien: utilisateur?.role === 'focal_operator' || utilisateur?.role === 'dg_operator'
+                        ? `/portail-exploitant/ecarts` : `/plans-actions/${ecartId}`
+                    }
+                  })
+                })
+              }
+            }
+
+            // Risque
+            if (ecart.aerodrome_id) get().recalculerProfilRisque(ecart.aerodrome_id)
           }
-          setTimeout(() => get().recalculerProfilRisque(ecart.aerodrome_id), 100)
-        } else if (validation.decision === 'reserve') {
-          const soumisPar = ecart.preuves?.soumis_par
-          if (soumisPar) {
-            get().addNotification({
-              user_id: soumisPar,
-              type: 'warning',
-              title: 'Preuves acceptées avec réserves',
-              message: `Les preuves pour l'écart ${ecart.reference} sont acceptées avec réserves. Corrections requises: ${validation.commentaire}`,
-              link: `/plans-actions/${ecartId}`,
-              canal: 'in_app'
+
+          // ── Preuves ──────────────────────────────
+          else if (ecart.validation_chef.type === 'validation_preuves') {
+            const decision = ecart.validation_preuves?.decision
+            const nouveauStatut = decision === 'valide' ? 'cloture' : 'preuves_evaluees'
+
+            const syncResult = await datastore.upsertEcart({
+              ...ecart,
+              statut: nouveauStatut,
+              validation_chef: { ...ecart.validation_chef, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire },
+              cloture_le: decision === 'valide' ? now : undefined,
+              updated_at: now
             })
-          }
-        } else {
-          const soumisPar = ecart.preuves?.soumis_par
-          if (soumisPar) {
-            get().addNotification({
-              user_id: soumisPar,
-              type: 'warning',
-              title: 'Preuves refusées',
-              message: `Les preuves pour l'écart ${ecart.reference} ont été refusées: ${validation.commentaire}`,
-              link: `/plans-actions/${ecartId}`,
-              canal: 'in_app'
-            })
+            if (syncResult.error) throw new Error(`Erreur sync: ${syncResult.error}`)
+
+            set((s) => ({
+              ecarts: s.ecarts.map(e =>
+                e.id === ecartId
+                  ? {
+                      ...e,
+                      statut: nouveauStatut,
+                      validation_chef: { ...e.validation_chef!, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire },
+                      cloture_le: decision === 'valide' ? now : undefined,
+                      updated_at: now
+                    }
+                  : e
+              )
+            }))
+
+            // Notification exploitant (anciennement dans evaluerPreuves)
+            const soumisPar = ecart.preuves?.soumis_par
+            if (soumisPar) {
+              if (decision === 'valide') {
+                get().addNotification({
+                  user_id: soumisPar, type: 'success',
+                  title: 'Écart clôturé',
+                  message: `L'écart ${ecart.reference} a été clôturé avec succès`,
+                  link: `/plans-actions/${ecartId}`, canal: 'in_app'
+                })
+              } else if (decision === 'reserve') {
+                get().addNotification({
+                  user_id: soumisPar, type: 'warning',
+                  title: 'Preuves acceptées avec réserves',
+                  message: `Les preuves pour l'écart ${ecart.reference} sont acceptées avec réserves. Corrections requises: ${ecart.validation_preuves?.commentaire}`,
+                  link: `/plans-actions/${ecartId}`, canal: 'in_app'
+                })
+              } else {
+                get().addNotification({
+                  user_id: soumisPar, type: 'warning',
+                  title: 'Preuves refusées',
+                  message: `Les preuves pour l'écart ${ecart.reference} ont été refusées: ${ecart.validation_preuves?.commentaire}`,
+                  link: `/plans-actions/${ecartId}`, canal: 'in_app'
+                })
+              }
+            }
+
+            // Risque
+            if (ecart.aerodrome_id) get().recalculerProfilRisque(ecart.aerodrome_id)
           }
         }
-        // Réévaluation du risque → recalculer le profil pour evaluerPreuves
-        if (validation.niveau_risque_reevalue && ecart.aerodrome_id) {
-          get().recalculerProfilRisque(ecart.aerodrome_id)
+
+        else if (action === 'revision') {
+          // ── PAC revision ─────────────────────────
+          if (ecart.validation_chef.type === 'evaluation_pac') {
+            const syncResult = await datastore.upsertEcart({
+              ...ecart,
+              statut: 'pac_soumis',
+              validation_chef: { ...ecart.validation_chef, statut: 'revision', approuve_par: currentUser?.id, approuve_le: now, commentaire },
+              updated_at: now
+            })
+            if (syncResult.error) throw new Error(`Erreur sync: ${syncResult.error}`)
+
+            set((s) => ({
+              ecarts: s.ecarts.map(e =>
+                e.id === ecartId
+                  ? { ...e, statut: 'pac_soumis', validation_chef: { ...e.validation_chef!, statut: 'revision', approuve_par: currentUser?.id, approuve_le: now, commentaire }, updated_at: now }
+                  : e
+              )
+            }))
+
+            // Notification à l'inspecteur
+            get().addNotification({
+              user_id: ecart.inspecteur_ref_id,
+              type: 'warning',
+              title: 'Révision d\'évaluation demandée',
+              message: `Le chef demande une révision de votre évaluation du PAC pour l'écart ${ecart.reference}${commentaire ? ` : ${commentaire}` : ''}`,
+              link: `/plans-actions/${ecartId}`,
+              canal: 'in_app'
+            })
+          }
+
+          // ── Preuves revision ─────────────────────
+          else if (ecart.validation_chef.type === 'validation_preuves') {
+            const syncResult = await datastore.upsertEcart({
+              ...ecart,
+              statut: 'preuves_soumises',
+              validation_chef: { ...ecart.validation_chef, statut: 'revision', approuve_par: currentUser?.id, approuve_le: now, commentaire },
+              updated_at: now
+            })
+            if (syncResult.error) throw new Error(`Erreur sync: ${syncResult.error}`)
+
+            set((s) => ({
+              ecarts: s.ecarts.map(e =>
+                e.id === ecartId
+                  ? { ...e, statut: 'preuves_soumises', validation_chef: { ...e.validation_chef!, statut: 'revision', approuve_par: currentUser?.id, approuve_le: now, commentaire }, updated_at: now }
+                  : e
+              )
+            }))
+
+            // Notification à l'inspecteur
+            get().addNotification({
+              user_id: ecart.inspecteur_ref_id,
+              type: 'warning',
+              title: 'Révision de validation demandée',
+              message: `Le chef demande une révision de votre validation des preuves pour l'écart ${ecart.reference}${commentaire ? ` : ${commentaire}` : ''}`,
+              link: `/plans-actions/${ecartId}`,
+              canal: 'in_app'
+            })
+          }
         }
       },
 
@@ -3364,6 +3810,94 @@ getActiveAerodromes: () => {
               }
             }
           })
+
+          // ── Délais d'évaluation inspecteur (PAC soumis) ───────────
+          if (ecart.statut === 'pac_soumis' && ecart.evaluation_pac?.deadline) {
+            const deadlineInsp = new Date(ecart.evaluation_pac.deadline)
+            const joursRestantsInsp = Math.ceil((deadlineInsp.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
+            if (joursRestantsInsp < 0 && !ecart.retard_inspecteur) {
+              // Marquer le retard ANACIM
+              set((s) => ({
+                ecarts: s.ecarts.map(e =>
+                  e.id === ecart.id
+                    ? { ...e, retard_inspecteur: true, evaluation_pac: { ...e.evaluation_pac!, retard_inspecteur: true } }
+                    : e
+                )
+              }))
+              // Escalade au supérieur
+              const chefSna = state.utilisateurs.find(u => u.poste === 'chef_sna')
+              if (chefSna) {
+                get().addNotification({
+                  user_id: chefSna.id, type: 'danger',
+                  title: 'Délai d\'évaluation PAC dépassé',
+                  message: `L'inspecteur n'a pas évalué le PAC pour l'écart ${ecart.reference} dans le délai imparti`,
+                  link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+                })
+              }
+              get().addNotification({
+                user_id: ecart.inspecteur_ref_id, type: 'danger',
+                title: 'Évaluation PAC en retard',
+                message: `Vous avez dépassé le délai d'évaluation du PAC pour l'écart ${ecart.reference}. Une notification a été envoyée à votre supérieur.`,
+                link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+              })
+            } else if (joursRestantsInsp > 0 && [7, 3, 1].includes(joursRestantsInsp)) {
+              const key = `_rappel_eval_j${joursRestantsInsp}` as any
+              if (!(ecart as any)[key]) {
+                get().addNotification({
+                  user_id: ecart.inspecteur_ref_id, type: 'warning',
+                  title: `Rappel évaluation PAC J-${joursRestantsInsp}`,
+                  message: `Le PAC pour l'écart ${ecart.reference} doit être évalué avant le ${deadlineInsp.toLocaleDateString('fr-FR')}`,
+                  link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+                })
+                set((s) => ({
+                  ecarts: s.ecarts.map(e => e.id === ecart.id ? { ...e, [key]: true } : e)
+                }))
+              }
+            }
+          }
+
+          // ── Délais de validation preuves (preuves soumises) ──────
+          if (ecart.statut === 'preuves_soumises' && ecart.validation_preuves?.deadline) {
+            const deadlineInsp = new Date(ecart.validation_preuves.deadline)
+            const joursRestantsInsp = Math.ceil((deadlineInsp.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
+            if (joursRestantsInsp < 0 && !ecart.retard_inspecteur) {
+              set((s) => ({
+                ecarts: s.ecarts.map(e =>
+                  e.id === ecart.id
+                    ? { ...e, retard_inspecteur: true, validation_preuves: { ...e.validation_preuves!, retard_inspecteur: true } }
+                    : e
+                )
+              }))
+              const chefSna = state.utilisateurs.find(u => u.poste === 'chef_sna')
+              if (chefSna) {
+                get().addNotification({
+                  user_id: chefSna.id, type: 'danger',
+                  title: 'Délai de validation preuves dépassé',
+                  message: `L'inspecteur n'a pas validé les preuves pour l'écart ${ecart.reference} dans le délai imparti`,
+                  link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+                })
+              }
+              get().addNotification({
+                user_id: ecart.inspecteur_ref_id, type: 'danger',
+                title: 'Validation preuves en retard',
+                message: `Vous avez dépassé le délai de validation des preuves pour l'écart ${ecart.reference}. Notification envoyée à votre supérieur.`,
+                link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+              })
+            } else if (joursRestantsInsp > 0 && [7, 3, 1].includes(joursRestantsInsp)) {
+              const key = `_rappel_val_j${joursRestantsInsp}` as any
+              if (!(ecart as any)[key]) {
+                get().addNotification({
+                  user_id: ecart.inspecteur_ref_id, type: 'warning',
+                  title: `Rappel validation preuves J-${joursRestantsInsp}`,
+                  message: `Les preuves pour l'écart ${ecart.reference} doivent être validées avant le ${deadlineInsp.toLocaleDateString('fr-FR')}`,
+                  link: `/plans-actions/${ecart.id}`, canal: 'in_app'
+                })
+                set((s) => ({
+                  ecarts: s.ecarts.map(e => e.id === ecart.id ? { ...e, [key]: true } : e)
+                }))
+              }
+            }
+          }
         })
         // Rappels automatiques pour les dossiers
         const dossiersActifs = state.dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente')
@@ -3417,10 +3951,13 @@ getActiveAerodromes: () => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) return
+        // Vérifier si le retard est dû à l'inspecteur (PAC soumis/preuves soumises en attente d'évaluation)
+        const retardInsp = ecart.statut === 'pac_soumis' && ecart.evaluation_pac?.deadline && new Date(ecart.evaluation_pac.deadline) < new Date()
+          || ecart.statut === 'preuves_soumises' && ecart.validation_preuves?.deadline && new Date(ecart.validation_preuves.deadline) < new Date()
         set((state) => ({
           ecarts: state.ecarts.map(e =>
             e.id === ecartId
-              ? { ...e, statut: 'en_retard', updated_at: new Date().toISOString() }
+              ? { ...e, statut: 'en_retard', retard_inspecteur: retardInsp || e.retard_inspecteur, updated_at: new Date().toISOString() }
               : e
           )
         }))
@@ -3439,24 +3976,54 @@ getActiveAerodromes: () => {
           }
         }))
         const utilisateur = get().getUtilisateur(ecart.inspecteur_ref_id)
-        get().addNotification({
-          user_id: ecart.inspecteur_ref_id,
-          type: 'danger',
-          title: 'Écart en retard',
-          message: `L'écart ${ecart.reference} a dépassé son délai`,
-          link: `/plans-actions/${ecartId}`,
-          canal: 'in_app'
-        })
-        if (utilisateur?.notifications_sms && utilisateur.telephone) {
-          fetch('/api/notifications/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: utilisateur.telephone,
-              message: `URGENT: Écart ${ecart.reference} en retard. Action requise.`
-            })
+        if (retardInsp) {
+          // Retard imputable à l'inspecteur → escalade au chef SNA
+          get().addNotification({
+            user_id: ecart.inspecteur_ref_id,
+            type: 'danger',
+            title: 'Évaluation en retard',
+            message: `Vous avez dépassé le délai d'évaluation pour l'écart ${ecart.reference}`,
+            link: `/plans-actions/${ecartId}`,
+            canal: 'in_app'
           })
-          .catch(error => console.error('[Notification] Erreur:', error))
+          const chefSna = state.utilisateurs.find(u => u.poste === 'chef_sna')
+          if (chefSna) {
+            get().addNotification({
+              user_id: chefSna.id, type: 'danger',
+              title: 'Retard évaluation inspecteur',
+              message: `L'inspecteur a dépassé le délai d'évaluation pour l'écart ${ecart.reference}`,
+              link: `/plans-actions/${ecartId}`, canal: 'in_app'
+            })
+          }
+          if (utilisateur?.notifications_sms && utilisateur.telephone) {
+            fetch('/api/notifications/sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: utilisateur.telephone,
+                message: `URGENT: Évaluation écart ${ecart.reference} en retard. Action immédiate requise.`
+              })
+            }).catch(error => console.error('[Notification] Erreur SMS:', error))
+          }
+        } else {
+          get().addNotification({
+            user_id: ecart.inspecteur_ref_id,
+            type: 'danger',
+            title: 'Écart en retard',
+            message: `L'écart ${ecart.reference} a dépassé son délai`,
+            link: `/plans-actions/${ecartId}`,
+            canal: 'in_app'
+          })
+          if (utilisateur?.notifications_sms && utilisateur.telephone) {
+            fetch('/api/notifications/sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: utilisateur.telephone,
+                message: `URGENT: Écart ${ecart.reference} en retard. Action requise.`
+              })
+            }).catch(error => console.error('[Notification] Erreur:', error))
+          }
         }
         if (ecart.niveau_risque === 'critique') {
           const dg = state.utilisateurs.find(u => u.role === 'dg_anacim')
@@ -3529,6 +4096,15 @@ getActiveAerodromes: () => {
 
       getHistoriqueEcart: (ecartId) => {
         return get().historiqueEcarts?.[ecartId] || []
+      },
+
+      addHistoriqueEntry: (ecartId, entry) => {
+        set((state) => ({
+          historiqueEcarts: {
+            ...state.historiqueEcarts,
+            [ecartId]: [...(state.historiqueEcarts[ecartId] || []), { ...entry, id: crypto.randomUUID() }]
+          }
+        }))
       },
 
       getStatistiquesPAC: (aerodromeId) => {
@@ -3642,8 +4218,11 @@ importChecklistMemoryRecords: (items) => {
       nb_occurrences: resultat ? 1 : 0,
       dernier_resultat: resultat,
       confiance: 95,
+      feedback_ajustement: 0,
       dernier_feedback: new Date().toISOString(),
       alerte_ecart_recurrent: false,
+      nb_corrections: 0,
+      nb_erreurs_correction: 0,
     };
   });
   set((state) => {
@@ -3657,6 +4236,10 @@ getSuggestionsWithAi: async (aerodromeId, type_inspection) => {
   const suggestions = getSuggestionsDetaillees(aerodromeId, type_inspection);
   return suggestions;
 },
+
+// SgsMemory Slice
+sgsMemoryRecords: [],
+setSgsMemoryRecords: (records) => set({ sgsMemoryRecords: records }),
 
 // LearningEngine Slice
 learningFeedbacks: [],
@@ -4036,6 +4619,20 @@ getRiskIndexLearningStats: () => {
   };
 },
 
+// IaSuggestion Slice
+iaSuggestions: [],
+setIaSuggestions: (suggestions) => set({ iaSuggestions: suggestions }),
+addIaSuggestion: (suggestion) => set((state) => ({
+  iaSuggestions: [...state.iaSuggestions, suggestion]
+})),
+removeIaSuggestion: (id) => set((state) => ({
+  iaSuggestions: state.iaSuggestions.filter(s => s.id !== id)
+})),
+clearIaSuggestions: () => set({ iaSuggestions: [] }),
+getIaSuggestionsByAerodrome: (aerodromeId) => {
+  return get().iaSuggestions.filter(s => s.aerodrome_id === aerodromeId);
+},
+
 // SuggestionFeedback Slice
 suggestionFeedbacks: [],
 setSuggestionFeedbacks: (feedbacks) => set({ suggestionFeedbacks: feedbacks }),
@@ -4105,12 +4702,12 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         const aerodrome = aerodromes.find(a => a.id === aerodromeId)
         const reponsesEnquetesAerodrome = (reponsesEnquetes || []).filter((r: ReponseEnquete) => r.aerodrome_id === aerodromeId)
 
-        // C1 : si pas de donnée SGS, défaut bas (10) sauf si non_applicable (50)
-        const maturiteSGS = aerodrome?.maturite_sgs ?? (aerodrome?.statut_sgs === 'non_applicable' ? 50 : 10)
+        // C1 : SGS non applicable → neutre (100), pas de donnée → bas (10)
+        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 100 : (aerodrome?.maturite_sgs ?? 10)
         const scoreEnquetes = reponsesEnquetesAerodrome.length > 0
-          ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length / 20
+          ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length
           : undefined
-        const c1 = risqueUtils.calculateC1(maturiteSGS, scoreEnquetes)
+        const c1 = risqueUtils.calculateC1(maturiteSGS, scoreEnquetes, aerodrome?.statut_sgs)
 
         // C2 : dégradée par l'âge de l'aérodrome si pas d'écarts
         let c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome)
@@ -4232,7 +4829,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
             const existingProfil = get().profilsRisque?.[aerodromeId]
             const hasBlackSwan = existingProfil?.proactive_alert?.niveau_urgence === 'critique'
             scenarios = generateAllScenarios(scores, 1, hasBlackSwan)
-          } catch {}
+          } catch { console.warn('[computeRiskProfile] generateAllScenarios indisponible') }
         }
 
         // Mise à jour bayésienne : prior par défaut à 0.3
@@ -4254,62 +4851,28 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         }
 
         // Bow-Tie HIRM — analyse complète par domaine (danger, barrières, conséquences)
-        const DOMAINES2 = ['SGS', 'PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
         let bowtieMetrics: ProfilRisque['bowtie_metrics'] = []
-        const existingProfil = get().profilsRisque?.[aerodromeId]
         try {
-          const { computeInitialCell } = await import('./risque/bowTieEngine')
-          const allEcarts = get().ecarts || []
-          bowtieMetrics = DOMAINES2.map(domaine => {
+          const { generateDomaineBowTie } = await import('./risque/bowTieEngine')
+          const DOMAINES_BT = ['SGS', 'PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']
+          const existingProfil = get().profilsRisque?.[aerodromeId]
+          bowtieMetrics = DOMAINES_BT.map(domaine => {
             const ecartsDom = ecartsAerodrome.filter((e: Ecart) => e.domaine === domaine)
             const surveillancesDom = surveillancesAerodrome.filter((s: any) => (s.portee || []).includes(domaine))
-            const c1Score = c1
-            const c2Score = c2
-            const c3Score = c3Final
-            const dernierScore = surveillancesDom.length > 0 ? surveillancesDom.reduce((max: number, s: any) => Math.max(max, s.score_global || 0), 0) : 70
-
-            // Danger basé sur les écarts réels
-            const danger = ecartsDom.length > 0
-              ? `${ecartsDom.length} écart(s) actif(s)${ecartsDom.filter(e => e.niveau_risque === 'critique').length > 0 ? ` dont ${ecartsDom.filter(e => e.niveau_risque === 'critique').length} critique(s)` : ''}`
-              : `${domaine} — Conformité nominale`
-
-            // Défaillance liée à la conformité technique
-            const defaillance = c3Score < 40 ? 'Maintenance insuffisante — score critique'
-              : c3Score < 60 ? 'Surveillance sous-optimale'
-              : 'Fonctionnement nominal'
-
-            // Barrières préventives (existantes)
-            const barrieresPreventives = [
-              { id: `prev-sgs-${domaine}`, nom: `Maturité SGS (C1)`, type: 'preventive' as const, efficace: c1Score > 50, efficacite: c1Score, dernierTest: existingProfil?.computed_at, remarque: c1Score < 40 ? 'Maturité insuffisante' : c1Score < 60 ? 'En progression' : 'SGS efficace' },
-              { id: `prev-audit-${domaine}`, nom: `Audits ${domaine}`, type: 'preventive' as const, efficace: surveillancesDom.length > 0, efficacite: surveillancesDom.length > 0 ? 70 : 30, dernierTest: surveillancesDom[0]?.date_fin || undefined, remarque: surveillancesDom.length > 0 ? `${surveillancesDom.length} inspection(s)` : 'Aucune inspection' },
-            ]
-
-            // Barrières correctives (existantes + nouvelles via IA)
-            const barrieresCorrectives = [
-              { id: `corr-pac-${domaine}`, nom: `PAC existants`, type: 'corrective' as const, efficace: c2Score > 50, efficacite: c2Score, dernierTest: existingProfil?.computed_at, remarque: c2Score < 30 ? 'PAC inefficaces' : c2Score < 60 ? 'Progression nécessaire' : 'PAC efficaces' },
-              { id: `corr-new-${domaine}`, nom: `Nouvelles mesures (IA)`, type: 'corrective' as const, efficace: true, efficacite: Math.min(90, c2Score + 15), dernierTest: undefined, remarque: 'Mesures suggérées par IA' },
-            ]
-
-            // Probabilité résiduelle combinée C1-C5 + efficacité barrières
-            const barrierEffAvg = (c1Score + c2Score) / 2
-            const probResiduelle = Math.max(5, Math.min(95, 100 - (scoreGlobal + barrierEffAvg) / 2))
-            const niveauRisque = probResiduelle > 60 ? 'critique' : probResiduelle > 40 ? 'eleve' : probResiduelle > 20 ? 'moyen' : 'faible'
-
-            return {
-              id: `bt-${domaine}`,
+            const evenementsDom = evenementsAerodrome.filter((e: EvenementSecurite) => {
+              const typeMatch = e.type?.toLowerCase().includes(domaine.toLowerCase())
+              return typeMatch
+            })
+            return generateDomaineBowTie({
+              c1, c2: c2, c3: c3Final, c5,
+              scoreGlobal,
+              ecartsDom, surveillancesDom, evenementsDom,
               domaine,
-              danger,
-              defaillance,
-              scenario: `Si ${defaillance.toLowerCase()} alors ${danger.toLowerCase().replace(/\d+ écart.*$/, 'incident de sécurité')}`,
-              consequence: c5 < 40 ? `Incidents probables — impact sécurité (C5=${c5}/100)` : c5 < 60 ? 'Non-conformité documentaire' : 'Impact opérationnel mineur',
-              barrieresPreventives,
-              barrieresCorrectives,
-              probabiliteResiduelle: Math.round(probResiduelle),
-              niveauRisqueResiduel: niveauRisque as 'critique' | 'eleve' | 'moyen' | 'faible',
-              lastAssessed: existingProfil?.computed_at || new Date().toISOString(),
-            }
-          }).filter(b => b.barrieresPreventives.some(p => p.efficacite < 80) || b.probabiliteResiduelle > 30)
-        } catch { /* Bow-Tie HIRM indisponible */ }
+              lastAssessed: existingProfil?.computed_at,
+              statut_sgs: aerodrome?.statut_sgs,
+            })
+          }).filter((b: any) => b.barrieresPreventives.some((p: any) => p.efficacite < 80) || b.probabiliteResiduelle > 30)
+        } catch { console.warn('[computeRiskProfile] generateDomaineBowTie échoué') }
 
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,
@@ -4332,6 +4895,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           bayesian_prior: bayesianUpdate?.priorProbability,
           bayesian_black_swan: bayesianUpdate?.estBlackSwan,
           scenarios,
+          ...risqueUtils.computeQualityScore(ecartsAerodrome),
           bowtie_metrics: bowtieMetrics?.length ? bowtieMetrics : undefined,
           ensemble_confidence: ensembleConfidence,
           infrastructure: aerodrome ? {
@@ -4387,6 +4951,16 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         set((state) => ({
           profilsRisque: { ...state.profilsRisque, [aerodromeId]: nouveauProfil }
         }))
+        try {
+          await supabase.from('score_history').insert({
+            aerodrome_id: aerodromeId,
+            score_global: scoreGlobal,
+            c1, c2, c3: c3Final, c4, c5,
+            niveau: nouveauProfil.niveau,
+            tendance: nouveauProfil.tendance,
+            computed_at: now,
+          })
+        } catch { /* Échec insert score_history — non bloquant */ }
         await get().computeFullRiskProfile(aerodromeId)
       },
 
@@ -4449,54 +5023,53 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         // Persister dans Supabase (fire & forget)
         import('@/lib/datastore').then(({ sendNotification }) => {
           const { id, sent_at, ...payload } = newNotification
-          sendNotification(payload)
+          sendNotification(payload).catch(() => {})
         }).catch(() => {})
+        const utilisateur = get().getUtilisateur(notification.user_id)
         // Email — throttle: max 1 email/30s par utilisateur
-        if (notification.canal === 'email' || notification.canal === 'email_sms') {
+        if ((notification.canal === 'email' || notification.canal === 'email_sms') && utilisateur?.notifications_email !== false) {
           const now = Date.now()
           const lastSent = emailThrottle.get(notification.user_id) || 0
-          if (now - lastSent < 30000) return // trop tôt, on ignore
-          emailThrottle.set(notification.user_id, now)
-          const utilisateur = get().getUtilisateur(notification.user_id)
-          if (utilisateur?.email) {
-            fetch('/api/notifications/email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: utilisateur.email,
-                subject: `SGDA - ${notification.title || 'Notification'}`,
-                message: notification.message,
-                link: notification.link
+          if (now - lastSent >= 30000) {
+            emailThrottle.set(notification.user_id, now)
+            const emailTo = utilisateur?.notification_email || utilisateur?.email
+            if (emailTo) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - ${notification.title || 'Notification'}`,
+                  message: notification.message,
+                  link: notification.link
+                })
               })
-            })
-            .catch(() => {})
+              .catch(() => {})
+            }
           }
         }
         // SMS
-        if (notification.canal === 'sms' || notification.canal === 'email_sms') {
-          const utilisateur = get().getUtilisateur(notification.user_id)
-          if (utilisateur?.telephone) {
-            fetch('/api/notifications/sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: utilisateur.telephone,
-                message: `SGDA: ${notification.message}`
-              })
+        if ((notification.canal === 'sms' || notification.canal === 'email_sms') && utilisateur?.telephone) {
+          fetch('/api/notifications/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: utilisateur.telephone,
+              message: `SGDA: ${notification.message}`
             })
-            .catch(error => console.error('[Notification] Erreur sms:', error))
-          }
+          })
+          .catch(error => console.error('[Notification] Erreur sms:', error))
         }
       },
 
       envoyerNotificationMultiCanal: async (userId, notification, canaux) => {
-        for (const canal of canaux) {
-          get().addNotification({
-            user_id: userId,
-            ...notification,
-            canal: canal as Notification['canal']
-          })
-        }
+        const hasEmail = canaux.includes('email') || canaux.includes('email_sms')
+        const canalFinal: Notification['canal'] = hasEmail ? 'email_sms' : 'in_app'
+        get().addNotification({
+          user_id: userId,
+          ...notification,
+          canal: canalFinal
+        })
       },
       
       markAsRead: (id) => {
@@ -4510,7 +5083,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           }
         })
         import('@/lib/datastore').then(({ markNotificationRead }) => {
-          markNotificationRead(id)
+          markNotificationRead(id).catch(() => {})
         }).catch(() => {})
       },
       
@@ -4524,7 +5097,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           unreadCount: 0,
         }))
         import('@/lib/datastore').then(({ markNotificationRead }) => {
-          unreadIds.forEach((id) => markNotificationRead(id))
+          unreadIds.forEach((id) => markNotificationRead(id).catch(() => {}))
         }).catch(() => {})
       },
 
@@ -4539,9 +5112,16 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         // Renouvellement : Phase 1 sautée (dossier déjà constitué)
         const phase = certification.type_certification === 'renouvellement' && certification.phase_active === 1
           ? 2 : certification.phase_active
+        const toAdd = { ...certification, phase_active: phase }
         set((state) => ({
-          certifications: [...state.certifications, { ...certification, phase_active: phase }],
+          certifications: [...state.certifications, toAdd],
         }))
+        // Persister dans Supabase via API (service_role, contourne RLS)
+        import('@/lib/api/certifications').then(({ createCertification }) => {
+          createCertification(toAdd).then(res => {
+            if (res.error) console.error('[store] addCertification error:', res.error)
+          }).catch(() => {})
+        }).catch(err => console.error('[store] addCertification import error:', err))
       },
       updateCertification: (id, data) => {
         const oldCert = get().certifications.find(c => c.id === id)
@@ -4551,15 +5131,24 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
             ? { ...state.currentCertification, ...data }
             : state.currentCertification,
         }))
+        // Persister dans Supabase via API (service_role, contourne RLS)
+        import('@/lib/api/certifications').then(({ updateCertification }) => {
+          updateCertification(id, data).then(res => {
+            if (res.error) console.error('[store] updateCertification error:', res.error)
+          }).catch(() => {})
+        }).catch(err => console.error('[store] updateCertification import error:', err))
         // Recalculer le profil de risque quand la certification change de statut (surtout certifie)
         if (data.statut_global && data.statut_global !== oldCert?.statut_global && oldCert?.aerodrome_id) {
           get().recalculerProfilRisque(oldCert.aerodrome_id)
         }
       },
-      deleteCertification: (id) => set((state) => ({
-        certifications: state.certifications.filter((c) => c.id !== id),
-        currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
-      })),
+      deleteCertification: (id) => {
+        set((state) => ({
+          certifications: state.certifications.filter((c) => c.id !== id),
+          currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
+        }))
+        // Pas de sync Supabase pour la suppression (l'admin peut le faire via le store local)
+      },
       archiverCertification: (id) => {
         const cert = get().certifications.find(c => c.id === id);
         if (!cert) return;
@@ -4644,10 +5233,17 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       propositionsN1: [],
       setPlannings: (plannings) => set({ plannings }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
-      setPropositionsN1: (proposals) => set({ propositionsN1: proposals }),
+      setPropositionsN1: (proposals) => set({
+        propositionsN1: proposals.map(p => ({
+          ...p,
+          id: p.id && /^[0-9a-f]{8}-/i.test(p.id) ? p.id : crypto.randomUUID(),
+        })),
+      }),
       addPlanning: async (planning) => {
         // Nettoyer les champs vides — assigner un chef par défaut si vide
         const cleanPlanning = { ...planning }
+        if (!cleanPlanning.date_fin) cleanPlanning.date_fin = undefined as any;
+        if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '') cleanPlanning.chef_id = undefined as any;
         if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '00000000-0000-0000-0000-000000000000') {
           // 1) Inspecteur principal ou titulaire
           const inspecteurs = get().inspecteurs || []
@@ -4671,6 +5267,30 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           throw new Error(result.error)
         }
         set((state) => ({ plannings: [...state.plannings, result.data as Planning] }))
+
+        // Notifier les membres de l'équipe par email
+        if (cleanPlanning.equipe_ids?.length) {
+          const _aero = get().aerodromes.find(a => a.id === cleanPlanning.aerodrome_id)
+          const _codeOaci = _aero?.code_oaci ?? ''
+          const _typeLabel = (cleanPlanning.type as string)?.replace(/_/g, ' ') ?? 'surveillance'
+          const _dateDebut = cleanPlanning.date_debut ? new Date(cleanPlanning.date_debut).toLocaleDateString('fr-FR') : '—'
+          const _dateFin = cleanPlanning.date_fin ? new Date(cleanPlanning.date_fin).toLocaleDateString('fr-FR') : '—'
+          cleanPlanning.equipe_ids.forEach((uid: string) => {
+            const u = get().getUtilisateur(uid)
+            const emailTo = u?.notification_email || u?.email
+            if (u && emailTo) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - Nouvelle assignation — ${_codeOaci}`,
+                  message: `Bonjour ${u.prenom},\n\nVous avez été assigné à la surveillance ${_typeLabel} de ${_codeOaci} du ${_dateDebut} au ${_dateFin}.\n\nMerci de préparer votre mission.\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
+        }
       },
       updatePlanning: async (id, data) => {
         const oldPlanning = get().plannings.find(p => p.id === id)
@@ -4698,6 +5318,37 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           ;[..._equipeIds, ..._exploitants.map(u => u.id)].forEach(uid =>
             _addN({ user_id: uid, type, title, message, canal: 'in_app' })
           )
+          // Email aux membres de l'équipe
+          ;[...new Set(_equipeIds)].forEach(uid => {
+            const u = get().getUtilisateur(uid)
+            const emailTo = u?.notification_email || u?.email
+            if (u && emailTo && u.notifications_email !== false) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - ${title}`,
+                  message: `Bonjour ${u.prenom},\n\n${message}\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
+          // Email aux exploitants
+          _exploitants.forEach(op => {
+            const emailTo = op.notification_email || op.email
+            if (emailTo && op.notifications_email !== false) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - ${title}`,
+                  message: `Bonjour ${op.prenom || 'Exploitant'},\n\n${message}\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
         }
 
         // ── Confirmation par l'inspecteur → notifier les exploitants ──
@@ -4716,12 +5367,12 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
               canal: 'in_app',
             })
             // Email à l'exploitant
-            if (op.notifications_email && op.email) {
+            if (op.notifications_email && (op.notification_email || op.email)) {
               fetch('/api/notifications/email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  to: op.email,
+                  to: op.notification_email || op.email,
                   subject: `SGDA - Surveillance confirmée ${_codeOaci} - ${dateStr}`,
                   message: `Bonjour,\n\nLa surveillance ${_typeLabel} de votre aérodrome (${_codeOaci}) est confirmée pour le ${dateStr}.\nDomaines concernés : ${(oldPlanning.portee || []).join(', ') || 'tous'}.\n\nMerci de préparer les documents et registres nécessaires.\n\nCordialement,\nANACIM - SGDA`,
                 }),
@@ -4764,12 +5415,38 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         if (data.equipe_ids) {
           const _ancienne = new Set<string>(oldPlanning.equipe_ids || [])
           const _nouvelle = new Set<string>(data.equipe_ids)
-          ;data.equipe_ids.filter((uid: string) => !_ancienne.has(uid)).forEach((uid: string) =>
+          ;data.equipe_ids.filter((uid: string) => !_ancienne.has(uid)).forEach((uid: string) => {
             _addN({ user_id: uid, type: 'info', title: `📋 Nouvelle assignation — ${_codeOaci}`, message: `Vous avez été assigné à la surveillance ${_typeLabel} de ${_codeOaci}.`, canal: 'in_app' })
-          )
-          ;[..._ancienne].filter(uid => !_nouvelle.has(uid)).forEach(uid =>
+            const u = get().getUtilisateur(uid)
+            const emailTo = u?.notification_email || u?.email
+            if (u && emailTo && u.notifications_email !== false) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - Nouvelle assignation — ${_codeOaci}`,
+                  message: `Bonjour ${u.prenom},\n\nVous avez été assigné à la surveillance ${_typeLabel} de ${_codeOaci}.\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
+          ;[..._ancienne].filter(uid => !_nouvelle.has(uid)).forEach(uid => {
             _addN({ user_id: uid, type: 'warning', title: `📋 Désassignation — ${_codeOaci}`, message: `Vous avez été retiré de la surveillance ${_typeLabel} de ${_codeOaci}.`, canal: 'in_app' })
-          )
+            const u = get().getUtilisateur(uid)
+            const emailTo = u?.notification_email || u?.email
+            if (u && emailTo && u.notifications_email !== false) {
+              fetch('/api/notifications/email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: emailTo,
+                  subject: `SGDA - Désassignation — ${_codeOaci}`,
+                  message: `Bonjour ${u.prenom},\n\nVous avez été retiré de la surveillance ${_typeLabel} de ${_codeOaci}.\n\nCordialement,\nANACIM - SGDA`,
+                }),
+              }).catch(() => {})
+            }
+          })
         }
       },
       deletePlanning: async (id) => {
@@ -4802,8 +5479,23 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
             title: `🗑 Planning supprimé — ${_codeOaci}`,
             message: `Le planning de surveillance ${_typeLabel} de ${_codeOaci} prévu le ${_dateDebut} a été supprimé.`,
             canal: 'in_app',
-          })
+          }          )
         )
+
+        // ── Nettoyer les références dans les processus liés ──
+        if (_planning.type === 'certification') {
+          const cert = get().certifications.find(c => c.aerodrome_id === _planning.aerodrome_id && (c.phases_data as any)?.phase3?.planning_id === id);
+          if (cert) {
+            const phase3 = { ...(cert.phases_data as any).phase3, planning_id: '' };
+            get().updateCertification(cert.id, { phases_data: { ...cert.phases_data, phase3 } } as any);
+          }
+        } else if (_planning.type === 'homologation') {
+          const homo = get().homologations.find((h: any) => h.aerodrome_id === _planning.aerodrome_id && (h.phases_data as any)?.phase2?.planning_id === id);
+          if (homo) {
+            const phase2 = { ...(homo.phases_data as any).phase2, planning_id: '' };
+            get().updateHomologation(homo.id, { phases_data: { ...homo.phases_data, phase2 } } as any);
+          }
+        }
       },
 
       genererPlanningN1: (aerodromeId, annee) => {
@@ -4819,6 +5511,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           .map(i => ({ id: i.id, prenom: i.prenom, nom: i.nom, competences: i.competences }))
 
         // Nouveau générateur centralisé (profil + carry-over + certif)
+        const aerodrome = state.aerodromes.find(a => a.id === aerodromeId)
         const proposals = genererPlanning({
           aerodromeId, annee,
           profilRisque: profil,
@@ -4827,6 +5520,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           homologations: homos,
           inspecteurs,
           historiqueSurveillances: historique,
+          statut_sgs: aerodrome?.statut_sgs,
         })
         return proposals as unknown as Planning[]
       },
@@ -4834,9 +5528,8 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       validerPropositionN1: async (id) => {
         const prop = get().propositionsN1.find(p => p.id === id)
         if (!prop) return
-        // Strip extra fields du PlanningProposal qui n'existent pas dans la DB
         const { sort_order, source, ...cleanProp } = prop as any
-        const planning = { ...cleanProp, est_proposition: false, updated_at: new Date().toISOString() } as any
+        const planning = { ...cleanProp, id: crypto.randomUUID(), est_proposition: false, updated_at: new Date().toISOString() } as any
         await get().addPlanning(planning)
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
       },
@@ -4851,7 +5544,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           const prop = state.propositionsN1.find(p => p.id === id)
           if (!prop) continue
           const { sort_order, source, ...cleanProp } = prop as any
-          const planning = { ...cleanProp, est_proposition: false, updated_at: new Date().toISOString() } as any
+          const planning = { ...cleanProp, id: crypto.randomUUID(), est_proposition: false, updated_at: new Date().toISOString() } as any
           await get().addPlanning(planning)
         }
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => !ids.includes(p.id)) }))
@@ -4870,9 +5563,12 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         const newEvent = { ...evenement, id, created_at: now, updated_at: now } as EvenementSecurite
         set((state) => ({ evenements: [...state.evenements, newEvent] }))
         try {
-          const result = await datastore.createEvenement(evenement)
+          const { createEvenementAPI } = await import('@/lib/api/evenements')
+          const result = await createEvenementAPI(newEvent)
           if (result.error) throw new Error(result.error)
-          set((state) => ({ evenements: state.evenements.map(e => e.id === id ? { ...e, id: result.data?.id || id } : e) }))
+          if (result.data?.id) {
+            set((state) => ({ evenements: state.evenements.map(e => e.id === id ? { ...e, id: result.data!.id } : e) }))
+          }
         } catch (error) {
           console.error('Erreur création événement Supabase, rollback:', error)
           set((state) => ({ evenements: state.evenements.filter(e => e.id !== id) }))
@@ -4894,7 +5590,8 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           evenements: state.evenements.map(e => e.id === id ? { ...e, ...data, updated_at: new Date().toISOString() } : e)
         }))
         try {
-          const result = await datastore.updateEvenement(id, data)
+          const { updateEvenementAPI } = await import('@/lib/api/evenements')
+          const result = await updateEvenementAPI(id, data)
           if (result.error) throw new Error(result.error)
         } catch (error) {
           console.error('Erreur update événement Supabase, rollback:', error)
@@ -4926,16 +5623,27 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       },
       assignerInspecteur: async (evenementId, inspecteurId) => {
         const snapshot = get().evenements
+        const now = new Date().toISOString()
+        const inspecteurNom = get().utilisateurs.find(u => u.id === inspecteurId)
         set((state) => ({
-          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, inspecteur_id: inspecteurId } : e)
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, inspecteur_id: inspecteurId, statut: 'assigne' as const, date_assignation: now } : e)
         }))
         try {
-          const result = await datastore.updateEvenement(evenementId, { inspecteur_id: inspecteurId })
+          const result = await datastore.updateEvenement(evenementId, { inspecteur_id: inspecteurId, statut: 'assigne', date_assignation: now })
           if (result.error) throw new Error(result.error)
         } catch (error) {
           console.error('Erreur assignation inspecteur Supabase, rollback:', error)
           set({ evenements: snapshot })
         }
+        // Notifier l'inspecteur assigné
+        get().addNotification({
+          user_id: inspecteurId,
+          type: 'info',
+          title: 'Nouvel événement assigné',
+          message: `Un événement vous a été assigné. Connectez-vous pour l\'analyser.`,
+          canal: 'in_app',
+          link: '/?module=evenements',
+        })
       },
       creerEcartLie: async (evenementId, ecartData) => {
         const now = new Date().toISOString()
@@ -4945,7 +5653,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           aerodrome_id: ecartData.aerodrome_id || '',
           surveillance_id: ecartData.surveillance_id || '',
           domaine: ecartData.domaine || 'SGS',
-          reference: ecartData.reference || `ECA-${new Date().getFullYear()}-${String(get().ecarts.length + 1).padStart(3, '0')}`,
+           reference: ecartData.reference || `${new Date().getFullYear()}-EVT-${String(get().ecarts.length + 1).padStart(2, '0')}`,
           ref_reglementaire: ecartData.ref_reglementaire || '',
           libelle: ecartData.libelle || '',
           niveau_risque: ecartData.niveau_risque || 'moyen',
@@ -4990,12 +5698,12 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
             canal: 'in_app'
           })
           
-          if (operator.notifications_email) {
+          if (operator.notifications_email && (operator.notification_email || operator.email)) {
             fetch('/api/notifications/email', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                to: operator.email,
+                to: operator.notification_email || operator.email,
                 subject: `SGDA - Écart ${savedEcart.reference} - Événement ${evenement?.reference || ''}`,
                 template: 'ecart-evenement',
                 data: {
@@ -5014,6 +5722,179 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
       },
       getEvenementsByAerodrome: (aerodromeId) => get().evenements.filter(e => e.aerodrome_id === aerodromeId),
       getEvenementsUrgents: () => get().evenements.filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE'),
+
+      accepterAssignation: async (evenementId) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'accepte' as const, date_acceptation: now } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'accepte', date_acceptation: now }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        if (!evt?.inspecteur_id) return
+        // Notifier admin de l'acceptation
+        const admins = get().utilisateurs.filter(u => u.role === 'admin')
+        admins.forEach(admin => {
+          get().addNotification({
+            user_id: admin.id,
+            type: 'success',
+            title: 'Assignation acceptée',
+            message: `L'inspecteur a accepté l'événement ${evt.reference}`,
+            canal: 'in_app',
+          })
+        })
+      },
+      refuserAssignation: async (evenementId, motif) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, inspecteur_id: undefined, statut: 'refuse' as const, motif_refus: motif, date_assignation: undefined } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { inspecteur_id: '', statut: 'recu', motif_refus: motif }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        // Notifier l'admin
+        const admins = get().utilisateurs.filter(u => u.role === 'admin')
+        admins.forEach(admin => {
+          get().addNotification({
+            user_id: admin.id,
+            type: 'warning',
+            title: 'Assignation refusée',
+            message: `Assignation refusée pour ${evt?.reference || ''} : ${motif}`,
+            canal: 'in_app',
+          })
+        })
+      },
+      soumettreValidation: async (evenementId) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'soumis_validation' as const, validation_admin: 'en_attente' } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'soumis_validation', validation_admin: 'en_attente' }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        // Notifier tous les admins
+        const admins = get().utilisateurs.filter(u => u.role === 'admin')
+        admins.forEach(admin => {
+          get().addNotification({
+            user_id: admin.id,
+            type: 'info',
+            title: 'Validation requise',
+            message: `L'événement ${evt?.reference || ''} est soumis pour validation par l'inspecteur.`,
+            canal: 'in_app',
+            link: '/?module=evenements',
+          })
+        })
+      },
+      validerCloture: async (evenementId) => {
+        const now = new Date().toISOString()
+        const evt = get().evenements.find(e => e.id === evenementId)
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'cloture' as const, date_cloture: now, validation_admin: 'valide' } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'cloture', date_cloture: now, validation_admin: 'valide' }).catch(() => {})
+        // Notifier l'inspecteur
+        if (evt?.inspecteur_id) {
+          get().addNotification({
+            user_id: evt.inspecteur_id,
+            type: 'success',
+            title: 'Événement validé et clôturé',
+            message: `L'admin a validé et clôturé l'événement ${evt.reference}.`,
+            canal: 'in_app',
+          })
+        }
+        // Notifier les exploitants
+        const operateurs = get().utilisateurs.filter(u =>
+          ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role) &&
+          u.aerodrome_id === evt?.aerodrome_id
+        )
+        const aerodrome = get().aerodromes.find(a => a.id === evt?.aerodrome_id)
+        operateurs.forEach(op => {
+          get().addNotification({
+            user_id: op.id,
+            type: 'info',
+            title: `Événement clôturé — ${evt?.reference || ''}`,
+            message: `L'événement ${evt?.type || ''} à ${aerodrome?.code_oaci || evt?.aerodrome_id} a été traité et clôturé.`,
+            canal: 'in_app',
+            link: '/?module=operator-evenements',
+          })
+        })
+      },
+      retournerInspecteur: async (evenementId, commentaire) => {
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'retourne' as const, validation_admin: 'retourne', validation_admin_commentaire: commentaire } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'retourne', validation_admin: 'retourne', validation_admin_commentaire: commentaire }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        if (evt?.inspecteur_id) {
+          get().addNotification({
+            user_id: evt.inspecteur_id,
+            type: 'warning',
+            title: 'Modifications demandées',
+            message: `${commentaire}`,
+            canal: 'in_app',
+            link: '/?module=evenements',
+          })
+        }
+      },
+      demanderComplement: async (evenementId, question) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'attente_operateur' as const, demande_complement: question, date_reponse_operateur: undefined } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'attente_operateur', demande_complement: question }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        // Notifier les exploitants de l'aérodrome
+        const operateurs = get().utilisateurs.filter(u =>
+          ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role) &&
+          u.aerodrome_id === evt?.aerodrome_id
+        )
+        operateurs.forEach(op => {
+          get().addNotification({
+            user_id: op.id,
+            type: 'info',
+            title: `Information complémentaire requise — ${evt?.reference || ''}`,
+            message: question,
+            canal: 'in_app',
+            link: '/?module=operator-evenements',
+          })
+        })
+      },
+      repondreComplement: async (evenementId, reponse) => {
+        const now = new Date().toISOString()
+        set((state) => ({
+          evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'accepte' as const, reponse_operateur: reponse, date_reponse_operateur: now } : e)
+        }))
+        await datastore.updateEvenement(evenementId, { statut: 'accepte', reponse_operateur: reponse, date_reponse_operateur: now }).catch(() => {})
+        const evt = get().evenements.find(e => e.id === evenementId)
+        if (evt?.inspecteur_id) {
+          get().addNotification({
+            user_id: evt.inspecteur_id,
+            type: 'success',
+            title: 'Réponse exploitant reçue',
+            message: `L'exploitant a répondu à votre demande concernant ${evt.reference}.`,
+            canal: 'in_app',
+            link: '/?module=evenements',
+          })
+        }
+      },
+
+      relancerOperateur: async (evenementId) => {
+        const evt = get().evenements.find(e => e.id === evenementId)
+        if (!evt) return
+        const operateurs = get().utilisateurs.filter(u =>
+          ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role) &&
+          u.aerodrome_id === evt.aerodrome_id
+        )
+        operateurs.forEach(op => {
+          get().addNotification({
+            user_id: op.id,
+            type: 'warning',
+            title: `Rappel — ${evt.reference || ''}`,
+            message: evt.demande_complement
+              ? `Relance de l'inspecteur : ${evt.demande_complement}`
+              : `Réponse attendue de votre part concernant l'événement ${evt.reference}.`,
+            canal: 'in_app',
+            link: '/?module=operator-evenements',
+          })
+        })
+      },
 
       // ============================================================
       // ENQUETE SLICE
@@ -5044,8 +5925,10 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         return { total_reponses: reponses.length, taux_reponse: taux, score_moyen: 0, reponses_par_question: {} } as StatistiquesEnquete
       },
       calculerImpactC1: (reponses) => {
-        if (reponses.length === 0) return 50
-        return Math.min(100, 50 + reponses.length * 2)
+        const scores = reponses.map((r: ReponseEnquete) => r.score_c1).filter((s: number | undefined): s is number => s !== undefined && s !== null)
+        if (scores.length === 0) return 50
+        const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+        return Math.round((avg / 5) * 100)
       },
 
       // ============================================================
@@ -5199,28 +6082,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
     (s.public_cible.includes('tous') || s.public_cible.includes('expert'))
   )
 },
-      registres: [],
-      setRegistres: (registres) => set({ registres }),
-      addEntreeRegistre: (entree) => set((state) => ({
-        registres: [...state.registres, { ...entree, id: crypto.randomUUID(), created_at: new Date().toISOString() } as EntreeRegistre]
-      })),
-      getRegistresByType: (type, aerodromeId) => {
-        const all = get().registres.filter(r => r.type === type)
-        return aerodromeId ? all.filter(r => r.aerodrome_id === aerodromeId) : all
-      },
-      getRegistresByAerodrome: (aerodromeId) => get().registres.filter(r => r.aerodrome_id === aerodromeId),
-      genererEntreeFromSource: (source, type) => ({
-        id: crypto.randomUUID(),
-        type,
-        aerodrome_id: source.aerodrome_id || '',
-        date_entree: source.created_at || new Date().toISOString(),
-        reference: source.reference || source.id || '',
-        objet: source.libelle || source.titre || source.reference || '',
-        description: source.libelle || source.titre || '',
-        statut: 'provisoire' as const,
-        created_at: new Date().toISOString(),
-        created_by: get().user?.id || '',
-      } as EntreeRegistre),
+
 
       // ============================================================
       // DOSSIER SLICE
@@ -5519,6 +6381,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
     statut: 'actif',
     matricule: inspecteur.matricule,
     service: inspecteur.service,
+    type_inspecteur: inspecteur.type,
+    specialites: [],
   }
 
   try {
@@ -5574,16 +6438,22 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         set((state) => ({
           inspecteurs: state.inspecteurs.map(i => i.id === id ? { ...i, ...data } : i)
         }))
-        // Sync vers Utilisateur si poste ou superieur_id change
-        if (data.poste !== undefined || data.superieur_id !== undefined) {
-          const inspecteur = get().inspecteurs.find(i => i.id === id)
-          if (inspecteur?.user_id) {
-            get().updateUtilisateur(inspecteur.user_id, { poste: data.poste, superieur_id: data.superieur_id })
-          }
+        // Sync vers Utilisateur (sans boucle : on vérifie que la valeur a changé)
+        const inspecteur = get().inspecteurs.find(i => i.id === id)
+        const user = inspecteur?.user_id ? get().utilisateurs.find(u => u.id === inspecteur.user_id) : undefined
+        const syncToUser: Record<string, any> = {}
+        if (data.poste !== undefined) syncToUser.poste = data.poste
+        if (data.superieur_id !== undefined) syncToUser.superieur_id = data.superieur_id
+        if (data.type !== undefined && data.type !== user?.type_inspecteur) syncToUser.type_inspecteur = data.type
+        if (data.service !== undefined && data.service !== user?.service) syncToUser.service = data.service
+        if (Object.keys(syncToUser).length && inspecteur?.user_id) {
+          set((state) => ({ utilisateurs: state.utilisateurs.map(u => u.id === inspecteur.user_id ? { ...u, ...syncToUser } : u) }))
         }
         try {
           const datastore = await import('./datastore')
-          await datastore.updateInspecteur(id, data)
+          // specialites n'est pas une colonne de la table inspecteurs
+          const { specialites: _sp, ...dbData } = data as any
+          await datastore.updateInspecteur(id, Object.keys(dbData).length ? dbData : data)
         } catch (err) {
           console.error('[store] Erreur update inspecteur:', err)
         }
@@ -5705,15 +6575,26 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       // ============================================================
       kitDocuments: [],
       setKitDocuments: (documents) => set({ kitDocuments: documents }),
-      addKitDocument: (document) => set((state) => ({
-        kitDocuments: [...state.kitDocuments, { ...document, id: crypto.randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), telechargements: 0 } as KitDocument]
-      })),
-      updateKitDocument: (id, data) => set((state) => ({
-        kitDocuments: state.kitDocuments.map(k => k.id === id ? { ...k, ...data, updated_at: new Date().toISOString() } : k)
-      })),
-      deleteKitDocument: (id) => set((state) => ({
-        kitDocuments: state.kitDocuments.filter(k => k.id !== id)
-      })),
+      addKitDocument: async (document) => {
+        const id = document.id || crypto.randomUUID();
+        const newDoc = { ...document, id, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), telechargements: 0 } as KitDocument;
+        const { data, error } = await import('@/lib/datastore').then(m => m.createKitDocument(newDoc));
+        if (error) { console.error('[store] createKitDocument error:', error); return newDoc; }
+        if (data) set((state) => ({ kitDocuments: [...state.kitDocuments.filter(k => k.id !== id), data] }));
+        else set((state) => ({ kitDocuments: [...state.kitDocuments, newDoc] }));
+        return data || newDoc;
+      },
+      updateKitDocument: async (id, data) => {
+        set((state) => ({ kitDocuments: state.kitDocuments.map(k => k.id === id ? { ...k, ...data, updated_at: new Date().toISOString() } : k) }));
+        const { data: result, error } = await import('@/lib/datastore').then(m => m.updateKitDocument(id, data as any));
+        if (error) console.error('[store] updateKitDocument error:', error);
+        if (result) set((state) => ({ kitDocuments: state.kitDocuments.map(k => k.id === id ? result : k) }));
+      },
+      deleteKitDocument: async (id) => {
+        set((state) => ({ kitDocuments: state.kitDocuments.filter(k => k.id !== id) }));
+        const { error } = await import('@/lib/datastore').then(m => m.deleteKitDocument(id));
+        if (error) console.error('[store] deleteKitDocument error:', error);
+      },
       getDocumentsByDomaine: (domaine) => get().kitDocuments.filter(k => k.domaines?.includes(domaine)),
       getDocumentsExploitant: (aerodromeId) => get().kitDocuments.filter(k => {
         if (!k.accessible_exploitant) return false
@@ -5757,6 +6638,16 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           }),
         }))
 
+        // Sync partage vers Supabase (best-effort)
+        import('@/lib/datastore').then(m => {
+          const updatedDoc = get().kitDocuments.find(k => k.id === documentId)
+          if (updatedDoc) m.updateKitDocument(documentId, {
+            accessible_exploitant: updatedDoc.accessible_exploitant,
+            shared_aerodrome_ids: updatedDoc.shared_aerodrome_ids,
+            partage_exploitant: updatedDoc.partage_exploitant,
+          } as any)
+        })
+
         get().envoyerMessage({
           canal: 'exploitant',
           from_id: user?.id || 'system',
@@ -5784,23 +6675,34 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           })
         })
       },
-      revoquerPartageKitDocument: (documentId, aerodromeId) => set((state) => ({
-        kitDocuments: state.kitDocuments.map(k => {
-          if (k.id !== documentId) return k
-          const partages = (k.partage_exploitant || []).map(p =>
-            p.aerodrome_id === aerodromeId ? { ...p, actif: false } : p
-          )
-          const sharedIds = (k.shared_aerodrome_ids || []).filter(id => id !== aerodromeId)
-          const resteActif = partages.some(p => p.actif)
-          return {
-            ...k,
-            shared_aerodrome_ids: sharedIds,
-            partage_exploitant: partages,
-            accessible_exploitant: resteActif || (k.accessible_exploitant && (k.partage_exploitant || []).length === 0),
-            updated_at: new Date().toISOString(),
-          }
-        }),
-      })),
+      revoquerPartageKitDocument: (documentId, aerodromeId) => {
+        set((state) => ({
+          kitDocuments: state.kitDocuments.map(k => {
+            if (k.id !== documentId) return k
+            const partages = (k.partage_exploitant || []).map(p =>
+              p.aerodrome_id === aerodromeId ? { ...p, actif: false } : p
+            )
+            const sharedIds = (k.shared_aerodrome_ids || []).filter(id => id !== aerodromeId)
+            const resteActif = partages.some(p => p.actif)
+            return {
+              ...k,
+              shared_aerodrome_ids: sharedIds,
+              partage_exploitant: partages,
+              accessible_exploitant: resteActif || (k.accessible_exploitant && (k.partage_exploitant || []).length === 0),
+              updated_at: new Date().toISOString(),
+            }
+          }),
+        }))
+        // Sync vers Supabase (best-effort)
+        import('@/lib/datastore').then(m => {
+          const updatedDoc = get().kitDocuments.find(k => k.id === documentId)
+          if (updatedDoc) m.updateKitDocument(documentId, {
+            accessible_exploitant: updatedDoc.accessible_exploitant,
+            shared_aerodrome_ids: updatedDoc.shared_aerodrome_ids,
+            partage_exploitant: updatedDoc.partage_exploitant,
+          } as any)
+        })
+      },
       incrementerTelechargement: (id) => set((state) => ({
         kitDocuments: state.kitDocuments.map(k => k.id === id ? { ...k, telechargements: (k.telechargements || 0) + 1 } : k)
       })),
@@ -5827,11 +6729,17 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       findMasterChecklistForPortee: (portee) => {
         const mcs = get().masterChecklists
         if (!portee || portee.length === 0) return null
+        const porteeSansSGS = portee.filter(p => p.toUpperCase() !== 'SGS')
+        if (porteeSansSGS.length === 0) return null
         for (const [id, checklist] of Object.entries(mcs)) {
           const domainesCodes = checklist.map(d => d.nom.toUpperCase())
-          // Match si la portée est entièrement couverte par la checklist
-          const couvre = portee.every(p => domainesCodes.some(d => d.includes(p.toUpperCase()) || p.toUpperCase().includes(d)))
-          if (couvre) return { id, checklist }
+          // Matching strict : tous les domaines demandés (hors SGS) doivent correspondre exactement
+          const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
+          if (couvre) {
+            // Retourner la checklist sans les domaines SGS
+            const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
+            return { id, checklist: filtered }
+          }
         }
         return null
       },
@@ -5896,13 +6804,13 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           email: email || '',
         }
         set((state) => ({ codesAcces: [...state.codesAcces, newCode] }))
-        datastore.createCodeAcces(newCode).then(r => { if (r.error) console.error('Erreur création code acces Supabase:', r.error) })
+        datastore.createCodeAcces(newCode).then(r => { if (r.error) console.error('Erreur création code acces Supabase:', r.error) }).catch(() => {})
         return newCode
       },
       revoquerCode: async (id) => {
         const code = get().codesAcces.find(c => c.id === id)
         set((state) => ({ codesAcces: state.codesAcces.map(c => c.id === id ? { ...c, statut: 'revogue' as const } : c) }))
-        datastore.revokeCodeAcces(id).then(r => { if (r.error) console.error('Erreur révocation code acces Supabase:', r.error) })
+        datastore.revokeCodeAcces(id).then(r => { if (r.error) console.error('Erreur révocation code acces Supabase:', r.error) }).catch(() => {})
         // Supprimer les utilisateurs liés à ce code d'accès
         if (code?.aerodrome_id) {
           const linkedUsers = get().utilisateurs.filter(u =>
@@ -5923,7 +6831,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       deleteCodeAcces: async (id) => {
         const code = get().codesAcces.find(c => c.id === id)
         set((state) => ({ codesAcces: state.codesAcces.filter(c => c.id !== id) }))
-        datastore.deleteCodeAcces(id).then(r => { if (r.error) console.error('Erreur suppression code acces Supabase:', r.error) })
+        datastore.deleteCodeAcces(id).then(r => { if (r.error) console.error('Erreur suppression code acces Supabase:', r.error) }).catch(() => {})
         // Supprimer les utilisateurs liés
         if (code?.aerodrome_id) {
           const linkedUsers = get().utilisateurs.filter(u =>
@@ -6098,16 +7006,15 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         let justificationRisque: string | undefined
         try {
           const ecartsSimilaires = get().ecarts.filter(e => e.domaine === ecartData.domaine && e.statut !== 'cloture')
-          const { computeInitialCell } = require('@/lib/risque/bowTieEngine')
           const assessment = computeInitialCell({ niveau_risque: ecartData.niveau || 'moyen', domaine: ecartData.domaine } as any, ecartsSimilaires)
           celluleRisque = assessment.celluleInitiale.cellule
           probabiliteRisque = assessment.celluleInitiale.probabilite
           graviteRisque = assessment.celluleInitiale.gravite
           justificationRisque = assessment.justificationInitiale
-        } catch { /* fallback silencieux */ }
+        } catch { console.warn('[addEcartRedaction] computeInitialCell échoué, cellule OACI non définie') }
         const newEcart: EcartRedaction = {
           id: crypto.randomUUID(),
-          reference: ecartData.reference || `ECA-${new Date().getFullYear()}-${String(get().ecartsRedaction.length + 1).padStart(3, '0')}`,
+          reference: ecartData.reference || `${new Date().getFullYear()}-BRDN-${String(get().ecartsRedaction.length + 1).padStart(2, '0')}`,
           ref_reglementaire: ecartData.ref_reglementaire || '',
           libelle: ecartData.libelle || '',
           niveau: ecartData.niveau || 'moyen',
@@ -6217,7 +7124,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
             aerodrome_id:          surveillance.aerodrome_id || '',
             surveillance_id:       surveillanceId,
             domaine:               er.domaine || surveillance.portee?.[0] || 'SGS',
-            reference:             er.reference || `ECA-${new Date().getFullYear()}-${String(repaired + 1).padStart(3, '0')}`,
+            reference:             er.reference || `${new Date().getFullYear()}-REP-${String(repaired + 1).padStart(2, '0')}`,
             ref_reglementaire:     er.ref_reglementaire || '',
             libelle:               er.libelle || '',
             niveau_risque:         niveau,
@@ -6351,7 +7258,16 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const nouveauStatut = mappingStatut[surveillance.statut]
         if (nouveauStatut) {
           if (nouveauStatut !== 'transmise') {
-            await get().updateSurveillance(surveillanceId, { statut: nouveauStatut })
+            const updateData: Partial<Surveillance> = { statut: nouveauStatut }
+            // Au moment de la signature checklist, persister la hiérarchie complète sur la surveillance
+            // pour que l'exploitant puisse voir les résultats après rechargement
+            if (nouveauStatut === 'checklist_signee') {
+              const hierarchy = get().checklistHierarchy?.[surveillanceId]
+              if (hierarchy && hierarchy.length > 0) {
+                updateData.checklist_hierarchy = hierarchy
+              }
+            }
+            await get().updateSurveillance(surveillanceId, updateData)
             return
           }
 
@@ -6445,12 +7361,12 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
                     canal: 'in_app'
                   })
                   
-                  if (operator.notifications_email) {
+                  if (operator.notifications_email && (operator.notification_email || operator.email)) {
                     fetch('/api/notifications/email', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
-                        to: operator.email,
+                        to: operator.notification_email || operator.email,
                         subject: `SGDA - Écart ${newEcart.reference} - PAC requis`,
                         template: 'ecart-pac-requis',
                         data: {
@@ -6483,6 +7399,18 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
             }
 
             await get().updateSurveillance(surveillanceId, { statut: nouveauStatut, transmitted_at: now })
+
+            // Créer l'entrée dans le registre
+            const surv = get().surveillances.find(s => s.id === surveillanceId)
+            if (surv) {
+              const aero = get().aerodromes.find(a => a.id === surv.aerodrome_id)
+              const entryData = registreUtils.toRegistreEntryFromSurveillance(surv, aero)
+              get().addRegistreEntry({
+                id: crypto.randomUUID(),
+                ...entryData,
+                created_at: now,
+              })
+            }
         }
       },
       
@@ -6704,14 +7632,18 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
             score: stress.score,
             niveau_stress: stress.niveauStress,
             facteurs_contributeurs: stress.facteursContributeurs,
-            recommandation: stress.recommandationAction
+            recommandation: stress.recommandationAction,
+            stressIndicators: stress.stressIndicators
           },
           proactive_alert: {
             niveau_urgence: proactiveAlert.niveauUrgence,
             probabilite_degradation_3m: proactiveAlert.probabiliteDegradation3m,
             probabilite_seuil30_3m: proactiveAlert.probabiliteSeuil30_3m,
+            probabilite_seuil30_6m: proactiveAlert.probabiliteSeuil30_6m,
             message_court: proactiveAlert.messageCourt,
-            action_suggerer: proactiveAlert.actionSuggerer
+            message_long: proactiveAlert.messageLong,
+            action_suggerer: proactiveAlert.actionSuggerer,
+            delai_estime_jours: proactiveAlert.delaiEstimeJours
           },
           hawkes_intensity: hawkes.currentIntensity,
           effectiveness_score: state.computeEffectivenessScore(aerodromeId),
@@ -6822,8 +7754,28 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       name: 'sgda-storage',
       version: 3,
       migrate: (persistedState: unknown, version: number) => {
-        if (version < 3) return { aerodromes: [], utilisateurs: [], ecarts: [], profilsRisque: {}, historiqueScores: {}, proactiveAlerts: [] } as never
-        return persistedState as never
+        if (version >= 3) return persistedState as never
+        // Migration progressive depuis v1/v2 : préserver les données existantes,
+        // ne réinitialiser que ce qui est nécessaire pour la nouvelle version
+        const old = (persistedState || {}) as Record<string, unknown>
+        return {
+          aerodromes: Array.isArray(old.aerodromes) ? old.aerodromes : [],
+          utilisateurs: Array.isArray(old.utilisateurs) ? old.utilisateurs : [],
+          ecarts: Array.isArray(old.ecarts) ? old.ecarts : [],
+          profilsRisque: (old.profilsRisque && typeof old.profilsRisque === 'object') ? old.profilsRisque : {},
+          historiqueScores: (old.historiqueScores && typeof old.historiqueScores === 'object') ? old.historiqueScores : {},
+          proactiveAlerts: Array.isArray(old.proactiveAlerts) ? old.proactiveAlerts : [],
+          surveillances: Array.isArray(old.surveillances) ? old.surveillances : [],
+          certifications: Array.isArray(old.certifications) ? old.certifications : [],
+          homologations: Array.isArray(old.homologations) ? old.homologations : [],
+          exemptions: Array.isArray(old.exemptions) ? old.exemptions : [],
+          plannings: Array.isArray(old.plannings) ? old.plannings : [],
+          kitDocuments: Array.isArray(old.kitDocuments) ? old.kitDocuments : [],
+          masterChecklists: (old.masterChecklists && typeof old.masterChecklists === 'object') ? old.masterChecklists : {},
+          notifications: Array.isArray(old.notifications) ? old.notifications : [],
+          delegations: Array.isArray(old.delegations) ? old.delegations : [],
+          dossiers: Array.isArray(old.dossiers) ? old.dossiers : [],
+        } as never
       },
       partialize: (state) => ({
         // Données métier critiques — doivent survivre au rechargement
@@ -6859,8 +7811,14 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         messages: state.messages,
         apiKeys: state.apiKeys,
         auditLogs: state.auditLogs,
+        iaSuggestions: state.iaSuggestions,
+        suggestionFeedbacks: state.suggestionFeedbacks,
+        checklistMemoryRecords: state.checklistMemoryRecords,
+        sgsMemoryRecords: state.sgsMemoryRecords,
       }),
       onRehydrateStorage: () => {
+        clearRappelsTimer()
+        startRappelsTimer()
         let deferred = false
         return (state) => {
           if (!state) return
@@ -7030,15 +7988,17 @@ export const useEffectivenessScore = (aerodromeId: string) => {
   return compute(aerodromeId)
 }
 
-// Timer pour vérifier les rappels toutes les heures
-// Cleanup: call clearRappelsTimer() on component unmount to avoid leaks
-let rappelsTimerId: ReturnType<typeof setInterval> | null = null
-if (typeof window !== 'undefined') {
+
+function startRappelsTimer() {
+  clearRappelsTimer()
+  if (typeof window === 'undefined') return
   rappelsTimerId = setInterval(() => {
     useAppStore.getState().verifierRappelsAutomatiques()
+    import('./services/vigieRisque').then(({ declencherVigie }) => declencherVigie()).catch((err) => console.error('[Vigie] Échec déclenchement:', err))
   }, 60 * 60 * 1000)
 }
-export const clearRappelsTimer = () => {
+
+export function clearRappelsTimer() {
   if (rappelsTimerId !== null) {
     clearInterval(rappelsTimerId)
     rappelsTimerId = null

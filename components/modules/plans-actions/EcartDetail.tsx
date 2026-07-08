@@ -20,6 +20,8 @@ import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { Ecart } from '@/lib/store';
 import { RappelSection } from './RappelSection';
+import { getCellColor, getRiskLevelFromCell, getRiskLevelVariant } from '@/lib/risque';
+import { getRiskTrajectory } from '@/lib/risque/bowTieEngine';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,7 @@ const NIVEAU_CONFIG: Record<Ecart['niveau_risque'], { label: string; badgeClass:
   eleve: { label: 'Élevé', badgeClass: 'warning', icon: AlertTriangle, textClass: 'text-amber-700' },
   moyen: { label: 'Moyen', badgeClass: 'primary', icon: AlertCircle, textClass: 'text-blue-700' },
   faible: { label: 'Faible', badgeClass: 'success', icon: CheckCircle2, textClass: 'text-green-700' },
+  tres_faible: { label: 'Très faible', badgeClass: 'success', icon: CheckCircle2, textClass: 'text-green-700' },
 };
 
 function AlertCircle(props: React.SVGProps<SVGSVGElement>) {
@@ -211,6 +214,7 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
   const aerodrome = aerodromes.find(a => a.id === ecart.aerodrome_id);
   const niveauCfg = NIVEAU_CONFIG[ecart.niveau_risque];
   const NiveauIcon = niveauCfg.icon;
+  const isValidOACI = (cellule: string | undefined | null): cellule is string => typeof cellule === 'string' && /^[1-5][A-E]$/.test(cellule);
   const currentStep = STATUT_ORDER[ecart.statut] ?? 0;
   const progressionPac = Math.round((currentStep / (WORKFLOW_STEPS.length - 1)) * 100);
 
@@ -221,6 +225,11 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
         <div className="space-y-1.5 flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono font-bold text-gray-500">{ecart.reference}</span>
+            {isValidOACI(ecart.cellule_risque_oaci) && (
+              <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wide ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                {ecart.cellule_risque_oaci}
+              </span>
+            )}
             <span className={`badge ${niveauCfg.badgeClass} gap-1`}>
               <NiveauIcon className="w-3 h-3" />
               {niveauCfg.label}
@@ -323,7 +332,6 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
 
       {/* OACI Risk Trajectory — Bow-Tie Data-Driven */}
       {(() => {
-        const { getRiskTrajectory } = require('@/lib/risque/bowTieEngine')
         const traj = getRiskTrajectory(ecart)
         if (!traj) return null
         return (
@@ -334,13 +342,12 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
                   traj.afterPAC && { label: 'Après PAC', cell: traj.afterPAC, active: true },
                   traj.afterPreuves && { label: 'Après preuves', cell: traj.afterPreuves, active: true },
                 ].filter(Boolean).map((step: any, idx, arr) => {
-                  const p = parseInt(step.cell[0]) || 3
-                  const g = step.cell[1] || 'C'
-                  const niveau = p >= 4 ? 'danger' : p >= 3 ? 'warning' : p >= 2 ? 'primary' : 'success'
+                  const niv = getRiskLevelFromCell(step.cell)
+                  const niveauCls = getRiskLevelVariant(niv)
                   return (
                     <React.Fragment key={step.label}>
-                      <div className={`p-2 rounded-lg text-center ${niveau === 'danger' ? 'bg-danger-soft' : niveau === 'warning' ? 'bg-warning-soft' : niveau === 'primary' ? 'bg-primary-soft' : 'bg-success-soft'}`}>
-                        <span className={`badge ${niveau === 'danger' ? 'danger' : niveau === 'warning' ? 'warning' : niveau === 'primary' ? 'primary' : 'success'} text-xs block mb-1`}>{step.cell}</span>
+                      <div className={`p-2 rounded-lg text-center ${niveauCls === 'danger' ? 'bg-danger-soft' : niveauCls === 'warning' ? 'bg-warning-soft' : niveauCls === 'primary' ? 'bg-primary-soft' : 'bg-success-soft'}`}>
+                        <span className={`badge ${niveauCls} text-xs block mb-1`}>{step.cell}</span>
                         <span className="text-xs text-muted-foreground">{step.label}</span>
                       </div>
                       {idx < arr.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground" />}

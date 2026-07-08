@@ -145,7 +145,7 @@ export function EcartTimeline({ ecartId }: EcartTimelineProps) {
         type: 'evaluation_pac',
         date: ecart.evaluation_pac?.evalue_le ?? addDays(base, 18),
         acteur: `Inspecteur — ${ecart.evaluation_pac?.evalue_par ?? 'Inspecteur référent'}`,
-        description: `PAC accepté. Note globale : ${ecart.evaluation_pac?.note_globale?.toFixed(1) ?? '4.2'}/5.`,
+        description: `PAC ${ecart.evaluation_pac?.decision === 'reserve' ? 'accepté avec réserves' : 'accepté'}. Note globale : ${ecart.evaluation_pac?.note_globale?.toFixed(1) ?? '4.2'}/5.`,
       });
     }
 

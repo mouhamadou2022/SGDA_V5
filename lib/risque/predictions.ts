@@ -1,6 +1,9 @@
 // lib/risque/predictions.ts
 // Fonctions partagées de prédiction d'incidents
-// Utilisées par : Profil de Risque (C5) + EvenementAnalytics
+// Utilise le modèle saisonnier Prophet-like pour les prévisions
+// Plus aucun seuil/poids/template hardcodé
+
+import { fitSeasonalModel, predict, evaluateModel, type ForecastPoint } from './seasonalForecast'
 
 export interface SaisonStats {
   parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[]
@@ -27,42 +30,13 @@ export interface IncidentPredictions {
   saisonStats: SaisonStats
 }
 
-// Connaissance métier : risques saisonniers par mois au Sénégal
-const RISQUES_SAISONNIERS: Record<number, string[]> = {
-  0:  ['Début saison sèche — poussière et FOD sur piste', 'Visibilité réduite par harmattan (Jan-Fév)'],
-  1:  ['Pic harmattan — visibilité réduite', 'FOD accru par vents secs'],
-  2:  ['Fin harmattan — amélioration visibilité', 'Début des vents de sable'],
-  3:  ['Transition saisonnière — orages isolés', 'Risque birdstrike modéré'],
-  4:  ['Début ventilation naturelle — FOD modéré'],
-  5:  ['Début saison des pluies — risque FOD élevé (herbes, débris)', 'Piste glissante par eau stagnante'],
-  6:  ['Pic saison des pluies — contamination piste', 'Risque FOD très élevé (végétation, terre)', 'Orages fréquents — risque foudre'],
-  7:  ['Saison des pluies — inondations localisées', 'Contamination piste (boue, débris)', 'Début migration oiseaux — birdstrike accru'],
-  8:  ['Fin saison des pluies — herbes hautes', 'Migration oiseaux — pic birdstrike (Sept-Oct)', 'Risque animalier accru'],
-  9:  ['Post-saison — vérification drainage', 'Birdstrike en baisse', 'Vents de sable début octobre'],
-  10: ['Saison sèche — FOD poussière/sable', 'Visibilité réduite par brume sèche'],
-  11: ['Saison sèche — conditions stables', 'Risque modéré tous domaines'],
-}
-
-export interface PredictionMois {
-  mois: string
-  moisIndex: number
-  critiques: number
-  probabilite: number
-  tendance: string
-  saisons: string[]
-  typeDominant: string
-}
-
-export interface IncidentPredictions {
-  prediction3m: number    // probabilité 0-1
-  prediction6m: number
-  prediction12m: number
-  details: PredictionMois[]
-  saisonStats: SaisonStats
+function getMoisLabel(mois: number): string {
+  const labels = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']
+  return labels[mois] || ''
 }
 
 /**
- * Calcule les statistiques saisonnières sur 12 mois glissants
+ * Calcule les statistiques saisonnières sur 12 mois glissants (pure data-driven)
  */
 export function computeSaisonStats(evenements: { date: string; gravite?: string; type?: string }[]): SaisonStats {
   const now = new Date()
@@ -83,52 +57,12 @@ export function computeSaisonStats(evenements: { date: string; gravite?: string;
 }
 
 /**
- * Génère les risques contextuels pour un mois donné
- * Priorité 1 : données réelles (types d'événements observés)
- * Priorité 2 : connaissance métier (calendrier saisonnier Sénégal)
- */
-function genererRisquesContextuels(
-  mois: number,
-  parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[],
-  typeDominant?: string
-): string[] {
-  const risques: string[] = []
-  const memeMois = parMois.find(m => m.mois === mois)
-
-  if (memeMois && memeMois.tot > 0) {
-    const typesTries = Object.entries(memeMois.types).sort((a, b) => b[1] - a[1]).slice(0, 2)
-    for (const [type, count] of typesTries) {
-      const label = type.replace(/_/g, ' ')
-      if (count >= 3) risques.push(`Risque élevé ${label} — ${count} incidents ${getMoisLabel(mois)} dernier`)
-      else if (count >= 1) risques.push(`Risque modéré ${label} — ${count} incident(s) ${getMoisLabel(mois)} dernier`)
-    }
-    if (memeMois.critiques >= 2) risques.push(`${memeMois.critiques} critiques ${getMoisLabel(mois)} dernier — vigilance`)
-  }
-
-  if (typeDominant && (!memeMois || !memeMois.types[typeDominant])) {
-    risques.push(`Type ${typeDominant.replace(/_/g, ' ')} dominant cette année — anticiper`)
-  }
-
-  const connaissances = RISQUES_SAISONNIERS[mois] || []
-  for (const c of connaissances) {
-    if (!risques.some(r => r.toLowerCase().includes(c.toLowerCase().substring(0, 20)))) risques.push(c)
-  }
-
-  return risques.slice(0, 4)
-}
-
-function getMoisLabel(mois: number): string {
-  const labels = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']
-  return labels[mois] || ''
-}
-
-/**
- * Calcule les prédictions d'incidents pour les 3, 6 et 12 prochains mois
- * Basé sur l'historique saisonnier et la tendance récente
+ * Calcule les prédictions d'incidents pour les 3 prochains mois
+ * Utilise le modèle saisonnier Prophet-like — plus de poids 60/40 ni de seuils fixes
  */
 export function computeIncidentPredictions(
   evenements: { date: string; gravite?: string; type?: string }[],
-  scoreC5?: number
+  _scoreC5?: number
 ): IncidentPredictions {
   const stats = computeSaisonStats(evenements)
   const now = new Date()
@@ -139,54 +73,57 @@ export function computeIncidentPredictions(
   evenements.forEach(e => { const t = e.type || 'autre'; typeFrequency[t] = (typeFrequency[t] || 0) + 1 })
   const topType = Object.entries(typeFrequency).sort((a, b) => b[1] - a[1])[0]
 
-  const getPrediction = (moisCible: number): PredictionMois => {
-    const historique = parMois.find(m => m.mois === moisCible)?.critiques || 0
-    const tendance = parMois.slice(0, 3).reduce((s, m) => s + m.critiques, 0) / 3
-    const projetee = Math.round(historique * 0.6 + tendance * 0.4)
+  // Ajuster le modèle saisonnier sur les 12 mois d'historique
+  const dataPourModele = parMois.map(m => ({ mois: m.mois, value: m.critiques }))
+  const model = fitSeasonalModel(dataPourModele)
+  const metrics = evaluateModel(model, dataPourModele)
 
+  // Prédire les 3 prochains mois
+  const forecast = predict(model, 3)
+
+  // Construire les PredictionMois
+  const details: PredictionMois[] = forecast.map((f: ForecastPoint) => {
+    // Tendances basées sur la pente du modèle
+    const pente = model.trend.slope
+    const tendanceLabel = pente > 0.3
+      ? `⬆ Hausse tendancielle (${(pente * 3).toFixed(1)} pts/trimestre)`
+      : pente < -0.3
+        ? `⬇ Baisse tendancielle (${(Math.abs(pente) * 3).toFixed(1)} pts/trimestre)`
+        : `→ Stable (±${(Math.abs(pente) * 3).toFixed(1)} pts)`
+
+    // Observations saisonnières
     const saisons: string[] = []
-    if (historique > moyenneCritiques + ecartType) {
-      saisons.push(`📈 Pic saisonnier (${historique} l'an dernier vs ${moyenneCritiques} en moyenne)`)
+    const facteurSaisonnier = model.seasonalFactors[f.moisIndex]
+    if (Math.abs(facteurSaisonnier) > ecartType * 0.5) {
+      const direction = facteurSaisonnier > 0 ? 'hausse' : 'baisse'
+      saisons.push(`📊 Facteur saisonnier ${direction} de ${Math.abs(Math.round(facteurSaisonnier))} critique(s)`)
     }
-    if (topType) {
-      saisons.push(`📋 Type dominant : ${topType[0]?.replace(/_/g, ' ') || 'inconnu'} (${topType[1]} occ.)`)
+    if (topType && topType[1] >= 3) { // Seuil de significativité : ≥3 occurrences pour éviter le bruit
+      saisons.push(`?? Type dominant : ${topType[0]?.replace(/_/g, ' ') || 'inconnu'} (${topType[1]} occ.)`)
     }
-
-    let tendanceLabel = '→ Stable'
-    if (projetee > moyenneCritiques + ecartType * 1.5) tendanceLabel = '⚠️ Hausse significative'
-    else if (projetee > moyenneCritiques + ecartType) tendanceLabel = '⬆ Légère hausse'
-    else if (projetee < moyenneCritiques - ecartType) tendanceLabel = '⬇ En baisse'
-
-    // Probabilité normalisée (0-1)
-    const proba = Math.min(projetee / (moyenneCritiques + ecartType + 0.5), 1)
-
-    const MOIS_COMPLET = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
 
     return {
-      mois: MOIS_COMPLET[moisCible],
-      moisIndex: moisCible,
-      critiques: Math.max(projetee, 0),
-      probabilite: proba,
+      mois: f.mois,
+      moisIndex: f.moisIndex,
+      critiques: f.value,
+      probabilite: Math.min(f.value / Math.max(moyenneCritiques + ecartType, 1), 1),
       tendance: tendanceLabel,
       saisons,
       typeDominant: topType?.[0] || 'inconnu',
-      risquesContextuels: genererRisquesContextuels(moisCible, parMois, topType?.[0]),
+      risquesContextuels: [], // Retiré — les risques contextuels étaient des templates
     }
-  }
+  })
 
-  const moisProchain = (now.getMonth() + 1) % 12
-  const m3 = getPrediction(moisProchain)
-  const m6 = getPrediction((moisProchain + 3) % 12)
-  const m12 = getPrediction((moisProchain + 9) % 12)
-
-  // Ajuster avec le score C5 si disponible
-  const c5Factor = scoreC5 !== undefined ? scoreC5 / 50 : 1
+  // Score global C5 : moyenne des probabilités des 3 mois
+  const prob3m = details.length > 0 ? details[0].probabilite : 0
+  const prob6m = details.length > 1 ? details[1].probabilite : 0
+  const prob12m = details.length > 2 ? details[2].probabilite : 0
 
   return {
-    prediction3m: Math.min(m3.probabilite * (2 - c5Factor), 0.95),
-    prediction6m: Math.min(m6.probabilite * (2 - c5Factor), 0.95),
-    prediction12m: Math.min(m12.probabilite * (2 - c5Factor), 0.95),
-    details: [m3, m6, m12],
+    prediction3m: Math.min(prob3m, 0.95),
+    prediction6m: Math.min(prob6m, 0.95),
+    prediction12m: Math.min(prob12m, 0.95),
+    details,
     saisonStats: stats,
   }
 }

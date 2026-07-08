@@ -40,7 +40,8 @@ export type DomaineSurveillance =
   | 'ELEC'
   | 'DOC';
 
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
+import type { ResultatChecklist } from './checklist'
+export type { ResultatChecklist }
 
 // ============================================================
 // Interface principale Surveillance — source unique : lib/store.ts

@@ -1,145 +1,12 @@
 // lib/registreUtils.ts
-import { EntreeRegistre, RegistreEntry } from './store'
+import type { RegistreEntry } from './store'
 
 export const registreUtils = {
-  /**
-   * Génère une référence unique pour un registre
-   */
   genererReference(type: string, annee: number, compteur: number): string {
     const prefix = type.substring(0, 3).toUpperCase()
     return `REG-${prefix}-${annee}-${String(compteur).padStart(4, '0')}`
   },
 
-  /**
-   * Crée une entrée de registre à partir d'une formation
-   */
-  fromFormation(formation: any, aerodromeId?: string): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    return {
-      aerodrome_id: aerodromeId,
-      type: 'formation',
-      reference: formation.reference,
-      date_entree: formation.date,
-      objet: `Formation: ${formation.titre}`,
-      description: formation.objectifs,
-      lien_id: formation.id,
-      lien_type: 'formation',
-      signataire_id: formation.formateur,
-      signataire_nom: typeof formation.formateur === 'string' ? formation.formateur : undefined,
-      fichiers: formation.documents,
-      statut: formation.statut === 'terminee' ? 'valide' : 'provisoire',
-      created_by: formation.created_by
-    }
-  },
-
-  /**
-   * Crée une entrée de registre à partir d'un événement
-   */
-  fromEvenement(evenement: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    return {
-      aerodrome_id: evenement.aerodrome_id,
-      type: 'evenement',
-      reference: evenement.reference,
-      date_entree: evenement.date,
-      objet: `Événement: ${evenement.type}`,
-      description: evenement.description,
-      lien_id: evenement.id,
-      lien_type: 'evenement',
-      signataire_id: evenement.inspecteur_id,
-      fichiers: evenement.rapport_final_url ? [{
-        nom: `rapport_${evenement.reference}.pdf`,
-        url: evenement.rapport_final_url,
-        taille: 0,
-        type: 'application/pdf'
-      }] : [],
-      statut: evenement.statut === 'cloture' ? 'valide' : 'provisoire',
-      created_by: evenement.created_by
-    }
-  },
-
-  /**
-   * Crée une entrée de registre à partir d'une surveillance
-   */
-  fromSurveillance(surveillance: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    return {
-      aerodrome_id: surveillance.aerodrome_id,
-      type: 'surveillance',
-      reference: surveillance.id,
-      date_entree: surveillance.date_debut,
-      objet: `Surveillance: ${surveillance.type}`,
-      description: surveillance.observations || 'Surveillance programmée',
-      lien_id: surveillance.id,
-      lien_type: 'surveillance',
-      signataire_id: surveillance.chef_id,
-      fichiers: surveillance.rapport_sig_url ? [{
-        nom: `rapport_${surveillance.id}.pdf`,
-        url: surveillance.rapport_sig_url,
-        taille: 0,
-        type: 'application/pdf'
-      }] : [],
-      statut: surveillance.statut === 'transmise' ? 'valide' : 'provisoire',
-      created_by: surveillance.created_by || ''
-    }
-  },
-
-  /**
-   * Crée une entrée de registre à partir d'une certification
-   */
-  fromCertification(certification: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    return {
-      aerodrome_id: certification.aerodrome_id,
-      type: 'certification',
-      reference: certification.reference,
-      date_entree: certification.date_delivrance || certification.created_at,
-      objet: `Certification - Phase ${certification.phase_active}`,
-      description: `Certification ${certification.statut_global}`,
-      lien_id: certification.id,
-      lien_type: 'certification',
-      signataire_id: certification.signataire_id,
-      fichiers: certification.lettre_signee_url ? [{
-        nom: `certificat_${certification.reference}.pdf`,
-        url: certification.lettre_signee_url,
-        taille: 0,
-        type: 'application/pdf'
-      }] : [],
-      statut: certification.statut_global === 'certifie' ? 'valide' : 'provisoire',
-      created_by: certification.created_by
-    }
-  },
-
-  /**
-   * Crée une entrée de registre à partir d'une homologation
-   */
-  fromHomologation(homologation: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    const fichiers: { nom: string; url: string; taille: number; type: string }[] = []
-    const phasesData = homologation.phases_data || {}
-    // Récupérer tous les inspecteur_fichiers des phases
-    for (const key of ['phase1', 'phase2', 'phase3']) {
-      const phase = phasesData[key]
-      if (phase?.inspecteur_fichiers) {
-        phase.inspecteur_fichiers.forEach((f: any) => {
-          fichiers.push({ nom: f.nom, url: f.url, taille: 0, type: 'application/pdf' })
-        })
-      }
-    }
-    return {
-      aerodrome_id: homologation.aerodrome_id,
-      type: 'homologation',
-      reference: homologation.reference,
-      date_entree: homologation.date_delivrance || homologation.created_at,
-      objet: `Homologation - Phase ${homologation.phase_active}`,
-      description: `Homologation ${homologation.statut_global}`,
-      lien_id: homologation.id,
-      lien_type: 'homologation',
-      signataire_id: homologation.signataire_id,
-      fichiers,
-      statut: homologation.statut_global === 'homologue' ? 'valide' : 'provisoire',
-      created_by: homologation.created_by
-    }
-  },
-
-  /**
-   * Convertit une certification en RegistreEntry (nouveau store)
-   */
   toRegistreEntryFromCertification(certification: any, aerodrome?: any): Omit<RegistreEntry, 'id' | 'created_at' | 'timeline'> {
     const fichiers: { nom: string; url: string }[] = []
     const phasesData = certification.phases_data || {}
@@ -197,40 +64,7 @@ export const registreUtils = {
     }
   },
 
-  /**
-   * Crée une entrée de registre à partir d'un dossier archivé
-   */
-  fromDossier(dossier: any): Omit<EntreeRegistre, 'id' | 'created_at'> {
-    const allFichiers: { nom: string; url: string; taille: number; type: string }[] = []
-    const fichiersSource = dossier.fichiers || []
-    fichiersSource.forEach((f: any) => {
-      allFichiers.push({ nom: f.nom, url: f.url, taille: f.taille || 0, type: f.type || 'application/pdf' })
-    })
-    const assignments = dossier.assignments || []
-    assignments.forEach((a: any) => {
-      ;(a.preuves || []).forEach((p: any) => {
-        allFichiers.push({ nom: p.nom, url: p.url, taille: p.taille || 0, type: p.type || 'application/pdf' })
-      })
-    })
 
-    const inspecteursNoms = assignments.map((a: any) => a.inspecteur_nom).join(', ') || 'Non assigné'
-
-    return {
-      aerodrome_id: dossier.aerodrome_id,
-      type: 'dossier',
-      reference: dossier.reference,
-      date_entree: dossier.archived_at || dossier.updated_at,
-      objet: `Dossier: ${dossier.titre}`,
-      description: `Dossier ${dossier.categorie} — Traité par ${inspecteursNoms} — ${dossier.instructions || 'Aucune instruction'}`,
-      lien_id: dossier.id,
-      lien_type: 'dossier',
-      signataire_id: dossier.created_by,
-      signataire_nom: '',
-      fichiers: allFichiers,
-      statut: 'valide',
-      created_by: dossier.created_by,
-    }
-  },
 
   /**
    * Convertit un dossier archivé en RegistreEntry (nouveau store)
@@ -348,52 +182,153 @@ export const registreUtils = {
   },
 
   /**
-   * Filtre les registres par période
+   * Convertit une surveillance en RegistreEntry (nouveau store)
    */
-  filterByPeriode(registres: EntreeRegistre[], debut: Date, fin: Date): EntreeRegistre[] {
-    return registres.filter(r => {
-      const date = new Date(r.date_entree)
-      return date >= debut && date <= fin
-    })
+  toRegistreEntryFromSurveillance(surveillance: any, aerodrome?: any): Omit<RegistreEntry, 'id' | 'created_at'> {
+    const fichiers: { nom: string; url: string }[] = []
+    if (surveillance.rapport_sig_url) {
+      fichiers.push({ nom: `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_sig_url })
+    }
+    if (surveillance.rapport_fichier_url) {
+      fichiers.push({ nom: surveillance.rapport_fichier_nom || `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_fichier_url })
+    }
+    if (surveillance.lettre_signee_url) {
+      fichiers.push({ nom: `lettre_${surveillance.id}.pdf`, url: surveillance.lettre_signee_url })
+    }
+
+    // Preuves des checklists (issues de checklist_hierarchy)
+    if (surveillance.checklist_hierarchy) {
+      const collectPreuves = (items: any[]): void => {
+        for (const item of items) {
+          if (item.fichiers?.length) {
+            for (const f of item.fichiers) {
+              fichiers.push({ nom: f.nom || 'preuve', url: f.url })
+            }
+          }
+          if (item.items?.length) collectPreuves(item.items)
+          if (item.sousDomaines?.length) {
+            for (const sd of item.sousDomaines) {
+              collectPreuves(sd.items || [])
+              if (sd.sousSousDomaines?.length) {
+                for (const ssd of sd.sousSousDomaines) {
+                  collectPreuves(ssd.items || [])
+                }
+              }
+            }
+          }
+        }
+      }
+      collectPreuves(surveillance.checklist_hierarchy)
+    }
+
+    // Preuves des écarts
+    if (surveillance.ecarts?.length || surveillance.ecarts_ids?.length) {
+      const ecarts = surveillance.ecarts || []
+      for (const ecart of ecarts) {
+        if (ecart.fichiers?.length) {
+          for (const f of ecart.fichiers) {
+            fichiers.push({ nom: f.nom || `ecart_${ecart.reference || ecart.id}`, url: f.url })
+          }
+        }
+      }
+    }
+
+    // Preuves SGS (issues de sgs_evaluation_prepa)
+    if (surveillance.sgs_evaluation_prepa?.composantes) {
+      for (const comp of surveillance.sgs_evaluation_prepa.composantes) {
+        for (const elem of comp.elements || []) {
+          for (const q of elem.questions || []) {
+            if (q.preuves?.length) {
+              for (const p of q.preuves) {
+                fichiers.push({ nom: p.nom || `sgs-${q.ref}`, url: p.url })
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const timeline: RegistreEntry['timeline'] = []
+    if (surveillance.created_at) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Surveillance planifiée',
+        date: surveillance.created_at, acteur: 'Système', acteur_role: 'systeme',
+        details: `Surveillance ${(surveillance.type || '').replace(/_/g, ' ')} créée`,
+      })
+    }
+    if (surveillance.date_debut) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Début de la surveillance',
+        date: surveillance.date_debut, acteur: surveillance.chef_id || 'Inspecteur', acteur_role: 'inspecteur',
+        details: 'Surveillance débutée sur le terrain',
+      })
+    }
+    if (surveillance.signatures_checklist?.length) {
+      const sig = surveillance.signatures_checklist[surveillance.signatures_checklist.length - 1]
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Checklists signées',
+        date: sig.date || surveillance.updated_at, acteur: sig.nom || 'Inspecteur', acteur_role: 'inspecteur',
+        details: `${surveillance.signatures_checklist.length} signature(s) sur les checklists`,
+      })
+    }
+    if (surveillance.signatures_ecarts?.length) {
+      const sig = surveillance.signatures_ecarts[surveillance.signatures_ecarts.length - 1]
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Écarts signés',
+        date: sig.date || surveillance.updated_at, acteur: sig.nom || 'Inspecteur', acteur_role: 'inspecteur',
+        details: 'Écarts de surveillance signés',
+      })
+    }
+    // Preuves des checklists dans la timeline
+    const checklistFichierCount = fichiers.filter(f => !f.nom.startsWith('rapport_') && !f.nom.startsWith('lettre_')).length
+    if (checklistFichierCount > 0) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Preuves jointes',
+        date: surveillance.updated_at || surveillance.transmitted_at, acteur: 'Système', acteur_role: 'systeme',
+        details: `${checklistFichierCount} fichier(s) de preuve joints (checklists + écarts)`,
+      })
+    }
+    if (surveillance.rapport_signe_le) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Rapport signé',
+        date: surveillance.rapport_signe_le, acteur: surveillance.rapport_signe_par || 'Inspecteur', acteur_role: 'inspecteur',
+        fichiers: surveillance.rapport_sig_url ? [{ nom: `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_sig_url }] : [],
+        details: 'Rapport de surveillance signé',
+      })
+    }
+    if (surveillance.lettre_signee_url) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Lettre signée',
+        date: surveillance.date_fin || surveillance.updated_at, acteur: 'Inspecteur', acteur_role: 'inspecteur',
+        fichiers: [{ nom: `lettre_${surveillance.id}.pdf`, url: surveillance.lettre_signee_url }],
+        details: 'Lettre de transmission signée',
+      })
+    }
+    if (surveillance.transmitted_at) {
+      timeline.push({
+        id: crypto.randomUUID(), etape: 'Transmise à l\'exploitant',
+        date: surveillance.transmitted_at, acteur: 'Système', acteur_role: 'systeme',
+        details: 'Rapport transmis à l\'exploitant',
+      })
+    }
+
+    return {
+      type: 'surveillance',
+      reference: surveillance.id,
+      titre: `Surveillance ${aerodrome?.code_oaci || ''} — ${(surveillance.type || '').replace(/_/g, ' ')}`,
+      description: surveillance.observations || `Surveillance ${(surveillance.type || '').replace(/_/g, ' ')} archivée`,
+      date_entree: surveillance.date_debut,
+      aerodrome_id: surveillance.aerodrome_id,
+      fichiers,
+      timeline,
+      statut: 'valide',
+      auto_generated: true,
+      source_id: surveillance.id,
+      source_type: 'surveillance',
+      created_by: surveillance.created_by || '',
+    }
   },
 
-  /**
-   * Exporte les registres au format CSV
-   */
-  exporterCSV(registres: EntreeRegistre[], aerodromes: any[]): string {
-    const headers = ['Type', 'Référence', 'Date', 'Objet', 'Aérodrome', 'Statut', 'Signataire']
-    
-    const rows = registres.map(r => {
-      const aerodrome = aerodromes.find(a => a.id === r.aerodrome_id)
-      return [
-        r.type,
-        r.reference,
-        new Date(r.date_entree).toLocaleDateString('fr-FR'),
-        r.objet,
-        aerodrome ? `${aerodrome.code_oaci} - ${aerodrome.nom}` : 'N/A',
-        r.statut,
-        r.signataire_nom || ''
-      ]
-    })
-
-    return [headers, ...rows].map(row => row.join(';')).join('\n')
-  },
-
-  /**
-   * Vérifie si un registre est complet
-   */
-  estComplet(entree: EntreeRegistre): boolean {
-    return !!(
-      entree.reference &&
-      entree.objet &&
-      entree.description &&
-      entree.signataire_id
-    )
-  },
-
-  /**
-   * Obtient la couleur du badge selon le type
-   */
   getCouleurType(type: string): string {
     const couleurs: Record<string, string> = {
       'formation': 'bg-blue-100 text-blue-800',

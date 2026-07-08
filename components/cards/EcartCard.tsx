@@ -5,12 +5,14 @@ import { useState } from 'react'
 import { Brain } from 'lucide-react';
 import {
   AlertTriangle, AlertOctagon, AlertCircle, Flame, Info,
-  Calendar, Clock, Eye, FileText, CheckCircle2,
+  Calendar, Clock, Eye, FileText, CheckCircle2, PenSquare,
   Users, Send, History, Download, ChevronDown,
   Bell,
 } from 'lucide-react'
 import { plansActionsUtils } from '@/lib/plansActionsUtils'
-import { DomaineCode, getDomaineLabel, getDomaineInfo } from '@/lib/domaines'
+import type { DomaineCode } from '@/lib/domaines'
+import { getDomaineLabel, getDomaineInfo, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
+import { getCellColor } from '@/lib/risque'
 
 interface EcartCardProps {
   ecart: any
@@ -23,12 +25,15 @@ interface EcartCardProps {
   onRappel?: () => void
   onTimeline?: () => void
   onIaEvaluate?: (pacData: any) => void;
+  onValidationChef?: () => void;
   userRole: string
   userId: string
   urgent?: boolean
   compact?: boolean
   prioriteDynamique?: 'critique' | 'haute' | 'normale' | 'basse'
   raisonPriorite?: string
+  hideDomaine?: boolean
+  evalDraft?: any | null
 }
 
 export function EcartCard({
@@ -42,12 +47,15 @@ export function EcartCard({
   onRappel,
   onTimeline,
   onIaEvaluate,
+  onValidationChef,
   userRole,
   userId,
   urgent = false,
   compact = false,
   prioriteDynamique,
   raisonPriorite,
+  hideDomaine = false,
+  evalDraft,
 }: EcartCardProps) {
   const [showMenu, setShowMenu] = useState(false)
 
@@ -80,6 +88,7 @@ export function EcartCard({
       pac_accepte: { label: 'PAC accepté', cls: 'badge success' },
       preuves_soumises: { label: 'Preuves soumises', cls: 'badge primary' },
       preuves_evaluees: { label: 'Preuves évaluées', cls: 'badge warning' },
+      en_attente_validation_chef: { label: 'Attente validation chef', cls: 'badge warning animate-pulse' },
       en_retard: { label: 'En retard', cls: 'badge danger animate-pulse' },
       cloture: { label: 'Clôturé', cls: 'badge success' },
     }
@@ -93,21 +102,15 @@ export function EcartCard({
     return 'border-l-role-primary'
   }
 
-  const getCelluleBadgeStyle = (cellule: string): string => {
-    // Basé sur la probabilité (1er caractère de la cellule OACI)
-    const prob = parseInt(cellule.charAt(0)) || 3
-    // 5 = critique, 4 = eleve, 3 = moyen, 1-2 = faible
-    if (prob >= 5) return 'bg-red-600 text-white'
-    if (prob >= 4) return 'bg-amber-500 text-white'
-    if (prob >= 3) return 'bg-blue-500 text-white'
-    return 'bg-green-500 text-white'
-  }
+  const isValidOACI = (cellule: string | undefined | null): cellule is string => typeof cellule === 'string' && /^[1-5][A-E]$/.test(cellule);
 
   const niveauBadge = getBadgeNiveau(ecart.niveau_risque)
   const statutBadge = getBadgeStatut(ecart.statut)
   const borderColor = getBorderColor(ecart.niveau_risque, urgent, ecart.statut)
   const NiveauIcon = getIconeNiveau(ecart.niveau_risque)
-  const domaineCode = ecart.domaine as DomaineCode | undefined
+  const domaineLabel = ecart.domaine || '';
+  const domaineCode = DOMAINES_SURVEILLANCE.find((d: any) => d.code === domaineLabel)?.code ||
+                     DOMAINES_SURVEILLANCE.find((d: any) => d.label === domaineLabel)?.code || undefined;
   const domaineInfo = domaineCode ? getDomaineInfo(domaineCode) : null
 
   const { jours, depasse } = plansActionsUtils.getDelaiRestant(ecart)
@@ -118,7 +121,7 @@ export function EcartCard({
   const peutSoumettrePAC = (userRole === 'focal_operator' || userRole === 'dg_operator') &&
     ['ouvert', 'pac_refuse'].includes(ecart.statut)
   const peutSoumettrePreuves = (userRole === 'focal_operator' || userRole === 'dg_operator') &&
-    ['pac_accepte'].includes(ecart.statut)
+    ['pac_accepte', 'preuves_evaluees'].includes(ecart.statut)
 
   const getPrioriteDynamiqueBadge = () => {
     if (!prioriteDynamique) return null
@@ -138,16 +141,26 @@ export function EcartCard({
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className={`${niveauBadge.cls} flex items-center gap-1 text-[10px]`}>{NiveauIcon}</span>
-            {ecart.cellule_risque_oaci && (
+            {isValidOACI(ecart.cellule_risque_oaci) && (
               <span
-                className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCelluleBadgeStyle(ecart.cellule_risque_oaci)}`}
+                className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCellColor(ecart.cellule_risque_oaci)}`}
                 title={`Matrice OACI : ${ecart.cellule_risque_oaci}${ecart.justification_risque_ia ? ' — ' + ecart.justification_risque_ia.slice(0, 80) + '…' : ''}`}
               >
                 {ecart.cellule_risque_oaci}
               </span>
             )}
             <span className="code-oaci-badge text-xs">{ecart.reference}</span>
-            {domaineCode && domaineInfo && (
+            {ecart.evaluation_pac && (
+              <span className={`badge text-[9px] ${ecart.evaluation_pac.decision === 'accepte' ? 'success' : ecart.evaluation_pac.decision === 'reserve' ? 'warning' : 'danger'}`}>
+                PAC {ecart.evaluation_pac.decision === 'accepte' ? '✓' : ecart.evaluation_pac.decision === 'reserve' ? '⚠' : '✗'}
+              </span>
+            )}
+            {ecart.validation_preuves && (
+              <span className={`badge text-[9px] ${ecart.validation_preuves.decision === 'valide' ? 'success' : ecart.validation_preuves.decision === 'reserve' ? 'warning' : 'danger'}`}>
+                Preuves {ecart.validation_preuves.decision === 'valide' ? '✓' : ecart.validation_preuves.decision === 'reserve' ? '⚠' : '✗'}
+              </span>
+            )}
+            {!hideDomaine && domaineCode && domaineInfo && (
               <span className="badge teal text-[9px]">{domaineCode}</span>
             )}
             {getPrioriteDynamiqueBadge()}
@@ -160,6 +173,11 @@ export function EcartCard({
             <Clock className="w-3 h-3 inline mr-1" />{jours}j
           </span>
           <div className="flex items-center gap-1">
+            {ecart.statut === 'en_attente_validation_chef' && onValidationChef && (
+              <button className="action-button hover:text-amber-600 hover:bg-amber-50 transition-all duration-200" onClick={onValidationChef} title="Valider l'évaluation">
+                <CheckCircle2 className="w-3 h-3 text-amber-600" />
+              </button>
+            )}
             {onRappel && (
               <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={onRappel} title="Envoyer un rappel">
                 <Bell className="w-3 h-3" />
@@ -188,20 +206,33 @@ export function EcartCard({
                 {NiveauIcon}
                 {ecart.niveau_risque.toUpperCase()}
               </span>
-              {ecart.cellule_risque_oaci && (
+              {isValidOACI(ecart.cellule_risque_oaci) && (
                 <span
-                  className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wide ${getCelluleBadgeStyle(ecart.cellule_risque_oaci)}`}
+                  className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wide ${getCellColor(ecart.cellule_risque_oaci)}`}
                   title={ecart.justification_risque_ia ?? `Indice OACI : ${ecart.cellule_risque_oaci}`}
                 >
                   {ecart.cellule_risque_oaci}
                 </span>
               )}
               <span className={statutBadge.cls}>{statutBadge.label}</span>
+              {ecart.evaluation_pac && (
+                <span className={`badge text-xs ${ecart.evaluation_pac.decision === 'accepte' ? 'success' : ecart.evaluation_pac.decision === 'reserve' ? 'warning' : 'danger'}`}>
+                  PAC {ecart.evaluation_pac.decision === 'accepte' ? '✓' : ecart.evaluation_pac.decision === 'reserve' ? '⚠' : '✗'}
+                </span>
+              )}
+              {ecart.validation_preuves && (
+                <span className={`badge text-xs ${ecart.validation_preuves.decision === 'valide' ? 'success' : ecart.validation_preuves.decision === 'reserve' ? 'warning' : 'danger'}`}>
+                  Preuves {ecart.validation_preuves.decision === 'valide' ? '✓' : ecart.validation_preuves.decision === 'reserve' ? '⚠' : '✗'}
+                </span>
+              )}
               <span className="code-oaci-badge text-xs">{ecart.reference}</span>
-              {domaineCode && (
+              {!hideDomaine && domaineCode && (
                 <span className="badge teal">{domaineCode}</span>
               )}
-              {getPrioriteDynamiqueBadge()}
+            {getPrioriteDynamiqueBadge()}
+              {evalDraft && (
+                <span className="badge warning text-[9px] animate-pulse">Brouillon évaluation</span>
+              )}
               {raisonPriorite && (
                 <span className="text-[9px] text-muted-foreground" title={raisonPriorite}>
                   {raisonPriorite.substring(0, 30)}...
@@ -276,8 +307,8 @@ export function EcartCard({
                   </button>
                 )}
                 {peutEvaluer && onEvaluate && (
-                  <button className="action-button hover:text-success hover:bg-success/10 transition-all duration-200" onClick={onEvaluate} title="Évaluer">
-                    <CheckCircle2 className="w-4 h-4" />
+                  <button className={`action-button transition-all duration-200 ${evalDraft ? 'hover:text-warning hover:bg-warning/10' : 'hover:text-success hover:bg-success/10'}`} onClick={onEvaluate} title={evalDraft ? 'Modifier le brouillon' : 'Évaluer'}>
+                    {evalDraft ? <PenSquare className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                   </button>
                 )}
                 {peutSoumettrePAC && onSubmitPAC && (
@@ -288,6 +319,11 @@ export function EcartCard({
                 {peutSoumettrePreuves && onSubmitPreuves && (
                   <button className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200" onClick={onSubmitPreuves} title="Soumettre preuves">
                     <FileText className="w-4 h-4" />
+                  </button>
+                )}
+                {ecart.statut === 'en_attente_validation_chef' && onValidationChef && (
+                  <button className="action-button hover:text-amber-600 hover:bg-amber-50 transition-all duration-200" onClick={onValidationChef} title="Valider l'évaluation">
+                    <CheckCircle2 className="w-4 h-4 text-amber-600" />
                   </button>
                 )}
                 {onViewHistory && (

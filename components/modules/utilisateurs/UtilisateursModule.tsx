@@ -13,12 +13,11 @@ import {
   Mail,
   Phone,
   Clock,
-  Power,
+  CheckCircle2,
   Key,
   Shield,
   Building,
   Briefcase,
-  CheckCircle2,
   XCircle,
   AlertCircle,
   X,
@@ -29,6 +28,7 @@ import { useAppStore, type Utilisateur } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
 import { ROLES } from '@/lib/config';
+import { SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { UtilisateurForm } from '@/components/forms/UtilisateurForm';
 import { FormShell } from '@/components/ui/FormShell';
 
@@ -44,6 +44,7 @@ const TYPES_INSPECTEUR = [
   { id: 'cadre_technique', label: 'Cadre Technique' },
   { id: 'inspecteur_titulaire', label: 'Inspecteur Titulaire' },
   { id: 'inspecteur_principal', label: 'Inspecteur Principal' },
+  { id: 'inspecteur_stagiaire', label: 'Inspecteur Stagiaire' },
 ];
 
 // Services
@@ -70,7 +71,6 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const aerodromes = useAppStore(s => s.aerodromes)
   const deleteUtilisateur = useAppStore(s => s.deleteUtilisateur)
-  const updateUtilisateur = useAppStore(s => s.updateUtilisateur);
 
   // États
   const [searchTerm, setSearchTerm] = useState('');
@@ -156,22 +156,15 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) {
+    const user = listeUtilisateurs.find(u => u.id === id);
+    if (!user) return;
+    if (window.confirm(`Supprimer définitivement ${user.prenom} ${user.nom} ? Cette action est irréversible et supprimera le compte associé.`)) {
       await deleteUtilisateur(id);
     }
   };
 
   const handleResetPassword = (userId: string) => {
     alert('Fonctionnalité de réinitialisation de mot de passe à implémenter');
-  };
-
-  const handleToggleActif = (userId: string) => {
-    const user = listeUtilisateurs.find(u => u.id === userId);
-    if (!user) return;
-    const newStatut = user.statut === 'actif' ? 'inactif' : 'actif';
-    if (window.confirm(`${newStatut === 'actif' ? 'Activer' : 'Désactiver'} cet utilisateur ?`)) {
-      updateUtilisateur(userId, { ...user, statut: newStatut } as any);
-    }
   };
 
   return (
@@ -417,13 +410,6 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button
-                              className={`action-button ${user.statut === 'actif' ? 'hover:text-warning hover:bg-warning/10' : 'hover:text-success hover:bg-success/10'}`}
-                              onClick={() => handleToggleActif(user.id)}
-                              title={user.statut === 'actif' ? 'Désactiver' : 'Activer'}
-                            >
-                              <Power className={`w-4 h-4 ${user.statut === 'actif' ? 'text-success' : 'text-muted-foreground'}`} />
-                            </button>
-                            <button
                               className="action-button danger hover:bg-danger/10"
                               onClick={() => handleDelete(user.id)}
                               title="Supprimer"
@@ -512,13 +498,6 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
-                      className={`action-button ${user.statut === 'actif' ? 'hover:text-warning hover:bg-warning/10' : 'hover:text-success hover:bg-success/10'}`}
-                      onClick={() => handleToggleActif(user.id)}
-                      title={user.statut === 'actif' ? 'Désactiver' : 'Activer'}
-                    >
-                      <Power className={`w-4 h-4 ${user.statut === 'actif' ? 'text-success' : 'text-muted-foreground'}`} />
-                    </button>
-                    <button
                       className="action-button danger hover:bg-danger/10"
                       onClick={() => handleDelete(user.id)}
                       title="Supprimer"
@@ -542,6 +521,7 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
         dataRole={userRole}
       >
         <UtilisateurForm
+          key={selectedUtilisateur?.id || 'new'}
           mode={selectedUtilisateur ? 'modification' : 'creation'}
           utilisateurId={selectedUtilisateur?.id}
           onSuccess={() => { setShowForm(false); setSelectedUtilisateur(null); }}
@@ -619,19 +599,35 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
                     </p>
                   </div>
                   <div className="form-field">
-                    <p className="filter-label">Domaine principal</p>
-                    <p className="font-medium text-small capitalize">{(selectedUtilisateur as any).domaine_principal}</p>
+                    <p className="filter-label">Spécialité(s)</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {((selectedUtilisateur as any).specialites || []).length > 0
+                        ? (selectedUtilisateur as any).specialites.map((sp: string) => {
+                            const found = SPECIALITES_INSPECTEUR.find(s => s.code === sp)
+                            return <span key={sp} className="badge badge-info text-xs">{found?.label || sp}</span>
+                          })
+                        : <p className="font-medium text-small text-muted-foreground">Non définie</p>
+                      }
+                    </div>
                   </div>
                 </>
               )}
 
               {selectedUtilisateur.role.includes('operator') && selectedUtilisateur.aerodrome_id && (
-                <div className="form-field">
-                  <p className="filter-label">Aérodrome</p>
-                  <p className="font-medium text-small">
-                    {aerodromes.find(a => a.id === selectedUtilisateur.aerodrome_id)?.nom}
-                  </p>
-                </div>
+                <>
+                  <div className="form-field">
+                    <p className="filter-label">Aérodrome</p>
+                    <p className="font-medium text-small">
+                      {aerodromes.find(a => a.id === selectedUtilisateur.aerodrome_id)?.nom}
+                    </p>
+                  </div>
+                  {(selectedUtilisateur as any).notification_email && (
+                    <div className="form-field">
+                      <p className="filter-label">Email notification</p>
+                      <p className="font-medium text-small">{(selectedUtilisateur as any).notification_email}</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

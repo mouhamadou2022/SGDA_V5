@@ -50,10 +50,11 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist } from '@/lib/store';
+import { uploadFile } from '@/lib/datastore';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { kitUtils } from '@/lib/kitUtils';
 import { formatDate } from '@/lib/utils';
-import { kitDocAgent, generateKitChecklist, type KitChecklistResult, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
+import { kitDocAgent, generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
 import { expandDomaines } from '@/lib/domaines';
 
 interface KitInspecteurModuleProps {
@@ -137,6 +138,443 @@ const selectStyle = {
   backgroundRepeat: 'no-repeat'
 }
 
+// Cache mémoire pour les URLs blob (non persisté dans Zustand)
+const documentBlobUrls = new Map<string, string>()
+
+// Constantes de formulaire hissées hors du composant
+const DOMAINES_DISPONIBLES = [
+  { code: 'AGA', label: 'Tous les domaines (AGA)' },
+  { code: 'SGS', label: 'Système de Gestion de la Sécurité' },
+  { code: 'SLI', label: 'Sauvetage et Lutte Incendie' },
+  { code: 'PHY', label: 'Caractéristiques Physiques' },
+  { code: 'OLS', label: 'Surface de Limitation d\'Obstacles' },
+  { code: 'RA', label: 'Risque Animalier' },
+  { code: 'ELEC', label: 'Réseaux Électriques' },
+  { code: 'MFP', label: 'Marques, Feux et Panneaux' },
+  { code: 'COP', label: 'Compétences Organisationnelles et Personnels' },
+  { code: 'OPS', label: 'Procédures Opérationnelles' },
+];
+
+const TYPE_AERODROME_OPTIONS = [
+  { value: 'aerodrome', label: 'Aérodrome', description: 'Certification ANACIM complète' },
+  { value: 'helistation', label: 'Hélistation', description: 'Infrastructure héliportuaire' },
+  { value: 'mixte', label: 'Mixte', description: 'Aérodrome + Hélistation' },
+];
+
+const TYPE_SURVEILLANCE_OPTIONS = [
+  { value: 'periodique', label: 'Périodique', description: 'Surveillance planifiée régulière' },
+  { value: 'inopine', label: 'Inopinée', description: 'Surveillance sans préavis' },
+  { value: 'maintien', label: 'Maintien', description: 'Suivi des écarts et mesures correctives' },
+];
+
+/* ───────── Composants de modale extraits (module-level) ───────── */
+
+function FormModal({ showForm, setShowForm, resetForm, selectedDocument, isSubmitting, handleSubmit, formData, setFormData, formErrors, domainesOpen, setDomainesOpen, domainesRef, userRole, focusClass, selectStyle }: {
+  showForm: boolean; setShowForm: (v: boolean) => void; resetForm: () => void;
+  selectedDocument: KitDocument | null; isSubmitting: boolean;
+  handleSubmit: (e: React.FormEvent) => Promise<void>;
+  formData: any; setFormData: any; formErrors: Record<string, string>;
+  domainesOpen: boolean; setDomainesOpen: (v: boolean) => void; domainesRef: React.RefObject<HTMLDivElement | null>;
+  userRole: string; focusClass: string; selectStyle: React.CSSProperties;
+}) {
+  if (!showForm) return null;
+  return (
+    <FormShell
+      open={showForm}
+      onClose={() => { setShowForm(false); resetForm(); }}
+      title={selectedDocument ? 'Modifier le document' : 'Ajouter un document'}
+      icon={Briefcase}
+      size="3xl"
+      dataRole={userRole}
+      footer={
+        <>
+          <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>
+            Annuler
+          </button>
+          <button type="submit" form="kit-document-form" disabled={isSubmitting} className="btn btn-primary gap-2">
+            {isSubmitting ? 'Sauvegarde...' : (selectedDocument ? 'Modifier' : 'Ajouter')}
+          </button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-6" id="kit-document-form">
+        <div className="form-grid grid-cols-2 gap-4">
+          <div className="form-field col-span-2">
+            <label className="filter-label">
+              <FileText className="w-3 h-3 inline mr-1" />
+              Nom du document *
+            </label>
+            <input
+              type="text"
+              value={formData.nom}
+              onChange={(e) => setFormData({...formData, nom: e.target.value})}
+              placeholder="Ex: RAS 14 - Section 9.2"
+              className={`form-input w-full ${focusClass} ${formErrors.nom ? 'border-danger' : ''}`}
+            />
+            {formErrors.nom && <span className="field-error">{formErrors.nom}</span>}
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">Catégorie *</label>
+            <select
+              value={formData.type_document}
+              onChange={(e) => setFormData({...formData, type_document: e.target.value})}
+              className={`form-select w-full ${focusClass}`}
+              style={selectStyle}
+            >
+              {TYPES_DOCUMENTS.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">
+              <Brain className="w-3 h-3 inline mr-1" />
+              Type OACI / Référence
+            </label>
+            <select
+              value={formData.type_document_oaci}
+              onChange={(e) => setFormData({...formData, type_document_oaci: e.target.value as TypeDocumentOACI | ''})}
+              className={`form-select w-full ${focusClass}`}
+              style={selectStyle}
+            >
+              <option value="">— Sélectionner (optionnel) —</option>
+              {TYPES_OACI.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+            <p className="field-description">Améliore la détection automatique des références réglementaires</p>
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">Version *</label>
+            <input
+              type="text"
+              value={formData.version}
+              onChange={(e) => setFormData({...formData, version: e.target.value})}
+              placeholder="v1.0"
+              className={`form-input w-full ${focusClass} ${formErrors.version ? 'border-danger' : ''}`}
+            />
+            {formErrors.version && <span className="field-error">{formErrors.version}</span>}
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">Format</label>
+            <select
+              value={formData.format}
+              onChange={(e) => setFormData({...formData, format: e.target.value as FormatDocument})}
+              className={`form-select w-full ${focusClass}`}
+              style={selectStyle}
+            >
+              {FORMATS_FICHIER.map(f => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">
+              <Calendar className="w-3 h-3 inline mr-1" />
+              Date de révision *
+            </label>
+            <input
+              type="date"
+              value={formData.date_revision}
+              onChange={(e) => setFormData({...formData, date_revision: e.target.value})}
+              className={`form-input w-full ${focusClass}`}
+            />
+          </div>
+
+          <div className="form-field">
+            <label className="filter-label">
+              <RefreshCw className="w-3 h-3 inline mr-1" />
+              État *
+            </label>
+            <select
+              value={formData.etat}
+              onChange={(e) => setFormData({...formData, etat: e.target.value})}
+              className={`form-select w-full ${focusClass}`}
+              style={selectStyle}
+            >
+              {ETATS_DOCUMENT.map(e => (
+                <option key={e.id} value={e.id}>{e.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field col-span-2">
+            <label className="filter-label">
+              <Tag className="w-3 h-3 inline mr-1" />
+              Domaines concernés *
+            </label>
+            <div ref={domainesRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setDomainesOpen(!domainesOpen)}
+                className={`w-full h-10 flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-background text-foreground transition-all ${focusClass} ${formErrors.domaines ? 'border-danger' : ''} ${domainesOpen ? 'ring-2 ring-role-primary border-transparent' : ''}`}
+                style={selectStyle}
+              >
+                <span className={formData.domaines.length === 0 ? 'text-muted-foreground' : 'text-foreground'}>
+                  {formData.domaines.length === 0
+                    ? '-- Sélectionner des domaines --'
+                    : formData.domaines.map((d: string) => DOMAINES.find(o => o.id === d)?.label || d).join(', ')}
+                </span>
+                <ChevronDown className={`w-4 h-4 ml-2 transition-transform shrink-0 ${domainesOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {domainesOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
+                  <div className="max-h-60 overflow-y-auto">
+                    {DOMAINES.map(d => {
+                      const selected = formData.domaines.includes(d.id)
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              setFormData({...formData, domaines: formData.domaines.filter((id: string) => id !== d.id)})
+                            } else {
+                              setFormData({...formData, domaines: [...formData.domaines, d.id]})
+                            }
+                          }}
+                          className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${selected ? 'bg-role-primary-soft text-role-primary font-medium' : 'text-foreground hover:bg-role-primary-soft'}`}
+                        >
+                          {d.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            {formErrors.domaines && <span className="field-error">{formErrors.domaines}</span>}
+          </div>
+
+          <div className="form-field col-span-2">
+            <label className="filter-label">
+              <Tag className="w-3 h-3 inline mr-1" />
+              Mots-clés
+            </label>
+            <input
+              type="text"
+              value={formData.mots_cles.join(', ')}
+              onChange={(e) => setFormData({...formData, mots_cles: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)})}
+              placeholder="sgs, sécurité, inspection..."
+              className={`form-input w-full ${focusClass}`}
+            />
+            <p className="field-description">Séparés par des virgules</p>
+          </div>
+
+          <div className="form-field col-span-2">
+            <label className="filter-label">Résumé</label>
+            <textarea
+              value={formData.resume}
+              onChange={(e) => setFormData({...formData, resume: e.target.value})}
+              placeholder="Description succincte du document..."
+              rows={3}
+              className={`form-textarea w-full ${focusClass}`}
+            />
+          </div>
+
+          <div className="form-field col-span-2">
+            <label className="filter-label">
+              <Upload className="w-3 h-3 inline mr-1" />
+              Fichier *
+            </label>
+            <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-role-primary transition-colors">
+              <input
+                type="file"
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  if (e.target.files && e.target.files[0]) {
+                    setFormData({...formData, fichier: e.target.files[0]});
+                  }
+                }}
+                className="hidden"
+                id="kit-fichier"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+              />
+              <label htmlFor="kit-fichier" className="cursor-pointer flex flex-col items-center gap-2">
+                <Upload className="w-8 h-8 text-muted-foreground" />
+                <span className="text-small text-muted-foreground">
+                  {formData.fichier ? formData.fichier.name : (selectedDocument?.fichier_nom || 'Cliquez pour ajouter un fichier')}
+                </span>
+                <span className="text-xs text-muted-foreground">PDF, Word, Excel, PowerPoint (max 10 Mo)</span>
+              </label>
+            </div>
+            {formErrors.fichier && <span className="field-error">{formErrors.fichier}</span>}
+          </div>
+
+          <div className="flex items-center gap-3 p-3 bg-role-primary-soft rounded-xl col-span-2">
+            <input
+              type="checkbox"
+              id="accessible_exploitant"
+              checked={formData.accessible_exploitant}
+              onChange={(e) => setFormData({...formData, accessible_exploitant: e.target.checked})}
+              className="form-checkbox"
+            />
+            <label htmlFor="accessible_exploitant" className="text-small cursor-pointer">
+              Rendre accessible aux exploitants (visible dans leur portail)
+            </label>
+          </div>
+        </div>
+      </form>
+    </FormShell>
+  );
+}
+
+function DetailModal({ showDetails, selectedDocument, setShowDetails, handleDownload, getTypeIcon, getEtatBadge, formatTaille, userRole }: {
+  showDetails: boolean; selectedDocument: KitDocument | null;
+  setShowDetails: (v: boolean) => void;
+  handleDownload: (doc: any) => Promise<void>;
+  getTypeIcon: (typeId: string, className?: string) => React.ReactNode;
+  getEtatBadge: (etat: string) => React.ReactNode;
+  formatTaille: (taille: number) => string;
+  userRole: string;
+}) {
+  if (!showDetails || !selectedDocument) return null;
+  return (
+    <FormShell
+      open={showDetails}
+      onClose={() => setShowDetails(false)}
+      title="Détails du document"
+      icon={FileText}
+      size="2xl"
+      dataRole={userRole}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={() => setShowDetails(false)}>
+            Fermer
+          </button>
+          {selectedDocument?.ia_analyse_at && (
+            <div className="text-xs text-muted-foreground mb-2">
+              Analyse IA effectuée le {new Date(selectedDocument.ia_analyse_at).toLocaleDateString('fr-FR')}
+            </div>
+          )}
+          <button className="btn btn-primary gap-2" onClick={() => handleDownload(selectedDocument)}>
+            <Download className="w-4 h-4" />
+            Télécharger
+          </button>
+        </>
+      }
+    >
+      <>
+        <div className="flex items-center gap-3 p-4 bg-role-primary-soft rounded-xl mb-4">
+          {getTypeIcon(selectedDocument.type_document, "w-8 h-8")}
+          <div>
+            <h3 className="font-semibold text-foreground">{selectedDocument.nom}</h3>
+            <p className="text-small text-muted-foreground">{selectedDocument.resume}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Version</p>
+            <p className="font-medium text-foreground">{selectedDocument.version}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Date de révision</p>
+            <p className="font-medium text-foreground">{selectedDocument.date_revision ? new Date(selectedDocument.date_revision).toLocaleDateString('fr-FR') : '-'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">État</p>
+            <div>{getEtatBadge(selectedDocument.etat)}</div>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Taille</p>
+            <p className="font-medium text-foreground">{formatTaille(selectedDocument.fichier_taille)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Téléchargements</p>
+            <p className="font-medium text-foreground">{selectedDocument.telechargements}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Accès exploitant</p>
+            <span className={`badge ${selectedDocument.accessible_exploitant ? 'success' : 'neutral'}`}>
+              {selectedDocument.accessible_exploitant ? 'Oui' : 'Non'}
+            </span>
+          </div>
+          {selectedDocument.ia_analyse_at && (
+            <div className="col-span-2">
+              <p className="text-xs text-muted-foreground">Analyse IA</p>
+              <span className="badge success inline-flex items-center gap-1 mt-1">
+                <Sparkles className="w-3 h-3" />
+                Analyse effectuée le {new Date(selectedDocument.ia_analyse_at).toLocaleDateString('fr-FR')}
+              </span>
+            </div>
+          )}
+          <div className="col-span-2">
+            <p className="text-xs text-muted-foreground">Domaines</p>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {selectedDocument.domaines?.map((d: string) => (
+                <span key={d} className="badge outline">{d}</span>
+              ))}
+            </div>
+          </div>
+          {selectedDocument.mots_cles && selectedDocument.mots_cles.length > 0 && (
+            <div className="col-span-2">
+              <p className="text-xs text-muted-foreground">Mots-clés</p>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {selectedDocument.mots_cles.map((mot: string) => (
+                  <span key={mot} className="badge neutral text-[10px]">{mot}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </>
+    </FormShell>
+  );
+}
+
+function ShareModalAction({ showShareModal, selectedDocument, setShowShareModal, updateKitDocument, addNotification, user, userRole }: {
+  showShareModal: boolean; selectedDocument: KitDocument | null;
+  setShowShareModal: (v: boolean) => void;
+  updateKitDocument: (id: string, data: any) => void;
+  addNotification: any; user: any; userRole: string;
+}) {
+  if (!showShareModal || !selectedDocument) return null;
+  const handleToggleAccess = async () => {
+    await updateKitDocument(selectedDocument.id, { accessible_exploitant: !selectedDocument.accessible_exploitant } as any);
+    addNotification?.({
+      user_id: user?.id || '', type: 'success',
+      title: selectedDocument.accessible_exploitant ? 'Accès révoqué' : 'Accès accordé',
+      message: `Le document "${selectedDocument.nom}" n'est ${selectedDocument.accessible_exploitant ? 'plus' : 'maintenant'} visible par les exploitants.`,
+      canal: 'in_app',
+    });
+    setShowShareModal(false);
+  };
+  return (
+    <FormShell
+      open={showShareModal}
+      onClose={() => setShowShareModal(false)}
+      title="Partager avec les exploitants"
+      icon={Share2}
+      size="md"
+      dataRole={userRole}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={() => setShowShareModal(false)}>Annuler</button>
+          <button className="btn btn-primary" onClick={handleToggleAccess}>
+            {selectedDocument.accessible_exploitant ? 'Révoquer l\'accès' : 'Autoriser l\'accès'}
+          </button>
+        </>
+      }
+    >
+      <div className="alert alert-info">
+        <AlertCircle className="alert-icon" />
+        <div className="alert-content">
+          <div className="alert-title">Information</div>
+          <div className="alert-description">
+            Ce document est actuellement {selectedDocument.accessible_exploitant ? 'visible' : 'non visible'} pour les exploitants.
+          </div>
+        </div>
+      </div>
+    </FormShell>
+  );
+}
+
 export default function KitInspecteurModule({ userRole }: KitInspecteurModuleProps) {
   const kitDocuments = useAppStore(s => s.kitDocuments);
   const user = useAppStore(s => s.user);
@@ -188,7 +626,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const [showGenModal, setShowGenModal] = useState(false);
   const [genPortee, setGenPortee] = useState<string[]>([]);
   const [genLoading, setGenLoading] = useState(false);
-  const [genTypeAerodrome, setGenTypeAerodrome] = useState<'international' | 'national'>('national');
+  const [genTypeEntite, setGenTypeEntite] = useState<'aerodrome' | 'helistation' | 'mixte'>('aerodrome');
   const [genTypeSurveillance, setGenTypeSurveillance] = useState<'periodique' | 'inopine' | 'maintien'>('periodique');
   const [genInstructions, setGenInstructions] = useState('');
 
@@ -226,30 +664,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     return () => window.removeEventListener('keydown', handler)
   }, [showGenModal])
 
-  const DOMAINES_DISPONIBLES = [
-    { code: 'AGA', label: 'Tous les domaines (AGA)' },
-    { code: 'SGS', label: 'Système de Gestion de la Sécurité' },
-    { code: 'SLI', label: 'Sauvetage et Lutte Incendie' },
-    { code: 'PHY', label: 'Caractéristiques Physiques' },
-    { code: 'OLS', label: 'Surface de Limitation d\'Obstacles' },
-    { code: 'RA', label: 'Risque Animalier' },
-    { code: 'ELEC', label: 'Réseaux Électriques' },
-    { code: 'MFP', label: 'Marques, Feux et Panneaux' },
-    { code: 'COP', label: 'Compétences Organisationnelles et Personnels' },
-    { code: 'OPS', label: 'Procédures Opérationnelles' },
-  ];
-
-  const TYPE_AERODROME_OPTIONS = [
-    { value: 'international', label: 'International', description: 'Certification ANACIM complète' },
-    { value: 'national', label: 'National', description: 'Aérodrome domestique' },
-  ];
-
-  const TYPE_SURVEILLANCE_OPTIONS = [
-    { value: 'periodique', label: 'Périodique', description: 'Surveillance planifiée régulière' },
-    { value: 'inopine', label: 'Inopinée', description: 'Surveillance sans préavis' },
-    { value: 'maintien', label: 'Maintien', description: 'Suivi des écarts et mesures correctives' },
-  ];
-
   const handleGenerateChecklist = async () => {
     if (genPortee.length === 0) return
     setGenLoading(true)
@@ -262,17 +676,15 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       const version = existingIds.length + 1;
       const generationId = `CHCKLI-${domaineCode}-${mmYY}-${String(version).padStart(2, '0')}`;
       
-      const analysesDocs = kitDocAgent.getAnalysesForPortee(genPortee)
-      const typeEntite: 'aerodrome' | 'helistation' | 'mixte' = genTypeAerodrome === 'international' ? 'aerodrome' : 'aerodrome'
+      const typeEntite = genTypeEntite
 
-      const result = generateKitChecklist({
+      const result = await generateKitChecklist({
         surveillance_id: generationId,
         entite_id: 'master',
         type_entite: typeEntite,
         type_surveillance: genTypeSurveillance,
         portee: genPortee,
         profil_risque: undefined,
-        analyses_docs: analysesDocs.length > 0 ? analysesDocs : undefined,
       })
 
       const hierarchy = result.domaines.map((d, di) => ({
@@ -495,9 +907,25 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     if (!validerFormulaire()) return;
     setIsSubmitting(true);
     try {
+      let uploadError: string | null = null;
+      let storageUrl = selectedDocument?.fichier_url || '';
+
+      // Upload du fichier vers Supabase Storage si nouveau fichier sélectionné
+      if (formData.fichier) {
+        const path = `kit-documents/${crypto.randomUUID()}_${formData.fichier.name}`;
+        const { data: uploadResult, error: upErr } = await uploadFile('documents', path, formData.fichier);
+        if (upErr) {
+          uploadError = upErr;
+          console.warn('[KitInspecteur] Upload Storage échoué, fallback blob URL:', upErr);
+        } else {
+          storageUrl = uploadResult?.url || '';
+        }
+      }
+
       const fichierUrl = formData.fichier
-        ? URL.createObjectURL(formData.fichier)
-        : selectedDocument?.fichier_url;
+        ? (uploadError ? URL.createObjectURL(formData.fichier) : storageUrl)
+        : documentBlobUrls.get(selectedDocument!.id) || selectedDocument?.fichier_url;
+
       const documentData = {
         nom: formData.nom,
         type_document: formData.type_document,
@@ -507,7 +935,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         date_revision: formData.date_revision,
         etat: formData.etat,
         domaines: formData.domaines,
-        fichier_url: fichierUrl,
+        fichier_url: storageUrl,
         fichier_nom: formData.fichier?.name || selectedDocument?.fichier_nom,
         fichier_taille: formData.fichier?.size || selectedDocument?.fichier_taille,
         mots_cles: formData.mots_cles,
@@ -528,17 +956,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           created_at: new Date().toISOString(),
           created_by: user?.id || '',
         } as any;
-        await addKitDocument(newDoc);
-        const freshDocs = useAppStore.getState().kitDocuments;
-        const realDoc = freshDocs.find(d =>
-          d.nom === newDoc.nom &&
-          d.type_document === newDoc.type_document &&
-          d.created_by === (newDoc.created_by ?? '')
-        );
-        savedDoc = (realDoc ?? { ...newDoc, id: crypto.randomUUID?.() ?? `doc_${Date.now()}` }) as KitDocument;
-        if (!realDoc) {
-          console.warn('[KitInspecteur] Document non retrouvé dans le store après addKitDocument — ID local généré');
-        }
+        savedDoc = await addKitDocument(newDoc);
+      }
+
+      // URL blob fallback si l'upload Storage a échoué
+      if (savedDoc?.id && fichierUrl && formData.fichier && uploadError) {
+        documentBlobUrls.set(savedDoc.id, fichierUrl)
       }
 
       setShowForm(false);
@@ -579,7 +1002,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             console.warn('[KitInspecteur] Document ID invalide, analyse persistée en mémoire uniquement');
           }
 
-          useAppStore.getState().addNotification?.({
+          addNotification?.({
             user_id: user?.id || '',
             type: 'success',
             title: 'Analyse terminée',
@@ -646,8 +1069,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
   const handleDownload = async (doc: any) => {
     await incrementerTelechargement(doc.id);
-    if (doc.fichier_url) {
-      window.open(doc.fichier_url, '_blank');
+    const url = documentBlobUrls.get(doc.id) || doc.fichier_url;
+    if (url) {
+      window.open(url, '_blank');
     }
   };
 
@@ -663,371 +1087,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       default: return 'bg-gradient-to-r from-role-primary/5 to-transparent';
     }
   };
-
-  const FormModal = () => (
-    <FormShell
-      open={showForm}
-      onClose={() => { setShowForm(false); resetForm(); }}
-      title={selectedDocument ? 'Modifier le document' : 'Ajouter un document'}
-      icon={Briefcase}
-      size="3xl"
-      dataRole={userRole}
-      footer={
-        <>
-          <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>
-            Annuler
-          </button>
-          <button type="submit" form="kit-document-form" disabled={isSubmitting} className="btn btn-primary gap-2">
-            {isSubmitting ? 'Sauvegarde...' : (selectedDocument ? 'Modifier' : 'Ajouter')}
-          </button>
-        </>
-      }
-    >
-      <form onSubmit={handleSubmit} className="space-y-6" id="kit-document-form">
-        <div className="form-grid grid-cols-2 gap-4">
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <FileText className="w-3 h-3 inline mr-1" />
-              Nom du document *
-            </label>
-            <input
-              type="text"
-              value={formData.nom}
-              onChange={(e) => setFormData({...formData, nom: e.target.value})}
-              placeholder="Ex: RAS 14 - Section 9.2"
-              className={`form-input w-full ${focusClass} ${formErrors.nom ? 'border-danger' : ''}`}
-            />
-            {formErrors.nom && <span className="field-error">{formErrors.nom}</span>}
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Catégorie *</label>
-            <select
-              value={formData.type_document}
-              onChange={(e) => setFormData({...formData, type_document: e.target.value})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {TYPES_DOCUMENTS.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <Brain className="w-3 h-3 inline mr-1" />
-              Type OACI / Référence
-            </label>
-            <select
-              value={formData.type_document_oaci}
-              onChange={(e) => setFormData({...formData, type_document_oaci: e.target.value as TypeDocumentOACI | ''})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              <option value="">— Sélectionner (optionnel) —</option>
-              {TYPES_OACI.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-            <p className="field-description">Améliore la détection automatique des références réglementaires</p>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Version *</label>
-            <input
-              type="text"
-              value={formData.version}
-              onChange={(e) => setFormData({...formData, version: e.target.value})}
-              placeholder="v1.0"
-              className={`form-input w-full ${focusClass} ${formErrors.version ? 'border-danger' : ''}`}
-            />
-            {formErrors.version && <span className="field-error">{formErrors.version}</span>}
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Format</label>
-            <select
-              value={formData.format}
-              onChange={(e) => setFormData({...formData, format: e.target.value as FormatDocument})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {FORMATS_FICHIER.map(f => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <Calendar className="w-3 h-3 inline mr-1" />
-              Date de révision *
-            </label>
-            <input
-              type="date"
-              value={formData.date_revision}
-              onChange={(e) => setFormData({...formData, date_revision: e.target.value})}
-              className={`form-input w-full ${focusClass}`}
-            />
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <RefreshCw className="w-3 h-3 inline mr-1" />
-              État *
-            </label>
-            <select
-              value={formData.etat}
-              onChange={(e) => setFormData({...formData, etat: e.target.value})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {ETATS_DOCUMENT.map(e => (
-                <option key={e.id} value={e.id}>{e.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Tag className="w-3 h-3 inline mr-1" />
-              Domaines concernés *
-            </label>
-            <div ref={domainesRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setDomainesOpen(!domainesOpen)}
-                className={`w-full h-10 flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-background text-foreground transition-all ${focusClass} ${formErrors.domaines ? 'border-danger' : ''} ${domainesOpen ? 'ring-2 ring-role-primary border-transparent' : ''}`}
-                style={selectStyle}
-              >
-                <span className={formData.domaines.length === 0 ? 'text-muted-foreground' : 'text-foreground'}>
-                  {formData.domaines.length === 0
-                    ? '-- Sélectionner des domaines --'
-                    : formData.domaines.map(d => DOMAINES.find(o => o.id === d)?.label || d).join(', ')}
-                </span>
-                <ChevronDown className={`w-4 h-4 ml-2 transition-transform shrink-0 ${domainesOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {domainesOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
-                  <div className="max-h-60 overflow-y-auto">
-                    {DOMAINES.map(d => {
-                      const selected = formData.domaines.includes(d.id)
-                      return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => {
-                            if (selected) {
-                              setFormData({...formData, domaines: formData.domaines.filter(id => id !== d.id)})
-                            } else {
-                              setFormData({...formData, domaines: [...formData.domaines, d.id]})
-                            }
-                          }}
-                          className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${selected ? 'bg-role-primary-soft text-role-primary font-medium' : 'text-foreground hover:bg-role-primary-soft'}`}
-                        >
-                          {d.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-            {formErrors.domaines && <span className="field-error">{formErrors.domaines}</span>}
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Tag className="w-3 h-3 inline mr-1" />
-              Mots-clés
-            </label>
-            <input
-              type="text"
-              value={formData.mots_cles.join(', ')}
-              onChange={(e) => setFormData({...formData, mots_cles: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})}
-              placeholder="sgs, sécurité, inspection..."
-              className={`form-input w-full ${focusClass}`}
-            />
-            <p className="field-description">Séparés par des virgules</p>
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">Résumé</label>
-            <textarea
-              value={formData.resume}
-              onChange={(e) => setFormData({...formData, resume: e.target.value})}
-              placeholder="Description succincte du document..."
-              rows={3}
-              className={`form-textarea w-full ${focusClass}`}
-            />
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Upload className="w-3 h-3 inline mr-1" />
-              Fichier *
-            </label>
-            <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-role-primary transition-colors">
-              <input
-                type="file"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="kit-fichier"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-              />
-              <label htmlFor="kit-fichier" className="cursor-pointer flex flex-col items-center gap-2">
-                <Upload className="w-8 h-8 text-muted-foreground" />
-                <span className="text-small text-muted-foreground">
-                  {formData.fichier ? formData.fichier.name : (selectedDocument?.fichier_nom || 'Cliquez pour ajouter un fichier')}
-                </span>
-                <span className="text-xs text-muted-foreground">PDF, Word, Excel, PowerPoint (max 10 Mo)</span>
-              </label>
-            </div>
-            {formErrors.fichier && <span className="field-error">{formErrors.fichier}</span>}
-          </div>
-
-          <div className="flex items-center gap-3 p-3 bg-role-primary-soft rounded-xl col-span-2">
-            <input
-              type="checkbox"
-              id="accessible_exploitant"
-              checked={formData.accessible_exploitant}
-              onChange={(e) => setFormData({...formData, accessible_exploitant: e.target.checked})}
-              className="form-checkbox"
-            />
-            <label htmlFor="accessible_exploitant" className="text-small cursor-pointer">
-              Rendre accessible aux exploitants (visible dans leur portail)
-            </label>
-          </div>
-        </div>
-      </form>
-    </FormShell>
-  );
-
-  const DetailModal = () => (
-    <FormShell
-      open={showDetails && !!selectedDocument}
-      onClose={() => setShowDetails(false)}
-      title="Détails du document"
-      icon={FileText}
-      size="2xl"
-      dataRole={userRole}
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={() => setShowDetails(false)}>
-            Fermer
-          </button>
-          {selectedDocument?.ia_analyse_at && (
-            <div className="text-xs text-muted-foreground mb-2">
-              Analyse IA effectuée le {new Date(selectedDocument.ia_analyse_at).toLocaleDateString('fr-FR')}
-            </div>
-          )}
-          <button className="btn btn-primary gap-2" onClick={() => selectedDocument && handleDownload(selectedDocument)}>
-            <Download className="w-4 h-4" />
-            Télécharger
-          </button>
-        </>
-      }
-    >
-      {selectedDocument && (
-        <>
-          <div className="flex items-center gap-3 p-4 bg-role-primary-soft rounded-xl mb-4">
-            {getTypeIcon(selectedDocument.type_document, "w-8 h-8")}
-            <div>
-              <h3 className="font-semibold text-foreground">{selectedDocument.nom}</h3>
-              <p className="text-small text-muted-foreground">{selectedDocument.resume}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Version</p>
-              <p className="font-medium text-foreground">{selectedDocument.version}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Date de révision</p>
-              <p className="font-medium text-foreground">{selectedDocument.date_revision ? new Date(selectedDocument.date_revision).toLocaleDateString('fr-FR') : '-'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">État</p>
-              <div>{getEtatBadge(selectedDocument.etat)}</div>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Taille</p>
-              <p className="font-medium text-foreground">{formatTaille(selectedDocument.fichier_taille)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Téléchargements</p>
-              <p className="font-medium text-foreground">{selectedDocument.telechargements}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Accès exploitant</p>
-              <span className={`badge ${selectedDocument.accessible_exploitant ? 'success' : 'neutral'}`}>
-                {selectedDocument.accessible_exploitant ? 'Oui' : 'Non'}
-              </span>
-            </div>
-            {selectedDocument.ia_analyse_at && (
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">Analyse IA</p>
-                <span className="badge success inline-flex items-center gap-1 mt-1">
-                  <Sparkles className="w-3 h-3" />
-                  Analyse effectuée le {new Date(selectedDocument.ia_analyse_at).toLocaleDateString('fr-FR')}
-                </span>
-              </div>
-            )}
-            <div className="col-span-2">
-              <p className="text-xs text-muted-foreground">Domaines</p>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {selectedDocument.domaines?.map((d: string) => (
-                  <span key={d} className="badge outline">{d}</span>
-                ))}
-              </div>
-            </div>
-            {selectedDocument.mots_cles && selectedDocument.mots_cles.length > 0 && (
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">Mots-clés</p>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {selectedDocument.mots_cles.map((mot: string) => (
-                    <span key={mot} className="badge neutral text-[10px]">{mot}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </FormShell>
-  );
-
-  const ShareModal = () => (
-    <FormShell
-      open={showShareModal && !!selectedDocument}
-      onClose={() => setShowShareModal(false)}
-      title="Partager avec les exploitants"
-      icon={Share2}
-      size="md"
-      dataRole={userRole}
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={() => setShowShareModal(false)}>Annuler</button>
-          <button className="btn btn-primary">Modifier l'accès</button>
-        </>
-      }
-    >
-      {selectedDocument && (
-        <div className="alert alert-info">
-          <AlertCircle className="alert-icon" />
-          <div className="alert-content">
-            <div className="alert-title">Information</div>
-            <div className="alert-description">
-              Ce document est actuellement {selectedDocument.accessible_exploitant ? 'visible' : 'non visible'} pour les exploitants.
-            </div>
-          </div>
-        </div>
-      )}
-    </FormShell>
-  );
 
   const analyseCfg = {
     borderClass: 'border border-border',
@@ -1664,12 +1723,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                   <span className="text-xs font-medium text-blue-800">Mode génération manuelle — Vous contrôlez tout</span>
                 </div>
 
-                {/* Type d'aérodrome */}
+                {/* Type d'entité */}
                 <div>
-                  <label className="text-xs font-semibold text-foreground block mb-2">Type d'aérodrome</label>
+                  <label className="text-xs font-semibold text-foreground block mb-2">Type d'entité</label>
                   <select
-                    value={genTypeAerodrome}
-                    onChange={(e) => setGenTypeAerodrome(e.target.value as 'international' | 'national')}
+                    value={genTypeEntite}
+                    onChange={(e) => setGenTypeEntite(e.target.value as 'aerodrome' | 'helistation' | 'mixte')}
                     className="form-select w-full"
                   >
                     {TYPE_AERODROME_OPTIONS.map(opt => (
@@ -1848,10 +1907,20 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       )}
 
       </>)}
-      {/* Modales — appelées conditionnellement pour éviter la génération JSX inutile */}
-      {showForm && FormModal()}
-      {showDetails && DetailModal()}
-      {showShareModal && ShareModal()}
+      {/* Modales — vrais composants React (pas d'appels de fonction) */}
+      <FormModal showForm={showForm} setShowForm={setShowForm} resetForm={resetForm}
+        selectedDocument={selectedDocument} isSubmitting={isSubmitting}
+        handleSubmit={handleSubmit} formData={formData} setFormData={setFormData}
+        formErrors={formErrors} domainesOpen={domainesOpen} setDomainesOpen={setDomainesOpen}
+        domainesRef={domainesRef as React.RefObject<HTMLDivElement | null>}
+        userRole={userRole} focusClass={focusClass} selectStyle={selectStyle} />
+      <DetailModal showDetails={showDetails} selectedDocument={selectedDocument}
+        setShowDetails={setShowDetails} handleDownload={handleDownload}
+        getTypeIcon={getTypeIcon} getEtatBadge={getEtatBadge} formatTaille={formatTaille}
+        userRole={userRole} />
+      <ShareModalAction showShareModal={showShareModal} selectedDocument={selectedDocument}
+        setShowShareModal={setShowShareModal} updateKitDocument={updateKitDocument}
+        addNotification={addNotification} user={user} userRole={userRole} />
     </div>
   );
 }

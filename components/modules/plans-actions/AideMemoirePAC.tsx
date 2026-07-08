@@ -47,9 +47,9 @@ const PAC_CRITERES = [
   {
     id: 'realisme',
     label: 'Réalisme',
-    description: 'Les délais et ressources sont-ils réalistes ?',
-    bonExemple: 'Remplacement en 15j (délai réaliste pour commande + intervention)',
-    mauvaisExemple: 'Remplacement en 2j (impossible compte tenu des délais de livraison)',
+    description: 'Les actions sont-elles datées et documentées avec des livrables identifiables ?',
+    bonExemple: 'Dates, livrables, preuves de réalisation définis pour chaque action',
+    mauvaisExemple: 'Aucun livrable ni échéance spécifiée',
     icon: Calendar,
   },
   {
@@ -88,8 +88,8 @@ const PREUVES_CRITERES = [
     icon: Target,
   },
   {
-    id: 'tracabilite',
-    label: 'Traçabilité',
+    id: 'realisme',
+    label: 'Réalisme',
     description: 'Les preuves sont-elles datées et signées ?',
     bonExemple: 'Document daté et signé par le responsable',
     mauvaisExemple: 'Document sans date ni signature',

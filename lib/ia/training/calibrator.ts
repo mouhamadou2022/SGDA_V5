@@ -319,10 +319,10 @@ export class ModelCalibrator {
     const scores = Object.values(profilsRisque).map(p => p.score_global)
     
     const foldSize = Math.floor(scores.length / k)
-    let totalAccuracy = 0
-    let totalPrecision = 0
-    let totalRecall = 0
-    let totalF1 = 0
+    const totalAccuracy = 0
+    const totalPrecision = 0
+    const totalRecall = 0
+    const totalF1 = 0
     let totalMAE = 0
     let totalRMSE = 0
     

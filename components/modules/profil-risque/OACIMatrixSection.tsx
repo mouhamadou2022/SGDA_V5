@@ -3,15 +3,17 @@
 
 'use client'
 
-import { ProfilRisque, Ecart } from '@/lib/store'
+import { useMemo } from 'react'
+import { ProfilRisque, Ecart, EvenementSecurite } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { getRiskLevelFromCell5 } from '@/lib/risque'
-import { Target } from 'lucide-react'
+import { getRiskLevelFromCell5, computeICaoMatrix, getICaoLabels } from '@/lib/risque'
+import { Target, Sparkles } from 'lucide-react'
 
 interface OACIMatrixSectionProps {
   profil: ProfilRisque
   ecarts: Ecart[]
   surveillances: any[]
+  evenements?: EvenementSecurite[]
 }
 
 const PROBABILITIES = [5, 4, 3, 2, 1] as const
@@ -87,7 +89,34 @@ function getNiveauBadgeClass(niveau: string): string {
   return classes[niveau] || 'badge neutral'
 }
 
-export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixSectionProps) {
+function getNiveauColor(n: string): string {
+  switch (n) {
+    case 'critique': return 'var(--color-danger)'
+    case 'eleve': return 'var(--color-warning)'
+    case 'moyen': return 'var(--color-primary)'
+    case 'faible': return 'var(--color-success)'
+    default: return 'var(--color-neutral)'
+  }
+}
+
+const NIVEAU_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  critique: { label: 'Critique', color: 'danger', bg: 'bg-danger' },
+  eleve: { label: 'Élevé', color: 'warning', bg: 'bg-warning' },
+  moyen: { label: 'Moyen', color: 'primary', bg: 'bg-primary' },
+  faible: { label: 'Faible', color: 'success', bg: 'bg-success' },
+}
+
+const PROBA_LABELS: Record<string, string> = {
+  frequente: 'Fréquente', probable: 'Probable', occasionnelle: 'Occasionnelle',
+  improbable: 'Improbable', tres_improbable: 'Très improbable',
+}
+
+const SEV_LABELS: Record<string, string> = {
+  catastrophique: 'Catastrophique', critique: 'Critique', majeur: 'Majeur',
+  mineur: 'Mineur', negligeable: 'Négligeable',
+}
+
+export function OACIMatrixSection({ profil, ecarts, surveillances, evenements }: OACIMatrixSectionProps) {
   // Build lookup: cellKey → Ecart[]
   const cellMap = new Map<CellKey, Ecart[]>()
   for (const ecart of ecarts) {
@@ -119,8 +148,64 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
     levelCounts[meta.niveau] += 1
   }
 
+  // ICAO dynamic matrix from evenements
+  const icaoMatrix = useMemo(() => {
+    if (!evenements || evenements.length === 0) return null
+    return computeICaoMatrix(evenements)
+  }, [evenements])
+  const icaoLabels = useMemo(() => getICaoLabels(), [])
+
   return (
     <div className="space-y-5">
+      {/* ICAO dynamic matrix card */}
+      {icaoMatrix && icaoMatrix.size > 0 && (
+        <Card variant="role" title="Matrice risque ICAO dynamique (Doc 9859)" icon={<Sparkles className="w-4 h-4" />}>
+          <p className="text-xs text-foreground mb-3">Calculée automatiquement à partir de la fréquence et gravité observées des événements de sécurité.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-center text-xs">
+              <thead>
+                <tr>
+                  <th className="p-2 text-foreground font-medium text-left">Type d'événement</th>
+                  <th className="p-2 text-foreground font-medium">Fréq./an</th>
+                  <th className="p-2 text-foreground font-medium">Probabilité</th>
+                  <th className="p-2 text-foreground font-medium">Grav. moy.</th>
+                  <th className="p-2 text-foreground font-medium">Sévérité</th>
+                  <th className="p-2 text-foreground font-medium">Niveau risque</th>
+                  <th className="p-2 text-foreground font-medium">Nb</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...icaoMatrix.entries()].map(([type, cell]) => {
+                  const nivCfg = NIVEAU_LABELS[cell.niveau] || NIVEAU_LABELS.faible
+                  return (
+                    <tr key={type} className="border-b border-border/50">
+                      <td className="p-2 text-left text-foreground font-medium">{type.replace(/_/g, ' ')}</td>
+                      <td className="p-2 text-foreground">{cell.freqObservee}</td>
+                      <td className="p-2 text-foreground">{PROBA_LABELS[cell.probabilite] || cell.probabilite}</td>
+                      <td className="p-2 text-foreground">{cell.graviteMoyenne}</td>
+                      <td className="p-2 text-foreground">{SEV_LABELS[cell.severite] || cell.severite}</td>
+                      <td className="p-2">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold text-white ${nivCfg.bg}`}>{nivCfg.label}</span>
+                      </td>
+                      <td className="p-2 text-foreground">{cell.nbEvenements}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Légende */}
+          <div className="flex flex-wrap gap-3 mt-3 pt-2 border-t border-border">
+            {icaoLabels.niveaux.map((n: { value: string; label: string; color: string }) => (
+              <div key={n.value} className="flex items-center gap-1.5 text-xs text-foreground">
+                <div className={`w-3 h-3 rounded ${n.color === 'danger' ? 'bg-danger' : n.color === 'warning' ? 'bg-warning' : n.color === 'primary' ? 'bg-primary' : 'bg-success'}`} />
+                {n.label}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Summary stats */}
       <div className="flex flex-wrap gap-3">
         {(['critique', 'eleve', 'moyen', 'faible', 'tres_faible'] as const).map((niveau) => {
@@ -163,7 +248,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
                   <th key={g} className="p-2 text-foreground font-bold text-sm">
                     {g}
                     <div className="text-[10px] font-normal text-foreground">
-                      {g === 'A' ? 'Catastrophique' : g === 'B' ? 'Dangereux' : g === 'C' ? 'Majeur' : g === 'D' ? 'Significatif' : 'Négligeable'}
+                      {g === 'A' ? 'Catastrophique' : g === 'B' ? 'Dangereux' : g === 'C' ? 'Majeur' : g === 'D' ? 'Mineur' : 'Négligeable'}
                     </div>
                   </th>
                 ))}
@@ -175,7 +260,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
                   <td className="p-2 text-foreground font-bold text-sm">
                     {prob}
                     <div className="text-[10px] font-normal text-foreground">
-                      {prob === 5 ? 'Fréquent' : prob === 4 ? 'Occasionnel' : prob === 3 ? 'Rare' : prob === 2 ? 'Très rare' : 'Exceptionnel'}
+                      {prob === 5 ? 'Fréquent' : prob === 4 ? 'Occasionnel' : prob === 3 ? 'Faible' : prob === 2 ? 'Improbable' : 'Extrêmement improbable'}
                     </div>
                   </td>
                   {GRAVITIES.map((grav) => {
@@ -282,7 +367,7 @@ export function OACIMatrixSection({ profil, ecarts, surveillances }: OACIMatrixS
               {getNiveauLabel(getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).niveau)}
             </span>
             <span className="text-xs text-foreground">
-              (P={derivedCell[0]} = {getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 5 ? 'Fréquent' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 4 ? 'Occasionnel' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 3 ? 'Rare' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 2 ? 'Très rare' : 'Exceptionnel'}, G={derivedCell[1]})
+              (P={derivedCell[0]} = {getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 5 ? 'Fréquent' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 4 ? 'Occasionnel' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 3 ? 'Faible' : getCellMeta(parseInt(derivedCell[0]), derivedCell[1] as Gravite).prob === 2 ? 'Improbable' : 'Extrêmement improbable'}, G={derivedCell[1]})
             </span>
           </div>
         </Card>

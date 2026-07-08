@@ -2,6 +2,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import {
   Scale,
   ShieldCheck,
@@ -29,8 +31,8 @@ import {
   Brain,
   Loader2,
   BarChart3,
-  List,
-  Archive,
+  Filter,
+  ChevronRight,
 } from 'lucide-react';
 
 import { useAppStore, Homologation, Aerodrome, Planning } from '@/lib/store';
@@ -43,7 +45,6 @@ import { getPhaseStats as getHomoPhaseStats } from '@/lib/homologationUtils';
 import { CertificationDocumentUpload } from '../certification/CertificationDocumentUpload';
 import { SignatureSection } from '../signatures/SignatureSection';
 import { LettreTransmissionUpload } from '@/components/ui/LettreTransmissionUpload';
-import { HomoDashboard } from './HomoDashboard';
 import { ExemptionManager } from '../exemptions/ExemptionManager';
 import { ArchiveAccordion } from '../archive/ArchiveAccordion';
 import { PhaseDocsModal } from '../certification/PhaseDocsModal';
@@ -84,6 +85,7 @@ interface PhaseCardProps {
   onManageExemptions?: () => void;
   lastActivity: string | null;
   daysInactive: number;
+  surveillanceBadge?: React.ReactNode;
 }
 
 type HomologationPhaseDataLocal =
@@ -124,19 +126,23 @@ function PhaseCard({
   onNotify,
   onManageExemptions,
   lastActivity,
-  daysInactive
+  daysInactive,
+  surveillanceBadge
 }: PhaseCardProps) {
   const getProgressValue = () => {
     if (isCompleted) return 100;
     if (isActive) {
       if (data?.completude) return data.completude;
+      if (!data?.date_reception && phase > 1) return 75;
       return 50;
     }
     return 0;
   };
 
   const getStatusBadge = () => {
+    if (surveillanceBadge) return surveillanceBadge;
     if (isCompleted) return <span className="badge success">Complété</span>;
+    if (isActive && !data?.date_reception && phase > 1) return <span className="badge warning">En attente exploitant</span>;
     if (isActive) return <span className="badge primary pulse">En cours</span>;
     if (isLocked) return <span className="badge neutral">Verrouillé</span>;
     if (daysInactive > 60) return <span className="badge danger pulse">Bloqué</span>;
@@ -313,10 +319,23 @@ function PhaseModal({
     phaseData.inspecteur_fichiers || []
   );
   const [isDeciding, setIsDeciding] = useState(false);
+  const today = new Date().toISOString().split('T')[0];
+  const dateError = phaseData.date_fin && phaseData.date_debut && phaseData.date_fin <= phaseData.date_debut
+    ? 'La date de fin doit être postérieure à la date de début'
+    : phaseData.date_debut && phaseData.date_debut < today
+    ? 'La date de début ne peut pas être dans le passé'
+    : null;
   const addPlanning = useAppStore(s => s.addPlanning);
   const addSurveillance = useAppStore(s => s.addSurveillance);
   const addNotification = useAppStore(s => s.addNotification);
   const utilisateurs = useAppStore(s => s.utilisateurs);
+  const surveillances = useAppStore(s => s.surveillances);
+  const ecarts = useAppStore(s => s.ecarts);
+  const exemptions = useAppStore(s => s.exemptions);
+  const checklistItemsMap = useAppStore(s => s.checklistItems);
+  const setActiveModule = useAppStore(s => s.setActiveModule);
+  const router = useRouter();
+  const [showTypeChoice, setShowTypeChoice] = useState<'standard' | 'sgs' | null>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -403,10 +422,10 @@ function PhaseModal({
       aerodrome_id: aerodrome.id,
       type: 'homologation',
       date_debut: today,
-      date_fin: '',
-      portee: [],
+      date_fin: today,
+      portee: ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'],
       equipe_ids: [],
-      chef_id: '',
+      chef_id: null as any,
       statut: 'planifiee',
       priorite: 'haute',
       declencheur: 'automatique',
@@ -418,21 +437,9 @@ function PhaseModal({
     };
     await addPlanning(planning);
 
-    const surveillance = await addSurveillance({
-      aerodrome_id: aerodrome.id,
-      planning_id: planningId,
-      type: 'homologation',
-      portee: [],
-      equipe_ids: [],
-      chef_id: '',
-      date_debut: today,
-      date_fin: '',
-      statut: 'planifiee',
-    });
-
     setPhaseData(prev => ({
       ...prev,
-      surveillance_id: surveillance.id,
+      planning_id: planningId,
       date_verification: today,
     }));
 
@@ -451,13 +458,21 @@ function PhaseModal({
     });
   };
 
-  const isPhase1Workflow = phase === 1 && !!phaseData.statut;
+  const hasWorkflow = !!phaseData.statut && (phase === 1 || phase === 2);
 
   const canAdvance = useMemo(() => {
-    if (phase === 2) return phaseData.conclusion === 'favorable' || phaseData.conclusion === 'favorable_conditions';
+    if (phase === 2) {
+      const surv = surveillances.find(s => s.id === phaseData.surveillance_id);
+      const isTransmise = surv?.statut === 'transmise';
+      const related = ecarts.filter(e => e.surveillance_id === phaseData.surveillance_id);
+      const allPacAccepted = related.length === 0 || related.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+      const homoExemps = exemptions.filter(e => e.parent_id === homologation?.id);
+      const allExemptionsEval = homoExemps.length === 0 || homoExemps.every(e => e.avis_final !== undefined);
+      return !!phaseData.date_debut && !!phaseData.date_fin && !dateError && !!phaseData.chef_id && isTransmise && allPacAccepted && allExemptionsEval && (phaseData.conclusion === 'favorable' || phaseData.conclusion === 'favorable_conditions');
+    }
     if (phase === 3) return false;
     return true;
-  }, [phase, phaseData]);
+  }, [phase, phaseData, surveillances, ecarts, exemptions, homologation]);
 
   const handleSave = async (advance?: boolean | React.MouseEvent) => {
     setIsSubmitting(true);
@@ -517,11 +532,35 @@ function PhaseModal({
                   <p className="text-sm text-foreground whitespace-pre-wrap">{phaseData.description}</p>
                 </div>
               )}
-              {phaseData.lettre_intent_url && (
-                <button type="button" className="btn btn-secondary gap-2 text-sm mt-3" onClick={() => window.open(phaseData.lettre_intent_url, '_blank')}>
-                  <FileText className="w-4 h-4" />Voir le dossier
-                </button>
-              )}
+              {phaseData.lettre_intent_url || phaseData.inspecteur_fichiers?.length ? (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-2 font-medium">Documents</p>
+                  <div className="space-y-2">
+                    {phaseData.lettre_intent_url && (
+                      <div className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-primary shrink-0" />
+                          <span className="text-sm truncate">{phaseData.lettre_intent_name || phaseData.lettre_intent_url.split('/').pop()?.replace(/^\d+_/, '') || 'Dossier de demande'}</span>
+                        </div>
+                        <a href={phaseData.lettre_intent_url} target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                      </div>
+                    )}
+                    {phaseData.inspecteur_fichiers?.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm truncate">{f.nom || `Fichier ${i + 1}`}</span>
+                        </div>
+                        <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {phaseData.date_accuse_reception && (
                 <p className="text-xs text-muted mt-2">Accusé réception: {new Date(phaseData.date_accuse_reception).toLocaleDateString('fr-FR')}</p>
               )}
@@ -615,7 +654,21 @@ function PhaseModal({
         );
       }
 
-      case 2:
+      case 2: {
+        const surv = surveillances.find(s => s.id === phaseData.surveillance_id);
+        const isTransmise = surv?.statut === 'transmise';
+        const checklistItems = checklistItemsMap?.[phaseData.surveillance_id || ''] || [];
+        const saCount = checklistItems.filter(i => i.resultat === 'SA').length;
+        const nvCount = checklistItems.filter(i => i.resultat === 'NV').length;
+        const nsCount = checklistItems.filter(i => i.resultat === 'NS').length;
+        const denominator = saCount + nvCount + nsCount;
+        const tcScore = denominator > 0 ? Math.round((saCount / denominator) * 100) : surv?.score_global ?? 0;
+        const relatedEcarts = ecarts.filter(e => e.surveillance_id === phaseData.surveillance_id);
+        const allPacAccepted = relatedEcarts.length === 0 || relatedEcarts.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+        const homoExemptions = exemptions.filter(e => e.parent_id === homologation?.id);
+        const allExemptionsEval = homoExemptions.length === 0 || homoExemptions.every(e => e.avis_final !== undefined);
+        const conclusionUnlocked = isTransmise && allPacAccepted && allExemptionsEval;
+
         return (
           <div className="space-y-5 animate-fade-up">
             <div className="p-5 bg-gradient-to-br from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-2xl">
@@ -628,17 +681,44 @@ function PhaseModal({
                   <p className="text-xs text-muted-foreground">Phase 2 — Visite de vérification terrain</p>
                 </div>
               </div>
-              {!phaseData.surveillance_id && (
+              {!phaseData.surveillance_id && !phaseData.planning_id && (
                 <div className="alert alert-info">
                   <AlertCircle className="alert-icon" />
                   <div className="alert-content">
                     <div className="alert-title">Surveillance requise</div>
                     <div className="alert-description mb-3">
-                      Cette phase nécessite une surveillance sur site. Créez-la pour commencer.
+                      Créez un planning de surveillance. Rendez-vous ensuite dans le module <strong>Planning</strong> pour lancer la surveillance.
                     </div>
                     <button type="button" onClick={handleCreateSurveillance} className="btn btn-primary gap-2 shadow-role-glow">
-                      <Calendar className="h-4 w-4" />Créer la surveillance associée
+                      <Calendar className="h-4 w-4" />Créer le planning
                     </button>
+                  </div>
+                </div>
+              )}
+              {phaseData.planning_id && !phaseData.surveillance_id && (
+                <div className="alert alert-warning">
+                  <Clock className="alert-icon" />
+                  <div className="alert-content">
+                    <div className="alert-title">Planning créé</div>
+                    <div className="alert-description mb-3">
+                      Le planning a été créé. Lancez la surveillance depuis le module <strong>Planning</strong>.
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setActiveModule('planning')} className="btn btn-primary gap-2">
+                        <Calendar className="h-4 w-4" />Aller au module Planning
+                      </button>
+                      <button type="button" onClick={() => {
+                        const planningPortee = ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'];
+                        const hasSGS = planningPortee.includes('SGS');
+                        if (hasSGS) {
+                          setShowTypeChoice('standard');
+                        } else {
+                          router.push(`/preparation-checklist/${phaseData.planning_id}?type=standard`);
+                        }
+                      }} className="btn btn-outline gap-2">
+                        <ClipboardList className="h-4 w-4" />Préparer la checklist
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -647,7 +727,26 @@ function PhaseModal({
                   <CheckCircle2 className="alert-icon" />
                   <div className="alert-content">
                     <div className="alert-title">Surveillance créée</div>
-                    <span className="text-sm">Utilisez le module Planning pour la préparer et la lancer.</span>
+                    <span className="text-sm">Statut: <strong>{surv?.statut === 'transmise' ? 'Transmise à l\'exploitant' : surv?.statut ? surv.statut.replace(/_/g, ' ') : '—'}</strong></span>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => {
+                        const survPortee = surv?.portee || [];
+                        const hasSGS = survPortee.includes('SGS');
+                        const isSgsOnly = survPortee.length === 1 && survPortee[0] === 'SGS';
+                        if (hasSGS && !isSgsOnly) {
+                          setShowTypeChoice('standard');
+                        } else if (isSgsOnly) {
+                          router.push(`/surveillance/${phaseData.surveillance_id}/checklist?type=sgs`);
+                        } else {
+                          router.push(`/surveillance/${phaseData.surveillance_id}/checklist?type=standard`);
+                        }
+                      }} className="btn btn-sm btn-primary gap-1 mt-1">
+                        <ClipboardList className="h-3.5 w-3.5" />Ouvrir la checklist
+                      </button>
+                      <button type="button" onClick={() => router.push(`/surveillance/${phaseData.surveillance_id}`)} className="btn btn-sm btn-outline gap-1 mt-1">
+                        <Eye className="h-3.5 w-3.5" />Détails surveillance
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -655,45 +754,68 @@ function PhaseModal({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="form-field">
-                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date vérification</label>
-                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_verification || ''} onChange={(e) => setPhaseData({ ...phaseData, date_verification: e.target.value })} disabled={isLocked || isCompleted} />
+                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date début *</label>
+                <input type="date" className={`form-input ${focusClass}`} min={today} max={phaseData.date_fin || undefined} value={phaseData.date_debut || phaseData.date_verification || ''} onChange={(e) => setPhaseData({ ...phaseData, date_debut: e.target.value })} disabled={isLocked || isCompleted} />
               </div>
               <div className="form-field">
-                <label className="filter-label"><BarChart3 className="h-3.5 w-3.5 mr-1 inline" />Score conformité</label>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted">Score</span>
-                    <span className={`font-semibold ${(phaseData.score_conformite || 0) >= 80 ? 'text-success' : (phaseData.score_conformite || 0) >= 60 ? 'text-warning' : 'text-danger'}`}>
-                      {phaseData.score_conformite || 0}%
-                    </span>
-                  </div>
-                  <input type="range" min="0" max="100" step="5" value={phaseData.score_conformite || 0} onChange={(e) => setPhaseData({ ...phaseData, score_conformite: parseInt(e.target.value) })} disabled={isLocked || isCompleted} className="w-full accent-role-primary" />
-                  <div className="progress h-1.5">
-                    <div className={`progress-bar ${(phaseData.score_conformite || 0) >= 80 ? 'progress-moyen' : (phaseData.score_conformite || 0) >= 60 ? 'progress-eleve' : 'progress-critique'}`} style={{ width: `${phaseData.score_conformite || 0}%` }} />
-                  </div>
+                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date fin *</label>
+                <input type="date" className={`form-input ${focusClass}`} min={phaseData.date_debut || today} value={phaseData.date_fin || ''} onChange={(e) => setPhaseData({ ...phaseData, date_fin: e.target.value })} disabled={isLocked || isCompleted} />
+              </div>
+            </div>
+
+            {dateError && !isLocked && !isCompleted && (
+              <div className="alert alert-warning p-2 text-xs">
+                <AlertCircle className="alert-icon w-3.5 h-3.5" />
+                <span>{dateError}</span>
+              </div>
+            )}
+
+            {/* Équipe de surveillance */}
+            <div className="p-4 bg-card border border-border rounded-xl">
+              <label className="filter-label mb-3"><Users className="h-3.5 w-3.5 mr-1 inline" />Équipe de surveillance</label>
+              <div className="space-y-3">
+                <div className="form-field">
+                  <label className="text-xs text-muted-foreground">Chef d'équipe *</label>
+                  <select className={`form-select ${focusClass}`} style={selectStyle} value={phaseData.chef_id || ''} onChange={(e) => setPhaseData({ ...phaseData, chef_id: e.target.value })} disabled={isLocked || isCompleted}>
+                    <option value="">Sélectionner</option>
+                    {utilisateurs.filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)).map(u => (
+                      <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {utilisateurs.filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)).map(u => (
+                    <button key={u.id} type="button"
+                      onClick={() => { const current = phaseData.equipe_ids || []; const next = current.includes(u.id) ? current.filter((i: string) => i !== u.id) : [...current, u.id]; setPhaseData({ ...phaseData, equipe_ids: next }); }}
+                      disabled={isLocked || isCompleted}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${phaseData.equipe_ids?.includes(u.id) ? 'bg-role-gradient text-white shadow-role-glow' : 'btn btn-secondary'}`}>
+                      {u.prenom} {u.nom}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
 
-            <div className="p-4 bg-card border border-border rounded-xl">
-              <label className="filter-label"><User className="h-3.5 w-3.5 mr-1 inline" />Chef d'équipe</label>
-              <select className={`form-select w-full mt-1 ${focusClass}`} style={selectStyle} value={phaseData.chef_id || ''} onChange={(e) => { const chefId = e.target.value; const chefNom = e.target.options[e.target.selectedIndex]?.text; setPhaseData({ ...phaseData, chef_id: chefId, chef_nom: chefNom }); }} disabled={isLocked || isCompleted}>
-                <option value="">Sélectionner le chef d'équipe</option>
-                {utilisateurs.filter(u => u.role === 'inspector' || u.role === 'superviseur').map(u => (
-                  <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="p-4 bg-card border border-border rounded-xl">
-              <label className="filter-label"><Users className="h-3.5 w-3.5 mr-1 inline" />Membres de l'équipe</label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {utilisateurs.filter(u => u.role === 'inspector' || u.role === 'superviseur').map(u => (
-                  <button key={u.id} type="button" onClick={() => { const current = phaseData.equipe_ids || []; const newEquipe = current.includes(u.id) ? current.filter((i: string) => i !== u.id) : [...current, u.id]; setPhaseData({ ...phaseData, equipe_ids: newEquipe }); }} disabled={isLocked || isCompleted}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${phaseData.equipe_ids?.includes(u.id) ? 'bg-role-gradient text-white shadow-role-glow' : 'btn btn-secondary'}`}>
-                    {u.prenom} {u.nom}
-                  </button>
-                ))}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="form-field">
+                <label className="filter-label"><BarChart3 className="h-3.5 w-3.5 mr-1 inline" />Score conformité</label>
+                <div className="p-4 bg-background rounded-xl border border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">TC = SA / (SA + NV + NS)</span>
+                    <span className={`text-2xl font-bold ${tcScore >= 80 ? 'text-success' : tcScore >= 60 ? 'text-warning' : 'text-danger'}`}>
+                      {tcScore}%
+                    </span>
+                  </div>
+                  <div className="progress h-2">
+                    <div className={`progress-bar ${tcScore >= 80 ? 'progress-eleve' : tcScore >= 60 ? 'progress-moyen' : 'progress-faible'}`} style={{ width: `${tcScore}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                    <span>SA: {saCount}</span>
+                    <span>NV: {nvCount}</span>
+                    <span>NS: {nsCount}</span>
+                    <span>NA: {checklistItems.filter(i => i.resultat === 'NA').length}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -702,7 +824,36 @@ function PhaseModal({
               <textarea className={`form-textarea ${focusClass}`} value={phaseData.conditions || ''} onChange={(e) => setPhaseData({ ...phaseData, conditions: e.target.value })} disabled={isLocked || isCompleted} rows={3} placeholder="Conditions particulières à respecter..." />
             </div>
 
+            {/* Prérequis avant conclusion */}
+            <div className="p-4 bg-card border border-border rounded-xl">
+              <label className="filter-label mb-3"><CheckCircle2 className="h-3.5 w-3.5 mr-1 inline" />Prérequis avant conclusion</label>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  {isTransmise ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Surveillance transmise à l'exploitant</p>
+                    <p className="text-xs text-muted-foreground">{isTransmise ? 'Rapport transmis' : 'En attente de transmission du rapport'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {allPacAccepted ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Plans d'actions acceptés</p>
+                    <p className="text-xs text-muted-foreground">{allPacAccepted ? `${relatedEcarts.length} PAC(s) accepté(s)` : `${relatedEcarts.filter(e => e.evaluation_pac?.decision === 'accepte' || e.evaluation_pac?.decision === 'reserve' || e.statut === 'pac_accepte').length}/${relatedEcarts.length} PAC accepté(s)`}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {allExemptionsEval ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{homoExemptions.length > 0 ? 'Exemptions évaluées' : 'Exemptions'}</p>
+                    <p className="text-xs text-muted-foreground">{allExemptionsEval ? (homoExemptions.length > 0 ? `${homoExemptions.length} exemption(s) évaluée(s)` : 'Aucune exemption requise') : `${homoExemptions.filter(e => e.avis_final !== undefined).length}/${homoExemptions.length} évaluée(s)`}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className={`p-5 rounded-2xl border-2 transition-all duration-300 ${
+              !conclusionUnlocked ? 'border-muted/30 bg-muted/10 opacity-70' :
               phaseData.conclusion === 'favorable' ? 'border-success/40 bg-gradient-to-br from-success/5 to-transparent' :
               phaseData.conclusion === 'favorable_conditions' ? 'border-warning/40 bg-gradient-to-br from-warning/5 to-transparent' :
               phaseData.conclusion === 'defavorable' ? 'border-danger/40 bg-gradient-to-br from-danger/5 to-transparent' :
@@ -721,41 +872,53 @@ function PhaseModal({
                   </span>
                 )}
               </label>
-              <div className="flex gap-4 flex-wrap">
-                {[
-                  { value: 'favorable', label: 'Favorable', icon: CheckCircle2, variant: 'success' },
-                  { value: 'favorable_conditions', label: 'Favorable sous conditions', icon: AlertCircle, variant: 'warning' },
-                  { value: 'defavorable', label: 'Défavorable', icon: XCircle, variant: 'danger' },
-                ].map((option) => (
-                  <button key={option.value} type="button"
-                    onClick={() => setPhaseData({ ...phaseData, conclusion: option.value as "favorable" | "favorable_conditions" | "defavorable" })}
-                    disabled={isLocked || isCompleted}
-                    className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-medium text-sm transition-all duration-200 ${
-                      phaseData.conclusion === option.value
-                        ? `border-${option.variant}/50 bg-${option.variant}/10 text-${option.variant} shadow-${option.variant}-glow`
-                        : 'border-border bg-card text-muted-foreground hover:border-foreground/20'
-                    }`}
-                  >
-                    <option.icon className="w-4 h-4" />
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {!canAdvance && phaseData.conclusion === 'defavorable' && (
-                <div className="mt-3 alert alert-danger">
-                  <AlertCircle className="alert-icon" />
-                  <div className="alert-content">Conclusion défavorable — la phase ne peut pas être clôturée.</div>
+              {conclusionUnlocked ? (
+                <>
+                  <div className="flex gap-4 flex-wrap">
+                    {[
+                      { value: 'favorable', label: 'Favorable', icon: CheckCircle2, variant: 'success' },
+                      { value: 'favorable_conditions', label: 'Favorable sous conditions', icon: AlertCircle, variant: 'warning' },
+                      { value: 'defavorable', label: 'Défavorable', icon: XCircle, variant: 'danger' },
+                    ].map((option) => (
+                      <button key={option.value} type="button"
+                        onClick={() => setPhaseData({ ...phaseData, conclusion: option.value as "favorable" | "favorable_conditions" | "defavorable" })}
+                        disabled={isLocked || isCompleted}
+                        className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-medium text-sm transition-all duration-200 ${
+                          phaseData.conclusion === option.value
+                            ? `border-${option.variant}/50 bg-${option.variant}/10 text-${option.variant} shadow-${option.variant}-glow`
+                            : 'border-border bg-card text-muted-foreground hover:border-foreground/20'
+                        }`}
+                    >
+                      <option.icon className="w-4 h-4" />
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
-              )}
-              {!canAdvance && !phaseData.conclusion && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-warning">
-                  <Clock className="w-3 h-3 animate-pulse" />
-                  <span>Sélectionnez une conclusion pour pouvoir valider et clôturer la phase</span>
+                {!canAdvance && phaseData.conclusion === 'defavorable' && (
+                  <div className="mt-3 alert alert-danger">
+                    <AlertCircle className="alert-icon" />
+                    <div className="alert-content">Conclusion défavorable — la phase ne peut pas être clôturée.</div>
+                  </div>
+                )}
+                {!canAdvance && !phaseData.conclusion && (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-warning">
+                    <Clock className="w-3 h-3 animate-pulse" />
+                    <span>Sélectionnez une conclusion pour pouvoir valider et clôturer la phase</span>
+                  </div>
+                )}
+              </>
+              ) : (
+                <div className="alert alert-warning">
+                  <Lock className="alert-icon" />
+                  <div className="alert-content">
+                    La conclusion est verrouillée. Complétez tous les prérequis ci-dessus pour la déverrouiller.
+                  </div>
                 </div>
               )}
             </div>
           </div>
         );
+      }
 
       case 3:
         return (
@@ -825,6 +988,7 @@ function PhaseModal({
   const PhaseIcon = (phaseInfo?.icon || ClipboardList) as React.ComponentType<{ className?: string }>;
 
   return (
+    <>
     <FormShell
       open={open}
       onClose={() => onOpenChange(false)}
@@ -832,7 +996,7 @@ function PhaseModal({
       icon={PhaseIcon}
       size="3xl"
       dataRole={userRole}
-      tabs={isPhase1Workflow ? [
+      tabs={hasWorkflow || phase === 2 ? [
         { id: 'informations', label: 'Informations' },
       ] : [
         { id: 'informations', label: 'Informations' },
@@ -840,7 +1004,7 @@ function PhaseModal({
       ]}
       activeTab={activeTab}
       onTabChange={setActiveTab}
-      footer={isPhase1Workflow ? undefined : (
+      footer={hasWorkflow ? undefined : (
         <div className="flex items-center gap-2 w-full justify-between">
           <button className="btn btn-secondary" onClick={() => onOpenChange(false)}>
             <XCircle className="w-4 h-4" />
@@ -879,7 +1043,7 @@ function PhaseModal({
         </div>
       )}
 
-      {!isPhase1Workflow && activeTab === 'documents' && (
+      {!hasWorkflow && activeTab === 'documents' && (
         <div className="space-y-4">
           <CertificationDocumentUpload
             documents={phaseData.documents || {}}
@@ -940,6 +1104,44 @@ function PhaseModal({
         </div>
       )}
     </FormShell>
+
+    {typeof window !== 'undefined' && showTypeChoice && createPortal(
+      <div className="modal-overlay" data-role={userRole} onClick={() => setShowTypeChoice(null)}>
+        <div className="modal-content max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+              <div className="modal-title flex items-center gap-2"><ClipboardList className="w-5 h-5 text-role-primary" />Choisir le type de checklist</div>
+              <button className="modal-close" onClick={() => setShowTypeChoice(null)}><XCircle className="w-4 h-4" /></button>
+            </div>
+            <div className="modal-body py-5 px-5 space-y-4">
+              <p className="text-sm text-muted-foreground">Cette surveillance inclut le domaine SGS. Sélectionnez le format à consulter :</p>
+              <button type="button" className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-role-primary-soft/30 transition-all text-left" onClick={() => {
+                setShowTypeChoice(null);
+                const id = phaseData.surveillance_id || phaseData.planning_id;
+                const prefix = phaseData.surveillance_id ? `/surveillance/${id}` : `/preparation-checklist/${id}`;
+                router.push(`${prefix}?type=standard`);
+              }}>
+                <div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><ClipboardList className="w-5 h-5 text-role-primary" /></div>
+                <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">Checklist Standard</p><p className="text-xs text-muted-foreground">Items standards RAS-14</p></div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+              <button type="button" className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-role-primary-soft/30 transition-all text-left" onClick={() => {
+                setShowTypeChoice(null);
+                const id = phaseData.surveillance_id || phaseData.planning_id;
+                const prefix = phaseData.surveillance_id ? `/surveillance/${id}` : `/preparation-checklist/${id}`;
+                router.push(`${prefix}?type=sgs`);
+              }}>
+                <div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><Shield className="w-5 h-5 text-role-primary" /></div>
+                <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">Checklist SGS</p><p className="text-xs text-muted-foreground">Évaluation SGS (PAOE - Annexe 19 OACI)</p></div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   );
 }
 
@@ -952,6 +1154,8 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
   const storeUser = useAppStore(s => s.user);
+  const surveillances = useAppStore(s => s.surveillances);
+  const ecarts = useAppStore(s => s.ecarts);
   const user = storeUser ?? userProp;
   const userRole = userRoleProp ?? userProp?.role ?? storeUser?.role ?? 'inspector';
 
@@ -959,7 +1163,8 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
   const [phaseModalOpen, setPhaseModalOpen] = useState(false);
   const [filterStatut, setFilterStatut] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list'>('dashboard');
+  const [filterAerodrome, setFilterAerodrome] = useState<string>('all');
+  const [filterPhase, setFilterPhase] = useState<number>(0);
   const [exemptionManagerOpen, setExemptionManagerOpen] = useState(false);
   const [currentHomologationForExemption, setCurrentHomologationForExemption] = useState<Homologation | null>(null);
   const [phaseDocsAerodrome, setPhaseDocsAerodrome] = useState<Aerodrome | null>(null);
@@ -983,10 +1188,21 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
   const filteredAerodromes = useMemo(() => {
     let result = nationalAerodromes;
 
+    if (filterAerodrome !== 'all') {
+      result = result.filter(a => a.id === filterAerodrome);
+    }
+
+    if (filterPhase > 0) {
+      result = result.filter(a => {
+        const homo = getHomologation(a.id);
+        return homo ? homo.phase_active === filterPhase : filterPhase === 1;
+      });
+    }
+
     if (filterStatut !== 'all') {
       result = result.filter(a => {
         const homo = getHomologation(a.id);
-        return homo?.statut_global === filterStatut;
+        return homo?.statut_global === filterStatut || (!homo && filterStatut === 'non_homologue');
       });
     }
 
@@ -999,7 +1215,7 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
     }
 
     return result;
-  }, [nationalAerodromes, filterStatut, searchTerm]);
+  }, [nationalAerodromes, filterAerodrome, filterPhase, filterStatut, searchTerm]);
 
   // Homologations archivées (terminées)
   const archivedHomologations = useMemo(() => {
@@ -1255,177 +1471,198 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
         icon={<Scale />}
         title="Homologation"
         description="Gestion des homologations des aérodromes nationaux (validité illimitée)"
-        actions={<div className="flex items-center gap-2">
-          <select
-            className={`h-10 px-3 pr-8 rounded-xl border border-border appearance-none ${focusClass}`}
-            style={selectStyle}
-            value={filterStatut}
-            onChange={e => setFilterStatut(e.target.value)}
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="en_cours">En cours</option>
-            <option value="homologue">Homologué</option>
-          </select>
-          <button className="btn btn-secondary gap-2 flex items-center">
-            <Download className="h-4 w-4" />
-            Exporter
-          </button>
-        </div>}
+        actions={<button className="btn btn-secondary gap-2 flex items-center">
+          <Download className="w-4 h-4" />
+          Exporter
+        </button>}
       />
 
-      {/* Onglets */}
-      <div className="tabs-container border-b border-border">
-        <div className="tabs flex gap-1">
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'dashboard'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <BarChart3 className="w-4 h-4 inline mr-1.5" /> Tableau de bord
-          </button>
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'list'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('list')}
-          >
-            <List className="w-4 h-4 inline mr-1.5" /> Liste des homologations
-          </button>
-          <button
-            className="tab px-4 py-2 font-medium text-muted-foreground hover:text-role-primary transition-colors"
-            onClick={() => setActiveModule('registres')}
-            title="Les archives sont consultables dans le module Registres"
-          >
-            <Archive className="w-4 h-4 inline mr-1.5" /> Archives → Registres
-          </button>
-        </div>
+      {/* KPIs */}
+      <div className="kpi-grid">
+        <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><Scale className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label">Total</div><div className="kpi-value">{stats.total}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><Clock className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label">En cours</div><div className="kpi-value text-warning">{stats.enCours}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-success-soft"><ShieldCheck className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label">Homologués</div><div className="kpi-value text-success">{stats.homologues}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><AlertTriangle className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label">Suspendus</div><div className="kpi-value text-warning">{stats.suspendus}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Lock className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label">Blocages</div><div className="kpi-value text-danger">{stats.blockedPhases}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-muted"><Clock className="w-5 h-5 text-muted-foreground" /></div><div className="kpi-content"><div className="kpi-label">Inactifs</div><div className="kpi-value text-muted-foreground">{stats.inactivePhases}</div></div></div>
       </div>
 
-      {/* Dashboard */}
-      {activeTab === 'dashboard' && <HomoDashboard userRole={userRole} />}
+      {/* Filtres & recherche */}
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px] relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Rechercher un aérodrome..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground ${focusClass}`}
+            />
+          </div>
+
+          <select
+            value={filterAerodrome}
+            onChange={(e) => setFilterAerodrome(e.target.value)}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value="all">Tous aérodromes</option>
+            {nationalAerodromes.map(a => (
+              <option key={a.id} value={a.id}>{a.code_oaci} — {a.nom}</option>
+            ))}
+          </select>
+
+          <select
+            value={filterPhase}
+            onChange={(e) => setFilterPhase(Number(e.target.value))}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value={0}>Toutes phases</option>
+            <option value={1}>Phase 1</option>
+            <option value={2}>Phase 2</option>
+            <option value={3}>Phase 3</option>
+          </select>
+
+          <select
+            value={filterStatut}
+            onChange={(e) => setFilterStatut(e.target.value)}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value="all">Tous statuts</option>
+            <option value="en_cours">En cours</option>
+            <option value="homologue">Homologué</option>
+            <option value="non_homologue">Non homologué</option>
+            <option value="suspendu">Suspendu</option>
+          </select>
+        </div>
+      </Card>
 
       {/* Liste des homologations */}
-      {activeTab === 'list' && (
-        <>
-          <Card className="border-primary/20 bg-primary-soft/30" icon={<Search className="w-4 h-4 text-role-primary" />} title="Recherche">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[200px] relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Rechercher un aérodrome..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground ${focusClass}`}
-                />
-              </div>
-            </div>
-          </Card>
+      <AccordionGroup spacing="sm">
+        {filteredAerodromes.map((aerodrome) => {
+          const homologation = getHomologation(aerodrome.id);
+          const phaseActive = homologation?.phase_active || 1;
 
-          {/* Liste des aérodromes en accordéon */}
-          <AccordionGroup spacing="sm">
-            {filteredAerodromes.map((aerodrome) => {
-              const homologation = getHomologation(aerodrome.id);
-              const phaseActive = homologation?.phase_active || 1;
+          const getStatutClass = () => {
+            if (aerodrome.statut_certification === 'homologue' || homologation?.statut_global === 'homologue') return 'badge success';
+            if (!homologation) return 'badge neutral';
+            return 'badge primary';
+          };
+          const getStatutLabel = () => {
+            if (aerodrome.statut_certification === 'homologue' || homologation?.statut_global === 'homologue') return 'Homologué';
+            if (!homologation) return 'Non homologué';
+            return 'En cours';
+          };
 
-              const getStatutClass = () => {
-                if (aerodrome.statut_certification === 'homologue' || homologation?.statut_global === 'homologue') return 'badge success';
-                if (!homologation) return 'badge neutral';
-                return 'badge primary';
-              };
-              const getStatutLabel = () => {
-                if (aerodrome.statut_certification === 'homologue' || homologation?.statut_global === 'homologue') return 'Homologué';
-                if (!homologation) return 'Non homologué';
-                return 'En cours';
-              };
-
-              return (
-                <AccordionSection
-                  key={aerodrome.id}
-                  icon={homologation?.statut_global === 'homologue' ? <ShieldCheck className="w-4 h-4 text-white" /> : <Scale className="w-4 h-4 text-white" />}
-                  title={<><span className="code-oaci-badge mr-2">{aerodrome.code_oaci}</span>{aerodrome.nom}</>}
-                  badges={
-                    <>
-                      <span className={getStatutClass()}>{getStatutLabel()}</span>
-                      {homologation && <span className="badge outline">Phase {phaseActive}/3</span>}
-                      {!homologation && aerodrome.statut_certification === 'homologue' && (
-                        <span className="badge outline">Préexistante</span>
-                      )}
-                    </>
-                  }
-                  actions={
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleIaAnalyze(homologation);
-                      }}
-                      disabled={isIaAnalyzing}
-                      className="action-button text-role-primary"
-                      title="Analyser avec IA"
-                    >
-                      {isIaAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-                    </button>
-                  }
-                >
-                  {!homologation && aerodrome.statut_certification === 'homologue' ? (
-                    <div className="p-4 bg-gradient-to-r from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-xl flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="kpi-icon !w-10 !h-10 bg-role-primary-soft">
-                          <FileText className="h-5 w-5 text-role-primary" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-semibold text-foreground">Homologation préexistante</h4>
-                          <p className="text-xs text-muted-foreground">Ajoutez les preuves par phase et finalisez dans le registre</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handlePhaseClick(aerodrome, 1, 'view')}
-                        className="btn btn-primary gap-2"
-                      >
-                        <Upload className="w-4 h-4" /> Ajouter les preuves par phase
-                      </button>
-                    </div>
-                  ) : (
-                    PHASES.map(({ phase, title, icon, description }) => (
-                      <PhaseCard
-                        key={phase}
-                        phase={phase}
-                        title={title}
-                        icon={icon}
-                        description={description}
-                        isActive={phaseActive === phase}
-                        isCompleted={isPhaseCompleted(homologation, phase)}
-                        isLocked={!isPhaseAccessible(homologation, phase)}
-                        data={homologation?.phases_data?.[`phase${phase}` as keyof typeof homologation.phases_data] as Homologation['phases_data']['phase1']}
-                        lastActivity={getPhaseLastActivity(homologation, phase)}
-                        daysInactive={getDaysInactive(homologation, phase)}
-                        onView={() => handlePhaseClick(aerodrome, phase, 'view')}
-                        onEdit={() => handlePhaseClick(aerodrome, phase, 'edit')}
-                        onNotify={() => handlePhaseClick(aerodrome, phase, 'notify')}
-                        onDelete={() => handlePhaseClick(aerodrome, phase, 'delete')}
-                        onManageExemptions={() => handlePhaseClick(aerodrome, phase, 'exemptions')}
-                      />
-                    ))
+          return (
+            <AccordionSection
+              key={aerodrome.id}
+              icon={homologation?.statut_global === 'homologue' ? <ShieldCheck className="w-4 h-4 text-white" /> : <Scale className="w-4 h-4 text-white" />}
+              title={<><span className="code-oaci-badge mr-2">{aerodrome.code_oaci}</span>{aerodrome.nom}</>}
+              badges={
+                <>
+                  <span className={getStatutClass()}>{getStatutLabel()}</span>
+                  {homologation && <span className="badge outline">Phase {phaseActive}/3</span>}
+                  {!homologation && aerodrome.statut_certification === 'homologue' && (
+                    <span className="badge outline">Préexistante</span>
                   )}
-                </AccordionSection>
-              );
-            })}
+                </>
+              }
+              actions={
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleIaAnalyze(homologation);
+                  }}
+                  disabled={isIaAnalyzing}
+                  className="action-button text-role-primary"
+                  title="Analyser avec IA"
+                >
+                  {isIaAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                </button>
+              }
+            >
+              {!homologation && aerodrome.statut_certification === 'homologue' ? (
+                <div className="p-4 bg-gradient-to-r from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-xl flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="kpi-icon !w-10 !h-10 bg-role-primary-soft">
+                      <FileText className="h-5 w-5 text-role-primary" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Homologation préexistante</h4>
+                      <p className="text-xs text-muted-foreground">Ajoutez les preuves par phase et finalisez dans le registre</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handlePhaseClick(aerodrome, 1, 'view')}
+                    className="btn btn-primary gap-2"
+                  >
+                    <Upload className="w-4 h-4" /> Ajouter les preuves par phase
+                  </button>
+                </div>
+              ) : !homologation ? (
+                <div className="p-6 bg-card border border-border rounded-xl text-center">
+                  <Scale className="h-12 w-12 text-muted mx-auto mb-4" />
+                  <p className="font-semibold text-foreground">Aérodrome non homologué</p>
+                  <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+                    L'exploitant doit être invité à soumettre une expression d'intérêt d'homologation depuis son portail point focal.
+                  </p>
+                </div>
+              ) : (
+                PHASES.map(({ phase, title, icon, description }) => {
+                  const phaseData = homologation?.phases_data?.[`phase${phase}` as keyof typeof homologation.phases_data] as Homologation['phases_data']['phase1'];
+                  const isSurveillancePhase = phase === 2;
+                  const surv = isSurveillancePhase && (phaseData as any)?.surveillance_id
+                    ? surveillances.find(s => s.id === (phaseData as any).surveillance_id) : undefined;
+                  const relatedEcarts = surv ? ecarts.filter(e => e.surveillance_id === surv.id) : [];
+                  const allPacAccepted = relatedEcarts.length === 0 || relatedEcarts.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+                  const isSurvTransmise = surv?.statut === 'transmise';
+                  const surveillanceBadge = isSurveillancePhase && phaseActive === phase ? (
+                    surv ? (
+                      isSurvTransmise ? (
+                        allPacAccepted ? <span className="badge success">PAC validés</span>
+                        : <span className="badge warning">Attente de PAC</span>
+                      ) : <span className="badge primary pulse">Surveillance en cours</span>
+                    ) : <span className="badge warning">En attente vérification sur site</span>
+                  ) : undefined;
+                  return (
+                  <PhaseCard
+                    key={phase}
+                    phase={phase}
+                    title={title}
+                    icon={icon}
+                    description={description}
+                    isActive={phaseActive === phase}
+                    isCompleted={isPhaseCompleted(homologation, phase)}
+                    isLocked={!isPhaseAccessible(homologation, phase)}
+                    data={phaseData}
+                    lastActivity={getPhaseLastActivity(homologation, phase)}
+                    daysInactive={getDaysInactive(homologation, phase)}
+                    onView={() => handlePhaseClick(aerodrome, phase, 'view')}
+                    onEdit={() => handlePhaseClick(aerodrome, phase, 'edit')}
+                    onNotify={() => handlePhaseClick(aerodrome, phase, 'notify')}
+                    onDelete={() => handlePhaseClick(aerodrome, phase, 'delete')}
+                    onManageExemptions={() => handlePhaseClick(aerodrome, phase, 'exemptions')}
+                    surveillanceBadge={surveillanceBadge}
+                  />
+                  );
+                })
+              )}
+            </AccordionSection>
+          );
+        })}
 
-            {filteredAerodromes.length === 0 && (
-              <Card className="[&>div:last-child]:!py-12 [&>div:last-child]:!text-center">
-                <Scale className="h-12 w-12 text-muted mx-auto mb-4" />
-                <p className="text-muted">Aucun aérodrome national trouvé</p>
-              </Card>
-            )}
-          </AccordionGroup>
-        </>
-      )}
+        {filteredAerodromes.length === 0 && (
+          <Card className="[&>div:last-child]:!py-12 [&>div:last-child]:!text-center">
+            <Scale className="h-12 w-12 text-muted mx-auto mb-4" />
+            <p className="text-muted">Aucun aérodrome national trouvé</p>
+          </Card>
+        )}
+      </AccordionGroup>
 
 
       {/* Modal de phase */}

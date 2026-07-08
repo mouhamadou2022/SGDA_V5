@@ -77,6 +77,13 @@ export class LSTMModel {
     Wy: number[][]    // Output weights
     by: number[]      // Output bias
   } | null = null
+
+  // Tampons pour les gradients (BPTT), réinitialisés à chaque batch
+  private grads: {
+    Wf: number[][]; Wi: number[][]; Wo: number[][]; Wc: number[][]
+    bf: number[]; bi: number[]; bo: number[]; bc: number[]
+    Wy: number[][]; by: number[]
+  } | null = null
   
   private trained: boolean = false
   private lastTrainingDate: Date | null = null
@@ -119,6 +126,20 @@ export class LSTMModel {
       bc: new Array(hiddenSize).fill(0),
       Wy: initWeight(outputSize, hiddenSize),
       by: new Array(outputSize).fill(0)
+    }
+    // Tampons de gradient (même structure, initialisés à 0)
+    const zero = (r: number, c: number) => Array.from({ length: r }, () => new Array(c).fill(0))
+    this.grads = {
+      Wf: zero(hiddenSize, inputSize + hiddenSize),
+      Wi: zero(hiddenSize, inputSize + hiddenSize),
+      Wo: zero(hiddenSize, inputSize + hiddenSize),
+      Wc: zero(hiddenSize, inputSize + hiddenSize),
+      bf: new Array(hiddenSize).fill(0),
+      bi: new Array(hiddenSize).fill(0),
+      bo: new Array(hiddenSize).fill(0),
+      bc: new Array(hiddenSize).fill(0),
+      Wy: zero(outputSize, hiddenSize),
+      by: new Array(outputSize).fill(0),
     }
   }
 
@@ -236,7 +257,7 @@ export class LSTMModel {
       throw new Error(`Pas assez de données pour l'entraînement. Minimum: ${this.config.sequenceLength + 1}`)
     }
     
-    // Initialiser les poids
+    // Initialiser les poids et leurs gradients
     this.initializeWeights()
     
     // Préparer les données
@@ -253,38 +274,179 @@ export class LSTMModel {
     }
     
     const epochs = options?.epochs || this.config.epochs
+    const lr = this.config.learningRate
+    const { hiddenSize, inputSize } = this.config
+    const nSamples = sequences.length
     let totalLoss = 0
+    const w = this.weights!
     
-    // Entraînement simplifié (simulation pour démonstration)
-    // En production, utiliserait une vraie rétropropagation
     for (let epoch = 0; epoch < epochs; epoch++) {
       let epochLoss = 0
+
+      // --- BPTT : backward pass réel ---
+      // Réinitialiser les gradients accumulés
+      this.zeroGrads()
       
-      for (let i = 0; i < sequences.length; i++) {
-        const state: LSTMState = {
-          hiddenState: new Array(this.config.hiddenSize).fill(0),
-          cellState: new Array(this.config.hiddenSize).fill(0)
+      for (let i = 0; i < nSamples; i++) {
+        const seq = sequences[i]
+        const target = targets[i]
+        const nTimesteps = seq.length
+        
+        // Forward : stocker les états à chaque pas de temps
+        interface StepState {
+          combined: number[]
+          f: number[]; ig: number[]; o: number[]; cTilde: number[]
+          c: number[]; h: number[]
+        }
+        const states: StepState[] = []
+        let h = new Array(hiddenSize).fill(0)
+        let c = new Array(hiddenSize).fill(0)
+        
+        for (let t = 0; t < nTimesteps; t++) {
+          const combined = [seq[t], ...h]
+          const f: number[] = [], ig: number[] = [], o: number[] = [], cTilde: number[] = []
+          for (let j = 0; j < hiddenSize; j++) {
+            let fs = w.bf[j], is = w.bi[j], os = w.bo[j], cs = w.bc[j]
+            for (let k = 0; k < combined.length; k++) {
+              fs += w.Wf[j][k] * combined[k]
+              is += w.Wi[j][k] * combined[k]
+              os += w.Wo[j][k] * combined[k]
+              cs += w.Wc[j][k] * combined[k]
+            }
+            f.push(sigmoid(fs))
+            ig.push(sigmoid(is))
+            o.push(sigmoid(os))
+            cTilde.push(tanh(cs))
+          }
+          const newC: number[] = []
+          const newH: number[] = []
+          for (let j = 0; j < hiddenSize; j++) {
+            newC.push(f[j] * c[j] + ig[j] * cTilde[j])
+            newH.push(o[j] * tanh(newC[j]))
+          }
+          states.push({ combined, f, ig, o, cTilde, c: newC, h: newH })
+          h = newH
+          c = newC
         }
         
-        const { output } = this.forward(sequences[i], state)
-        const prediction = output[0]
-        const target = targets[i]
-        const loss = Math.pow(prediction - target, 2)
-        
+        // Couche de sortie (Wy, by)
+        let output = w.by[0]
+        for (let j = 0; j < hiddenSize; j++) output += w.Wy[0][j] * h[j]
+        output = relu(output)
+        const prediction = output
+        const loss = 0.5 * (prediction - target) ** 2
         epochLoss += loss
         
-        // Simulation de rétropropagation (simplifiée)
-        // En vrai, implémenter BPTT
+        // dL/d(output) = prediction - target
+        const dOutput = prediction - target
+        
+        // Gradients couche de sortie
+        for (let j = 0; j < hiddenSize; j++) this.grads!.Wy[0][j] += dOutput * h[j]
+        this.grads!.by[0] += dOutput
+        
+        // dL/dh_T (dernière hidden state)
+        const dH: number[] = []
+        for (let j = 0; j < hiddenSize; j++) dH.push(dOutput * w.Wy[0][j])
+        let dCNext = new Array(hiddenSize).fill(0)
+        
+        // Backward Through Time (BPTT) — en ordre inverse
+        for (let t = nTimesteps - 1; t >= 0; t--) {
+          const s = states[t]
+          const cPrev = t > 0 ? states[t - 1].c : new Array(hiddenSize).fill(0)
+          
+          // dL/do, dL/dc
+          const dO: number[] = []
+          const dC: number[] = []
+          for (let j = 0; j < hiddenSize; j++) {
+            dO.push(dH[j] * tanh(s.c[j]))
+            dC.push(dH[j] * s.o[j] * (1 - tanh(s.c[j]) ** 2) + dCNext[j])
+          }
+          
+          // dL/df, dL/di, dL/d(c_tilde)
+          const dF: number[] = []
+          const dI: number[] = []
+          const dCt: number[] = []
+          for (let j = 0; j < hiddenSize; j++) {
+            dF.push(dC[j] * cPrev[j])
+            dI.push(dC[j] * s.cTilde[j])
+            dCt.push(dC[j] * s.ig[j])
+          }
+          
+          // dL par porte = gradient × dérivée sigmoid/tanh
+          const dFg: number[] = []
+          const dIg: number[] = []
+          const dOg: number[] = []
+          const dCg: number[] = []
+          for (let j = 0; j < hiddenSize; j++) {
+            dFg.push(dF[j] * s.f[j] * (1 - s.f[j]))
+            dIg.push(dI[j] * s.ig[j] * (1 - s.ig[j]))
+            dOg.push(dO[j] * s.o[j] * (1 - s.o[j]))
+            dCg.push(dCt[j] * (1 - s.cTilde[j] ** 2))
+          }
+          
+          // Accumuler les gradients des matrices de poids
+          const combinedLen = s.combined.length
+          for (let j = 0; j < hiddenSize; j++) {
+            for (let k = 0; k < combinedLen; k++) {
+              this.grads!.Wf[j][k] += dFg[j] * s.combined[k]
+              this.grads!.Wi[j][k] += dIg[j] * s.combined[k]
+              this.grads!.Wo[j][k] += dOg[j] * s.combined[k]
+              this.grads!.Wc[j][k] += dCg[j] * s.combined[k]
+            }
+            this.grads!.bf[j] += dFg[j]
+            this.grads!.bi[j] += dIg[j]
+            this.grads!.bo[j] += dOg[j]
+            this.grads!.bc[j] += dCg[j]
+          }
+          
+          // Backprop vers h_{t-1} pour le pas suivant
+          if (t > 0) {
+            const nextDH = new Array(hiddenSize).fill(0)
+            const hOffset = inputSize  // colonne de début de h dans combined
+            for (let j = 0; j < hiddenSize; j++) {
+              for (let k = 0; k < hiddenSize; k++) {
+                nextDH[k] += dFg[j] * w.Wf[j][hOffset + k]
+                nextDH[k] += dIg[j] * w.Wi[j][hOffset + k]
+                nextDH[k] += dOg[j] * w.Wo[j][hOffset + k]
+                nextDH[k] += dCg[j] * w.Wc[j][hOffset + k]
+              }
+            }
+            dCNext = new Array(hiddenSize)
+            for (let j = 0; j < hiddenSize; j++) dCNext[j] = dC[j] * s.f[j]
+          }
+        }
       }
       
-      totalLoss = epochLoss / sequences.length
+      // Moyenne des gradients sur le batch
+      const scale = 1 / nSamples
+      const avg2d = (g: number[][]) => { for (let i = 0; i < g.length; i++) for (let j = 0; j < g[i].length; j++) g[i][j] *= scale }
+      const avg1d = (g: number[]) => { for (let i = 0; i < g.length; i++) g[i] *= scale }
+      avg2d(this.grads!.Wf); avg2d(this.grads!.Wi); avg2d(this.grads!.Wo); avg2d(this.grads!.Wc); avg2d(this.grads!.Wy)
+      avg1d(this.grads!.bf); avg1d(this.grads!.bi); avg1d(this.grads!.bo); avg1d(this.grads!.bc); avg1d(this.grads!.by)
+      
+      // Mise à jour des poids (descente de gradient)
+      for (let i = 0; i < hiddenSize; i++) {
+        for (let j = 0; j < w.Wf[i].length; j++) {
+          w.Wf[i][j] -= lr * this.grads!.Wf[i][j]
+          w.Wi[i][j] -= lr * this.grads!.Wi[i][j]
+          w.Wo[i][j] -= lr * this.grads!.Wo[i][j]
+          w.Wc[i][j] -= lr * this.grads!.Wc[i][j]
+        }
+        w.bf[i] -= lr * this.grads!.bf[i]
+        w.bi[i] -= lr * this.grads!.bi[i]
+        w.bo[i] -= lr * this.grads!.bo[i]
+        w.bc[i] -= lr * this.grads!.bc[i]
+      }
+      for (let j = 0; j < w.Wy[0].length; j++) w.Wy[0][j] -= lr * this.grads!.Wy[0][j]
+      w.by[0] -= lr * this.grads!.by[0]
+      
+      totalLoss = epochLoss / nSamples
       
       if (options?.verbose && epoch % 10 === 0) {
         console.log(`[LSTM] Epoch ${epoch + 1}/${epochs}, Loss: ${totalLoss.toFixed(4)}`)
       }
       
-      // Simulation d'apprentissage
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise(resolve => setTimeout(resolve, 5))
     }
     
     this.trained = true
@@ -294,6 +456,14 @@ export class LSTMModel {
       loss: totalLoss,
       epochs
     }
+  }
+
+  private zeroGrads() {
+    if (!this.grads) return
+    const z = (g: number[][]) => g.forEach(r => r.fill(0))
+    z(this.grads.Wf); z(this.grads.Wi); z(this.grads.Wo); z(this.grads.Wc); z(this.grads.Wy)
+    this.grads.bf.fill(0); this.grads.bi.fill(0)
+    this.grads.bo.fill(0); this.grads.bc.fill(0); this.grads.by.fill(0)
   }
 
   // ============================================================
@@ -460,6 +630,7 @@ export class LSTMModel {
       const data = JSON.parse(jsonData)
       this.config = data.config
       this.weights = data.weights
+      this.grads = null  // les gradients sont réinitialisés à l'entraînement
       this.trained = data.trained
       this.lastTrainingDate = data.lastTrainingDate ? new Date(data.lastTrainingDate) : null
       this.normalizationParams = data.normalizationParams
@@ -480,6 +651,7 @@ export class LSTMModel {
 
   reset(): void {
     this.weights = null
+    this.grads = null
     this.trained = false
     this.lastTrainingDate = null
     this.normalizationParams = null

@@ -1,8 +1,14 @@
 // components/layout/AppShell.tsx
 'use client'
 
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState, useSyncExternalStore, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
+import { chargerFeedbacksDepuisSupabase, synchroniserFeedback } from '@/lib/ia/syncEngineFeedback'
+import { engineFeedback } from '@/lib/ia/engines/engineFeedback'
+import { thresholdController } from '@/lib/ia/thresholdController'
+import { decisionTracker, type DecisionRecord } from '@/lib/ia/decisionTracker'
+import { fetchThresholds, fetchDecisions, upsertThreshold, createDecision, fetchModelState, upsertModelState } from '@/lib/datastore'
+import { suggestionMLAgent } from '@/lib/ia/agents/suggestionMLAgent'
 import { TimerBar } from './TimerBar'
 import { AppHeader } from './AppHeader'
 import { Breadcrumb } from './Breadcrumb'
@@ -32,28 +38,127 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
   const [previousModule, setPreviousModule] = useState(activeModule)
   const [isNavVisible, setIsNavVisible] = useState(true)
   const [lastScrollY, setLastScrollY] = useState(0)
-  const [systemTheme, setSystemTheme] = useState(false)
-
-  useEffect(() => {
+  // État système : suit prefers-color-scheme SANS flash (lecture synchrone)
+  const subscribeMql = useCallback((cb: () => void) => {
     const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = (e: MediaQueryListEvent) => setSystemTheme(e.matches)
-    setSystemTheme(mql.matches)
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
+    mql.addEventListener('change', cb)
+    return () => mql.removeEventListener('change', cb)
+  }, [])
+  const getSnapshot = () => window.matchMedia('(prefers-color-scheme: dark)').matches
+  const isSystemDark = useSyncExternalStore(subscribeMql, getSnapshot, () => false)
+
+  // Heure courante pour le fallback horaire
+  const [hour, setHour] = useState(() => new Date().getHours())
+  useEffect(() => {
+    const timer = setInterval(() => setHour(new Date().getHours()), 60_000)
+    return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
-    const isDark = theme === 'dark' || (theme === 'system' && systemTheme)
+    const isNightTime = hour < 6 || hour >= 19
+    const isDark = theme === 'dark' || (theme === 'system' && (isSystemDark || isNightTime))
     if (isDark) {
       document.documentElement.classList.add('dark')
     } else {
       document.documentElement.classList.remove('dark')
     }
-  }, [theme, systemTheme])
+  }, [theme, isSystemDark, hour])
 
   useEffect(() => {
     setUser(user)
   }, [user, setUser])
+
+  useEffect(() => {
+    // Restaurer l'état depuis IndexedDB avant Supabase
+    decisionTracker.initFromIDB()
+    engineFeedback.initFromIDB()
+    thresholdController.initFromIDB()
+
+    chargerFeedbacksDepuisSupabase()
+    engineFeedback.onSync(synchroniserFeedback)
+
+    // Charger les seuils depuis Supabase
+    fetchThresholds().then(res => {
+      if (res.data && res.data.length > 0) {
+        thresholdController.initFromSupabase(res.data.map(r => ({ parametre: r.parametre, valeur: Number(r.valeur) })))
+      }
+    })
+    thresholdController.onSync((engine, parametre, valeur, raison) => {
+      upsertThreshold(parametre, valeur, engine, raison)
+    })
+
+    // Charger les décisions depuis Supabase
+    fetchDecisions().then(res => {
+      if (res.data && res.data.length > 0) {
+        const mapped: DecisionRecord[] = res.data.map(r => ({
+          id: r.id,
+          aerodromeId: r.aerodrome_id,
+          date: r.date_decision,
+          type: r.type as DecisionRecord['type'],
+          status: r.status as DecisionRecord['status'],
+          effectiveness: r.effectiveness as DecisionRecord['effectiveness'],
+          appliedAt: r.applied_at,
+          commentaire: r.commentaire,
+          recommendation: r.recommendation_action ? {
+            action: r.recommendation_action,
+            type: (r.recommendation_type || 'correctif') as any,
+            urgence: (r.recommendation_urgence || '3_mois') as any,
+            justification: '',
+          } : undefined,
+          certificatAction: r.certificat_action,
+          declencheurType: r.declencheur_type,
+          suggestionType: r.suggestion_type,
+          suggestionConfiance: r.suggestion_confiance,
+        }))
+        decisionTracker.initFromSupabase(mapped)
+      }
+    })
+    decisionTracker.onSync((record) => {
+      createDecision({
+        aerodrome_id: record.aerodromeId,
+        type: record.type,
+        recommendation_action: record.recommendation?.action,
+        recommendation_type: record.recommendation?.type,
+        recommendation_urgence: record.recommendation?.urgence,
+        certificat_action: record.certificatAction,
+        declencheur_type: record.declencheurType,
+        suggestion_type: record.suggestionType,
+        suggestion_confiance: record.suggestionConfiance,
+        confiance: record.recommendation?.confiance,
+      })
+    })
+
+    // Charger les poids du modèle ML depuis Supabase
+    fetchModelState('suggestion_ml').then(res => {
+      if (res.data) {
+        suggestionMLAgent.initModelFromSupabase({
+          version: res.data.version,
+          updated_at: '',
+          weights: res.data.weights,
+          biases: res.data.biases,
+          learning_rate: Number(res.data.learning_rate),
+          total_feedbacks: res.data.total_feedbacks,
+          accuracy_history: (res.data.accuracy_history || []).map(Number),
+          aerodrome_specific: (res.data.model_data as Record<string, any>) || {},
+        })
+      }
+    })
+    suggestionMLAgent.onSyncModel((model) => {
+      // Sérialiser les champs pour l'upsert
+      const aerodromeIds = Object.keys(model.aerodrome_specific || {})
+      // Sauvegarder l'état global (sans aerodrome_id)
+      upsertModelState({
+        model_name: 'suggestion_ml',
+        version: model.version,
+        weights: model.weights,
+        biases: model.biases,
+        learning_rate: model.learning_rate,
+        total_feedbacks: model.total_feedbacks,
+        accuracy_history: model.accuracy_history,
+        model_data: model.aerodrome_specific as unknown as Record<string, unknown>,
+      })
+    })
+  }, [])
 
   useEffect(() => {
     document.body.setAttribute('data-role', user.role)
@@ -97,7 +202,7 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
       'dg-decisions-impact': 'Décisions & Impact',
       'dg-operator-dashboard': 'Vue d\'Ensemble',
       'focal-dashboard': 'Tableau de Bord Point Focal',
-      'staff-dashboard': 'Tableau de Bord Personnel',
+      'staff-dashboard': 'Mon Aérodrome',
       'guest-dashboard': 'Consultation',
       aerodromes: 'Aérodromes',
       certification: 'Certification',

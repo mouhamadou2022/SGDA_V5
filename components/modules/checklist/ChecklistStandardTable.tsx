@@ -70,10 +70,21 @@ function genId(prefix = 'item') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function makeBlankItem(numero: string): ChecklistItem {
+function makeBlankItem(numero: string, existingItems?: ChecklistItem[]): ChecklistItem {
+  // Auto-numérotation : prend le max des numéros existants + 1
+  let finalNumero = `${numero}`
+  if (existingItems && existingItems.length > 0) {
+    const maxNum = Math.max(
+      ...existingItems
+        .map(i => parseInt(i.numero, 10))
+        .filter(n => !isNaN(n)),
+      0
+    )
+    finalNumero = String(maxNum + 1).padStart(Math.max(2, String(existingItems.length + 1).length), '0')
+  }
   return {
     id: genId('item'),
-    numero,
+    numero: finalNumero,
     reference_reglementaire: '',
     point_verification: 'Nouvelle question',
     directive_preuve: '',
@@ -104,9 +115,10 @@ function parseGuideAndDirectives(item: ChecklistItem): {
   const cleanLine = (l: string) =>
     l.replace(/^\d+\.\s*/, '').replace(/^[-–→•]\s*/, '').trim();
 
+  const preuve = Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (item.directive_preuve ?? '')
   if (item.directive_sa || item.directive_ns || item.directive_nv || item.directive_na) {
     return {
-      steps: (item.directive_preuve || '').split('\n').map(cleanLine).filter(Boolean),
+      steps: String(preuve).split('\n').map(cleanLine).filter(Boolean),
       sa: item.directive_sa,
       ns: item.directive_ns,
       nv: item.directive_nv,
@@ -114,7 +126,7 @@ function parseGuideAndDirectives(item: ChecklistItem): {
     };
   }
 
-  const raw = item.directive_preuve || '';
+  const raw = String(preuve);
   const EVAL_MARKER  = '📌 ÉVALUATION OBJECTIVE';
   const SEUIL_MARKER = '⚠️ Seuil';
 
@@ -270,18 +282,28 @@ function StylusCanvas({ value, onChange, height = 80 }: {
 
 interface Preuve { id: string; nom: string; url: string; dateUpload: string; }
 
-function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
+function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove, uploadFile }: {
   isOpen: boolean; onClose: () => void; itemRef: string;
   preuves: Preuve[]; onAdd: (p: Preuve) => void; onRemove: (id: string) => void;
+  uploadFile?: (file: File) => Promise<string>;
 }) {
   const [nom, setNom]   = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   if (!isOpen) return null;
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!file) return;
-    onAdd({ id: `pf-${Date.now()}`, nom: nom.trim() || file.name, url: URL.createObjectURL(file), dateUpload: new Date().toISOString() });
-    setNom(''); setFile(null);
+    setUploading(true);
+    try {
+      const url = uploadFile ? await uploadFile(file) : URL.createObjectURL(file);
+      onAdd({ id: `pf-${Date.now()}`, nom: nom.trim() || file.name, url, dateUpload: new Date().toISOString() });
+      setNom(''); setFile(null);
+    } catch (e) {
+      console.error('[PreuveModal] Erreur upload:', e);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return createPortal(
@@ -317,9 +339,9 @@ function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
               <p className="text-[12px] font-semibold flex items-center gap-1"><Upload className="w-3.5 h-3.5 text-role-primary" /> Ajouter une preuve</p>
               <input type="text" value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom de la preuve…" className="form-input w-full text-xs" />
               <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); if (f && !nom) setNom(f.name); }} className="form-input w-full text-xs" />
-              <button type="button" onClick={handleAdd} disabled={!file}
-                className={`btn btn-sm w-full gap-1.5 ${!file ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}>
-                <Upload className="w-3 h-3" /> Ajouter
+              <button type="button" onClick={handleAdd} disabled={!file || uploading}
+                className={`btn btn-sm w-full gap-1.5 ${!file || uploading ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}>
+                {uploading ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Upload...</> : <><Upload className="w-3 h-3" /> Ajouter</>}
               </button>
             </div>
           </div>
@@ -335,12 +357,14 @@ function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
 
 // ─── ItemRow ─────────────────────────────────────────────────────────────────
 
-function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
+function ItemRow({ item, onUpdate, onDelete, readOnly, structureReadOnly, modeSaisie, onUploadPreuve }: {
   item: ChecklistItem;
   onUpdate: (updated: ChecklistItem) => void;
   onDelete?: () => void;
   readOnly: boolean;
+  structureReadOnly?: boolean;
   modeSaisie: ModeSaisie;
+  onUploadPreuve?: (file: File, itemId: string) => Promise<string>;
 }) {
   const [preuveOpen, setPreuveOpen] = useState(false);
   const [obsEdit, setObsEdit]       = useState(false);
@@ -384,12 +408,12 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
     <>
       <tr className="border-b border-blue-100 hover:bg-blue-50/20 transition-colors group">
 
-        {/* ── Réf ── */}
+        {/* ── Réf (structureLocked) ── */}
         <td className="p-1.5 border-r border-blue-100 bg-white w-14 min-w-[3.5rem] max-w-[3.5rem] align-top">
           <InlineEdit
             value={item.numero}
             onChange={v => onUpdate({ ...item, numero: v })}
-            readOnly={readOnly}
+            readOnly={structureReadOnly}
             className="text-[13px] font-mono text-foreground"
             inputClassName="text-[13px] font-mono"
             placeholder="Réf"
@@ -397,24 +421,24 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
           {item.prefilled && <span className="text-[9px] text-purple-500 font-semibold block">IA</span>}
         </td>
 
-        {/* ── Réf. réglementaire ── */}
+        {/* ── Réf. réglementaire (structureLocked) ── */}
         <td className="p-1.5 border-r border-blue-100 bg-white w-28 min-w-[7rem] max-w-[7rem] align-top">
           <InlineEdit
             value={item.reference_reglementaire || ''}
             onChange={v => onUpdate({ ...item, reference_reglementaire: v })}
-            readOnly={readOnly}
+            readOnly={structureReadOnly}
             className="text-[13px] font-mono text-gray-900 break-words"
             inputClassName="text-[13px] font-mono"
             placeholder="—"
           />
         </td>
 
-        {/* ── Question ── */}
+        {/* ── Question (structureLocked) ── */}
         <td className="p-1.5 border-r border-blue-100 min-w-[10rem] max-w-[15rem] align-top">
           <InlineEdit
             value={item.point_verification}
             onChange={v => onUpdate({ ...item, point_verification: v })}
-            readOnly={readOnly}
+            readOnly={structureReadOnly}
             multiline
             className="text-[13px] text-foreground"
             inputClassName="text-[13px]"
@@ -480,8 +504,8 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
                   : <span className="text-[12px] text-gray-400">{readOnly ? '—' : 'Ajouter'}</span>}
               </button>
             )}
-            {/* Bouton supprimer — visible au survol de la ligne (group) */}
-            {!readOnly && onDelete && !obsEdit && (
+            {/* Bouton supprimer — structureLocked */}
+            {!structureReadOnly && onDelete && !obsEdit && (
               <button type="button"
                 onClick={() => { if (window.confirm(`Supprimer "${item.numero}" ?`)) onDelete!(); }}
                 className="p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
@@ -501,9 +525,9 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
             Guide d'évaluation — Étape par étape
           </p>
 
-          {/* Étapes — édition comme un bloc textarea */}
+          {/* Étapes — structureLocked (guide d'évaluation) */}
           <div className="mb-1.5">
-            {readOnly ? (
+            {structureReadOnly ? (
               <div className="space-y-0.5">
                 {steps.length > 0
                   ? steps.map((l, i) => (
@@ -518,7 +542,7 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
               <InlineEdit
                 value={steps.join('\n')}
                 onChange={v => normalizedUpdate({ directive_preuve: v })}
-                readOnly={false}
+                readOnly={structureReadOnly}
                 multiline
                 placeholder="Cliquer pour ajouter des étapes (une par ligne)…"
                 className="text-[13px] text-blue-800 whitespace-pre-wrap"
@@ -527,7 +551,7 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
             )}
           </div>
 
-          {/* Attribuer l'état de chaque point */}
+          {/* Attribuer l'état de chaque point — structureLocked */}
           <div className="pt-1.5 border-t border-blue-200/70">
             <p className="text-[13px] font-semibold text-blue-900 mb-0.5">Attribuer l'état de chaque point :</p>
             <div className="space-y-0.5">
@@ -543,7 +567,7 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
                     <InlineEdit
                       value={dir || ''}
                       onChange={v => normalizedUpdate({ [field]: v || undefined })}
-                      readOnly={readOnly}
+                      readOnly={structureReadOnly}
                       multiline
                       placeholder="Cliquer pour définir le critère…"
                       className="text-blue-800 leading-snug"
@@ -560,23 +584,28 @@ function ItemRow({ item, onUpdate, onDelete, readOnly, modeSaisie }: {
       <PreuveModal isOpen={preuveOpen} onClose={() => setPreuveOpen(false)} itemRef={item.numero}
         preuves={preuves}
         onAdd={p => onUpdate({ ...item, fichiers: [...preuves, p] } as any)}
-        onRemove={id => onUpdate({ ...item, fichiers: preuves.filter(p => p.id !== id) } as any)} />
+        onRemove={id => onUpdate({ ...item, fichiers: preuves.filter(p => p.id !== id) } as any)}
+        uploadFile={onUploadPreuve ? (file) => onUploadPreuve(file, item.id) : undefined} />
     </>
   );
 }
 
 // ─── ItemsTableBody ───────────────────────────────────────────────────────────
 
-function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, readOnly, modeSaisie }: {
+function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, readOnly, structureReadOnly, modeSaisie, onUploadPreuve }: {
   items: ChecklistItem[];
   onUpdate: (updated: ChecklistItem) => void;
   onDeleteItem?: (id: string) => void;
   onAddItem?: () => void;
+  /** readOnly = verrouillage évaluation */
   readOnly: boolean;
+  /** structureReadOnly = verrouillage structure */
+  structureReadOnly?: boolean;
   modeSaisie: ModeSaisie;
+  onUploadPreuve?: (file: File, itemId: string) => Promise<string>;
 }) {
   if (!items || items.length === 0) {
-    if (!onAddItem || readOnly) return null;
+    if (!onAddItem || structureReadOnly) return null;
     return (
       <div className="checklist-items-empty">
         <button type="button" onClick={onAddItem}
@@ -605,12 +634,13 @@ function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, readOnly, mo
             {items.map(item => (
               <ItemRow key={item.id} item={item} onUpdate={onUpdate}
                 onDelete={onDeleteItem ? () => onDeleteItem(item.id) : undefined}
-                readOnly={readOnly} modeSaisie={modeSaisie} />
+                readOnly={readOnly} structureReadOnly={structureReadOnly} modeSaisie={modeSaisie}
+                onUploadPreuve={onUploadPreuve} />
             ))}
           </tbody>
         </table>
       </div>
-      {!readOnly && onAddItem && (
+      {!structureReadOnly && onAddItem && (
         <div className="px-2 py-1 border-t border-blue-100 bg-gray-50/60">
           <button type="button" onClick={onAddItem}
             className="inline-flex items-center gap-1.5 text-[12px] text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1">
@@ -626,16 +656,20 @@ function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, readOnly, mo
 
 function ElementSection({
   sd, ssdList, onUpdateItem, onMutateSd,
-  modeSaisie, readOnly, collapsed, onToggle,
+  modeSaisie, readOnly, structureReadOnly, collapsed, onToggle, onUploadPreuve,
 }: {
   sd: SousDomaine;
   ssdList: SousSousDomaine[];
   onUpdateItem: (item: ChecklistItem) => void;
   onMutateSd?: (updated: SousDomaine) => void;
   modeSaisie: ModeSaisie;
+  /** readOnly = verrouillage évaluation */
   readOnly: boolean;
+  /** structureReadOnly = verrouillage structure */
+  structureReadOnly?: boolean;
   collapsed: boolean;
   onToggle: () => void;
+  onUploadPreuve?: (file: File, itemId: string) => Promise<string>;
 }) {
   const [addingSsd, setAddingSsd]   = useState(false);
   const [newSsdName, setNewSsdName] = useState('');
@@ -643,7 +677,7 @@ function ElementSection({
   const allItems = getAllSousDomainItems(sd);
   const { conformite, total } = computeConformite(allItems);
   const done = allItems.filter(i => i.resultat).length;
-  const canEdit = !readOnly && !!onMutateSd;
+  const canEdit = !structureReadOnly && !!onMutateSd;
 
   const updateSdItems = (items: ChecklistItem[]) =>
     onMutateSd?.({ ...sd, items });
@@ -675,7 +709,6 @@ function ElementSection({
         onClick={onToggle}
       >
         <div className="flex items-center gap-2">
-          <span className="code-oaci-badge text-[11px]">{sd.id}</span>
           <span className="text-[13px] font-medium text-blue-900">{sd.nom}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -695,9 +728,11 @@ function ElementSection({
             items={sd.items || []}
             onUpdate={onUpdateItem}
             onDeleteItem={canEdit ? (id) => updateSdItems((sd.items || []).filter(i => i.id !== id)) : undefined}
-            onAddItem={canEdit ? () => updateSdItems([...(sd.items || []), makeBlankItem(`${sd.id}.${(sd.items || []).length + 1}`)]) : undefined}
+            onAddItem={canEdit ? () => updateSdItems([...(sd.items || []), makeBlankItem(`${sd.id}.${(sd.items || []).length + 1}`, sd.items)]) : undefined}
             readOnly={readOnly}
+            structureReadOnly={structureReadOnly}
             modeSaisie={modeSaisie}
+            onUploadPreuve={onUploadPreuve}
           />
 
           {/* Sous-sous-domaines */}
@@ -705,7 +740,7 @@ function ElementSection({
             ((ssd.items?.length ?? 0) > 0 || canEdit) ? (
               <div key={ssd.id}>
                 <div className="px-2 py-1 bg-slate-50 border-t border-border/50 flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider">{ssd.nom}</span>
+                  <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider">{ssd.nom.replace(/^[A-Z]{2,4}-\d+\s*/, '')}</span>
                   {canEdit && (
                     <button type="button"
                       onClick={() => { if (window.confirm(`Supprimer le groupe "${ssd.nom}" ?`))
@@ -719,9 +754,11 @@ function ElementSection({
                   items={ssd.items || []}
                   onUpdate={onUpdateItem}
                   onDeleteItem={canEdit ? (id) => updateSsdItems(ssd.id, (ssd.items || []).filter(i => i.id !== id)) : undefined}
-                  onAddItem={canEdit ? () => updateSsdItems(ssd.id, [...(ssd.items || []), makeBlankItem(`${ssd.id}.${(ssd.items || []).length + 1}`)]) : undefined}
+                  onAddItem={canEdit ? () => updateSsdItems(ssd.id, [...(ssd.items || []), makeBlankItem(`${ssd.id}.${(ssd.items || []).length + 1}`, ssd.items)]) : undefined}
                   readOnly={readOnly}
+                  structureReadOnly={structureReadOnly}
                   modeSaisie={modeSaisie}
+                  onUploadPreuve={onUploadPreuve}
                 />
               </div>
             ) : null
@@ -763,18 +800,24 @@ export interface ChecklistStandardTableProps {
   onUpdateDomaines?: (domaines: DomaineChecklist[]) => void;
   /** Mode de saisie global — piloté depuis le composant parent */
   modeSaisie?: ModeSaisie;
+  /** readOnly = verrouillage évaluation (résultats, observations, preuves) */
   readOnly?: boolean;
+  /** structureReadOnly = verrouillage structure (réf, questions, guide, add/delete) */
+  structureReadOnly?: boolean;
+  /** Callback pour uploader un fichier preuve vers le stockage permanent */
+  onUploadPreuve?: (file: File, itemId: string) => Promise<string>;
 }
 
 export function ChecklistStandardTable({
-  domaines, onUpdateItem, onUpdateDomaines, modeSaisie = 'clavier', readOnly = false,
+  domaines, onUpdateItem, onUpdateDomaines, modeSaisie = 'clavier', readOnly = false, structureReadOnly = false,
+  onUploadPreuve,
 }: ChecklistStandardTableProps) {
   const [collapsedDomaines,     setCollapsedDomaines]     = useState<Set<string>>(new Set());
   const [collapsedSousDomaines, setCollapsedSousDomaines] = useState<Set<string>>(new Set());
   const [addingSd, setAddingSd] = useState<string | null>(null);
   const [newSdName, setNewSdName] = useState('');
 
-  const canEdit = !readOnly && !!onUpdateDomaines;
+  const canEdit = !structureReadOnly && !!onUpdateDomaines;
 
   const toggleDomaine     = (id: string) => setCollapsedDomaines(p     => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSousDomaine = (id: string) => setCollapsedSousDomaines(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -863,11 +906,35 @@ export function ChecklistStandardTable({
                     items={domaine.items}
                     onUpdate={onUpdateItem}
                     readOnly={readOnly}
+                    structureReadOnly={structureReadOnly}
                     modeSaisie={modeSaisie}
+                    onUploadPreuve={onUploadPreuve}
                   />
                 )}
 
-                {/* Sous-domaines */}
+                {/* Ajouter un sous-domaine — APRÈS le tableau */}
+                {canEdit && (
+                  <div className="px-2 py-1.5 border-t border-dashed border-blue-700/40 bg-blue-900/5">
+                    {addingSd === domaine.id ? (
+                      <div className="flex items-center gap-2">
+                        <input className="form-input flex-1 text-[13px]"
+                          placeholder="Nom du sous-domaine…" value={newSdName}
+                          onChange={e => setNewSdName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') addSousDomaine(domaine.id); if (e.key === 'Escape') setAddingSd(null); }}
+                          autoFocus />
+                        <button type="button" onClick={() => addSousDomaine(domaine.id)} className="btn btn-sm btn-primary text-[12px]">Ajouter</button>
+                        <button type="button" onClick={() => setAddingSd(null)} className="btn btn-sm btn-secondary text-[12px]">✕</button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => { setAddingSd(domaine.id); setNewSdName(''); }}
+                        className="inline-flex items-center gap-1.5 text-[12px] text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-0.5">
+                        <Plus className="w-3.5 h-3.5" /> Ajouter un sous-domaine
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Sous-domaines — avec leurs propres boutons Ajouter APRÈS le tableau */}
                 {(domaine.sousDomaines || []).map(sd => {
                   const hasContent =
                     (sd.items?.length ?? 0) > 0 ||
@@ -894,34 +961,33 @@ export function ChecklistStandardTable({
                         onMutateSd={canEdit ? (updated) => mutateSd(domaine.id, sd.id, updated) : undefined}
                         modeSaisie={modeSaisie}
                         readOnly={readOnly}
+                        structureReadOnly={structureReadOnly}
                         collapsed={collapsedSousDomaines.has(sd.id)}
                         onToggle={() => toggleSousDomaine(sd.id)}
+                        onUploadPreuve={onUploadPreuve}
                       />
+                      {/* Ajouter une question — APRÈS le tableau du sous-domaine */}
+                      {canEdit && (
+                        <div className="px-2 py-1 border-t border-dashed border-blue-200/40 bg-blue-50/30">
+                          <button type="button"
+                            onClick={() => {
+                              onUpdateDomaines?.(domaines.map(d =>
+                                d.id !== domaine.id ? d : {
+                                  ...d,
+                                  sousDomaines: (d.sousDomaines || []).map(s =>
+                                    s.id !== sd.id ? s : { ...s, items: [...(s.items || []), makeBlankItem(`${sd.id}.${(sd.items || []).length + 1}`, sd.items)] }
+                                  ),
+                                }
+                              ));
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[12px] text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded px-2 py-0.5">
+                            <Plus className="w-3.5 h-3.5" /> Ajouter une question
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-
-                {/* Ajouter un sous-domaine */}
-                {canEdit && (
-                  <div className="px-2 py-1.5 border-t border-dashed border-blue-700/40 bg-blue-900/5">
-                    {addingSd === domaine.id ? (
-                      <div className="flex items-center gap-2">
-                        <input className="form-input flex-1 text-[13px]"
-                          placeholder="Nom du sous-domaine…" value={newSdName}
-                          onChange={e => setNewSdName(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') addSousDomaine(domaine.id); if (e.key === 'Escape') setAddingSd(null); }}
-                          autoFocus />
-                        <button type="button" onClick={() => addSousDomaine(domaine.id)} className="btn btn-sm btn-primary text-[12px]">Ajouter</button>
-                        <button type="button" onClick={() => setAddingSd(null)} className="btn btn-sm btn-secondary text-[12px]">✕</button>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => { setAddingSd(domaine.id); setNewSdName(''); }}
-                        className="inline-flex items-center gap-1.5 text-[12px] text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-0.5">
-                        <Plus className="w-3.5 h-3.5" /> Ajouter un sous-domaine
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             )}
           </div>

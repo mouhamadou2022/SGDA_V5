@@ -21,6 +21,7 @@ function ChecklistMixte({
   onComplete,
   userRole,
   initialTab,
+  readOnly,
 }: {
   surveillanceId: string;
   aerodromeId: string;
@@ -28,6 +29,7 @@ function ChecklistMixte({
   onComplete: () => void;
   userRole: string;
   initialTab?: 'standard' | 'suivi' | 'pac' | 'maintien';
+  readOnly?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<'standard' | 'suivi' | 'pac' | 'maintien'>(initialTab || 'standard');
   const surveillances = useAppStore(s => s.surveillances);
@@ -85,10 +87,12 @@ function ChecklistMixte({
               date_debut: surveillance.date_debut,
               equipe_ids: surveillance.equipe_ids || [],
               chef_id: surveillance.chef_id || '',
+              statut: surveillance.statut || '',
             }}
             onSave={onSave}
             onComplete={onComplete}
             userRole={userRole}
+            readOnly={readOnly}
             excludeDomaines={isMixedWithSGS ? ['SGS'] : []}
           />
         )}
@@ -263,6 +267,9 @@ export default function ChecklistPage() {
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
 
+  const STATUT_ORDER = ['planifiee', 'en_cours', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'];
+  const checklistReadOnly = STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 2;
+
   const deriveUiFromDecisionChecklist = (
     typesChecklist: TypeChecklist[]
   ): {
@@ -298,11 +305,22 @@ export default function ChecklistPage() {
     });
   }, [surveillanceId, updateSurveillance, addNotification, user?.id]);
 
+  // Sauvegarde du template SGS (apprentissage IA)
+  const handleSaveSGSTemplate = React.useCallback((template: Record<string, any[]>) => {
+    const aerodromeId = surveillance?.aerodrome_id;
+    if (!aerodromeId) return;
+    const { updateAerodrome } = useAppStore.getState();
+    updateAerodrome(aerodromeId, { sgs_checklist_template: template as any });
+  }, [surveillance?.aerodrome_id]);
+
   // Signature de l'évaluation SGS
   const handleSignSGSEvaluation = React.useCallback((signatureUrl: string) => {
     updateSurveillance(surveillanceId, {
-      statut: 'checklist_signee',
-      signatures_checklist: [{ signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }],
+      sgs_evaluation_signee_le: new Date().toISOString(),
+      signatures_checklist: [
+        ...(surveillance?.signatures_checklist || []),
+        { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl },
+      ],
     });
     addNotification({
       user_id: user?.id || '',
@@ -342,6 +360,7 @@ export default function ChecklistPage() {
             surveillanceId={surveillanceId}
             aerodromeId={surveillance?.aerodrome_id || ''}
             initialTab={profileDerivedInitialTab}
+            readOnly={checklistReadOnly}
             onSave={handleSaveChecklist}
             onComplete={() => {
               addNotification({
@@ -399,6 +418,8 @@ export default function ChecklistPage() {
 
     // Cas SGS explicite (?type=sgs) → évaluation PAOE plein écran (sans checklist standard en arrière-plan)
     if (typeParam === 'sgs') {
+      const sgsStatut = surveillance?.statut || '';
+      const sgsStructureReadOnly = !!sgsStatut && sgsStatut !== 'planifiee';
       return {
         component: (
           <SGSEvaluationContent
@@ -413,10 +434,29 @@ export default function ChecklistPage() {
             existingEvaluation={(surveillance?.sgs_evaluation_prepa as EvaluationSGS) ?? null}
             onSave={handleSaveSGSEvaluation}
             onSigner={handleSignSGSEvaluation}
+            onSaveSGSTemplate={handleSaveSGSTemplate}
+            sgsTemplate={aerodrome?.sgs_checklist_template as any}
+            structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
+              const portee = surveillance?.portee || [];
+              const isMixed = portee.includes('SGS') && !(portee.length === 1 && portee[0] === 'SGS');
+              if (isMixed) {
+                const surv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
+                const stdSigned = !!(surv?.signatures_checklist as any[])?.length;
+                if (!stdSigned) {
+                  router.push(`/surveillance/${surveillanceId}/checklist?type=standard`);
+                  return;
+                }
+                if (surv?.['sgs_ecarts_signes_le' as keyof typeof surv]) {
+                  router.push(`/surveillance/${surveillanceId}`);
+                  return;
+                }
+                router.push(`/surveillance/${surveillanceId}/ecarts/sgs`);
+                return;
+              }
               router.push(`/surveillance/${surveillanceId}`);
             }}
-            isSigned={surveillance?.statut === 'checklist_signee' || !!(surveillance?.signatures_checklist as any[])?.length}
+            isSigned={!!surveillance?.sgs_evaluation_signee_le}
             onBack={() => router.push(`/surveillance/${surveillanceId}`)}
           />
         ),
@@ -441,8 +481,24 @@ export default function ChecklistPage() {
               chef_id: surveillance?.chef_id || '',
             }}
             onSave={handleSaveChecklist}
-            onComplete={() => { router.push(`/surveillance/${surveillanceId}`); }}
+            onComplete={() => {
+              const portee = surveillance?.portee || [];
+              const hasSGS = portee.includes('SGS') && !(portee.length === 1 && portee[0] === 'SGS');
+              if (hasSGS) {
+                const surv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
+                if (!surv?.sgs_evaluation_signee_le) {
+                  router.push(`/surveillance/${surveillanceId}/checklist?type=sgs`);
+                  return;
+                }
+                if (surv?.['sgs_ecarts_signes_le' as keyof typeof surv]) {
+                  router.push(`/surveillance/${surveillanceId}/ecarts/sgs`);
+                  return;
+                }
+              }
+              router.push(`/surveillance/${surveillanceId}`);
+            }}
             userRole={user?.role || 'inspector'}
+            readOnly={checklistReadOnly}
             excludeDomaines={isMixedWithSGS ? ['SGS'] : []}
             modeSaisie={modeSaisie}
           />
@@ -551,6 +607,8 @@ export default function ChecklistPage() {
     const isMixedWithSGS = portee.includes('SGS') && !isSgsOnly;
 
     if (isSgsOnly) {
+      const sgsStatut = surveillance?.statut || '';
+      const sgsStructureReadOnly = !!sgsStatut && sgsStatut !== 'planifiee';
       return {
         component: (
           <SGSEvaluationContent
@@ -565,10 +623,13 @@ export default function ChecklistPage() {
             existingEvaluation={(surveillance?.sgs_evaluation_prepa as EvaluationSGS) ?? null}
             onSave={handleSaveSGSEvaluation}
             onSigner={handleSignSGSEvaluation}
+            onSaveSGSTemplate={handleSaveSGSTemplate}
+            sgsTemplate={aerodrome?.sgs_checklist_template as any}
+            structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
-            isSigned={surveillance?.statut === 'checklist_signee' || !!(surveillance?.signatures_checklist as any[])?.length}
+            isSigned={!!surveillance?.sgs_evaluation_signee_le}
             onBack={() => router.push(`/surveillance/${surveillanceId}`)}
           />
         ),
@@ -592,11 +653,28 @@ export default function ChecklistPage() {
             date_debut: surveillance?.date_debut || '',
             equipe_ids: surveillance?.equipe_ids || [],
             chef_id: surveillance?.chef_id || '',
+            statut: surveillance?.statut || '',
           }}
           onSave={handleSaveChecklist}
-          onComplete={() => {
-            router.push(`/surveillance/${surveillanceId}`);
-          }}
+          readOnly={checklistReadOnly}
+            onComplete={() => {
+              const portee = surveillance?.portee || [];
+              const hasSGS = portee.includes('SGS') && !(portee.length === 1 && portee[0] === 'SGS');
+              if (hasSGS) {
+                const surv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
+                if (!surv?.sgs_evaluation_signee_le) {
+                  router.push(`/surveillance/${surveillanceId}/checklist?type=sgs`);
+                  return;
+                }
+                if (surv?.['sgs_ecarts_signes_le' as keyof typeof surv]) {
+                  router.push(`/surveillance/${surveillanceId}`);
+                  return;
+                }
+                router.push(`/surveillance/${surveillanceId}/ecarts/sgs`);
+                return;
+              }
+              router.push(`/surveillance/${surveillanceId}`);
+            }}
           userRole={user?.role || 'inspector'}
           excludeDomaines={isMixedWithSGS ? ['SGS'] : []}
           modeSaisie={modeSaisie}

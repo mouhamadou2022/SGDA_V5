@@ -235,8 +235,16 @@ class NotificationService {
     }
 
     const titre = config.title(context)
-    const message = config.message(context)
+    let message = config.message(context)
     const canal = options?.canal ?? config.defaultCanal
+
+    // Enrichissement IA : activé via NEXT_PUBLIC_ENABLE_IA_NOTIFICATIONS=true
+    if (process.env.NEXT_PUBLIC_ENABLE_IA_NOTIFICATIONS === 'true') {
+      if (['profil_risque_alerte', 'ecart_en_retard', 'pac_en_retard'].includes(event)) {
+        const iaMessage = await this.enrichirAvecIA(event, context, titre)
+        if (iaMessage) message = iaMessage
+      }
+    }
 
     for (const user of targets) {
       store.addNotification({
@@ -247,21 +255,13 @@ class NotificationService {
         canal,
       })
     }
-
-    // Enrichissement IA : désactivé par défaut (préserve les quotas API)
-    // Pour activer : NEXT_PUBLIC_ENABLE_IA_NOTIFICATIONS=true dans .env.local
-    if (process.env.NEXT_PUBLIC_ENABLE_IA_NOTIFICATIONS === 'true') {
-      if (['profil_risque_alerte', 'ecart_en_retard', 'pac_en_retard'].includes(event)) {
-        this.enrichirAvecIA(event, context, titre).catch(() => {})
-      }
-    }
   }
 
   private iaCache = new Map<string, { timestamp: number }>()
-  private async enrichirAvecIA(event: EventType, context: Record<string, unknown>, titre: string) {
+  private async enrichirAvecIA(event: EventType, context: Record<string, unknown>, titre: string): Promise<string | null> {
     const now = Date.now()
     const lastCall = this.iaCache.get('last')?.timestamp || 0
-    if (now - lastCall < 60000) return
+    if (now - lastCall < 60000) return null
     this.iaCache.set('last', { timestamp: now })
     try {
       const { assistantAgent } = await import('@/lib/ia/agents/assistantAgent')
@@ -272,9 +272,10 @@ class NotificationService {
         contexte: { aerodromeId: context.aerodrome_id as string, surveillanceId: context.surveillance_id as string },
       })
       if (reponse.message && !reponse.message.includes('Je suis desole')) {
-        console.log('[Notif IA] Message genere :', reponse.message)
+        return reponse.message
       }
     } catch { /* silence */ }
+    return null
   }
 
   getConfig(event: EventType) {

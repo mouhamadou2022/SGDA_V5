@@ -229,8 +229,16 @@ export function SurveillanceStepper({ surveillance, onEtapeClick }: Surveillance
           <span className="text-sm font-medium text-gray-700">Progression du workflow</span>
           <span className="text-sm font-bold text-blue-700">{progression}%</span>
         </div>
-        <div className="progress h-2">
-          <div className="progress-bar" style={{ width: `${progression}%` }} />
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              currentIndex === 0 ? 'bg-gray-400' :
+              isTerminal ? 'bg-green-500' :
+              currentIndex <= 2 ? 'bg-yellow-500' :
+              'bg-blue-600'
+            }`}
+            style={{ width: `${progression}%` }}
+          />
         </div>
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>Étape {currentIndex + 1} / {ETAPES.length}</span>

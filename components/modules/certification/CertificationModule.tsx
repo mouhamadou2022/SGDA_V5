@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import {
   Shield,
@@ -18,20 +19,24 @@ import {
   XCircle,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Clock,
   User,
+  Users,
   Paperclip,
   Brain,
   Loader2,
-  BarChart3,
-  List,
-  Archive,
   Upload,
+  BarChart3,
+  Filter,
+  Search,
+  ChevronRight,
 } from 'lucide-react';
 
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Aerodrome, Certification, CertificationPhaseData, Planning } from '@/lib/store';
 import type { CertificationAnalysisResult } from '@/lib/ia/agents/certificationAgent';
+import { useRouter } from 'next/navigation';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
@@ -40,7 +45,6 @@ import { checkExpiringCertifications, getPhaseStats } from '@/lib/certificationU
 import { CertificationDocumentUpload } from './CertificationDocumentUpload';
 import { SignatureSection } from '../signatures/SignatureSection';
 import { LettreTransmissionUpload } from '@/components/ui/LettreTransmissionUpload';
-import { CertDashboard } from './CertDashboard';
 import { CertExpiryAlert } from './CertExpiryAlert';
 import { ExemptionManager } from '../exemptions/ExemptionManager';
 import { PhaseDocsModal } from './PhaseDocsModal';
@@ -90,6 +94,7 @@ interface PhaseCardProps {
   onManageExemptions?: () => void;
   lastActivity: string | null;
   daysInactive: number;
+  surveillanceBadge?: React.ReactNode;
 }
 
 function PhaseCard({
@@ -107,19 +112,23 @@ function PhaseCard({
   onNotify,
   onManageExemptions,
   lastActivity,
-  daysInactive
+  daysInactive,
+  surveillanceBadge
 }: PhaseCardProps) {
   const getProgressValue = () => {
     if (isCompleted) return 100;
     if (isActive) {
       if (data?.completude) return data.completude;
+      if (!data?.date_reception) return 75;
       return 50;
     }
     return 0;
   };
 
   const getStatusBadge = () => {
+    if (surveillanceBadge) return surveillanceBadge;
     if (isCompleted) return <span className="badge success">Complété</span>;
+    if (isActive && !data?.date_reception && phase > 1) return <span className="badge warning">En attente exploitant</span>;
     if (isActive) return <span className="badge primary pulse">En cours</span>;
     if (isLocked) return <span className="badge neutral">Verrouillé</span>;
     if (daysInactive > 60) return <span className="badge danger pulse">Bloqué</span>;
@@ -300,6 +309,13 @@ function PhaseModal({
   const addSurveillance = useAppStore(s => s.addSurveillance);
   const addNotification = useAppStore(s => s.addNotification);
   const utilisateurs = useAppStore(s => s.utilisateurs);
+  const surveillances = useAppStore(s => s.surveillances);
+  const ecarts = useAppStore(s => s.ecarts);
+  const exemptions = useAppStore(s => s.exemptions);
+  const checklistItemsMap = useAppStore(s => s.checklistItems);
+  const setActiveModule = useAppStore(s => s.setActiveModule);
+  const router = useRouter();
+  const [showTypeChoice, setShowTypeChoice] = useState<'standard' | 'sgs' | null>(null);
   const [phaseData, setPhaseData] = useState<CertificationPhaseData>(
     (certification?.phases_data as Record<string, CertificationPhaseData | undefined>)?.[`phase${phase}`] || {}
   );
@@ -310,8 +326,21 @@ function PhaseModal({
     phaseData.inspecteur_fichiers || []
   );
   const [isDeciding, setIsDeciding] = useState(false);
+  const today = new Date().toISOString().split('T')[0];
+  const dateError = phaseData.date_fin && phaseData.date_debut && phaseData.date_fin <= phaseData.date_debut
+    ? 'La date de fin doit être postérieure à la date de début'
+    : phaseData.date_debut && phaseData.date_debut < today
+    ? 'La date de début ne peut pas être dans le passé'
+    : null;
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    if (open && certification) {
+      setPhaseData(
+        (certification?.phases_data as Record<string, CertificationPhaseData | undefined>)?.[`phase${phase}`] || {}
+      );
+    }
+  }, [open, certification, phase]);
 
   const isLocked = phase > (certification?.phase_active || 1);
   const isCompleted = phase < (certification?.phase_active || 1);
@@ -319,11 +348,19 @@ function PhaseModal({
   const canAdvance = useMemo(() => {
     if (phase === 1) return !!phaseData.date_reception && !!phaseData.coordonnees?.nom && !!phaseData.coordonnees?.email
     if (phase === 2) return !!phaseData.date_reception && !!phaseData.numero_dossier && !!phaseData.responsable_id
-    if (phase === 3) return !!phaseData.date_verification && !!phaseData.chef_id && (phaseData.conclusion === 'favorable' || phaseData.conclusion === 'favorable_conditions')
+    if (phase === 3) {
+      const surv = surveillances.find(s => s.id === phaseData.surveillance_id);
+      const isTransmise = surv?.statut === 'transmise';
+      const related = ecarts.filter(e => e.surveillance_id === phaseData.surveillance_id);
+      const allPacAccepted = related.length === 0 || related.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+      const certExemps = exemptions.filter(e => e.parent_id === certification?.id);
+      const allExemptionsEval = certExemps.length === 0 || certExemps.every(e => e.avis_final !== undefined);
+      return !!phaseData.date_debut && !!phaseData.date_fin && !dateError && !!phaseData.chef_id && isTransmise && allPacAccepted && allExemptionsEval && (phaseData.conclusion === 'favorable' || phaseData.conclusion === 'favorable_conditions');
+    }
     if (phase === 4) return !!phaseData.numero_certificat && !!phaseData.date_delivrance && !!phaseData.date_expiration && new Date(phaseData.date_expiration) > new Date(phaseData.date_delivrance)
     if (phase === 5) return false
     return false
-  }, [phase, phaseData]);
+  }, [phase, phaseData, surveillances, ecarts, exemptions, certification]);
 
   const handleSave = async (advancePhase?: boolean | React.MouseEvent) => {
     setIsSubmitting(true);
@@ -340,8 +377,17 @@ function PhaseModal({
 
   const handleAccuseReception = async () => {
     const now = new Date().toISOString();
-    setPhaseData({ ...phaseData, statut: 'accuse', date_accuse_reception: now });
-    await handleSave(false);
+    const updated = { ...phaseData, statut: 'accuse' as const, date_accuse_reception: now };
+    setPhaseData(updated);
+    setIsSubmitting(true);
+    try {
+      await onSave(updated, false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Erreur accusé réception certification:', error)
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDecision = async (decision: 'favorable' | 'a_reviser' | 'defavorable') => {
@@ -354,7 +400,6 @@ function PhaseModal({
         inspecteur_fichiers: inspecteurFichiers,
         date_decision: now,
       };
-      setPhaseData(updatedData);
       const shouldAdvance = phase === 2 && decision === 'favorable';
       await onSave(updatedData, shouldAdvance);
       onOpenChange(false);
@@ -365,15 +410,24 @@ function PhaseModal({
     }
   };
 
-  const handleInspectorFileUpload = () => {
+  const handleInspectorFileUpload = async () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf,.doc,.docx,.png,.jpg,.jpeg';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      setInspecteurFichiers(prev => [...prev, { nom: file.name, url }]);
+      try {
+        const { uploadFile } = await import('@/lib/datastore');
+        const path = `certifications/${aerodrome.id}/${Date.now()}_${file.name}`;
+        const result = await uploadFile('documents', path, file);
+        if (result.error) throw new Error(result.error);
+        if (result.data) {
+          setInspecteurFichiers(prev => [...prev, { nom: file.name, url: result.data!.url }]);
+        }
+      } catch (err) {
+        console.error('Erreur upload fichier inspecteur:', err);
+      }
     };
     input.click();
   };
@@ -406,21 +460,33 @@ function PhaseModal({
     }
   };
 
+  const DOCUMENT_LABELS: Record<string, string> = {
+    lettre_demande_formelle: 'Lettre de demande formelle',
+    formulaire_demande_formelle: 'Formulaire de demande formelle',
+    plan_masse: 'Plan de masse',
+    plan_situation: 'Plan de situation',
+    manuel_aerodrome: "Manuel d'aérodrome",
+    manuel_sgs: 'Manuel SGS',
+    plan_urgence: "Plan d'urgence",
+    plan_enlevement: "Plan d'enlèvement",
+  };
+
   const handleCreateSurveillance = async () => {
     if (!aerodrome) return;
     const now = new Date().toISOString();
     const today = now.split('T')[0];
 
     const planningId = crypto.randomUUID();
+    const porteeComplete = ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'];
     const planning: Planning = {
       id: planningId,
       aerodrome_id: aerodrome.id,
       type: 'certification',
       date_debut: today,
-      date_fin: '',
-      portee: [],
+      date_fin: today,
+      portee: porteeComplete,
       equipe_ids: [],
-      chef_id: '',
+      chef_id: null as any,
       statut: 'planifiee',
       priorite: 'haute',
       declencheur: 'automatique',
@@ -432,24 +498,11 @@ function PhaseModal({
     };
     await addPlanning(planning);
 
-    const surveillance = await addSurveillance({
-      aerodrome_id: aerodrome.id,
+    setPhaseData(prev => ({
+      ...prev,
       planning_id: planningId,
-      type: 'certification',
-      portee: [],
-      equipe_ids: [],
-      chef_id: '',
-      date_debut: today,
-      date_fin: '',
-      statut: 'planifiee',
-    });
-
-    const updatedPhaseData = {
-      ...phaseData,
-      surveillance_id: surveillance.id,
       date_verification: today,
-    };
-    setPhaseData(updatedPhaseData);
+    }));
 
     const operators = utilisateurs.filter(u =>
       u.aerodrome_id === aerodrome.id &&
@@ -488,6 +541,7 @@ function PhaseModal({
 
         return (
           <div className="space-y-5">
+            {/* Carte demandeur */}
             <div className={`p-4 rounded-xl border ${
               phase1Status === 'favorable' ? 'border-success/40 bg-success/5' :
               phase1Status === 'defavorable' ? 'border-danger/40 bg-danger/5' :
@@ -513,18 +567,50 @@ function PhaseModal({
                   <p className="text-sm text-foreground whitespace-pre-wrap">{phaseData.description}</p>
                 </div>
               )}
-              {phaseData.lettre_intent_url && (
-                <button type="button" className="btn btn-secondary gap-2 text-sm mt-3" onClick={() => window.open(phaseData.lettre_intent_url, '_blank')}>
-                  <FileText className="w-4 h-4" />Voir le dossier
-                </button>
-              )}
+              {phaseData.lettre_intent_url || phaseData.inspecteur_fichiers?.length ? (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-2 font-medium">Documents</p>
+                  <div className="space-y-2">
+                    {phaseData.lettre_intent_url && (
+                      <div className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-primary shrink-0" />
+                          <span className="text-sm truncate">{phaseData.lettre_intent_name || phaseData.lettre_intent_url.split('/').pop()?.replace(/^\d+_/, '') || 'Dossier de demande'}</span>
+                        </div>
+                        <a href={phaseData.lettre_intent_url} target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                        <a href={phaseData.lettre_intent_url} download target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Télécharger">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </div>
+                    )}
+                    {phaseData.inspecteur_fichiers?.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm truncate">{f.nom || `Fichier ${i + 1}`}</span>
+                        </div>
+                        <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                        <a href={f.url} download target="_blank" rel="noopener noreferrer" className="action-button shrink-0" title="Télécharger">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {phaseData.date_accuse_reception && (
                 <p className="text-xs text-muted mt-2">Accusé réception: {new Date(phaseData.date_accuse_reception).toLocaleDateString('fr-FR')}</p>
               )}
             </div>
 
+            {/* Phase 1 workflow */}
             {phase1Status === 'en_attente' && !isLocked && !isCompleted && (
-              <div className="text-center py-4">
+              <div className="p-4 bg-role-primary-soft/5 border border-role-primary/20 rounded-xl text-center">
+                <p className="text-sm text-foreground mb-4">Demande en attente de traitement — accuser réception pour débuter l'instruction</p>
                 <button type="button" onClick={handleAccuseReception} className="btn btn-primary gap-2">
                   <CheckCircle2 className="w-4 h-4" />Accuser réception
                 </button>
@@ -532,43 +618,23 @@ function PhaseModal({
             )}
 
             {(phase1Status === 'accuse' || phase1Status === 'en_cours') && !isLocked && !isCompleted && (
-              <div className="space-y-4 border-t border-border pt-4">
+              <div className="space-y-5 border-t border-border pt-4">
                 <h4 className="text-sm font-semibold text-foreground">Instruction de la demande</h4>
 
+                {/* Commentaires — zone d'évaluation principale */}
                 <div className="form-field">
-                  <label className="filter-label"><Upload className="h-3.5 w-3.5 mr-1 inline" />Fichiers d'évaluation</label>
-                  <div className="space-y-2">
-                    {inspecteurFichiers.map((f, i) => (
-                      <div key={i} className="flex items-center justify-between p-2.5 bg-success/5 border border-success/30 rounded-xl">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <FileText className="w-4 h-4 text-success shrink-0" />
-                          <span className="text-sm text-foreground truncate">{f.nom}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button type="button" className="action-button" onClick={() => window.open(f.url, '_blank')}><Eye className="w-4 h-4" /></button>
-                          <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                    ))}
-                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-6 border-dashed">
-                      <Upload className="w-5 h-5" />
-                      <span>Ajouter un fichier</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="form-field">
-                  <label className="filter-label"><AlertCircle className="h-3.5 w-3.5 mr-1 inline" />Commentaires</label>
+                  <label className="filter-label"><AlertCircle className="h-3.5 w-3.5 mr-1 inline" />Avis de l'inspecteur</label>
                   <textarea
                     className={`form-textarea ${focusClass}`}
                     value={phaseData.inspecteur_commentaires || ''}
                     onChange={(e) => setPhaseData({ ...phaseData, inspecteur_commentaires: e.target.value })}
                     rows={4}
-                    placeholder="Avis, observations, demandes de compléments..."
+                    placeholder="Évaluez la demande : conformité, complétude, observations..."
                   />
                 </div>
 
-                <div className="flex flex-wrap gap-3 pt-2">
+                {/* 3 décisions — action principale */}
+                <div className="flex flex-wrap gap-3">
                   <button type="button" onClick={() => handleDecision('favorable')} disabled={isDeciding} className="btn btn-success gap-2">
                     {isDeciding ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}Favorable
                   </button>
@@ -579,9 +645,34 @@ function PhaseModal({
                     {isDeciding ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}Défavorable
                   </button>
                 </div>
+
+                {/* Fichiers d'évaluation — optionnel */}
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer hover:text-foreground select-none">Ajouter des fichiers d'évaluation (optionnel)</summary>
+                  <div className="space-y-2 mt-3">
+                    {inspecteurFichiers.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between p-2.5 bg-success/5 border border-success/30 rounded-xl">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <FileText className="w-4 h-4 text-success shrink-0" />
+                          <span className="text-sm text-foreground truncate">{f.nom}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir"><Eye className="w-4 h-4" /></a>
+                          <a href={f.url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger"><Download className="w-4 h-4" /></a>
+                          <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-4 border-dashed">
+                      <Upload className="w-5 h-5" />
+                      <span>Ajouter un fichier</span>
+                    </button>
+                  </div>
+                </details>
               </div>
             )}
 
+            {/* Messages de résultat */}
             {phase1Status === 'favorable' && (
               <div className="alert alert-success">
                 <CheckCircle2 className="alert-icon" />
@@ -619,7 +710,7 @@ function PhaseModal({
             <div className="text-center py-10 text-muted-foreground">
               <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm">Aucune demande formelle reçue pour cet aérodrome.</p>
-              <p className="text-xs mt-1">Les demandes sont soumises depuis le portail exploitant après avis favorable Phase 1.</p>
+              <p className="text-xs mt-1">La Phase 2 sera accessible après avis favorable de la Phase 1 — l'exploitant soumet depuis le portail exploitant.</p>
             </div>
           );
         }
@@ -651,17 +742,94 @@ function PhaseModal({
               )}
             </div>
 
-            {/* Documents checklist (read-only pour l'inspecteur) */}
+            {/* Documents soumis par l'exploitant */}
             {phaseData.documents && Object.keys(phaseData.documents).length > 0 && (
               <div className="p-4 bg-card border border-border rounded-xl">
-                <p className="text-xs text-muted-foreground mb-2">Documents soumis par l'exploitant</p>
-                <div className="space-y-1.5">
-                  {Object.entries(phaseData.documents).map(([key, val]) => (
-                    <div key={key} className="flex items-center gap-2 text-sm">
-                      {val ? <CheckCircle2 className="w-4 h-4 text-success" /> : <XCircle className="w-4 h-4 text-muted" />}
-                      <span>{key}</span>
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Documents soumis par l'exploitant</p>
+                <div className="space-y-2">
+                  {Object.entries(phaseData.documents).filter(([, val]) => val).map(([key, val]) => {
+                    const url = typeof val === 'string' ? val : undefined;
+                    return (
+                      <div key={key} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <FileText className="w-4 h-4 text-primary shrink-0" />
+                          <span className="text-sm truncate">{DOCUMENT_LABELS[key] || key}</span>
+                        </div>
+                        {url && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir">
+                              <Eye className="w-4 h-4" />
+                            </a>
+                            <a href={url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger">
+                              <Download className="w-4 h-4" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Fichiers joints (rapport évaluation, lettre transmission) */}
+            {(phaseData.rapport_evaluation_url || phaseData.lettre_transmission_url || phaseData.inspecteur_fichiers?.length) && (
+              <div className="p-4 bg-card border border-border rounded-xl">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Fichiers</p>
+                <div className="space-y-2">
+                  {phaseData.rapport_evaluation_url && (
+                    <div className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm truncate">Rapport d'évaluation</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <a href={phaseData.rapport_evaluation_url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                        <a href={phaseData.rapport_evaluation_url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                  {phaseData.lettre_transmission_url && (
+                    <div className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm truncate">Lettre de transmission</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <a href={phaseData.lettre_transmission_url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir">
+                          <Eye className="w-4 h-4" />
+                        </a>
+                        <a href={phaseData.lettre_transmission_url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                  {phaseData.inspecteur_fichiers?.map((f, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{f.nom || `Fichier ${i + 1}`}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir"><Eye className="w-4 h-4" /></a>
+                        <a href={f.url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger"><Download className="w-4 h-4" /></a>
+                        {!isLocked && !isCompleted && (
+                          <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
+                        )}
+                      </div>
                     </div>
                   ))}
+                  {!isLocked && !isCompleted && (
+                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-2 border-dashed text-xs">
+                      <Upload className="w-4 h-4" />
+                      <span>Ajouter un fichier</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -675,43 +843,21 @@ function PhaseModal({
             )}
 
             {(phase2Status === 'accuse' || phase2Status === 'en_cours') && !isLocked && !isCompleted && (
-              <div className="space-y-4 border-t border-border pt-4">
+              <div className="space-y-5 border-t border-border pt-4">
                 <h4 className="text-sm font-semibold text-foreground">Instruction de la demande formelle</h4>
 
                 <div className="form-field">
-                  <label className="filter-label"><Upload className="h-3.5 w-3.5 mr-1 inline" />Rapport d'évaluation</label>
-                  <div className="space-y-2">
-                    {inspecteurFichiers.map((f, i) => (
-                      <div key={i} className="flex items-center justify-between p-2.5 bg-success/5 border border-success/30 rounded-xl">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <FileText className="w-4 h-4 text-success shrink-0" />
-                          <span className="text-sm text-foreground truncate">{f.nom}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button type="button" className="action-button" onClick={() => window.open(f.url, '_blank')}><Eye className="w-4 h-4" /></button>
-                          <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                    ))}
-                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-6 border-dashed">
-                      <Upload className="w-5 h-5" />
-                      <span>Ajouter un fichier</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="form-field">
-                  <label className="filter-label"><AlertCircle className="h-3.5 w-3.5 mr-1 inline" />Avis et commentaires</label>
+                  <label className="filter-label"><AlertCircle className="h-3.5 w-3.5 mr-1 inline" />Avis de l'inspecteur</label>
                   <textarea
                     className={`form-textarea ${focusClass}`}
                     value={phaseData.inspecteur_commentaires || ''}
                     onChange={(e) => setPhaseData({ ...phaseData, inspecteur_commentaires: e.target.value })}
                     rows={4}
-                    placeholder="Avis détaillé, observations..."
+                    placeholder="Évaluez la demande : conformité du dossier, complétude, observations..."
                   />
                 </div>
 
-                <div className="flex flex-wrap gap-3 pt-2">
+                <div className="flex flex-wrap gap-3">
                   <button type="button" onClick={() => handleDecision('favorable')} disabled={isDeciding} className="btn btn-success gap-2">
                     {isDeciding ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}Favorable
                   </button>
@@ -722,6 +868,14 @@ function PhaseModal({
                     {isDeciding ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}Défavorable
                   </button>
                 </div>
+
+                {!isLocked && !isCompleted && (
+                  <div className="mt-4">
+                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary gap-2 text-xs">
+                      <Upload className="w-4 h-4" />Ajouter un fichier d'évaluation
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -754,7 +908,21 @@ function PhaseModal({
         );
       }
 
-      case 3:
+      case 3: {
+        const surv = surveillances.find(s => s.id === phaseData.surveillance_id);
+        const isTransmise = surv?.statut === 'transmise';
+        const checklistItems = checklistItemsMap?.[phaseData.surveillance_id || ''] || [];
+        const saCount = checklistItems.filter(i => i.resultat === 'SA').length;
+        const nvCount = checklistItems.filter(i => i.resultat === 'NV').length;
+        const nsCount = checklistItems.filter(i => i.resultat === 'NS').length;
+        const denominator = saCount + nvCount + nsCount;
+        const tcScore = denominator > 0 ? Math.round((saCount / denominator) * 100) : surv?.score_global ?? 0;
+        const relatedEcarts = ecarts.filter(e => e.surveillance_id === phaseData.surveillance_id);
+        const allPacAccepted = relatedEcarts.length === 0 || relatedEcarts.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+        const certExemptions = exemptions.filter(e => e.parent_id === certification?.id);
+        const allExemptionsEval = certExemptions.length === 0 || certExemptions.every(e => e.avis_final !== undefined);
+        const conclusionUnlocked = isTransmise && allPacAccepted && allExemptionsEval;
+
         return (
           <div className="space-y-5 animate-fade-up">
             <div className="p-5 bg-gradient-to-br from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-2xl">
@@ -767,17 +935,44 @@ function PhaseModal({
                   <p className="text-xs text-muted-foreground">Phase 3 — Évaluation terrain</p>
                 </div>
               </div>
-              {!phaseData.surveillance_id && (
+              {!phaseData.surveillance_id && !phaseData.planning_id && (
                 <div className="alert alert-info">
                   <AlertCircle className="alert-icon" />
                   <div className="alert-content">
                     <div className="alert-title">Surveillance requise</div>
                     <div className="alert-description mb-3">
-                      Cette phase nécessite une surveillance sur site. Créez-la pour commencer.
+                      Créez un planning de surveillance. Rendez-vous ensuite dans le module <strong>Planning</strong> pour lancer la surveillance.
                     </div>
                     <button type="button" onClick={handleCreateSurveillance} className="btn btn-primary gap-2 shadow-role-glow">
-                      <Calendar className="h-4 w-4" />Créer la surveillance associée
+                      <Calendar className="h-4 w-4" />Créer le planning
                     </button>
+                  </div>
+                </div>
+              )}
+              {phaseData.planning_id && !phaseData.surveillance_id && (
+                <div className="alert alert-warning">
+                  <Clock className="alert-icon" />
+                  <div className="alert-content">
+                    <div className="alert-title">Planning créé</div>
+                    <div className="alert-description mb-3">
+                      Le planning a été créé. Lancez la surveillance depuis le module <strong>Planning</strong>.
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setActiveModule('planning')} className="btn btn-primary gap-2">
+                        <Calendar className="h-4 w-4" />Aller au module Planning
+                      </button>
+                      <button type="button" onClick={() => {
+                        const planningPortee = ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'];
+                        const hasSGS = planningPortee.includes('SGS');
+                        if (hasSGS) {
+                          setShowTypeChoice('standard');
+                        } else {
+                          router.push(`/preparation-checklist/${phaseData.planning_id}?type=standard`);
+                        }
+                      }} className="btn btn-outline gap-2">
+                        <ClipboardList className="h-4 w-4" />Préparer la checklist
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -786,7 +981,26 @@ function PhaseModal({
                   <CheckCircle2 className="alert-icon" />
                   <div className="alert-content">
                     <div className="alert-title">Surveillance créée</div>
-                    <span className="text-sm">Utilisez le module Planning pour la préparer et la lancer.</span>
+                    <span className="text-sm">Statut: <strong>{surv?.statut === 'transmise' ? 'Transmise à l\'exploitant' : surv?.statut ? surv.statut.replace(/_/g, ' ') : '—'}</strong></span>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => {
+                        const survPortee = surv?.portee || [];
+                        const hasSGS = survPortee.includes('SGS');
+                        const isSgsOnly = survPortee.length === 1 && survPortee[0] === 'SGS';
+                        if (hasSGS && !isSgsOnly) {
+                          setShowTypeChoice('standard');
+                        } else if (isSgsOnly) {
+                          router.push(`/surveillance/${phaseData.surveillance_id}/checklist?type=sgs`);
+                        } else {
+                          router.push(`/surveillance/${phaseData.surveillance_id}/checklist?type=standard`);
+                        }
+                      }} className="btn btn-sm btn-primary gap-1 mt-1">
+                        <ClipboardList className="h-3.5 w-3.5" />Ouvrir la checklist
+                      </button>
+                      <button type="button" onClick={() => router.push(`/surveillance/${phaseData.surveillance_id}`)} className="btn btn-sm btn-outline gap-1 mt-1">
+                        <Eye className="h-3.5 w-3.5" />Détails surveillance
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -794,42 +1008,102 @@ function PhaseModal({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="form-field">
-                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date vérification *</label>
-                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_verification || ''} onChange={(e) => setPhaseData({ ...phaseData, date_verification: e.target.value })} disabled={isLocked || isCompleted} />
+                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date début *</label>
+                <input type="date" className={`form-input ${focusClass}`} min={today} max={phaseData.date_fin || undefined} value={phaseData.date_debut || phaseData.date_verification || ''} onChange={(e) => setPhaseData({ ...phaseData, date_debut: e.target.value })} disabled={isLocked || isCompleted} />
               </div>
               <div className="form-field">
+                <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date fin *</label>
+                <input type="date" className={`form-input ${focusClass}`} min={phaseData.date_debut || today} value={phaseData.date_fin || ''} onChange={(e) => setPhaseData({ ...phaseData, date_fin: e.target.value })} disabled={isLocked || isCompleted} />
+              </div>
+            </div>
+
+            {dateError && !isLocked && !isCompleted && (
+              <div className="alert alert-warning p-2 text-xs">
+                <AlertCircle className="alert-icon w-3.5 h-3.5" />
+                <span>{dateError}</span>
+              </div>
+            )}
+
+            {/* Équipe de surveillance */}
+            <div className="p-4 bg-card border border-border rounded-xl">
+              <label className="filter-label mb-3"><Users className="h-3.5 w-3.5 mr-1 inline" />Équipe de surveillance</label>
+              <div className="space-y-3">
+                <div className="form-field">
+                  <label className="text-xs text-muted-foreground">Chef d'équipe *</label>
+                  <select className={`form-select ${focusClass}`} style={selectStyle} value={phaseData.chef_id || ''} onChange={(e) => setPhaseData({ ...phaseData, chef_id: e.target.value })} disabled={isLocked || isCompleted}>
+                    <option value="">Sélectionner</option>
+                    {utilisateurs.filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)).map(u => (
+                      <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {utilisateurs.filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)).map(u => (
+                    <button key={u.id} type="button"
+                      onClick={() => { const current = phaseData.equipe_ids || []; const next = current.includes(u.id) ? current.filter((i: string) => i !== u.id) : [...current, u.id]; setPhaseData({ ...phaseData, equipe_ids: next }); }}
+                      disabled={isLocked || isCompleted}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${phaseData.equipe_ids?.includes(u.id) ? 'bg-role-gradient text-white shadow-role-glow' : 'btn btn-secondary'}`}>
+                      {u.prenom} {u.nom}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="form-field">
                 <label className="filter-label"><BarChart3 className="h-3.5 w-3.5 mr-1 inline" />Score conformité</label>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted">Score</span>
-                    <span className={`font-semibold ${(phaseData.score_conformite || 0) >= 80 ? 'text-success' : (phaseData.score_conformite || 0) >= 60 ? 'text-warning' : 'text-danger'}`}>
-                      {phaseData.score_conformite || 0}%
+                <div className="p-4 bg-background rounded-xl border border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">TC = SA / (SA + NV + NS)</span>
+                    <span className={`text-2xl font-bold ${tcScore >= 80 ? 'text-success' : tcScore >= 60 ? 'text-warning' : 'text-danger'}`}>
+                      {tcScore}%
                     </span>
                   </div>
-                  <input type="range" min="0" max="100" step="5" value={phaseData.score_conformite || 0} onChange={(e) => setPhaseData({ ...phaseData, score_conformite: parseInt(e.target.value) })} disabled={isLocked || isCompleted} className="w-full accent-role-primary" />
-                  <div className="progress h-1.5">
-                    <div className={`progress-bar ${(phaseData.score_conformite || 0) >= 80 ? 'progress-moyen' : (phaseData.score_conformite || 0) >= 60 ? 'progress-eleve' : 'progress-critique'}`} style={{ width: `${phaseData.score_conformite || 0}%` }} />
+                  <div className="progress h-2">
+                    <div className={`progress-bar ${tcScore >= 80 ? 'progress-eleve' : tcScore >= 60 ? 'progress-moyen' : 'progress-faible'}`} style={{ width: `${tcScore}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                    <span>SA: {saCount}</span>
+                    <span>NV: {nvCount}</span>
+                    <span>NS: {nsCount}</span>
+                    <span>NA: {checklistItems.filter(i => i.resultat === 'NA').length}</span>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* Prérequis avant conclusion */}
             <div className="p-4 bg-card border border-border rounded-xl">
-              <label className="filter-label"><User className="h-3.5 w-3.5 mr-1 inline" />Équipe de vérification</label>
-              <select className={`form-select w-full mt-1 ${focusClass}`} style={selectStyle} value={phaseData.chef_id || ''} onChange={(e) => setPhaseData({ ...phaseData, chef_id: e.target.value })} disabled={isLocked || isCompleted}>
-                <option value="">Chef d'équipe</option>
-                {utilisateurs.filter(u => u.role === 'inspector' || u.role === 'superviseur').map(u => (
-                  <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
-                ))}
-              </select>
+              <label className="filter-label mb-3"><CheckCircle2 className="h-3.5 w-3.5 mr-1 inline" />Prérequis avant conclusion</label>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  {isTransmise ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Surveillance transmise à l'exploitant</p>
+                    <p className="text-xs text-muted-foreground">{isTransmise ? 'Rapport transmis' : 'En attente de transmission du rapport'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {allPacAccepted ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Plans d'actions acceptés</p>
+                    <p className="text-xs text-muted-foreground">{allPacAccepted ? `${relatedEcarts.length} PAC(s) accepté(s)` : `${relatedEcarts.filter(e => e.evaluation_pac?.decision === 'accepte' || e.evaluation_pac?.decision === 'reserve' || e.statut === 'pac_accepte').length}/${relatedEcarts.length} PAC accepté(s)`}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {allExemptionsEval ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" /> : <Clock className="w-5 h-5 text-warning shrink-0" />}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{certExemptions.length > 0 ? 'Exemptions évaluées' : 'Exemptions'}</p>
+                    <p className="text-xs text-muted-foreground">{allExemptionsEval ? (certExemptions.length > 0 ? `${certExemptions.length} exemption(s) évaluée(s)` : 'Aucune exemption requise') : `${certExemptions.filter(e => e.avis_final !== undefined).length}/${certExemptions.length} évaluée(s)`}</p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="form-field">
-              <label className="filter-label"><Upload className="h-3.5 w-3.5 mr-1 inline" />Rapport vérification</label>
-              <input type="text" className={`form-input ${focusClass}`} placeholder="URL du rapport" value={phaseData.rapport_verification_url || ''} onChange={(e) => setPhaseData({ ...phaseData, rapport_verification_url: e.target.value })} disabled={isLocked || isCompleted} />
-            </div>
-
+            {/* Conclusion */}
             <div className={`p-5 rounded-2xl border-2 transition-all duration-300 ${
+              !conclusionUnlocked ? 'border-muted/30 bg-muted/10 opacity-70' :
               phaseData.conclusion === 'favorable' ? 'border-success/40 bg-gradient-to-br from-success/5 to-transparent' :
               phaseData.conclusion === 'favorable_conditions' ? 'border-warning/40 bg-gradient-to-br from-warning/5 to-transparent' :
               phaseData.conclusion === 'defavorable' ? 'border-danger/40 bg-gradient-to-br from-danger/5 to-transparent' :
@@ -848,33 +1122,42 @@ function PhaseModal({
                   </span>
                 )}
               </label>
-              <div className="flex gap-3 flex-wrap">
-                {[
-                  { value: 'favorable', label: 'Favorable', icon: CheckCircle2, variant: 'success' },
-                  { value: 'favorable_conditions', label: 'Favorable sous conditions', icon: AlertCircle, variant: 'warning' },
-                  { value: 'defavorable', label: 'Défavorable', icon: XCircle, variant: 'danger' },
-                ].map(opt => (
-                  <button key={opt.value} type="button"
-                    onClick={() => setPhaseData({ ...phaseData, conclusion: opt.value as any })}
-                    disabled={isLocked || isCompleted}
-                    className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-medium text-sm transition-all duration-200 ${
-                      phaseData.conclusion === opt.value
-                        ? `border-${opt.variant}/50 bg-${opt.variant}/10 text-${opt.variant} shadow-${opt.variant}-glow`
-                        : 'border-border bg-card text-muted-foreground hover:border-foreground/20'
-                    }`}
-                  >
-                    <opt.icon className="w-4 h-4" />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              {conclusionUnlocked ? (
+                <div className="flex gap-3 flex-wrap">
+                  {[
+                    { value: 'favorable', label: 'Favorable', icon: CheckCircle2, variant: 'success' },
+                    { value: 'favorable_conditions', label: 'Favorable sous conditions', icon: AlertCircle, variant: 'warning' },
+                    { value: 'defavorable', label: 'Défavorable', icon: XCircle, variant: 'danger' },
+                  ].map(opt => (
+                    <button key={opt.value} type="button"
+                      onClick={() => setPhaseData({ ...phaseData, conclusion: opt.value as any })}
+                      disabled={isLocked || isCompleted}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-medium text-sm transition-all duration-200 ${
+                        phaseData.conclusion === opt.value
+                          ? `border-${opt.variant}/50 bg-${opt.variant}/10 text-${opt.variant} shadow-${opt.variant}-glow`
+                          : 'border-border bg-card text-muted-foreground hover:border-foreground/20'
+                      }`}
+                    >
+                      <opt.icon className="w-4 h-4" />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="alert alert-warning">
+                  <Lock className="alert-icon" />
+                  <div className="alert-content">
+                    La conclusion est verrouillée. Complétez tous les prérequis ci-dessus pour la déverrouiller.
+                  </div>
+                </div>
+              )}
               {!canAdvance && phaseData.conclusion === 'defavorable' && (
                 <div className="mt-3 alert alert-danger">
                   <AlertCircle className="alert-icon" />
-                  <div className="alert-content">Conclusion défavorable — la phase ne peut pas être clôturée. Vous pouvez enregistrer les données mais le dossier n'avancera pas.</div>
+                  <div className="alert-content">Conclusion défavorable — la phase ne peut pas être clôturée.</div>
                 </div>
               )}
-              {!canAdvance && !phaseData.conclusion && (
+              {!canAdvance && !phaseData.conclusion && conclusionUnlocked && (
                 <div className="mt-3 flex items-center gap-2 text-xs text-warning">
                   <Clock className="w-3 h-3 animate-pulse" />
                   <span>Sélectionnez une conclusion pour pouvoir valider et clôturer la phase</span>
@@ -883,6 +1166,7 @@ function PhaseModal({
             </div>
           </div>
         );
+      }
 
       case 4:
         return (
@@ -973,7 +1257,11 @@ function PhaseModal({
 
   if (!mounted || !open) return null;
 
+  // Phases 1 et 2 : workflow exploitant → inspecteur (statut requis pour agir)
+  const hasWorkflow = !!(phaseData.statut && (phase === 1 || phase === 2))
+
   return (
+    <>
     <FormShell
       open={mounted && open}
       onClose={() => onOpenChange(false)}
@@ -982,42 +1270,47 @@ function PhaseModal({
       size="3xl"
       dataRole={userRole}
       tabs={
-        phaseData.statut && (phase === 1 || phase === 2)
+        hasWorkflow
           ? [{ id: 'informations', label: 'Informations' }]
-          : [
-              { id: 'informations', label: 'Informations' },
-              { id: 'documents', label: 'Documents & Signature' },
-            ]
+          : phase === 3
+            ? [{ id: 'informations', label: 'Informations' }]
+            : phase >= 4
+              ? [
+                  { id: 'informations', label: 'Informations' },
+                  { id: 'documents', label: 'Documents & Signature' },
+                ]
+              : [{ id: 'informations', label: 'Informations' }]
       }
       activeTab={activeTab}
       onTabChange={setActiveTab}
       footer={
-        phaseData.statut && (phase === 1 || phase === 2) ? undefined : (
-          <div className="flex items-center gap-2 w-full justify-between">
+        hasWorkflow ? undefined : (
+          <div className="flex justify-end gap-3">
             <button className="btn btn-secondary" onClick={() => onOpenChange(false)}>
-              <XCircle className="w-4 h-4" />
-              Annuler
+              <XCircle className="w-4 h-4" /> Fermer
             </button>
-            <div className="flex items-center gap-2">
-              <button
-                className="btn btn-secondary gap-2"
-                onClick={handleSave}
-                disabled={isLocked || isCompleted || isSubmitting}
-              >
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-              {phase < 5 && canAdvance && (
+            {phase >= 3 && (
+              <>
                 <button
-                  className="btn btn-primary gap-2 shadow-role-glow"
-                  onClick={() => handleSave(true)}
+                  className="btn btn-secondary gap-2"
+                  onClick={handleSave}
                   disabled={isLocked || isCompleted || isSubmitting}
                 >
-                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  {isSubmitting ? 'Validation...' : 'Valider et clôturer'}
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
-              )}
-            </div>
+                {phase < 5 && canAdvance && (
+                  <button
+                    className="btn btn-primary gap-2 shadow-role-glow"
+                    onClick={() => handleSave(true)}
+                    disabled={isLocked || isCompleted || isSubmitting}
+                  >
+                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    {isSubmitting ? 'Validation...' : 'Valider et clôturer'}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )
       }
@@ -1036,7 +1329,7 @@ function PhaseModal({
             {activeTab === 'documents' && (
               <div className="space-y-4">
                 <CertificationDocumentUpload
-                documents={(phaseData.documents || {}) as Record<string, boolean>}
+                documents={(phaseData.documents || {})}
                   onDocumentChange={(key, uploaded) => {
                     const newDocs = { ...phaseData.documents, [key]: uploaded };
                     const total = Object.keys(newDocs).length;
@@ -1077,6 +1370,44 @@ function PhaseModal({
             )}
       </div>
     </FormShell>
+
+    {typeof window !== 'undefined' && showTypeChoice && createPortal(
+      <div className="modal-overlay" data-role={userRole} onClick={() => setShowTypeChoice(null)}>
+        <div className="modal-content max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+              <div className="modal-title flex items-center gap-2"><ClipboardList className="w-5 h-5 text-role-primary" />Choisir le type de checklist</div>
+              <button className="modal-close" onClick={() => setShowTypeChoice(null)}><XCircle className="w-4 h-4" /></button>
+            </div>
+            <div className="modal-body py-5 px-5 space-y-4">
+              <p className="text-sm text-muted-foreground">Cette surveillance inclut le domaine SGS. Sélectionnez le format à consulter :</p>
+              <button type="button" className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-role-primary-soft/30 transition-all text-left" onClick={() => {
+                setShowTypeChoice(null);
+                const id = phaseData.surveillance_id || phaseData.planning_id;
+                const prefix = phaseData.surveillance_id ? `/surveillance/${id}` : `/preparation-checklist/${id}`;
+                router.push(`${prefix}?type=standard`);
+              }}>
+                <div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><ClipboardList className="w-5 h-5 text-role-primary" /></div>
+                <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">Checklist Standard</p><p className="text-xs text-muted-foreground">Items standards RAS-14</p></div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+              <button type="button" className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-role-primary-soft/30 transition-all text-left" onClick={() => {
+                setShowTypeChoice(null);
+                const id = phaseData.surveillance_id || phaseData.planning_id;
+                const prefix = phaseData.surveillance_id ? `/surveillance/${id}` : `/preparation-checklist/${id}`;
+                router.push(`${prefix}?type=sgs`);
+              }}>
+                <div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><Shield className="w-5 h-5 text-role-primary" /></div>
+                <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">Checklist SGS</p><p className="text-xs text-muted-foreground">Évaluation SGS (PAOE - Annexe 19 OACI)</p></div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   );
 }
 
@@ -1090,13 +1421,17 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
   const storeUser = useOptimizedStore(s => s.user);
+  const surveillances = useAppStore(s => s.surveillances);
+  const ecarts = useAppStore(s => s.ecarts);
   const user = storeUser ?? userProp;
   const userRole = userRoleProp ?? userProp?.role ?? storeUser?.role ?? 'inspector';
 
   const [selectedPhase, setSelectedPhase] = useState<{ aerodrome: Aerodrome; phase: number } | null>(null);
   const [phaseModalOpen, setPhaseModalOpen] = useState(false);
   const [filterStatut, setFilterStatut] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list'>('dashboard');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterAerodrome, setFilterAerodrome] = useState<string>('all');
+  const [filterPhase, setFilterPhase] = useState<number>(0);
   const [exemptionManagerOpen, setExemptionManagerOpen] = useState(false);
   const [currentCertificationForExemption, setCurrentCertificationForExemption] = useState<Certification | null>(null);
   const [phaseDocsAerodrome, setPhaseDocsAerodrome] = useState<Aerodrome | null>(null);
@@ -1118,17 +1453,33 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
   };
 
   const filteredAerodromes = useMemo(() => {
-    if (filterStatut === 'all') return internationalAerodromes;
-    return internationalAerodromes.filter(a => {
-      const cert = getCertification(a.id);
-      return cert?.statut_global === filterStatut;
-    });
-  }, [internationalAerodromes, filterStatut, certifications]);
+    let list = internationalAerodromes;
 
-  // Certifications archivées (terminées)
-  const archivedCertifications = useMemo(() => {
-    return allCertifications.filter(c => c.statut_global === 'certifie' || c.statut_global === 'archive');
-  }, [allCertifications]);
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(a => a.nom.toLowerCase().includes(q) || a.code_oaci.toLowerCase().includes(q));
+    }
+
+    if (filterAerodrome !== 'all') {
+      list = list.filter(a => a.id === filterAerodrome);
+    }
+
+    if (filterPhase > 0) {
+      list = list.filter(a => {
+        const cert = getCertification(a.id);
+        return cert ? cert.phase_active === filterPhase : filterPhase === 1;
+      });
+    }
+
+    if (filterStatut !== 'all') {
+      list = list.filter(a => {
+        const cert = getCertification(a.id);
+        return cert?.statut_global === filterStatut || (!cert && filterStatut === 'non_certifie');
+      });
+    }
+
+    return list;
+  }, [internationalAerodromes, searchTerm, filterAerodrome, filterPhase, filterStatut, certifications]);
 
   const stats = useMemo(() => {
     const total = internationalAerodromes.length;
@@ -1248,7 +1599,7 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
           phase_active: newPhaseActive,
           updated_at: now,
         } as any);
-      } else {
+      } else if (advancePhase) {
         const year = new Date().getFullYear()
         await addCertification({
           id: crypto.randomUUID(),
@@ -1393,179 +1744,219 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
         icon={<ShieldCheck className="h-6 w-6" />}
         title="Certification"
         description="Gestion des certifications des aérodromes internationaux"
-        actions={<div className="flex items-center gap-2">
-          <select
-            className={`h-10 px-3 pr-8 rounded-xl border border-border appearance-none ${focusClass}`}
-            style={selectStyle}
-            value={filterStatut}
-            onChange={e => setFilterStatut(e.target.value)}
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="en_cours">En cours</option>
-            <option value="certifie">Certifié</option>
-            <option value="expire">Expiré</option>
-          </select>
-          <button className="btn btn-secondary gap-2 flex items-center">
-            <Download className="h-4 w-4" />
-            Exporter
-          </button>
-        </div>}
+        actions={<button className="btn btn-secondary gap-2 flex items-center">
+          <Download className="w-4 h-4" />
+          Exporter
+        </button>}
       />
 
-      {/* Onglets */}
-      <div className="tabs-container border-b border-border">
-        <div className="tabs flex gap-1">
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'dashboard'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <BarChart3 className="w-4 h-4 inline mr-1.5" /> Tableau de bord
-          </button>
-          <button
-            className={`tab px-4 py-2 font-medium transition-all ${
-              activeTab === 'list'
-                ? 'active border-b-2 border-role-primary text-role-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('list')}
-          >
-            <List className="w-4 h-4 inline mr-1.5" /> Liste des certifications
-          </button>
-          <button
-            className="tab px-4 py-2 font-medium text-muted-foreground hover:text-role-primary transition-colors"
-            onClick={() => setActiveModule('registres')}
-            title="Les archives sont consultables dans le module Registres"
-          >
-            <Archive className="w-4 h-4 inline mr-1.5" /> Archives → Registres
-          </button>
-        </div>
+      {/* KPIs */}
+      <div className="kpi-grid">
+        <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><BarChart3 className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label">Total</div><div className="kpi-value">{stats.total}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><Clock className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label">En cours</div><div className="kpi-value text-warning">{stats.enCours}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-success-soft"><ShieldCheck className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label">Certifiés</div><div className="kpi-value text-success">{stats.certifies}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><AlertTriangle className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label">Exp. ≤ 30j</div><div className="kpi-value text-warning">{stats.expiringSoon}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><AlertCircle className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label">Expirés</div><div className="kpi-value text-danger">{stats.expired}</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Lock className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label">Blocages</div><div className="kpi-value text-danger">{stats.blockedPhases}</div></div></div>
       </div>
 
-      {/* Dashboard */}
-      {activeTab === 'dashboard' && <CertDashboard userRole={userRole} />}
+      {/* Filtres & recherche */}
+      <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px] relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Rechercher un aérodrome..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground ${focusClass}`}
+            />
+          </div>
+
+          <select
+            value={filterAerodrome}
+            onChange={(e) => setFilterAerodrome(e.target.value)}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value="all">Tous aérodromes</option>
+            {internationalAerodromes.map(a => (
+              <option key={a.id} value={a.id}>{a.code_oaci} — {a.nom}</option>
+            ))}
+          </select>
+
+          <select
+            value={filterPhase}
+            onChange={(e) => setFilterPhase(Number(e.target.value))}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value={0}>Toutes phases</option>
+            <option value={1}>Phase 1</option>
+            <option value={2}>Phase 2</option>
+            <option value={3}>Phase 3</option>
+            <option value={4}>Phase 4</option>
+            <option value={5}>Phase 5</option>
+          </select>
+
+          <select
+            value={filterStatut}
+            onChange={(e) => setFilterStatut(e.target.value)}
+            className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+            style={selectStyle}
+          >
+            <option value="all">Tous statuts</option>
+            <option value="en_cours">En cours</option>
+            <option value="certifie">Certifié</option>
+            <option value="non_certifie">Non certifié</option>
+            <option value="expire">Expiré</option>
+          </select>
+        </div>
+      </Card>
 
       {/* Liste des certifications */}
-      {activeTab === 'list' && (
-        <AccordionGroup spacing="sm">
-          {filteredAerodromes.map((aerodrome) => {
-            const certification = getCertification(aerodrome.id);
-            const phaseActive = certification?.phase_active || 1;
+      <AccordionGroup spacing="sm">
+        {filteredAerodromes.map((aerodrome) => {
+          const certification = getCertification(aerodrome.id);
+          const phaseActive = certification?.phase_active || 1;
 
-            const statutBadge = aerodrome.statut_certification === 'certifie' ? 'success' :
-              certification?.statut_global === 'expire' ? 'danger' :
-              certification?.statut_global === 'suspendu' ? 'warning' : certification ? 'primary' : 'neutral';
-            const statutLabel = aerodrome.statut_certification === 'certifie' ? 'Certifié' :
-              certification?.statut_global === 'expire' ? 'Expiré' :
-              certification?.statut_global === 'suspendu' ? 'Suspendu' : certification ? 'En cours' : 'Non certifié';
+          const statutBadge = aerodrome.statut_certification === 'certifie' ? 'success' :
+            certification?.statut_global === 'expire' ? 'danger' :
+            certification?.statut_global === 'suspendu' ? 'warning' : certification ? 'primary' : 'neutral';
+          const statutLabel = aerodrome.statut_certification === 'certifie' ? 'Certifié' :
+            certification?.statut_global === 'expire' ? 'Expiré' :
+            certification?.statut_global === 'suspendu' ? 'Suspendu' : certification ? 'En cours' : 'Non certifié';
 
-            return (
-              <AccordionSection
-                key={aerodrome.id}
-                icon={certification?.statut_global === 'certifie' ? <ShieldCheck className="w-4 h-4 text-white" /> : <Shield className="w-4 h-4 text-white" />}
-                title={<><span className="code-oaci-badge mr-2">{aerodrome.code_oaci}</span>{aerodrome.nom}</>}
-                badges={
-                  <>
-                    <span className={`badge ${statutBadge}`}>{statutLabel}</span>
-                    {certification?.date_expiration && (
-                      <span className={`badge ${
-                        new Date(certification.date_expiration) < new Date() ? 'danger' :
-                        new Date(certification.date_expiration).getTime() - Date.now() < 60 * 24 * 3600 * 1000 ? 'warning' : 'neutral'
-                      }`}>
-                        Expire: {new Date(certification.date_expiration).toLocaleDateString('fr-FR')}
-                      </span>
-                    )}
-                    {certification && <span className="badge outline">Phase {phaseActive}/5</span>}
-                    {!certification && aerodrome.statut_certification === 'certifie' && (
-                      <span className="badge outline">Préexistante</span>
-                    )}
-                  </>
-                }
-                actions={
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleIaAnalyze(certification);
-                    }}
-                    disabled={isIaAnalyzing}
-                    className="action-button text-role-primary"
-                    title="Analyser avec IA"
-                  >
-                    {isIaAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-                  </button>
-                }
-              >
-                {certification && (
-                  <CertExpiryAlert
-                    certification={certification}
-                    onRenouvellement={() => {
-                      addNotification({
-                        user_id: user?.id || '',
-                        type: 'info',
-                        title: 'Renouvellement',
-                        message: `Préparation du renouvellement pour ${aerodrome.code_oaci}`,
-                        canal: 'in_app',
-                      });
-                    }}
-                  />
-                )}
+          return (
+            <AccordionSection
+              key={aerodrome.id}
+              icon={certification?.statut_global === 'certifie' ? <ShieldCheck className="w-4 h-4 text-white" /> : <Shield className="w-4 h-4 text-white" />}
+              title={<><span className="code-oaci-badge mr-2">{aerodrome.code_oaci}</span>{aerodrome.nom}</>}
+              badges={
+                <>
+                  <span className={`badge ${statutBadge}`}>{statutLabel}</span>
+                  {certification?.date_expiration && (
+                    <span className={`badge ${
+                      new Date(certification.date_expiration) < new Date() ? 'danger' :
+                      new Date(certification.date_expiration).getTime() - Date.now() < 60 * 24 * 3600 * 1000 ? 'warning' : 'neutral'
+                    }`}>
+                      Expire: {new Date(certification.date_expiration).toLocaleDateString('fr-FR')}
+                    </span>
+                  )}
+                  {certification && <span className="badge outline">Phase {phaseActive}/5</span>}
+                  {!certification && aerodrome.statut_certification === 'certifie' && (
+                    <span className="badge outline">Préexistante</span>
+                  )}
+                </>
+              }
+              actions={
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleIaAnalyze(certification);
+                  }}
+                  disabled={isIaAnalyzing}
+                  className="action-button text-role-primary"
+                  title="Analyser avec IA"
+                >
+                  {isIaAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                </button>
+              }
+            >
+              {certification && (
+                <CertExpiryAlert
+                  certification={certification}
+                  onRenouvellement={() => {
+                    addNotification({
+                      user_id: user?.id || '',
+                      type: 'info',
+                      title: 'Renouvellement',
+                      message: `Préparation du renouvellement pour ${aerodrome.code_oaci}`,
+                      canal: 'in_app',
+                    });
+                  }}
+                />
+              )}
 
-                {!certification && aerodrome.statut_certification === 'certifie' ? (
-                  <div className="p-4 bg-gradient-to-r from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-xl flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="kpi-icon !w-10 !h-10 bg-role-primary-soft">
-                        <FileText className="h-5 w-5 text-role-primary" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold text-foreground">Certification préexistante</h4>
-                        <p className="text-xs text-muted-foreground">Ajoutez les preuves par phase et finalisez dans le registre</p>
-                      </div>
+              {!certification && aerodrome.statut_certification === 'certifie' ? (
+                <div className="p-4 bg-gradient-to-r from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-xl flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="kpi-icon !w-10 !h-10 bg-role-primary-soft">
+                      <FileText className="h-5 w-5 text-role-primary" />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handlePhaseClick(aerodrome, 1, 'view')}
-                      className="btn btn-primary gap-2"
-                    >
-                      <Upload className="w-4 h-4" /> Ajouter les preuves par phase
-                    </button>
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Certification préexistante</h4>
+                      <p className="text-xs text-muted-foreground">Ajoutez les preuves par phase et finalisez dans le registre</p>
+                    </div>
                   </div>
-                ) : (
-                  PHASES.map(({ phase, title, icon, description }) => (
-                    <PhaseCard
-                      key={phase}
-                      phase={phase}
-                      title={title}
-                      icon={icon}
-                      description={description}
-                      isActive={phaseActive === phase}
-                      isCompleted={isPhaseCompleted(certification, aerodrome, phase)}
-                      isLocked={!isPhaseAccessible(certification, aerodrome, phase)}
-                      data={certification?.phases_data?.[`phase${phase}`]}
-                      lastActivity={getPhaseLastActivity(certification, phase)}
-                      daysInactive={getDaysInactive(certification, phase)}
-                      onView={() => handlePhaseClick(aerodrome, phase, 'view')}
-                      onEdit={() => handlePhaseClick(aerodrome, phase, 'edit')}
-                      onNotify={() => handlePhaseClick(aerodrome, phase, 'notify')}
-                      onDelete={() => handlePhaseClick(aerodrome, phase, 'delete')}
-                      onManageExemptions={() => handlePhaseClick(aerodrome, phase, 'exemptions')}
-                    />
-                  ))
-                )}
-              </AccordionSection>
-            );
-          })}
+                  <button
+                    type="button"
+                    onClick={() => handlePhaseClick(aerodrome, 1, 'view')}
+                    className="btn btn-primary gap-2"
+                  >
+                    <Upload className="w-4 h-4" /> Ajouter les preuves par phase
+                  </button>
+                </div>
+              ) : !certification ? (
+                <div className="p-6 bg-card border border-border rounded-xl text-center">
+                  <Shield className="h-12 w-12 text-muted mx-auto mb-4" />
+                  <p className="font-semibold text-foreground">Aérodrome non certifié</p>
+                  <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+                    L'exploitant doit être invité à soumettre une expression d'intérêt de certification depuis son portail point focal.
+                  </p>
+                </div>
+              ) : (
+                PHASES.map(({ phase, title, icon, description }) => {
+                  const phaseData = certification?.phases_data?.[`phase${phase}`] as CertificationPhaseData | undefined;
+                  const isSurveillancePhase = phase === 3;
+                  const surv = isSurveillancePhase && phaseData?.surveillance_id
+                    ? surveillances.find(s => s.id === phaseData.surveillance_id) : undefined;
+                  const relatedEcarts = surv ? ecarts.filter(e => e.surveillance_id === surv.id) : [];
+                  const allPacAccepted = relatedEcarts.length === 0 || relatedEcarts.every(e => e.statut === 'pac_accepte' || e.statut === 'cloture');
+                  const isSurvTransmise = surv?.statut === 'transmise';
+                  const surveillanceBadge = isSurveillancePhase && phaseActive === phase ? (
+                    surv ? (
+                      isSurvTransmise ? (
+                        allPacAccepted ? <span className="badge success">PAC validés</span>
+                        : <span className="badge warning">Attente de PAC</span>
+                      ) : <span className="badge primary pulse">Surveillance en cours</span>
+                    ) : <span className="badge warning">En attente vérification sur site</span>
+                  ) : undefined;
+                  return (
+                  <PhaseCard
+                    key={phase}
+                    phase={phase}
+                    title={title}
+                    icon={icon}
+                    description={description}
+                    isActive={phaseActive === phase}
+                    isCompleted={isPhaseCompleted(certification, aerodrome, phase)}
+                    isLocked={!isPhaseAccessible(certification, aerodrome, phase)}
+                    data={phaseData}
+                    lastActivity={getPhaseLastActivity(certification, phase)}
+                    daysInactive={getDaysInactive(certification, phase)}
+                    onView={() => handlePhaseClick(aerodrome, phase, 'view')}
+                    onEdit={() => handlePhaseClick(aerodrome, phase, 'edit')}
+                    onNotify={() => handlePhaseClick(aerodrome, phase, 'notify')}
+                    onDelete={() => handlePhaseClick(aerodrome, phase, 'delete')}
+                    onManageExemptions={() => handlePhaseClick(aerodrome, phase, 'exemptions')}
+                    surveillanceBadge={surveillanceBadge}
+                  />
+                  );
+                })
+              )}
+            </AccordionSection>
+          );
+        })}
 
-          {filteredAerodromes.length === 0 && (
-            <Card className="[&>div:last-child]:!py-12 [&>div:last-child]:!text-center">
-              <Shield className="h-12 w-12 text-muted mx-auto mb-4" />
-              <p className="text-muted">Aucun aérodrome international trouvé</p>
-            </Card>
-          )}
-        </AccordionGroup>
-      )}
+        {filteredAerodromes.length === 0 && (
+          <Card className="[&>div:last-child]:!py-12 [&>div:last-child]:!text-center">
+            <Shield className="h-12 w-12 text-muted mx-auto mb-4" />
+            <p className="text-muted">Aucun aérodrome international trouvé</p>
+          </Card>
+        )}
+      </AccordionGroup>
 
 
       {/* Modal de phase */}

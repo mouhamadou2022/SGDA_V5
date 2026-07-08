@@ -8,11 +8,13 @@
 
 'use client'
 
-import { useAppStore, KitDocument, ProfilRisque, Aerodrome } from '@/lib/store'
+import { useAppStore, KitDocument, ProfilRisque, Aerodrome, KitChecklistItemGenere } from '@/lib/store'
 import { checklistMemory } from '@/lib/checklistMemory'
 import { aiClient } from '@/lib/ia/aiClient'
-import { KITDOC_SYSTEM_PROMPT } from '@/lib/ia/prompts'
+import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
+import { getSourcesForDomaine } from '@/lib/kitDocMapping'
+import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
 
 // ============================================================
 // TYPES EXPORTS
@@ -49,9 +51,9 @@ export interface KitDocChecklistParams {
   entite_id: string
   type_entite: TypeEntite
   type_surveillance: TypeSurveillanceKit
-  portee: string[]             // ex: ["PHY","OLS","SLI"] ou ["AGA"]
+  portee: string[]
   profil_risque?: ProfilRisque
-  analyses_docs?: KitDocAnalysis[]  // Analyses de documents à intégrer
+  prefix_numero?: string  // 'QSC' (défaut) | 'CERT' | 'HMG'
 }
 
 export interface KitChecklistItem {
@@ -74,6 +76,7 @@ export interface KitChecklistItem {
   observation?: string
   type_entite_cible: TypeEntite | 'tous'
   type_checklist?: 'standard' | 'suivi_ecarts' | 'pac'
+  sous_domaine?: string
 }
 
 // ─── Parser : extrait le guide et les critères SA/NS/NV/NA d'une directive ───
@@ -210,965 +213,6 @@ export function detecterReferenceBase(doc: KitDocument): string {
 }
 
 // ============================================================
-// BASE DE CONNAISSANCE RÉGLEMENTAIRE
-// Format items : [numero, ref_reglementaire, question, directive (avec ÉVALUATION OBJECTIVE)]
-// ============================================================
-
-interface KBItem {
-  numero: string
-  ref: string
-  question: string
-  directive: string
-  type_entite_cible: TypeEntite | 'tous'
-  inopine?: boolean  // visible en inopinée (true = prioritaire)
-  maintien?: boolean // spécifique suivi maintien
-}
-
-interface KBSousSousDomaine {
-  nom: string
-  items: KBItem[]
-}
-
-interface KBSousDomaine {
-  nom: string
-  type_entite_cible: TypeEntite | 'tous'
-  sous_sous_domaines: KBSousSousDomaine[]
-}
-
-interface KBDomaine {
-  code: string
-  label: string
-  description: string
-  sous_domaines: KBSousDomaine[]
-}
-
-const KNOWLEDGE_BASE: KBDomaine[] = [
-  // ─────────────────────── SGS ───────────────────────
-  {
-    code: 'SGS',
-    label: 'Système de Gestion de la Sécurité',
-    description: 'Manuel SGS, politiques, documentation, audits internes',
-    sous_domaines: [
-      {
-        nom: 'Documentation SGS',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Manuel et politique',
-            items: [
-              {
-                numero: 'SGS.01',
-                ref: 'RAS 14 I §1.5.1',
-                question: 'Le gestionnaire dispose-t-il d\'un Manuel SGS formalisé, approuvé et à jour ?',
-                directive: `1. Demander et examiner le Manuel SGS (version datée, signée par le DG)
-2. Vérifier la date de dernière révision (≤ 12 mois ou après tout changement majeur)
-3. Contrôler la structure : politique, organisation, identification des dangers, évaluation des risques, assurance, promotion
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Manuel présent, signé par le DG, révisé dans les 12 derniers mois, structure conforme à RAS 14 I §1.5.1
-- NS : Manuel absent, non signé, non révisé depuis > 12 mois ou structure incomplète
-- NA : Non applicable (entité exemptée par arrêté — rare)
-- NV : Document non présenté lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 I §1.5.1 (Norme) : «L\'exploitant d\'aérodrome doit établir un système de gestion de la sécurité.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'SGS.02',
-                ref: 'RAS 14 I §1.5.2',
-                question: 'La politique de sécurité est-elle formalisée, affichée et comprise du personnel ?',
-                directive: `1. Vérifier l'existence d'une politique de sécurité signée par le plus haut responsable
-2. Confirmer l'affichage en zones accessibles (hall, salle opérations, bureaux)
-3. Interroger 2 à 3 agents de maîtrise sur les objectifs de la politique
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Politique datée, signée, affichée et connue du personnel questionné
-- NS : Politique absente, non affichée, ou personnels interrogés l'ignorent
-- NA : Sans objet
-- NV : Vérification impossible (personnel absent, locaux fermés)
-
-⚠️ Seuil réglementaire : RAS 14 I §1.5.2 (Norme) : «La politique de sécurité doit être signée par l'administrateur responsable.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'SGS.03',
-                ref: 'Doc 9859 §3.2.1',
-                question: 'Les objectifs de sécurité sont-ils mesurables, documentés et régulièrement suivis ?',
-                directive: `1. Demander le tableau de bord sécurité ou les KPIs de sécurité de l'année
-2. Vérifier qu'il existe des indicateurs quantifiables (ex: taux de signalement, délai de levée d'écarts)
-3. Examiner les PV de revue de direction (fréquence ≥ annuelle)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : KPIs définis, actualisés (≤ 3 mois), PV de revue disponible ≤ 12 mois
-- NS : Objectifs non définis ou non suivis ; aucun PV de revue disponible
-- NA : Entité nouvellement certifiée < 6 mois (objectifs en cours de définition)
-- NV : Documentation non présentée
-
-⚠️ Seuil réglementaire : Doc 9859 §3.2.1 : «Les objectifs de sécurité doivent être mesurables.»`,
-                type_entite_cible: 'tous',
-              },
-            ],
-          },
-        ],
-      },
-      {
-        nom: 'Gestion des risques',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Identification et évaluation',
-            items: [
-              {
-                numero: 'SGS.04',
-                ref: 'Doc 9859 §4.1',
-                question: 'Le processus d\'identification des dangers est-il documenté et appliqué ?',
-                directive: `1. Vérifier l'existence d'un registre des dangers (document dédié ou module SGS)
-2. Contrôler la fréquence de mise à jour (dernière entrée ≤ 3 mois)
-3. Confirmer les sources d'identification : inspections, rapports internes, REX, signalements
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Registre existant, mis à jour récemment (≤ 3 mois), sources multiples documentées
-- NS : Registre absent, non mis à jour ou sources uniques non documentées
-- NA : Sans objet
-- NV : Registre non présenté
-
-⚠️ Seuil réglementaire : Doc 9859 §4.1 : «Un processus d'identification des dangers doit être établi.»`,
-                type_entite_cible: 'tous',
-              },
-              {
-                numero: 'SGS.05',
-                ref: 'Doc 9859 §4.2',
-                question: 'Les risques identifiés font-ils l\'objet d\'une évaluation et de mesures de mitigation documentées ?',
-                directive: `1. Sélectionner 3 dangers du registre et vérifier leur évaluation (probabilité × gravité)
-2. Confirmer l'existence d'une matrice de risque et de mesures de mitigation associées
-3. Vérifier le suivi de l'efficacité des mesures
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Matrice de risque utilisée, mesures de mitigation documentées, efficacité vérifiée
-- NS : Évaluation absente ou incomplète pour ≥ 2 dangers examinés
-- NA : Sans objet
-- NV : Documentation non disponible pendant la visite
-
-⚠️ Seuil réglementaire : Doc 9859 §4.2 : «L'évaluation des risques doit résulter en des mesures d'atténuation.»`,
-                type_entite_cible: 'tous',
-              },
-            ],
-          },
-          {
-            nom: 'Audits et amélioration continue',
-            items: [
-              {
-                numero: 'SGS.06',
-                ref: 'RAS 14 I §1.5.4',
-                question: 'Des audits internes de sécurité sont-ils réalisés selon la fréquence prévue ?',
-                directive: `1. Demander le programme d'audits internes de l'année en cours
-2. Vérifier que les audits planifiés ont eu lieu (PV signés)
-3. Contrôler le suivi des recommandations issues des audits
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Programme d'audits existant, audits réalisés ≥ 1/an, recommandations suivies
-- NS : Aucun audit réalisé ou recommandations non suivies
-- NA : Entité certifiée < 6 mois (premier cycle en cours)
-- NV : PV non présentés
-
-⚠️ Seuil réglementaire : RAS 14 I §1.5.4 (Norme) : «Des audits internes réguliers doivent être conduits.»`,
-                type_entite_cible: 'tous',
-                maintien: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── SLI ───────────────────────
-  {
-    code: 'SLI',
-    label: 'Sauvetage et Lutte contre l\'Incendie',
-    description: 'Service SSLIA, véhicules, équipements, temps d\'intervention',
-    sous_domaines: [
-      {
-        nom: 'Catégorie et agents extincteurs',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Catégorie SSLIA',
-            items: [
-              {
-                numero: 'SLI.01',
-                ref: 'RAS 14 I §9.2.1',
-                question: 'La catégorie SSLIA en vigueur correspond-elle au trafic maximal des 3 derniers mois ?',
-                directive: `1. Demander les statistiques de trafic (types d'aéronefs, fréquence journalière maximale)
-2. Déterminer la catégorie théorique selon la table RAS 14 I §9.2.1 (longueur + largeur fuselage max)
-3. Comparer avec la catégorie déclarée et vérifier la cohérence des équipements
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Catégorie déclarée ≥ catégorie théorique calculée, équipements conformes
-- NS : Catégorie déclarée < catégorie théorique (sous-dotation) ou équipements insuffisants
-- NA : Aérodrome VMC jour seulement avec trafic < 700 mouvements/an (dérogation possible)
-- NV : Statistiques de trafic non disponibles
-
-⚠️ Seuil réglementaire : RAS 14 I §9.2.1 (Norme) : «La catégorie SSLIA doit couvrir l'aéronef le plus grand desservant l'aérodrome.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'SLI.02',
-                ref: 'RAS 14 I §9.2.5',
-                question: 'Les quantités d\'agents extincteurs principaux (eau + émulseur) sont-elles conformes à la catégorie ?',
-                directive: `1. Relever les capacités effectives des citernes d'eau et d'émulseur sur chaque véhicule
-2. Additionner les capacités et comparer avec les minimaux du tableau RAS 14 I §9.2.5 pour la catégorie
-3. Vérifier les dates de péremption de l'émulseur (échantillonnage)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Somme des capacités ≥ valeur minimale de la table pour la catégorie en vigueur
-- NS : Déficit sur eau ou émulseur, ou produit périmé en service
-- NA : Catégorie 1 (quantité symbolique acceptée)
-- NV : Véhicules en maintenance le jour de la visite
-
-⚠️ Seuil réglementaire : RAS 14 I §9.2.5 (Norme) : Table des agents extincteurs par catégorie.`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        nom: 'Véhicules et personnel',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Véhicules d\'intervention',
-            items: [
-              {
-                numero: 'SLI.03',
-                ref: 'RAS 14 I §9.2.4',
-                question: 'Les véhicules d\'intervention sont-ils en état de marche, entretenus et disponibles 24h/24 ?',
-                directive: `1. Inspecter visuellement chaque véhicule SSLIA (carrosserie, pneus, gyrophares, lances)
-2. Demander les carnets d'entretien (dernière révision, prochaine échéance)
-3. Tester le démarrage et la montée en pression de la pompe (chronométrer)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Tous véhicules démarrables, pompe opérationnelle, entretien < 6 mois et planification à jour
-- NS : ≥ 1 véhicule en panne, pompe défaillante ou entretien non réalisé
-- NA : Catégorie 1 : véhicule non requis
-- NV : Véhicules hors site ou accès hangar refusé
-
-⚠️ Seuil réglementaire : RAS 14 I §9.2.4 (Norme) : «Les véhicules doivent être maintenus en état opérationnel.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'SLI.04',
-                ref: 'RAS 14 I §9.2.20',
-                question: 'Le temps d\'intervention principal est-il ≤ 2 minutes pour les catégories ≥ 4 ?',
-                directive: `1. Réaliser un exercice de déclenchement à l'improviste (départ base SSLIA → seuil de piste)
-2. Chronométrer de la sonnerie d'alarme au premier jet d'agent extincteur sur la piste
-3. Réaliser 2 mesures et retenir le pire résultat
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Temps mesuré ≤ 2 minutes (catégorie ≥ 4) ou ≤ 3 minutes (catégorie 1-3)
-- NS : Temps > 2 minutes (cat. ≥ 4) ou > 3 minutes (cat. 1-3)
-- NA : Pas de piste utilisée (hélistation pure)
-- NV : Exercice non réalisable le jour de la visite
-
-⚠️ Seuil réglementaire : RAS 14 I §9.2.20 (Norme) : «Temps d'intervention ≤ 2 minutes pour catégories ≥ 4.»`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'SLI.05',
-                ref: 'Doc 9137 Part1 §4.1',
-                question: 'Le personnel SSLIA est-il qualifié, en nombre suffisant et ses habilitations sont-elles à jour ?',
-                directive: `1. Demander l'organigramme nominatif SSLIA et les certificats de qualification
-2. Vérifier la conformité du ratio effectif/catégorie (tableau Doc 9137 Part1 §4.1)
-3. Contrôler les dates d'expiration des habilitations pour chaque agent
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Effectif ≥ minimum réglementaire, 100% des habilitations valides
-- NS : Effectif insuffisant ou ≥ 1 habilitation expirée en poste actif
-- NA : Sans objet
-- NV : Dossiers du personnel non disponibles
-
-⚠️ Seuil réglementaire : Doc 9137 Part1 §4.1 : Qualifications minimales du personnel SSLIA.`,
-                type_entite_cible: 'tous',
-              },
-              {
-                numero: 'SLI.06',
-                ref: 'RAS 14 I §9.2.23',
-                question: 'Les exercices d\'urgence aérodrome sont-ils réalisés selon la fréquence réglementaire ?',
-                directive: `1. Demander le programme annuel d'exercices (grand exercice ≥ 2 ans, partiel ≥ 1 an)
-2. Vérifier les PV des exercices réalisés (présence, déroulement, bilan)
-3. Confirmer la participation des services externes (pompiers, SAMU, gendarmerie)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Exercice complet ≤ 2 ans ET exercice partiel ≤ 1 an, PV signés disponibles
-- NS : Exercice complet > 2 ans ou exercice partiel > 1 an, ou PV absents
-- NA : Aérodrome VMC/jour uniquement avec dispense formelle
-- NV : Planification non présentée
-
-⚠️ Seuil réglementaire : RAS 14 I §9.2.23 (Norme) : «Exercice complet ≤ 2 ans, exercice partiel ≤ 1 an.»`,
-                type_entite_cible: 'tous',
-                maintien: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── PHY ───────────────────────
-  {
-    code: 'PHY',
-    label: 'Caractéristiques Physiques',
-    description: 'Piste, taxiway, aire de stationnement, dégagements',
-    sous_domaines: [
-      {
-        nom: 'Caractéristiques physiques (aérodrome)',
-        type_entite_cible: 'aerodrome',
-        sous_sous_domaines: [
-          {
-            nom: 'Piste et abords',
-            items: [
-              {
-                numero: 'PHY.A01',
-                ref: 'RAS 14 II §3.1.9',
-                question: 'La largeur de la piste est-elle conforme au code de référence de l\'aérodrome ?',
-                directive: `1. Mesurer la largeur de la piste (entre bords de piste marqués) en 3 points (début, milieu, fin)
-2. Comparer avec la table RAS 14 II §3.1.9 selon le code de référence (1 à 4) et la lettre (A à F)
-3. Vérifier l'état des bords : absence de dégradations affectant la largeur utilisable
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Largeur mesurée ≥ valeur minimale de la table pour le code de référence, bords intègres
-- NS : Largeur < minimale ou dégradations réduisant la largeur effective
-- NA : Piste en travaux avec NOTAM de restriction
-- NV : Mesure impossible (météo, opérations en cours)
-
-⚠️ Seuil réglementaire : RAS 14 II §3.1.9 (Norme) : Largeurs minimales par code de référence.`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'PHY.A02',
-                ref: 'RAS 14 II §3.5.1',
-                question: 'L\'aire de sécurité d\'extrémité (RESA) répond-elle aux dimensions minimales requises ?',
-                directive: `1. Mesurer la longueur de la RESA depuis le seuil de piste (ou extrémité de prolongement d'arrêt)
-2. Mesurer la largeur de la RESA
-3. Comparer : longueur ≥ 90 m (recommandé 240 m), largeur ≥ 2× largeur piste
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : RESA ≥ 90 m de long et largeur ≥ 2× largeur piste, terrain sans obstacle
-- NS : RESA < 90 m ou largeur insuffisante, ou présence d'obstacles non balisés
-- NA : Piste à code 1 ou 2 avec vitesse approche < 91 kt (non requis)
-- NV : Accès terrain non autorisé
-
-⚠️ Seuil réglementaire : RAS 14 II §3.5.1 (Norme) : «RESA : longueur minimale 90 m, recommandée 240 m.»`,
-                type_entite_cible: 'aerodrome',
-              },
-              {
-                numero: 'PHY.A03',
-                ref: 'Doc 9157 Part2 §2.1',
-                question: 'L\'inspection quotidienne de l\'aire de mouvement est-elle réalisée et consignée ?',
-                directive: `1. Demander le registre d'inspections quotidiennes de l'aire de mouvement
-2. Vérifier la régularité des inspections (7 derniers jours consécutifs)
-3. Contrôler les fiches : points vérifiés, anomalies relevées, suivi des corrections
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Inspections réalisées chaque jour, registre complet, anomalies tracées avec suivi
-- NS : Lacunes dans les inspections (> 2 jours manquants sur 7), registre incomplet
-- NA : Aérodrome fermé administrativement (statut NOTAM)
-- NV : Registre non présenté
-
-⚠️ Seuil réglementaire : Doc 9157 Part2 §2.1 : «L'aire de mouvement doit être inspectée au moins une fois par jour d'exploitation.»`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'PHY.A04',
-                ref: 'RAS 14 II §3.2.1',
-                question: 'La résistance structurelle de la piste (PCR) est-elle publiée et respectée par les opérateurs ?',
-                directive: `1. Relever le PCR publié dans l'AIP Sénégal pour cet aérodrome
-2. Vérifier que l'AIP est à jour (date de dernière révision ≤ 24 mois)
-3. Contrôler les procédures d'autorisation pour aéronefs dépassant le PCR
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : PCR publié, AIP à jour, procédure de dépassement documentée
-- NS : PCR non publié, AIP obsolète ou procédure de dépassement absente
-- NA : Piste nouvellement construite (PCR en cours d'évaluation)
-- NV : Documentation AIP non accessible lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 II §3.2.1 (Norme) : «La résistance des chaussées doit être publiée par la méthode PCR.»`,
-                type_entite_cible: 'aerodrome',
-              },
-            ],
-          },
-          {
-            nom: 'Voies de circulation et parkings',
-            items: [
-              {
-                numero: 'PHY.A05',
-                ref: 'RAS 14 II §3.9.1',
-                question: 'La largeur des voies de circulation est-elle conforme au code de référence lettre ?',
-                directive: `1. Mesurer la largeur des voies de circulation en 3 points représentatifs
-2. Comparer avec la table RAS 14 II §3.9.1 (largeur minimale selon lettre de référence)
-3. Vérifier les marges de dégagement (entre roues et bords de taxiway)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Largeur ≥ minimale de la table, marges conformes
-- NS : Largeur < minimale ou marges insuffisantes
-- NA : Aérodrome sans voie de circulation distincte (piste utilisée comme taxiway)
-- NV : Mesure non réalisable (présence d'aéronefs)
-
-⚠️ Seuil réglementaire : RAS 14 II §3.9.1 (Norme) : Largeurs de taxiways par lettre de référence.`,
-                type_entite_cible: 'aerodrome',
-              },
-            ],
-          },
-        ],
-      },
-      {
-        nom: 'Caractéristiques physiques (hélistation)',
-        type_entite_cible: 'helistation',
-        sous_sous_domaines: [
-          {
-            nom: 'FATO et TLOF',
-            items: [
-              {
-                numero: 'PHY.H01',
-                ref: 'RAS 14 II §4.1.1',
-                question: 'Les dimensions de la FATO sont-elles conformes aux exigences pour la catégorie d\'hélicoptères desservis ?',
-                directive: `1. Mesurer les dimensions de la FATO (longueur × largeur ou diamètre si circulaire)
-2. Identifier la catégorie de performance des hélicoptères desservis (H = 1, 2 ou 3)
-3. Comparer avec le tableau RAS 14 II §4.1.1 (FATO ≥ 1,5 × D pour performances 2 et 3)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : FATO ≥ 1,5 × D du plus grand hélicoptère, sans obstacle dans la zone
-- NS : FATO < 1,5 × D ou obstacles intrusifs
-- NA : Hélistation en cours de certification initiale
-- NV : Mesures non réalisables (hélicoptère garé sur FATO)
-
-⚠️ Seuil réglementaire : RAS 14 II §4.1.1 (Norme) : «La FATO doit avoir des dimensions permettant d'inscrire un cercle de diamètre ≥ 1,5 D.»`,
-                type_entite_cible: 'helistation',
-                inopine: true,
-              },
-              {
-                numero: 'PHY.H02',
-                ref: 'RAS 14 II §4.1.6',
-                question: 'La TLOF offre-t-elle une résistance structurelle suffisante pour le poids maximal certifié ?',
-                directive: `1. Demander le rapport de capacité portante de la TLOF (valeur en kg/m²)
-2. Identifier le poids maximal au décollage (MTOW) du plus lourd hélicoptère desservi
-3. Vérifier que la résistance TLOF ≥ 1,5 × MTOW (Doc 9261 I §4.1.6)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Capacité portante certifiée ≥ 1,5 × MTOW plus lourd hélicoptère, rapport récent ≤ 3 ans
-- NS : Capacité portante < 1,5 × MTOW ou rapport absent/expiré
-- NA : TLOF récemment construite avec rapport initial en cours
-- NV : Rapport non présenté
-
-⚠️ Seuil réglementaire : RAS 14 II §4.1.6 (Norme) : «La TLOF doit pouvoir supporter 1,5 fois le poids des hélicoptères l'utilisant.»`,
-                type_entite_cible: 'helistation',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── OLS ───────────────────────
-  {
-    code: 'OLS',
-    label: 'Surface de Limitation d\'Obstacles',
-    description: 'Surfaces OLS, obstacles, marquage',
-    sous_domaines: [
-      {
-        nom: 'Surfaces de limitation d\'obstacles (aérodrome)',
-        type_entite_cible: 'aerodrome',
-        sous_sous_domaines: [
-          {
-            nom: 'Recensement et balisage obstacles',
-            items: [
-              {
-                numero: 'OLS.A01',
-                ref: 'RAS 14 II §3.7.1',
-                question: 'Les obstacles pénétrant les surfaces de limitation sont-ils recensés et publiés dans l\'AIP ?',
-                directive: `1. Demander la liste des obstacles répertoriés et la comparer avec l'AIP
-2. Réaliser une inspection visuelle du secteur d'approche principal (±15° de l'axe piste)
-3. Vérifier le balisage des obstacles recensés (feux de jalonnement, marquage)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Liste exhaustive publiée, obstacles balisés conformément à RAS 14 II §6
-- NS : Obstacle non recensé ou non balisé détecté ; liste AIP incomplète
-- NA : Surface d'approche dégagée, aucun obstacle ≥ 3 m dans le secteur
-- NV : Conditions météo empêchant l'inspection visuelle
-
-⚠️ Seuil réglementaire : RAS 14 II §3.7.1 (Norme) : «Les obstacles doivent être recensés et publiés.»`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'OLS.A02',
-                ref: 'RAS 14 II §3.7.3',
-                question: 'La surface de montée au décollage est-elle exempte d\'obstacles non balisés ?',
-                directive: `1. Identifier la surface de montée selon le code de référence (pente, largeur)
-2. Inspecter visuellement les bords et le prolongement d'arrêt
-3. Vérifier la cohérence avec les procédures NOTAM publiées
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Surface dégagée ou obstacles existants correctement balisés et publiés
-- NS : Obstacle non balisé pénétrant la surface
-- NA : Prise en compte dans un EFS (Étude de Franchissement Spécifique) approuvée
-- NV : Inspection terrain non réalisable
-
-⚠️ Seuil réglementaire : RAS 14 II §3.7.3 (Norme) : «La surface de montée au décollage doit être dégagée d'obstacles.»`,
-                type_entite_cible: 'aerodrome',
-              },
-            ],
-          },
-        ],
-      },
-      {
-        nom: 'Surfaces de limitation d\'obstacles (hélistation)',
-        type_entite_cible: 'helistation',
-        sous_sous_domaines: [
-          {
-            nom: 'Secteur dégagé d\'obstacles 210°',
-            items: [
-              {
-                numero: 'OLS.H01',
-                ref: 'RAS 14 II §4.2.9',
-                question: 'Le secteur dégagé d\'obstacles (OFS) couvre-t-il un arc d\'au moins 210° ?',
-                directive: `1. Depuis le centre de la FATO, relever à 360° les obstacles (bâtiments, arbres, équipements)
-2. Tracer le secteur libre de tout obstacle sur plan ou relevé topographique
-3. Mesurer l'arc dégagé et vérifier qu'il est ≥ 210°
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : L'arc dégagé d'obstacles mesure ≥ 210°, confirmé par relevé ou plan récent
-- NS : L'arc dégagé mesure < 210°, ou obstacle non signalé pénètre le secteur
-- NA : L'entité n'est pas une hélistation certifiée (pas de FATO)
-- NV : L'angle n'a pas pu être mesuré lors de la visite (conditions, accès)
-
-⚠️ Seuil réglementaire : RAS 14 II §4.2.9 (Norme) : «Un secteur d'héliplate-forme dégagé d'obstacles sous-tendra un arc d'au moins 210°.»`,
-                type_entite_cible: 'helistation',
-                inopine: true,
-              },
-              {
-                numero: 'OLS.H02',
-                ref: 'Doc 9261 I §4.2.3',
-                question: 'La surface d\'approche de l\'hélistation respecte-t-elle les pentes et dimensions réglementaires ?',
-                directive: `1. Identifier les axes d'approche publiés
-2. Vérifier l'absence d'obstacles pénétrant la surface d'approche (pente ≥ 4,5% pour norme)
-3. Contrôler la cohérence avec les procédures publiées (approches aux instruments si applicable)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Aucun obstacle pénétrant la surface, procédures cohérentes
-- NS : Obstacle détecté, ou surface non conforme à la pente requise
-- NA : Axe d'approche non défini formellement
-- NV : Vérification terrain impossible
-
-⚠️ Seuil réglementaire : Doc 9261 I §4.2.3 : «Surface d'approche : pente montante de 4,5%.»`,
-                type_entite_cible: 'helistation',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── RA ───────────────────────
-  {
-    code: 'RA',
-    label: 'Risque Animalier',
-    description: 'Gestion de la faune, péril animalier, prévention',
-    sous_domaines: [
-      {
-        nom: 'Programme de gestion de la faune',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Programme et inspections',
-            items: [
-              {
-                numero: 'RA.01',
-                ref: 'RAS 14 I §11.3.1',
-                question: 'L\'aérodrome dispose-t-il d\'un programme documenté de gestion du péril animalier ?',
-                directive: `1. Demander le programme de gestion de la faune (Wildlife Hazard Management Plan)
-2. Vérifier qu'il couvre : espèces recensées, mesures dissuasives, responsabilités, formations
-3. Contrôler la date de révision (≤ 24 mois ou après incident significatif)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Programme documenté, révisé ≤ 24 mois, parties prenantes désignées
-- NS : Programme absent, obsolète (> 24 mois) ou non formalisé
-- NA : Aérodrome ≤ 700 mvts/an avec dérogation formelle
-- NV : Document non présenté
-
-⚠️ Seuil réglementaire : RAS 14 I §11.3.1 (Norme) : «Un programme de réduction du péril animalier doit être mis en place.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'RA.02',
-                ref: 'Doc 9137 Part3 §3.1',
-                question: 'Les inspections régulières de l\'aire de mouvement pour détecter la présence d\'animaux sont-elles réalisées ?',
-                directive: `1. Demander le registre des inspections faune de la semaine écoulée
-2. Vérifier la régularité (≥ 1 inspection avant la première exploitation + après chaque heure de fort trafic)
-3. Contrôler les fiches de signalement d'incidents (wildlife strikes) sur les 12 derniers mois
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Inspections quotidiennes réalisées, registre complet, incidents signalés et traités
-- NS : Inspections manquantes (> 2 jours/semaine) ou registre lacunaire
-- NA : Aérodrome fermé la semaine de la visite
-- NV : Registre non disponible
-
-⚠️ Seuil réglementaire : Doc 9137 Part3 §3.1 : «Inspection de l'aire de mouvement avant chaque exploitation.»`,
-                type_entite_cible: 'tous',
-              },
-              {
-                numero: 'RA.03',
-                ref: 'RAS 14 I §11.2.1',
-                question: 'La clôture périmétrique est-elle intègre et empêche-t-elle efficacement l\'intrusion d\'animaux ?',
-                directive: `1. Effectuer une inspection visuelle complète du périmètre (ou portion représentative ≥ 30%)
-2. Relever les brèches, fondations dégagées, portails défectueux
-3. Vérifier les registres de maintenance de la clôture (réparations, rondes)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Clôture continue, aucune brèche > 10 cm, portails fonctionnels, maintenance tracée
-- NS : ≥ 1 brèche permettant l'intrusion de gros animaux ou portail défaillant
-- NA : Hélistation en zone maritime/insulaire sans faune terrestre
-- NV : Inspection périmètre non réalisable (météo, sécurité)
-
-⚠️ Seuil réglementaire : RAS 14 I §11.2.1 (Norme) : «Une clôture doit empêcher les intrusions d'animaux.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── ELEC ───────────────────────
-  {
-    code: 'ELEC',
-    label: 'Réseaux Électriques',
-    description: 'Balisage lumineux, centrales, réseaux électriques aérodromes',
-    sous_domaines: [
-      {
-        nom: 'Balisage lumineux et alimentation',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Éclairage piste et taxiways',
-            items: [
-              {
-                numero: 'ELEC.01',
-                ref: 'RAS 14 II §8.2.1',
-                question: 'L\'ensemble des feux de piste (seuil, bords, extrémité) est-il opérationnel et conforme ?',
-                directive: `1. Réaliser l'inspection nocturne (ou crépusculaire) des feux de bord de piste, seuil et extrémité
-2. Compter les feux défaillants et calculer le pourcentage de défaillance
-3. Vérifier l'intensité lumineuse (contrôle chromatique : blanc, rouge, vert)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : ≤ 5% de feux défaillants sur chaque groupe, couleurs conformes
-- NS : > 5% de défaillance sur un groupe, ou feux manquants sur seuil/extrémité
-- NA : Aérodrome VMC jour seulement, sans exigence de balisage nocturne
-- NV : Inspection nocturne non réalisable lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 II §8.2.1 (Norme) : «Les feux de bord de piste doivent fonctionner à ≥ 95%.»`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'ELEC.02',
-                ref: 'RAS 14 II §8.5.1',
-                question: 'Le système d\'indicateur de pente d\'approche (PAPI/VASIS) est-il calibré et fonctionnel ?',
-                directive: `1. Vérifier le fonctionnement visuel du PAPI/VASIS depuis la piste (observation des unités lumineuses)
-2. Demander le dernier rapport de calibration (≤ 12 mois)
-3. Contrôler la cohérence avec la procédure ILS/approche publiée
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Toutes unités opérationnelles, calibration ≤ 12 mois, cohérence ILS vérifiée
-- NS : ≥ 1 unité défaillante ou calibration > 12 mois
-- NA : Aérodrome sans procédure d'approche aux instruments ni PAPI requis
-- NV : Inspection lumineuse impossible (conditions de jour sans nuages témoins)
-
-⚠️ Seuil réglementaire : RAS 14 II §8.5.1 (Norme) : «Les indicateurs de pente doivent être vérifiés annuellement.»`,
-                type_entite_cible: 'aerodrome',
-              },
-              {
-                numero: 'ELEC.03',
-                ref: 'RAS 14 II §8.1.6',
-                question: 'Le groupe électrogène de secours assure-t-il la reprise automatique en ≤ 15 secondes ?',
-                directive: `1. Déclencher une coupure simulée de l'alimentation principale (avec accord opérationnel)
-2. Chronométrer le délai de reprise automatique par le groupe de secours
-3. Vérifier le niveau de carburant et les dernières maintenance (PV ≤ 6 mois)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Reprise automatique ≤ 15 secondes, carburant ≥ 24h d'autonomie, maintenance ≤ 6 mois
-- NS : Reprise > 15 secondes, autonomie < 24h ou maintenance absente
-- NA : Aérodrome VMC/jour avec alimentation secourue non requise
-- NV : Test non autorisé ou groupe hors service lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 II §8.1.6 (Norme) : «Le groupe de secours doit reprendre en ≤ 15 secondes.»`,
-                type_entite_cible: 'tous',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── MFP ───────────────────────
-  {
-    code: 'MFP',
-    label: 'Marques, Feux et Panneaux',
-    description: 'Marquage au sol, signalisation lumineuse et panneaux',
-    sous_domaines: [
-      {
-        nom: 'Marquage au sol',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Marquages de piste',
-            items: [
-              {
-                numero: 'MFP.A01',
-                ref: 'RAS 14 II §5.2.2',
-                question: 'Le marquage de seuil de piste est-il présent, lisible et conforme en dimensions ?',
-                directive: `1. Inspecter visuellement le marquage de seuil (barres blanches perpendiculaires à l'axe)
-2. Vérifier le nombre de barres et leur largeur selon le code de référence lettre
-3. Évaluer la lisibilité (contraste, dégradation ≤ 30% de la surface)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Marquage conforme, lisibilité > 70%, dimensions conformes au code lettre
-- NS : Marquage absent, largeur non conforme ou lisibilité ≤ 70%
-- NA : Piste sans instrument avec marquage minimal requis seulement
-- NV : Piste mouillée rendant l'évaluation visuelle impossible
-
-⚠️ Seuil réglementaire : RAS 14 II §5.2.2 (Norme) : Marquages de seuil de piste selon code de référence lettre.`,
-                type_entite_cible: 'aerodrome',
-                inopine: true,
-              },
-              {
-                numero: 'MFP.A02',
-                ref: 'RAS 14 II §5.2.3',
-                question: 'L\'axe de piste est-il marqué de manière continue et lisible sur toute la longueur ?',
-                directive: `1. Parcourir l'axe de piste et inspecter la continuité des tirets d'axe
-2. Mesurer la lisibilité (contraste minimum 70% avec la surface)
-3. Vérifier l'état général sur les zones à haute friction (toucher des roues)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Axe continu, contraste > 70%, dégradation localisée < 10% de la longueur
-- NS : Interruptions de > 10 m, contraste ≤ 70% ou dégradation > 30% de la longueur
-- NA : Piste en cours de marquage (NOTAM publié)
-- NV : Conditions ne permettant pas l'inspection (nuit sans éclairage)
-
-⚠️ Seuil réglementaire : RAS 14 II §5.2.3 (Norme) : «L'axe de piste doit être marqué sur toute la longueur.»`,
-                type_entite_cible: 'aerodrome',
-              },
-            ],
-          },
-          {
-            nom: 'Panneaux de signalisation',
-            items: [
-              {
-                numero: 'MFP.P01',
-                ref: 'RAS 14 II §7.1.1',
-                question: 'Les panneaux d\'information obligatoire sont-ils présents, lisibles et correctement positionnés ?',
-                directive: `1. Inventorier les panneaux d'information obligatoire (désignation de piste, points d'attente)
-2. Vérifier la lisibilité à la distance requise (30 m de nuit, 60 m de jour)
-3. Contrôler l'état physique (absence de déformation, éclairage nocturne si requis)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Tous panneaux présents, lisibles aux distances requises et en bon état
-- NS : Panneau manquant ou illisible sur un point d'attente critique
-- NA : Aérodrome sans croisement de piste (topologie simple)
-- NV : Inventaire impossible lors de la visite (nuit sans accès)
-
-⚠️ Seuil réglementaire : RAS 14 II §7.1.1 (Norme) : «Les panneaux d'information obligatoire doivent être installés aux intersections.»`,
-                type_entite_cible: 'aerodrome',
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── COP ───────────────────────
-  {
-    code: 'COP',
-    label: 'Compétences Organisationnelles et Personnels',
-    description: 'Formation, habilitations, compétences du personnel',
-    sous_domaines: [
-      {
-        nom: 'Effectifs et habilitations',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Qualifications et formations',
-            items: [
-              {
-                numero: 'COP.01',
-                ref: 'RAS 14 I §4.1',
-                question: 'L\'effectif de l\'exploitant est-il conforme aux exigences minimales réglementaires ?',
-                directive: `1. Demander l'organigramme nominatif et les fiches de poste
-2. Comparer l'effectif avec les exigences RAS 14 I §4.1 et Manuel ANACIM pour la catégorie
-3. Vérifier que les postes-clés (responsable sécurité, chef d'exploitation) sont pourvus
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Effectif ≥ minimum réglementaire, postes-clés pourvus, organigramme à jour
-- NS : Effectif insuffisant ou poste-clé vacant sans suppléant désigné
-- NA : Cas particulier d'hélistation légère avec accord ANACIM
-- NV : Organigramme non présenté
-
-⚠️ Seuil réglementaire : RAS 14 I §4.1 (Norme) : Effectifs minimaux selon type et catégorie d'aérodrome.`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'COP.02',
-                ref: 'MANUEL-ANACIM §5.2',
-                question: 'Les agents affectés à des postes de sécurité ont-ils reçu une formation initiale validée ?',
-                directive: `1. Sélectionner 3 agents en postes de sécurité (aléatoirement) et demander leurs dossiers
-2. Vérifier pour chacun : certificat de formation initiale, domaine, date de délivrance
-3. Contrôler la validité (formation < délai réglementaire de péremption si applicable)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : 100% des agents sélectionnés ont des certificats de formation valides
-- NS : ≥ 1 agent sans certificat valide en poste actif de sécurité
-- NA : Agent nouvellement recruté < 3 mois (en période d'intégration formelle)
-- NV : Dossiers non disponibles lors de la visite
-
-⚠️ Seuil réglementaire : MANUEL-ANACIM §5.2 : «Tout agent de sécurité doit avoir reçu une formation initiale validée.»`,
-                type_entite_cible: 'tous',
-              },
-              {
-                numero: 'COP.03',
-                ref: 'MANUEL-ANACIM §5.3',
-                question: 'Les habilitations et certificats du personnel de sécurité sont-ils à jour et tracés ?',
-                directive: `1. Demander le tableau de suivi des habilitations (document ou SI RH)
-2. Vérifier que les dates d'expiration sont renseignées et que les renouvellements sont planifiés
-3. Contrôler l'absence d'agent avec habilitation expirée en poste actif
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Tableau complet, aucun agent avec habilitation expirée, renouvellements planifiés ≤ 30j
-- NS : ≥ 1 agent avec habilitation expirée en poste, ou tableau incomplet
-- NA : Poste ne nécessitant pas d'habilitation formelle
-- NV : Tableau non présenté
-
-⚠️ Seuil réglementaire : MANUEL-ANACIM §5.3 : «Les habilitations doivent être maintenues à jour et tracées.»`,
-                type_entite_cible: 'tous',
-                maintien: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-
-  // ─────────────────────── OPS ───────────────────────
-  {
-    code: 'OPS',
-    label: 'Procédures Opérationnelles',
-    description: 'Procédures d\'exploitation, coordination, communication',
-    sous_domaines: [
-      {
-        nom: 'Manuel d\'exploitation et procédures',
-        type_entite_cible: 'tous',
-        sous_sous_domaines: [
-          {
-            nom: 'Manuel et procédures d\'urgence',
-            items: [
-              {
-                numero: 'OPS.01',
-                ref: 'RAS 14 I §2.1',
-                question: 'Le Manuel d\'Exploitation de l\'aérodrome (MEA) est-il à jour et approuvé par l\'ANACIM ?',
-                directive: `1. Demander le MEA (ou équivalent pour hélistation)
-2. Vérifier la présence de la page d'approbation ANACIM avec date
-3. Comparer la date de révision avec les événements structurants (nouvelles pistes, équipements, réglementations)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : MEA présent, approuvé par ANACIM, révisé après dernier événement structurant
-- NS : MEA absent, non approuvé, ou non révisé après modification majeure de l'infrastructure
-- NA : Hélistation non soumise à obligation de MEA (surface < seuil réglementaire)
-- NV : Document non disponible lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 I §2.1 (Norme) : «L'exploitant doit tenir à jour un manuel d'exploitation agréé.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'OPS.02',
-                ref: 'RAS 14 I §2.2',
-                question: 'Les procédures d\'urgence aérodrome sont-elles documentées, connues et exercées ?',
-                directive: `1. Demander la liste des procédures d'urgence (incendie, accident aérien, alerte bombe, intrusion)
-2. Interroger 2 agents sur la procédure à suivre en cas d'incendie de terminal
-3. Vérifier les affichages des contacts d'urgence et l'existence d'un plan d'urgence aérodrome (PUA)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : PUA existant, procédures affichées, agents interrogés connaissent les actions de base
-- NS : PUA absent, procédures non affichées ou agents ignorants des actions d'urgence
-- NA : Hélistation sans activité commerciale avec plan simplifié accepté
-- NV : Procédures non accessibles lors de la visite
-
-⚠️ Seuil réglementaire : RAS 14 I §2.2 (Norme) : «Un plan d'urgence d'aérodrome doit être établi.»`,
-                type_entite_cible: 'tous',
-                inopine: true,
-              },
-              {
-                numero: 'OPS.03',
-                ref: 'RAS 14 I §2.3',
-                question: 'Le protocole de coordination entre l\'exploitant et les services de navigation aérienne est-il formalisé ?',
-                directive: `1. Demander le protocole ou lettre d'accord entre l'exploitant et l'ASECNA/ANA
-2. Vérifier la date et les signatures des parties
-3. Contrôler les procédures de coordination (fermeture piste, SNOWTAM, NOTAM)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Protocole signé ≤ 3 ans, procédures de coordination opérationnelles
-- NS : Protocole absent, expiré (> 3 ans) ou procédures non définies
-- NA : Hélistation privée sans SNA désigné
-- NV : Document non présenté
-
-⚠️ Seuil réglementaire : RAS 14 I §2.3 (Norme) : «Une coordination formelle doit être établie avec les SNA.»`,
-                type_entite_cible: 'tous',
-              },
-              {
-                numero: 'OPS.04',
-                ref: 'Doc 9981 §5.1',
-                question: 'Les incidents de sécurité sont-ils systématiquement consignés et traités via le système de compte-rendu ?',
-                directive: `1. Demander le registre des compte-rendus d'incidents (CRIT ou équivalent)
-2. Vérifier la régularité des signalements sur les 6 derniers mois
-3. Contrôler le traitement (analyse, mesures correctives, retour d'information à l'auteur)
-
-📌 ÉVALUATION OBJECTIVE :
-- SA : Registre tenu, signalements réguliers, traitement tracé avec retour d'information
-- NS : Absence de signalements sur 6 mois, ou signalements sans traitement documenté
-- NA : Entité avec accord de dispense du système de compte-rendu
-- NV : Registre non présenté
-
-⚠️ Seuil réglementaire : Doc 9981 §5.1 : «Un système de compte-rendu d'incidents doit être opérationnel.»`,
-                type_entite_cible: 'tous',
-                maintien: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-]
-
-// ============================================================
 // MOTEUR DE PRÉDICTION (Règles R1–R5)
 // ============================================================
 
@@ -1266,18 +310,31 @@ function appliquerPrediction(
 // GÉNÉRATEUR DE CHECKLIST HIÉRARCHIQUE
 // ============================================================
 
-export function generateKitChecklist(params: KitDocChecklistParams): KitChecklistResult {
-  const { surveillance_id, entite_id, type_entite, type_surveillance, portee, profil_risque, analyses_docs } = params
+export async function generateKitChecklist(params: KitDocChecklistParams): Promise<KitChecklistResult> {
+  const { surveillance_id, entite_id, type_entite, type_surveillance, portee, profil_risque } = params
 
-  // Étendre la portée (AGA → tous les domaines individuels)
   const domainesActifs = expandDomaines(portee)
-
-  // Récupérer les documents Kit actifs depuis le store
   const store = useAppStore.getState()
   const kitDocs = (store.kitDocuments || []).filter(
     d => d.etat === 'a_jour' || d.etat === 'en_revision'
   )
   const kitDocsIds = kitDocs.map(d => d.id)
+
+  await kitDocAgent.genererChecklistDepuisPortee({
+    portee: domainesActifs,
+    type_entite,
+    type_surveillance,
+    force: false,
+    entite_id,
+  })
+
+  // Re-lire les documents après génération IA (items_generes a été mis à jour dans le store)
+  const storeApres = useAppStore.getState()
+  const kitDocsActualises = (storeApres.kitDocuments || []).filter(
+    d => d.etat === 'a_jour' || d.etat === 'en_revision'
+  )
+
+  const prefix = params.prefix_numero || 'QSC'
 
   const result: KitChecklistResult = {
     surveillance_id,
@@ -1291,127 +348,122 @@ export function generateKitChecklist(params: KitDocChecklistParams): KitChecklis
 
   let itemCounter = 0
 
-  for (const kbDomaine of KNOWLEDGE_BASE) {
-    // Filtrer par portée
-    if (!domainesActifs.includes(kbDomaine.code)) continue
+  for (const domaineCode of domainesActifs) {
+    const domaineInfo = DOMAINES_SURVEILLANCE.find(d => d.code === domaineCode)
+    if (!domaineInfo) continue
+    // SGS est traité séparément (évaluation PAOE) — pas dans la checklist standard
+    if (domaineCode === 'SGS' && type_surveillance !== 'maintien') continue
 
-    const domaineInfo = DOMAINES_SURVEILLANCE.find(d => d.code === kbDomaine.code)
+    const docsForDomaine = kitDocsActualises.filter(d =>
+      (d.items_generes || []).some(ig => ig.domaine === domaineCode)
+    )
+
+    const items: KitChecklistItem[] = []
+    const seenQuestions = new Set<string>()
+
+    for (const doc of docsForDomaine) {
+      const generes = doc.items_generes?.filter(ig => ig.domaine === domaineCode) || []
+      for (const ig of generes) {
+        const key = ig.point_verification.toLowerCase().trim()
+        if (seenQuestions.has(key)) continue
+        seenQuestions.add(key)
+
+        itemCounter++
+        const itemNum = `${prefix}-${String(itemCounter).padStart(2, '0')}`
+        const itemId = `${domaineCode}_${itemNum}`
+
+        const pred = appliquerPrediction(
+          entite_id,
+          type_surveillance,
+          domaineCode,
+          domaineInfo.label,
+          ig.sous_domaine || 'Général',
+          itemId,
+          itemNum,
+          ig.point_verification,
+          profil_risque
+        )
+
+        items.push({
+          id: itemId,
+          numero: itemNum,
+          reference_reglementaire: ig.reference_reglementaire,
+          point_verification: ig.point_verification,
+          directive_preuve: ig.directive_preuve,
+          directive_sa: ig.directive_sa,
+          directive_ns: ig.directive_ns,
+          directive_nv: ig.directive_nv,
+          directive_na: ig.directive_na,
+          prediction: pred.prediction,
+          confiance: pred.confiance,
+          justification: pred.justification,
+          alerte: pred.alerte,
+          prefill: pred.confiance >= 70,
+          observation: pred.confiance >= 85 ? `Prédiction automatique (${pred.confiance}%)` : undefined,
+          type_entite_cible: ig.type_entite_cible,
+          type_checklist: type_surveillance === 'maintien' ? 'standard' : 'standard',
+          sous_domaine: ig.sous_domaine,
+        })
+      }
+    }
+
+    if (items.length === 0) {
+      itemCounter++
+      const fbNum = `${prefix}-${String(itemCounter).padStart(2, '0')}`
+      items.push({
+        id: `${domaineCode}_fallback_${fbNum}`,
+        numero: fbNum,
+        reference_reglementaire: `RAS 14 I — ${domaineInfo.label}`,
+        point_verification: `Le domaine ${domaineInfo.label} est-il conforme aux exigences réglementaires ?`,
+        directive_preuve: `1. Demander la documentation ${domaineInfo.label}\n2. Vérifier la conformité aux spécifications\n3. Observer les installations sur site`,
+        directive_sa: 'La documentation est complète, à jour et conforme. Les installations respectent les spécifications.',
+        directive_ns: 'La documentation est manquante, incomplète ou les installations présentent des écarts.',
+        directive_nv: 'La documentation ou les installations n\'ont pas pu être vérifiées lors de la visite.',
+        directive_na: 'Ce domaine ne s\'applique pas à cet aérodrome selon sa classification.',
+        prediction: 'NV',
+        confiance: 30,
+        justification: `Aucun document réglementaire chargé pour ${domaineCode} — item générique`,
+        alerte: false,
+        prefill: false,
+        type_entite_cible: type_entite === 'helistation' ? 'helistation' : 'tous',
+      })
+    }
+
+    // Grouper les items par sous-domaine (provenant de l'IA)
+    const itemsBySousDomaine = new Map<string, KitChecklistItem[]>()
+    for (const item of items) {
+      const sd = item.sous_domaine || 'Général'
+      if (!itemsBySousDomaine.has(sd)) itemsBySousDomaine.set(sd, [])
+      itemsBySousDomaine.get(sd)!.push(item)
+    }
+
     const kitDomaine: KitDomaine = {
-      code: kbDomaine.code,
-      label: kbDomaine.label,
-      description: kbDomaine.description,
-      sous_domaines: [],
+      code: domaineCode,
+      label: domaineInfo.label,
+      description: domaineInfo.description,
+      sous_domaines: Array.from(itemsBySousDomaine.entries()).map(([nom, sdItems], sdi) => ({
+        id: `${domaineCode}_${nom.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+        nom,
+        type_entite_cible: 'tous',
+        sous_sous_domaines: sdItems.map((item, i) => ({
+          id: `${domaineCode}_${sdi}_${i}`,
+          nom: item.numero,
+          items: [item],
+          ordre: i,
+        })),
+        ordre: sdi,
+      })),
     }
 
-    for (const kbSD of kbDomaine.sous_domaines) {
-      // Filtrer par type d'entité
-      const sdCible = kbSD.type_entite_cible
-      if (sdCible !== 'tous' && sdCible !== type_entite && type_entite !== 'mixte') continue
-      // Pour mixte : inclure tous
-      if (type_entite === 'mixte' && sdCible !== 'tous' &&
-          sdCible !== 'aerodrome' && sdCible !== 'helistation') continue
-
-      const kitSD: KitSousDomaine = {
-        id: `${kbDomaine.code}_${kbSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-        nom: kbSD.nom,
-        type_entite_cible: kbSD.type_entite_cible,
-        sous_sous_domaines: [],
-        ordre: kitDomaine.sous_domaines.length,
-      }
-
-      for (const kbSSD of kbSD.sous_sous_domaines) {
-        const kitSSD: KitSousSousDomaine = {
-          id: `${kitSD.id}_${kbSSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-          nom: kbSSD.nom,
-          items: [],
-          ordre: kitSD.sous_sous_domaines.length,
-        }
-
-        for (const kbItem of kbSSD.items) {
-          // Adapter selon type_surveillance
-          if (type_surveillance === 'inopine' && !kbItem.inopine) continue
-          if (type_surveillance === 'maintien' && kbItem.maintien === false) {
-            // garder tous les items (maintien = checklist complète + items spécifiques)
-          }
-
-          itemCounter++
-          const itemId = `${kbDomaine.code}_${kbItem.numero}_${itemCounter}`
-
-          // Appliquer la prédiction
-          const pred = appliquerPrediction(
-            entite_id,
-            type_surveillance,
-            kbDomaine.code,
-            kbSD.nom,
-            kbSSD.nom,
-            itemId,
-            kbItem.numero,
-            kbItem.question,
-            profil_risque
-          )
-
-          // Parser la directive pour séparer guide + critères d'évaluation
-          const parsedDir = parseDirectiveEval(kbItem.directive)
-
-          const kitItem: KitChecklistItem = {
-            id: itemId,
-            numero: kbItem.numero,
-            reference_reglementaire: kbItem.ref,
-            point_verification: kbItem.question,
-            directive_preuve: parsedDir.guide,
-            directive_sa: parsedDir.sa,
-            directive_ns: parsedDir.ns,
-            directive_nv: parsedDir.nv,
-            directive_na: parsedDir.na,
-            prediction: pred.prediction,
-            confiance: pred.confiance,
-            justification: pred.justification,
-            alerte: pred.alerte,
-            prefill: pred.confiance >= 70,
-            observation: pred.confiance >= 85 ? `Prédiction automatique (${pred.confiance}%)` : undefined,
-            type_entite_cible: kbItem.type_entite_cible,
-            type_checklist: type_surveillance === 'maintien' ? 'standard' : 'standard',
-          }
-
-          // Enrichir avec les analyses de documents si disponibles
-          if (analyses_docs && analyses_docs.length > 0) {
-            const extraitsPertinents = analyses_docs.flatMap(a => a.extraits).filter(e =>
-              e.domaines.includes(kbDomaine.code) &&
-              (kbItem.ref.toLowerCase().includes(e.reference.toLowerCase().split('§')[0].trim()) ||
-               e.reference.toLowerCase().includes(kbItem.ref.toLowerCase().split('§')[0].trim()))
-            )
-            if (extraitsPertinents.length > 0) {
-              const ex = extraitsPertinents[0]
-              kitItem.reference_reglementaire = `${kbItem.ref} — ${ex.reference}`
-              if (ex.seuil_numerique) {
-                kitItem.directive_preuve = `${parsedDir.guide}\n\nSeuil issu de l'analyse documentaire : ${ex.seuil_numerique}`
-              }
-              kitItem.justification = `${pred.justification} | Enrichi par analyse documentaire : ${ex.titre}`
-            }
-          }
-
-          kitSSD.items.push(kitItem)
-        }
-
-        if (kitSSD.items.length > 0) {
-          kitSD.sous_sous_domaines.push(kitSSD)
-        }
-      }
-
-      if (kitSD.sous_sous_domaines.length > 0) {
-        kitDomaine.sous_domaines.push(kitSD)
-      }
-    }
-
-    // Items de maintien supplémentaires
     if (type_surveillance === 'maintien') {
-      kitDomaine.sous_domaines.push(...genererItemsMaintien(kbDomaine.code, entite_id, profil_risque))
+      kitDomaine.sous_domaines.push(...genererItemsMaintien(domaineCode, entite_id, profil_risque))
     }
 
-    if (kitDomaine.sous_domaines.length > 0) {
-      result.domaines.push(kitDomaine)
-    }
+    result.domaines.push(kitDomaine)
+    console.log(`[generateKitChecklist] ${domaineCode}: ${items.length} items, ${itemsBySousDomaine.size} sous-domaines (${Array.from(itemsBySousDomaine.keys()).join(', ')})`)
   }
+
+  console.log(`[generateKitChecklist] FINI — ${result.domaines.length} domaines, ${result.domaines.reduce((s, d) => s + d.sous_domaines.reduce((s2, sd) => s2 + sd.sous_sous_domaines.length, 0), 0)} items au total`)
 
   return result
 }
@@ -1667,7 +719,7 @@ Identifie jusqu'à 5 extraits clés. Format:
   }
 
   // Génère la checklist depuis les paramètres
-  generateChecklist(params: KitDocChecklistParams): KitChecklistResult {
+  async generateChecklist(params: KitDocChecklistParams): Promise<KitChecklistResult> {
     return generateKitChecklist(params)
   }
 
@@ -1965,335 +1017,158 @@ Identifie jusqu'à 5 extraits clés. Format:
 
     const domainesActifs = expandDomaines(domainesCibles)
     const result: any[] = []
+    const itemsGeneres = doc.items_generes || []
 
-    for (const kbDomaine of KNOWLEDGE_BASE) {
-      if (!domainesActifs.includes(kbDomaine.code)) continue
+    for (const domaineCode of domainesActifs) {
+      const domaineInfo = DOMAINES_SURVEILLANCE.find(d => d.code === domaineCode)
+      if (!domaineInfo) continue
 
-      const extraitsDomaine = analyse.extraits.filter(e =>
-        e.domaines.includes(kbDomaine.code)
-      )
+      const itemsDomaine = itemsGeneres.filter(ig => ig.domaine === domaineCode)
+      if (itemsDomaine.length === 0) continue
+
+      // Grouper par sous-domaine dans la preview aussi
+      const previewGroups = new Map<string, typeof itemsDomaine>()
+      for (const ig of itemsDomaine) {
+        const sd = ig.sous_domaine || 'Général'
+        if (!previewGroups.has(sd)) previewGroups.set(sd, [])
+        previewGroups.get(sd)!.push(ig)
+      }
 
       const domaine: any = {
-        id: `kit_preview_${doc.id}_${kbDomaine.code}`,
-        nom: kbDomaine.label,
-        description: kbDomaine.description,
+        id: `kit_preview_${doc.id}_${domaineCode}`,
+        nom: domaineInfo.label,
+        description: domaineInfo.description,
         items: [],
-        sousDomaines: [],
+        sousDomaines: Array.from(previewGroups.entries()).map(([sdName, sdItems], sdi) => ({
+          id: `kit_preview_${doc.id}_${domaineCode}_${sdName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+          nom: sdName,
+          items: [],
+          sousSousDomaines: sdItems.map((ig, i) => ({
+            id: `kit_preview_${doc.id}_${domaineCode}_item_${i}`,
+            nom: ig.numero,
+            items: [{
+              id: `preview_${doc.id}_${domaineCode}_${ig.numero}`,
+              numero: ig.numero,
+              reference_reglementaire: ig.reference_reglementaire,
+              point_verification: ig.point_verification,
+              directive_preuve: ig.directive_preuve,
+              directive_sa: ig.directive_sa,
+              directive_ns: ig.directive_ns,
+              directive_nv: ig.directive_nv,
+              directive_na: ig.directive_na,
+              resultat: undefined,
+              ordre: i,
+              prediction: 'NV',
+              confiance: 40,
+              justification: `Point issu du document "${doc.nom}" (${analyse.reference_base})`,
+              alerte: false,
+              prefilled: false,
+              observation: undefined,
+              fichiers: [],
+            }],
+            isExpanded: true,
+            ordre: i,
+          })),
+          isExpanded: true,
+          ordre: sdi,
+        })),
         isExpanded: true,
         progression: 0,
         ordre: result.length,
       }
 
-      let itemCounter = 0
-      for (const kbSD of kbDomaine.sous_domaines) {
-        const sd: any = {
-          id: `${domaine.id}_${kbSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-          nom: kbSD.nom,
-          items: [],
-          sousSousDomaines: [],
-          isExpanded: true,
-          ordre: domaine.sousDomaines.length,
-        }
-
-        for (const kbSSD of kbSD.sous_sous_domaines) {
-          const ssd: any = {
-            id: `${sd.id}_${kbSSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-            nom: kbSSD.nom,
-            items: [],
-            isExpanded: true,
-            ordre: sd.sousSousDomaines.length,
-          }
-
-          for (const kbItem of kbSSD.items) {
-            itemCounter++
-            const extraitPertinent = extraitsDomaine.find(e =>
-              kbItem.ref.toLowerCase().includes(e.reference.toLowerCase().split('§')[0].trim()) ||
-              e.reference.toLowerCase().includes(kbItem.ref.toLowerCase().split('§')[0].trim())
-            )
-
-            ssd.items.push({
-              id: `${ssd.id}_${kbItem.numero}_${itemCounter}`,
-              numero: kbItem.numero,
-              reference_reglementaire: extraitPertinent
-                ? `${kbItem.ref} — ${extraitPertinent.reference}`
-                : kbItem.ref,
-              point_verification: kbItem.question,
-              directive_preuve: extraitPertinent?.seuil_numerique
-                ? `${kbItem.directive}\n\nSeuil issu de l'analyse documentaire : ${extraitPertinent.seuil_numerique}`
-                : kbItem.directive,
-              resultat: undefined,
-              ordre: itemCounter,
-              prediction: 'NV',
-              confiance: extraitPertinent ? 40 : 30,
-              justification: extraitPertinent
-                ? `Point issu du document "${doc.nom}" (${analyse.reference_base}) — ${extraitPertinent.titre}`
-                : `Point de verification standard pour le domaine ${kbDomaine.code}`,
-              alerte: false,
-              prefilled: false,
-              observation: undefined,
-              fichiers: [],
-            })
-          }
-
-          if (ssd.items.length > 0) sd.sousSousDomaines.push(ssd)
-        }
-
-        if (sd.sousSousDomaines.length > 0) domaine.sousDomaines.push(sd)
-      }
-
-      if (domaine.sousDomaines.length > 0) result.push(domaine)
+      result.push(domaine)
     }
 
     return result
-  }
-
-  /**
-   * Génère une preview de checklist à partir de TOUS les documents réglementaires actifs.
-   * Parcourt l'intégralité de la KNOWLEDGE_BASE (tous les domaines) et croise
-   * chaque item avec les extraits de tous les documents disponibles.
-   */
-  private parseTrainingDescription(desc: string): { point_verification: string; reference_reglementaire?: string; directive_preuve?: string } {
-    try {
-      const parsed = JSON.parse(desc);
-      if (parsed && parsed.pv) {
-        return {
-          point_verification: parsed.pv,
-          reference_reglementaire: parsed.ref,
-          directive_preuve: parsed.dir,
-        };
-      }
-    } catch {}
-    return { point_verification: desc };
   }
 
   generatePreviewFromAllDocuments(): any[] {
     const store = useAppStore.getState()
     const allDocs = (store.kitDocuments || []).filter(d =>
-      d.etat === 'a_jour' && d.ia_analyse_at
+      d.etat === 'a_jour' && d.items_generes && d.items_generes.length > 0
     )
-    const trainingRecords = (store.checklistMemoryRecords || []).filter(r => r.aerodrome_id === 'anacim_legacy')
-    // Reconstruire toutes les analyses
-    const allAnalyses: { doc: KitDocument; analyse: KitDocAnalysis }[] = allDocs.map(d => {
-      const extraits: ExtraitReglementaire[] = (d.extraits || []).map(e => ({
-        reference: e.reference,
-        titre: e.titre,
-        contenu_resume: e.contenu_resume,
-        statut: e.statut as StatutExtrait,
-        domaines: e.domaines,
-        type_entite_cible: e.type_entite_cible as TypeEntite | 'tous',
-        seuil_numerique: e.seuil_numerique,
-        source_document_id: e.source_document_id,
-        detecte_le: e.detecte_le,
-      }))
-      return {
-        doc: d,
-        analyse: {
-          document_id: d.id,
-          reference_base: d.reference_base || 'RAS 14 I',
-          type_oaci_detecte: d.type_document_oaci || d.type_document,
-          extraits,
-          domaines_impactes: d.domaines,
-          impact: (d.ia_impact || 'mineur') as KitDocAnalysis['impact'],
-          conflits: [],
-          analysed_at: d.ia_analyse_at || d.created_at,
-        } as KitDocAnalysis,
-      }
-    })
 
-    // Fusionner tous les domaines impactés
-    const allDomainesImpactes = [...new Set(allAnalyses.flatMap(a => a.analyse.domaines_impactes))]
-    const domainesActifs = allDomainesImpactes.length > 0
-      ? expandDomaines(allDomainesImpactes)
+    const allDomaineCodes = [...new Set(allDocs.flatMap(d => (d.items_generes || []).map(ig => ig.domaine)))]
+    const domainesActifs = allDomaineCodes.length > 0
+      ? allDomaineCodes
       : ['SLI','PHY','OLS','RA','ELEC','MFP','COP','OPS']
 
     const result: any[] = []
 
-    for (const kbDomaine of KNOWLEDGE_BASE) {
-      if (!domainesActifs.includes(kbDomaine.code)) continue
+    for (const domaineCode of domainesActifs) {
+      const domaineInfo = DOMAINES_SURVEILLANCE.find(d => d.code === domaineCode)
+      if (!domaineInfo) continue
 
-      // Extraits de TOUS les documents pour ce domaine
-      const extraitsDomaine = allAnalyses.flatMap(({ doc, analyse }) =>
-        analyse.extraits
-          .filter(e => e.domaines.includes(kbDomaine.code))
-          .map(e => ({ ...e, docNom: doc.nom, docRef: analyse.reference_base }))
+      const itemsDomaine = allDocs.flatMap(d =>
+        (d.items_generes || []).filter(ig => ig.domaine === domaineCode)
       )
 
+      if (itemsDomaine.length === 0) continue
+
+      const seenQuestions = new Set<string>()
+      const itemsUniques = itemsDomaine.filter(ig => {
+        const key = ig.point_verification.toLowerCase().trim()
+        if (seenQuestions.has(key)) return false
+        seenQuestions.add(key)
+        return true
+      })
+
+      // Grouper par sous-domaine dans la preview aussi
+      const previewGroups = new Map<string, typeof itemsUniques>()
+      for (const ig of itemsUniques) {
+        const sd = ig.sous_domaine || 'Général'
+        if (!previewGroups.has(sd)) previewGroups.set(sd, [])
+        previewGroups.get(sd)!.push(ig)
+      }
+
       const domaine: any = {
-        id: `kit_preview_all_${kbDomaine.code}`,
-        nom: kbDomaine.label,
-        description: kbDomaine.description,
+        id: `kit_preview_all_${domaineCode}`,
+        nom: domaineInfo.label,
+        description: domaineInfo.description,
         items: [],
-        sousDomaines: [],
+        sousDomaines: Array.from(previewGroups.entries()).map(([sdName, sdItems], sdi) => ({
+          id: `kit_preview_all_${domaineCode}_${sdName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
+          nom: sdName,
+          items: [],
+          sousSousDomaines: sdItems.map((ig, i) => ({
+            id: `kit_preview_all_${domaineCode}_item_${i}`,
+            nom: ig.numero,
+            items: [{
+              id: `preview_all_${domaineCode}_${ig.numero}_${i}`,
+              numero: ig.numero,
+              reference_reglementaire: ig.reference_reglementaire,
+              point_verification: ig.point_verification,
+              directive_preuve: ig.directive_preuve,
+              directive_sa: ig.directive_sa,
+              directive_ns: ig.directive_ns,
+              directive_nv: ig.directive_nv,
+              directive_na: ig.directive_na,
+              resultat: undefined,
+              ordre: i,
+              prediction: 'NV',
+              confiance: 40,
+              justification: `Point de vérification pour le domaine ${domaineCode}`,
+              alerte: false,
+              prefilled: false,
+              observation: undefined,
+              fichiers: [],
+            }],
+            isExpanded: true,
+            ordre: i,
+          })),
+          isExpanded: true,
+          ordre: sdi,
+        })),
         isExpanded: true,
         progression: 0,
         ordre: result.length,
       }
 
-      let itemCounter = 0
-      for (const kbSD of kbDomaine.sous_domaines) {
-        const sd: any = {
-          id: `${domaine.id}_${kbSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-          nom: kbSD.nom,
-          items: [],
-          sousSousDomaines: [],
-          isExpanded: true,
-          ordre: domaine.sousDomaines.length,
-        }
-
-        for (const kbSSD of kbSD.sous_sous_domaines) {
-          const ssd: any = {
-            id: `${sd.id}_${kbSSD.nom.replace(/\s+/g, '_').toLowerCase()}`,
-            nom: kbSSD.nom,
-            items: [],
-            isExpanded: true,
-            ordre: sd.sousSousDomaines.length,
-          }
-
-          for (const kbItem of kbSSD.items) {
-            itemCounter++
-
-            // Trouver tous les extraits pertinents (tous documents confondus)
-            const extraitsPertinents = extraitsDomaine.filter(e =>
-              kbItem.ref.toLowerCase().includes(e.reference.toLowerCase().split('§')[0].trim()) ||
-              e.reference.toLowerCase().includes(kbItem.ref.toLowerCase().split('§')[0].trim())
-            )
-
-            const meilleurExtrait = extraitsPertinents[0]
-            const refsMultiDocs = extraitsPertinents.length > 1
-              ? `\n\nRéférences croisées (${extraitsPertinents.length} documents) :\n${extraitsPertinents.map(e => `- ${e.docNom} (${e.docRef}) — ${e.titre}`).join('\n')}`
-              : ''
-
-            // Parser la directive pour séparer guide et critères SA/NS/NV/NA
-            const rawDirective = meilleurExtrait?.seuil_numerique
-              ? `${kbItem.directive}\n\nSeuil : ${meilleurExtrait.seuil_numerique}${refsMultiDocs}`
-              : `${kbItem.directive}${refsMultiDocs}`
-            const parsedPreview = parseDirectiveEval(rawDirective)
-
-            ssd.items.push({
-              id: `${ssd.id}_${kbItem.numero}_${itemCounter}`,
-              numero: kbItem.numero,
-              reference_reglementaire: meilleurExtrait
-                ? `${kbItem.ref} — ${meilleurExtrait.reference}`
-                : kbItem.ref,
-              point_verification: kbItem.question,
-              directive_preuve: parsedPreview.guide,
-              directive_sa: parsedPreview.sa,
-              directive_ns: parsedPreview.ns,
-              directive_nv: parsedPreview.nv,
-              directive_na: parsedPreview.na,
-              resultat: undefined,
-              ordre: itemCounter,
-              prediction: 'NV',
-              confiance: extraitsPertinents.length > 0
-                ? Math.min(40 + extraitsPertinents.length * 10, 80)
-                : 30,
-              justification: extraitsPertinents.length > 0
-                ? `Validé par ${extraitsPertinents.length} document(s) réglementaire(s)\n${extraitsPertinents.map(e => `- ${e.docNom} (${e.docRef}): ${e.titre}`).join('\n')}`
-                : `Point de vérification standard pour le domaine ${kbDomaine.code}`,
-              alerte: false,
-              prefilled: false,
-              observation: undefined,
-              fichiers: [],
-            })
-          }
-
-          if (ssd.items.length > 0) sd.sousSousDomaines.push(ssd)
-        }
-
-        if (sd.sousSousDomaines.length > 0) domaine.sousDomaines.push(sd)
-      }
-
-      // Injecter les items d'entraînement ANACIM (few-shot) dans les items du domaine
-      const trainingForDomaine = trainingRecords.filter(r => r.domaine === kbDomaine.code)
-      if (trainingForDomaine.length > 0) {
-        if (!domaine.items) domaine.items = []
-        for (const tr of trainingForDomaine) {
-          const parsed = this.parseTrainingDescription(tr.item_description)
-          domaine.items.push({
-            id: `training_${tr.id}`,
-            numero: tr.item_numero,
-            reference_reglementaire: parsed.reference_reglementaire || '',
-            point_verification: parsed.point_verification,
-            directive_preuve: parsed.directive_preuve || '',
-            resultat: tr.dernier_resultat || undefined,
-            ordre: 9999 + domaine.items.length,
-            prediction: tr.dernier_resultat || 'NV',
-            confiance: tr.confiance || 95,
-            justification: `Item issu de la mémoire ANACIM (confiance: ${tr.confiance}%)`,
-            alerte: tr.alerte_ecart_recurrent || false,
-            prefilled: true,
-          })
-        }
-        domaine.progression = Math.round(
-          (domaine.items.filter((i: any) => i.resultat).length / domaine.items.length) * 100
-        )
-      }
-
-      if (domaine.sousDomaines.length > 0 || (domaine.items && domaine.items.length > 0)) result.push(domaine)
+      result.push(domaine)
     }
 
     return result
-  }
-
-  // Reconstruit une KitDocAnalysis depuis un document persisté
-  getAnalysisFromDoc(doc: KitDocument): KitDocAnalysis | null {
-    if (!doc.ia_analyse_at) return null
-    const extraits: ExtraitReglementaire[] = (doc.extraits || []).map(e => ({
-      reference: e.reference,
-      titre: e.titre,
-      contenu_resume: e.contenu_resume,
-      statut: e.statut as StatutExtrait,
-      domaines: e.domaines,
-      type_entite_cible: e.type_entite_cible as TypeEntite | 'tous',
-      seuil_numerique: e.seuil_numerique,
-      source_document_id: e.source_document_id,
-      detecte_le: e.detecte_le,
-    }))
-    return {
-      document_id: doc.id,
-      reference_base: doc.reference_base || detecterReferenceBase(doc),
-      type_oaci_detecte: doc.type_document_oaci || doc.type_document,
-      extraits,
-      domaines_impactes: doc.domaines,
-      impact: (doc.ia_impact || 'mineur') as KitDocAnalysis['impact'],
-      conflits: [],
-      analysed_at: doc.ia_analyse_at || doc.created_at,
-    }
-  }
-
-  // Récupère les analyses de documents pour un ensemble de domaines
-  getAnalysesForPortee(portee: string[]): KitDocAnalysis[] {
-    const store = useAppStore.getState()
-    const domainesActifs = expandDomaines(portee)
-    const docs = (store.kitDocuments || []).filter(d =>
-      d.etat === 'a_jour' &&
-      d.ia_analyse_at &&
-      d.domaines.some(dom => domainesActifs.includes(dom))
-    )
-    // Reconstruire les analyses à partir des données persistées dans les documents
-    return docs.map(d => {
-      const extraits: ExtraitReglementaire[] = (d.extraits || []).map(e => ({
-        reference: e.reference,
-        titre: e.titre,
-        contenu_resume: e.contenu_resume,
-        statut: e.statut as StatutExtrait,
-        domaines: e.domaines,
-        type_entite_cible: e.type_entite_cible as TypeEntite | 'tous',
-        seuil_numerique: e.seuil_numerique,
-        source_document_id: e.source_document_id,
-        detecte_le: e.detecte_le,
-      }))
-      return {
-        document_id: d.id,
-        reference_base: d.reference_base || 'RAS 14 I',
-        type_oaci_detecte: d.type_document_oaci || d.type_document,
-        extraits,
-        domaines_impactes: d.domaines,
-        impact: (d.ia_impact || 'mineur') as KitDocAnalysis['impact'],
-        conflits: [],
-        analysed_at: d.ia_analyse_at || d.created_at,
-      } as KitDocAnalysis
-    })
   }
 
   async extractAnacimChecklistItems(docId: string): Promise<{
@@ -2585,23 +1460,7 @@ Génère un JSON avec cette structure exacte (guide_etapes = tirets, PAS de num�
             : 'Aérodrome avec SGS très mature — focus sur l\'efficacité et l\'amélioration continue'
       : 'Niveau de maturité inconnu — générer un ensemble complet et progressif'
 
-    const systemPrompt = `Tu es un expert en systèmes de gestion de la sécurité (SGS) aéronautique selon l'OACI.
-Ta mission est de générer des questions d'évaluation PAOE (Présent, Approprié, Opérationnel, Efficace) pour un élément spécifique du SGS.
-
-RÈGLES CRITIQUES:
-1. Chaque question doit avoir une référence réglementaire précise (ex: RAS 19 §2.1.2, Doc 9859 Ch.3.4)
-2. Les directives doivent être PERTINENTES et ACTIONNABLES — l'inspecteur doit savoir exactement quoi vérifier
-3. Les directives PAOE doivent être hiérarchiques:
-   - Présent: existe-t-il documenté?
-   - Approprié: est-il adapté au contexte de l'aérodrome?
-   - Opérationnel: est-il appliqué au quotidien?
-   - Efficace: produit-il les résultats attendus?
-4. Le guide d'étapes doit être une procédure de vérification terrain étape par étape
-5. Adapter le nombre de questions à la complexité de l'élément (2-5 questions)
-6. Pour un aérodrome international: inclure des questions sur les standards internationaux
-7. Pour un aérodrome national: se concentrer sur les exigences nationales essentielles
-
-FORMAT DE RÉPONSE EXCLUSIVEMENT JSON:`
+    const systemPrompt = GENERER_SGS_QUESTIONS_PROMPT
 
     const userMessage = `${docsContext}
 
@@ -2804,6 +1663,344 @@ Génère un JSON avec cette structure exacte:
     }
 
     return { nouvelles, obsoletees, modifiees, inchangees }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // MÉTHODES DE GÉNÉRATION PAR DOCUMENTS RÉGLEMENTAIRES
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Extrait le texte d'un document PDF via pdfjs-dist et le stocke sur le document.
+   * Ne fait rien si le texte a déjà été extrait (sauf si force=true).
+   */
+  async extraireTexteDocument(docId: string, force = false): Promise<void> {
+    const store = useAppStore.getState()
+    const doc = store.kitDocuments.find(d => d.id === docId)
+    if (!doc) return
+    const versionChanged = doc.texte_extrait_version && doc.texte_extrait_version !== doc.version
+    if (doc.contenu_complet && !force && !versionChanged) return
+
+    const fichierUrl = doc.fichier_url
+    if (!fichierUrl) {
+      console.warn(`[KitDocAgent] Aucun fichier_url pour "${doc.nom}" (id=${docId}) — extraction PDF impossible`)
+      return
+    }
+
+    try {
+      console.log(`[KitDocAgent] Extraction PDF: "${doc.nom}" url=${fichierUrl.substring(0, 100)}...`)
+      const result = await extractTextFromPDF(fichierUrl)
+      console.log(`[KitDocAgent] Extraction OK: ${doc.nom} — ${result.texte_complet.length} caractères, ${result.nb_pages} pages, ${result.chapitres.length} chapitres`)
+      store.updateKitDocument(docId, {
+        contenu_complet: result.texte_complet,
+        texte_extrait_le: new Date().toISOString(),
+        texte_extrait_version: doc.version,
+      })
+    } catch (err) {
+      console.error(`[KitDocAgent] Erreur extraction PDF ${doc.nom}:`, err)
+    }
+  }
+
+  /**
+   * Nettoie un sous-domaine renvoyé par l'IA : supprime le préfixe slug/code
+   * Ex: "OLS_surfaces_de_limitation_d_obstacles_surface_conique  Surfaces..." → "Surfaces de limitation d'obstacles - Surface conique"
+   */
+  private cleanSousDomaine(sd: string | undefined): string | undefined {
+    if (!sd) return undefined
+    // Supprime préfixe slug "RA_plan_d_urgence  " ou "OLS_surfaces_  " → garde le label après
+    let cleaned = sd.replace(/^[A-Z]{2,4}_[a-z_]+(?:\s+|[_-]{2,})/, '')
+    // Si encore un code domaine _ au début
+    cleaned = cleaned.replace(/^[A-Z]{2,4}_/, '')
+    return cleaned.trim() || sd
+  }
+
+  /**
+   * Génère les items de checklist pour un document à partir de son texte.
+   * Utilise l'IA pour analyser le texte réglementaire et produire des items structurés.
+   * Les items sont stockés sur le document (items_generes) pour éviter les régénérations.
+   */
+  async genererItemsPourDocument(docId: string, domainesCibles?: string[], type_entite: 'aerodrome' | 'helistation' | 'mixte' | 'tous' = 'aerodrome'): Promise<KitChecklistItemGenere[]> {
+    const store = useAppStore.getState()
+    const doc = store.kitDocuments.find(d => d.id === docId)
+    if (!doc) return []
+
+    if (!doc.contenu_complet) {
+      await this.extraireTexteDocument(docId)
+    }
+
+    const docMaj = useAppStore.getState().kitDocuments.find(d => d.id === docId) || doc
+    let stored = docMaj.items_generes || []
+
+    // Invalidation automatique si la version du document a changé
+    const versionChanged = docMaj.items_generes_version && docMaj.items_generes_version !== docMaj.version
+    if (versionChanged) {
+      console.log(`[KitDocAgent] Version changée pour ${docMaj.nom}: ${docMaj.items_generes_version} → ${docMaj.version}, cache invalidé`)
+      stored = []
+    }
+
+    const storedDomaines = new Set(stored.map(i => i.domaine))
+    const domainesAGenerer = domainesCibles
+      ? domainesCibles.filter(d => !storedDomaines.has(d))
+      : docMaj.domaines.filter(d => !storedDomaines.has(d))
+
+    console.log(`[genererItemsPourDocument] ${docMaj.nom}: domainesCibles=${domainesCibles?.join(',')} domainesAGenerer=${domainesAGenerer.join(',')} stored=${stored.length} items texte=${(docMaj.contenu_complet || '').length}chars`)
+
+    if (domainesAGenerer.length === 0) {
+      return stored.filter(i => !domainesCibles || domainesCibles.includes(i.domaine))
+    }
+
+    const texte = docMaj.contenu_complet || ''
+    if (texte.length < 50) return stored
+
+    const chapitres = decouperChapitres(texte)
+    const nouveauxItems: KitChecklistItemGenere[] = []
+
+    for (const domaine of domainesAGenerer) {
+      // 1. Essaye le mapping structuré (numéros de chapitres exacts par domaine)
+      const mapping = filtrerChapitresParMapping(chapitres, domaine, type_entite)
+      // 2. Complète avec les mots-clés pour attraper le contenu non-chapitré
+      const chapitresKeywords = filtrerChapitresParDomaine(chapitres, domaine, type_entite)
+      // 3. Fusion : mapping en priorité, ajoute les mots-clés non déjà présents
+      const seen = new Set(mapping.textes)
+      const chapitresPertinents = [...mapping.textes, ...chapitresKeywords.filter(c => !seen.has(c))]
+
+      let sourcesInfo = ''
+      if (mapping.textes.length > 0) {
+        sourcesInfo = `Chapitres ${mapping.numerosTrouves.join(', ')} du document ${docMaj.reference_base || docMaj.nom}`
+        console.log(`[genererItemsPourDocument] ${domaine}: mapping=${mapping.numerosTrouves.length} keywords=${chapitresKeywords.length} fusion=${chapitresPertinents.length}`)
+      } else {
+        console.log(`[genererItemsPourDocument] ${domaine}: keywords → ${chapitresPertinents.length} chapitres trouvés`)
+      }
+
+      if (chapitresPertinents.length === 0) {
+        const contexteFallback = texte.substring(0, 8000)
+        if (contexteFallback.length < 50) continue
+
+        const aiResult = await aiClient.callJSON<{ items: any[] }>(
+          {
+            systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
+            userMessage: `Document: "${docMaj.nom}" (${docMaj.reference_base || ''})
+Domaine cible: ${domaine}
+
+Texte réglementaire (début du document — aucun chapitre spécifique au domaine ${domaine} n'a été détecté) :
+${contexteFallback}
+
+Génère les items de checklist standard pour le domaine ${domaine}.
+Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
+
+Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
+{
+  "items": [
+    {
+      "numero": "01",
+      "reference_reglementaire": "réf. précise",
+      "sous_domaine": "Pistes",
+      "point_verification": "question claire ?",
+      "directive_preuve": "guide détaillé étape par étape",
+      "directive_sa": "critère objectif satisfaisant",
+      "directive_ns": "critère objectif non satisfaisant",
+      "directive_nv": "quand impossible",
+      "directive_na": "quand non applicable",
+      "type_entite_cible": "aerodrome|helistation|tous"
+    }
+  ]
+}`,
+            temperature: 0.15,
+            maxTokens: 24000,
+            responseFormat: 'json_object',
+          },
+          { items: [] }
+        )
+
+        if (aiResult.items && aiResult.items.length > 0) {
+          for (let i = 0; i < aiResult.items.length; i++) {
+            const item = aiResult.items[i]
+            nouveauxItems.push({
+              id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
+              numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
+              reference_reglementaire: item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`,
+              point_verification: item.point_verification || `Vérification ${domaine} — ${docMaj.nom}`,
+              directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
+              directive_sa: item.directive_sa,
+              directive_ns: item.directive_ns,
+              directive_nv: item.directive_nv,
+              directive_na: item.directive_na,
+              domaine,
+              sous_domaine: this.cleanSousDomaine(item.sous_domaine),
+              type_entite_cible: item.type_entite_cible || 'tous',
+              source_document_id: docId,
+            })
+          }
+        }
+        continue
+      }
+
+      const contexteTexte = chapitresPertinents.join('\n\n').substring(0, 35000)
+      const indicationSources = sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''
+
+      const aiResult = await aiClient.callJSON<{ items: any[] }>(
+        {
+          systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
+          userMessage: `Document: "${docMaj.nom}" (${docMaj.reference_base || ''})
+Domaine cible: ${domaine}${indicationSources}
+
+Texte réglementaire (chapitres pertinents) :
+${contexteTexte}
+
+Génère les items de checklist standard pour le domaine ${domaine}.
+Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
+
+Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
+{
+  "items": [
+    {
+      "numero": "01",
+      "reference_reglementaire": "réf. précise",
+      "sous_domaine": "Pistes",
+      "point_verification": "question claire ?",
+      "directive_preuve": "guide détaillé étape par étape",
+      "directive_sa": "critère objectif satisfaisant",
+      "directive_ns": "critère objectif non satisfaisant",
+      "directive_nv": "quand impossible",
+      "directive_na": "quand non applicable",
+      "type_entite_cible": "aerodrome|helistation|tous"
+    }
+  ]
+}`,
+          temperature: 0.15,
+          maxTokens: 24000,
+          responseFormat: 'json_object',
+        },
+        { items: [] }
+      )
+
+      if (aiResult.items && aiResult.items.length > 0) {
+        for (let i = 0; i < aiResult.items.length; i++) {
+          const item = aiResult.items[i]
+          nouveauxItems.push({
+            id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
+            numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
+            reference_reglementaire: item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`,
+            point_verification: item.point_verification || `Vérification ${domaine} — ${docMaj.nom}`,
+            directive_preuve: item.directive_preuve || item.guide_etapes || '',
+            directive_sa: item.directive_sa,
+            directive_ns: item.directive_ns,
+            directive_nv: item.directive_nv,
+            directive_na: item.directive_na,
+            domaine,
+            sous_domaine: item.sous_domaine,
+            type_entite_cible: item.type_entite_cible || 'tous',
+            source_document_id: docId,
+          })
+        }
+      }
+    }
+
+    const tousItems = [...stored, ...nouveauxItems]
+    console.log(`[genererItemsPourDocument] ${docMaj.nom}: généré ${nouveauxItems.length} items pour domaines ${domainesAGenerer.join(',')} — total ${tousItems.length}`)
+    store.updateKitDocument(docId, {
+      items_generes: tousItems,
+      items_generes_le: new Date().toISOString(),
+      items_generes_version: docMaj.version,
+    })
+
+    return tousItems.filter(i => !domainesCibles || domainesCibles.includes(i.domaine))
+  }
+
+  /**
+   * Génère les items de checklist pour une portée donnée à partir des documents disponibles.
+   * Parcourt chaque domaine de la portée, trouve les documents pertinents via le mapping,
+   * génère les items par IA (ou utilise le cache), et retourne une checklist structurée.
+   */
+  async genererChecklistDepuisPortee(options: {
+    portee: string[]
+    type_entite: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+    type_surveillance: TypeSurveillanceKit
+    force?: boolean
+    entite_id?: string
+  }): Promise<void> {
+    const { portee, type_entite, type_surveillance, force, entite_id } = options
+    const store = useAppStore.getState()
+    const docs = (store.kitDocuments || []).filter(d =>
+      d.etat === 'a_jour' || d.etat === 'en_revision'
+    )
+
+    for (const domaine of portee) {
+      console.log(`[genererChecklistDepuisPortee] Traitement domaine "${domaine}"...`)
+      if (domaine === 'SGS') {
+        // SGS : générer le template d'évaluation PAOE (questions + directives + guide)
+        if (type_surveillance !== 'maintien') {
+          await this.genererSGSTemplate({
+            aerodromeType: type_entite === 'helistation' ? 'national' : 'national',
+            aerodromeId: entite_id,
+          })
+        }
+        continue
+      }
+
+      const sources = getSourcesForDomaine(domaine, type_entite)
+      if (sources.length === 0) continue
+
+      const docsPertinents = docs.filter(d =>
+        d.domaines.includes(domaine) || sources.some(s =>
+          s.ref_pattern.test(`${d.reference_base || ''} ${d.nom || ''}`)
+        )
+      )
+
+      // Fallback : si aucun document ne matche le domaine via domaines[] ou ref_pattern,
+      // utiliser les documents qui ont du texte extrait plutôt que de laisser le domaine vide
+      const docsAEssayer = docsPertinents.length > 0
+        ? docsPertinents
+        : docs.filter(d => d.contenu_complet && d.contenu_complet.length > 50).slice(0, 2)
+
+      console.log(`[genererChecklistDepuisPortee] ${domaine}: ${docsPertinents.length} docs pertinents, ${docsAEssayer.length} à essayer`)
+
+      for (const doc of docsAEssayer) {
+        if (force) {
+          store.updateKitDocument(doc.id, { items_generes: [] })
+        }
+        await this.genererItemsPourDocument(doc.id, [domaine], type_entite)
+      }
+    }
+  }
+
+  /**
+   * Génère le template SGS (questions + directives + guide étapes) pour tous les éléments
+   * et le sauvegarde sur l'aérodrome.
+   */
+  async genererSGSTemplate(params: {
+    aerodromeType: 'international' | 'national'
+    aerodromeId?: string
+  }): Promise<void> {
+    const store = useAppStore.getState()
+    const aerodromes = params.aerodromeId
+      ? store.aerodromes.filter(a => a.id === params.aerodromeId)
+      : store.aerodromes
+    if (aerodromes.length === 0) return
+
+    for (const aerodrome of aerodromes) {
+      const existing = aerodrome.sgs_checklist_template
+      const versionChanged = aerodrome.sgs_checklist_template_version && aerodrome.sgs_checklist_template_version !== aerodrome.maturite_sgs.toString()
+      if (existing && Object.keys(existing).length > 0 && !versionChanged) continue
+
+      const result = await this.generateFullSGSChecklist({
+        aerodromeType: params.aerodromeType,
+        maturiteInitiale: aerodrome.maturite_sgs,
+        documentsActifs: store.kitDocuments?.filter(d => d.etat === 'a_jour' && d.domaines.includes('SGS')) || [],
+      })
+
+      const template: Record<string, any> = {}
+      for (const comp of result.composantes) {
+        for (const elem of comp.elements) {
+          template[elem.id] = {
+            questions: elem.questions,
+            directives: elem.directives,
+            guideEtapes: elem.guideEtapes,
+          }
+        }
+      }
+
+      store.updateAerodrome(aerodrome.id, { sgs_checklist_template: template as any, sgs_checklist_template_version: aerodrome.maturite_sgs.toString() })
+    }
   }
 }
 

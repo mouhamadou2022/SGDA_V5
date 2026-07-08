@@ -185,7 +185,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
     <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={role}>
       <div className="modal-header border-b border-border bg-role-primary-soft">
         <div className="flex items-center gap-3 flex-1">
-          <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center text-white"><TrendingUp className="w-5 h-5" /></div>
+          <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center !text-white"><TrendingUp className="w-5 h-5" /></div>
           <div>
             <h2 className="text-lg font-bold text-foreground">Planning N+1 — {anneeN1}</h2>
             <p className="text-sm text-muted-foreground">
@@ -305,7 +305,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                           {DOMAINES_SURVEILLANCE.filter(d => d.code !== 'AGA').map(d => (
                             <button key={d.code} onClick={() => toggleDomaine(d.code)}
-                              className={`px-2 py-0.5 rounded text-xs transition-colors ${(editForm.portee || []).includes(d.code) ? 'bg-role-primary text-white' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'}`}>
+                              className={`px-2 py-0.5 rounded text-xs transition-colors ${(editForm.portee || []).includes(d.code) ? 'bg-role-primary !text-white' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'}`}>
                               {d.code}
                             </button>
                           ))}

@@ -177,7 +177,18 @@ export function TakeoffSplash() {
         <p className="text-white/45 text-[11px] tracking-[0.25em] uppercase mt-1 font-medium">
           Système de Gestion des Aérodromes
         </p>
-        <p className="text-white/20 text-[9px] font-mono mt-0.5 tracking-widest">
+        <div
+          className="mt-3 px-3 py-1.5 rounded-full border text-[10px] font-semibold tracking-wider"
+          style={{
+            borderColor: 'rgba(56,189,248,0.3)',
+            color: 'rgba(56,189,248,0.8)',
+            background: 'rgba(56,189,248,0.08)',
+            animation: 'sgda-edge-light 2.5s ease-in-out infinite',
+          }}
+        >
+          Propulsé par <span className="text-white font-bold">AERORISQ</span> — IA décisionnelle
+        </div>
+        <p className="text-white/20 text-[9px] font-mono mt-1 tracking-widest">
           ANACIM — République du Sénégal
         </p>
       </div>

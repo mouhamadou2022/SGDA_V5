@@ -49,6 +49,23 @@ export function computeCoverage(
 }
 
 /**
+ * Calcule un coverage95 empirique depuis la distribution des erreurs.
+ * Approximation : % d'erreurs dans l'intervalle ±1.96σ (normale théorique).
+ * Retourne null si pas assez de feedbacks.
+ */
+function computeCoverageFromFeedbacks(feedbacks: FeedbackInspecteur[]): number | null {
+  if (feedbacks.length < 5) return null
+  const errors = feedbacks.map(f => Math.abs(f.erreur))
+  const mean = errors.reduce((a, b) => a + b, 0) / errors.length
+  const variance = errors.reduce((sq, e) => sq + (e - mean) ** 2, 0) / errors.length
+  const std = Math.sqrt(variance)
+  if (std === 0) return 100
+  const threshold = 1.96 * std
+  const covered = errors.filter(e => e <= threshold).length
+  return Math.round((covered / errors.length) * 100)
+}
+
+/**
  * Calcule les métriques de performance du modèle
  */
 export function computeModelPerformance(
@@ -63,7 +80,7 @@ export function computeModelPerformance(
     mae6m: computeMAE(feedbacks6m),
     biais3m: computeBias(feedbacks3m),
     biais6m: computeBias(feedbacks6m),
-    coverage95: 85, // À calculer avec données réelles
+    coverage95: computeCoverageFromFeedbacks(feedbacks),
     derniereCalibration: new Date().toISOString(),
     nbObservations: feedbacks.length,
   }
@@ -96,7 +113,7 @@ export function isCorrectionNeeded(performance: MatricePerformance): {
     raisons.push(`Biais 6m détecté (${direction}: ${Math.abs(performance.biais6m).toFixed(1)} points)`)
   }
   
-  if (performance.coverage95 && performance.coverage95 < SEUIL_COVERAGE_MIN) {
+  if (performance.coverage95 !== null && performance.coverage95 < SEUIL_COVERAGE_MIN) {
     raisons.push(`Coverage IC95 insuffisant (${performance.coverage95.toFixed(1)}% < ${SEUIL_COVERAGE_MIN}%)`)
   }
   

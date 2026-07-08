@@ -12,6 +12,7 @@ import type { PredictionResult } from '@/lib/checklistMemory'
 import type { RiskIndex } from '@/lib/riskIndex'
 import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import { DOMAINES_SURVEILLANCE } from '@/lib/domaines'
+import { getRiskLevelBgColor, getRiskLevelColor } from '@/lib/risque'
 import { useFormProgress } from '@/hooks/useFormProgress'
 import { NiveauRisqueMatrix, CRITERES_NIVEAU_RISQUE } from '@/components/modules/plans-actions/NiveauRisqueMatrix'
 
@@ -321,7 +322,7 @@ export const EcartForm = memo(function EcartForm({
               <div className="alert-description">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-lg font-bold">{riskIndex.cellule}</span>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${riskIndex.niveau === 'critique' ? 'bg-red-600 text-white' : riskIndex.niveau === 'eleve' ? 'bg-orange-500 text-white' : riskIndex.niveau === 'moyen' ? 'bg-yellow-500' : 'bg-green-500 text-white'}`}>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${getRiskLevelBgColor(riskIndex.niveau)}`}>
                     {riskIndex.niveau.toUpperCase()}
                   </span>
                   <span className="text-sm">Score: {riskIndex.score}/100</span>
@@ -355,11 +356,7 @@ export const EcartForm = memo(function EcartForm({
             </div>
             <div className="flex items-center gap-2">
               {riskMatrixScore > 0 && (
-                <span className={`text-sm font-bold ${
-                  formData.niveau_risque === 'critique' ? 'text-danger' :
-                  formData.niveau_risque === 'eleve' ? 'text-warning' :
-                  formData.niveau_risque === 'moyen' ? 'text-primary' : 'text-success'
-                }`}>
+                <span className={`text-sm font-bold ${getRiskLevelColor(formData.niveau_risque || '')}`}>
                   {riskMatrixScore}/20 — {formData.niveau_risque?.toUpperCase()}
                 </span>
               )}
@@ -636,11 +633,7 @@ export const EcartForm = memo(function EcartForm({
               </div>
               <div className="pt-2 border-t border-border flex items-center justify-between">
                 <span className="font-semibold">Score total</span>
-                <span className={`text-lg font-bold ${
-                  formData.niveau_risque === 'critique' ? 'text-danger' :
-                  formData.niveau_risque === 'eleve' ? 'text-warning' :
-                  formData.niveau_risque === 'moyen' ? 'text-primary' : 'text-success'
-                }`}>
+                <span className={`text-lg font-bold ${getRiskLevelColor(formData.niveau_risque || '')}`}>
                   {riskMatrixScore}/20 — {formData.niveau_risque?.toUpperCase()}
                 </span>
               </div>

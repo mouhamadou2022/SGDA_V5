@@ -1,7 +1,16 @@
-/**
- * Random Forest pour la prédiction de risque
- * Implémentation simplifiée d'une forêt aléatoire pour la classification
- */
+// lib/risque/randomForest.ts
+// Délègue à lib/ia/models/randomForest.ts pour l'implémentation réelle.
+// Ce fichier conserve l'API fonctionnelle originale pour backward compatibility.
+// Les fonctions uniques au domaine risque (profilToFeatures, scoreToLabel) sont ici.
+
+import {
+  RandomForestModel as ClassRF,
+  TrainingSample as BTrainingSample,
+} from '@/lib/ia/models/randomForest'
+
+// ============================================================
+// TYPES (backward compat — mêmes noms qu'avant)
+// ============================================================
 
 export interface DecisionTree {
   feature: string
@@ -22,192 +31,124 @@ export interface TrainingSample {
   label: 'critique' | 'eleve' | 'moyen' | 'faible'
 }
 
-/**
- * Crée un arbre de décision simple
- */
-function createDecisionTree(
-  samples: TrainingSample[],
-  features: string[],
-  maxDepth: number = 3
-): DecisionTree | number {
-  // Cas de base: tous les échantillons ont la même étiquette
-  const labels = samples.map(s => s.label)
-  const uniqueLabels = [...new Set(labels)]
-  
-  if (uniqueLabels.length === 1 || samples.length < 2 || maxDepth === 0) {
-    // Retourner l'étiquette majoritaire
-    const labelCounts = new Map<string, number>()
-    labels.forEach(l => labelCounts.set(l, (labelCounts.get(l) || 0) + 1))
-    const majority = [...labelCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    return majority === 'critique' ? 0 : majority === 'eleve' ? 1 : majority === 'moyen' ? 2 : 3
-  }
-  
-  // Trouver la meilleure caractéristique et le meilleur seuil
-  let bestFeature = features[0]
-  let bestThreshold = 0
-  let bestGini = 1
-  
-  for (const feature of features) {
-    const values = samples.map(s => s.features[feature])
-    const thresholds = [...new Set(values)].sort((a, b) => a - b)
-    
-    for (let i = 0; i < thresholds.length - 1; i++) {
-      const threshold = (thresholds[i] + thresholds[i + 1]) / 2
-      
-      const left = samples.filter(s => s.features[feature] <= threshold)
-      const right = samples.filter(s => s.features[feature] > threshold)
-      
-      if (left.length === 0 || right.length === 0) continue
-      
-      const gini = calculateGini(left) * (left.length / samples.length) + 
-                   calculateGini(right) * (right.length / samples.length)
-      
-      if (gini < bestGini) {
-        bestGini = gini
-        bestFeature = feature
-        bestThreshold = threshold
-      }
-    }
-  }
-  
-  // Aucun split trouvé (features aléatoires ne séparent pas les données)
-  if (bestGini === 1) {
-    const labelCounts = new Map<string, number>()
-    labels.forEach(l => labelCounts.set(l, (labelCounts.get(l) || 0) + 1))
-    const majority = [...labelCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    return majority === 'critique' ? 0 : majority === 'eleve' ? 1 : majority === 'moyen' ? 2 : 3
-  }
-  
-  const leftSamples = samples.filter(s => s.features[bestFeature] <= bestThreshold)
-  const rightSamples = samples.filter(s => s.features[bestFeature] > bestThreshold)
-  
-  return {
-    feature: bestFeature,
-    threshold: bestThreshold,
-    left: createDecisionTree(leftSamples, features, maxDepth - 1),
-    right: createDecisionTree(rightSamples, features, maxDepth - 1)
+// ============================================================
+// CONSTANTES DE CONVERSION
+// ============================================================
+
+const LABEL_TO_IDX: Record<string, number> = { critique: 0, eleve: 1, moyen: 2, faible: 3, tres_faible: 3 }
+const IDX_TO_LABEL: Record<number, string> = { 0: 'critique', 1: 'eleve', 2: 'moyen', 3: 'faible' }
+
+// FEATURES_ORDER est dérivé de profilToFeatures() pour garantir la synchronisation.
+// Si une feature est ajoutée/retirée de profilToFeatures, la déduction est automatique.
+let FEATURES_ORDER: string[] = []
+function ensureFeaturesOrder() {
+  if (FEATURES_ORDER.length > 0) return
+  // Appel initial avec des valeurs factices pour extraire les clés
+  const keys = Object.keys(profilToFeatures({
+    score_global: 0, c1: 0, c2: 0, c3: 0, c4: 0, c5: 0,
+    tendance: 'stable', prediction_3m: 0, prediction_6m: 0,
+  }))
+  FEATURES_ORDER = keys
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[randomForest] ${FEATURES_ORDER.length} features détectées:`, FEATURES_ORDER.join(', '))
   }
 }
 
-function calculateGini(samples: TrainingSample[]): number {
-  if (samples.length === 0) return 0
-  
-  const labelCounts = new Map<string, number>()
-  samples.forEach(s => labelCounts.set(s.label, (labelCounts.get(s.label) || 0) + 1))
-  
-  let gini = 1
-  labelCounts.forEach((count) => {
-    const prob = count / samples.length
-    gini -= prob * prob
-  })
-  
-  return gini
+function featuresToArray(f: Record<string, number>): number[] {
+  ensureFeaturesOrder()
+  return FEATURES_ORDER.map(k => f[k] ?? 0)
 }
 
-function predictTree(tree: DecisionTree | number, features: { [key: string]: number }): number {
-  if (typeof tree === 'number') return tree
-  
-  const value = features[tree.feature] || 0
-  if (value <= tree.threshold) {
-    return predictTree(tree.left as DecisionTree | number, features)
-  } else {
-    return predictTree(tree.right as DecisionTree | number, features)
-  }
+function toClassSamples(samples: TrainingSample[]): BTrainingSample[] {
+  return samples.map(s => ({ features: featuresToArray(s.features), label: String(LABEL_TO_IDX[s.label] ?? 2) }))
 }
 
-/**
- * Entraîne une forêt aléatoire
- */
-export function trainRandomForest(
+// Vérification à l'init : planter proprement plutôt que de diverger silencieusement
+ensureFeaturesOrder()
+
+// Cache WeakMap pour lier un modèle d'API A à son instance ClassRF (version B)
+const classRFMap = new WeakMap<RandomForestModel, ClassRF>()
+
+// ============================================================
+// CŒUR : DÉLÉGATION VERS LA VERSION B (lib/ia/models/)
+// ============================================================
+
+export async function trainRandomForest(
   samples: TrainingSample[],
   nTrees: number = 10,
   maxDepth: number = 4,
-  featureSubsetSize: number = 3
-): RandomForestModel {
-  const features = Object.keys(samples[0]?.features || {})
-  const trees: DecisionTree[] = []
-  const featureImportance = new Map<string, number>()
-  
-  // Initialiser l'importance des caractéristiques
-  features.forEach(f => featureImportance.set(f, 0))
-  
-  for (let i = 0; i < nTrees; i++) {
-    // Échantillonnage bootstrap
-    const bootstrapSamples = []
-    for (let j = 0; j < samples.length; j++) {
-      const idx = Math.floor(Math.random() * samples.length)
-      bootstrapSamples.push(samples[idx])
-    }
-    
-    // Sélection aléatoire des caractéristiques
-    const shuffledFeatures = [...features].sort(() => Math.random() - 0.5)
-    const selectedFeatures = shuffledFeatures.slice(0, Math.min(featureSubsetSize, features.length))
-    
-    const tree = createDecisionTree(bootstrapSamples, selectedFeatures, maxDepth)
-    if (typeof tree !== 'number') {
-      trees.push(tree)
-      
-      // Mettre à jour l'importance des caractéristiques
-      updateFeatureImportance(tree, featureImportance)
-    }
+  featureSubsetSize: number = 3,
+): Promise<RandomForestModel> {
+  if (samples.length === 0) {
+    return { trees: [], featureImportance: new Map(), accuracy: 0, trainingSamples: 0 }
   }
-  
-  // Calculer la précision sur l'ensemble d'entraînement
-  let correct = 0
-  samples.forEach(sample => {
-    const prediction = predictRandomForest({ trees, featureImportance, accuracy: 0, trainingSamples: samples.length }, sample.features)
-    if (prediction === sample.label) correct++
+
+  const classSamples = toClassSamples(samples)
+  const rf = new ClassRF({
+    nTrees: Math.max(1, nTrees),
+    maxDepth: Math.max(1, maxDepth),
+    minSamplesSplit: 2,
+    minSamplesLeaf: 1,
+    maxFeatures: Math.max(1, featureSubsetSize),
+    bootstrap: true,
+    sampleSize: 1.0,
   })
-  
-  const accuracy = correct / samples.length
-  
-  return {
-    trees,
-    featureImportance,
-    accuracy,
-    trainingSamples: samples.length
+
+  const result = await rf.train(classSamples, { verbose: false })
+
+  // Reconstruire la feature importance au format Map<string, number>
+  const fiArray = (rf as any)['featureImportance'] as number[] | undefined
+  const featureImportance = new Map<string, number>()
+  if (fiArray) {
+    FEATURES_ORDER.forEach((name, i) => {
+      if (i < fiArray.length) featureImportance.set(name, fiArray[i])
+    })
   }
+
+  const model: RandomForestModel = {
+    trees: [],
+    featureImportance,
+    accuracy: result.accuracy,
+    trainingSamples: samples.length,
+  }
+
+  // Conserver la référence ClassRF pour les prédictions futures
+  classRFMap.set(model, rf)
+
+  return model
 }
 
-function updateFeatureImportance(tree: DecisionTree | number, importance: Map<string, number>) {
-  if (typeof tree === 'number') return
-  
-  const current = importance.get(tree.feature) || 0
-  importance.set(tree.feature, current + 1)
-  
-  updateFeatureImportance(tree.left as DecisionTree | number, importance)
-  updateFeatureImportance(tree.right as DecisionTree | number, importance)
-}
-
-/**
- * Prédit l'étiquette de risque
- */
 export function predictRandomForest(
   model: RandomForestModel,
-  features: { [key: string]: number }
+  features: { [key: string]: number },
 ): 'critique' | 'eleve' | 'moyen' | 'faible' {
-  if (model.trees.length === 0) return 'moyen'
-  
-  const votes = new Map<string, number>()
-  votes.set('critique', 0)
-  votes.set('eleve', 0)
-  votes.set('moyen', 0)
-  votes.set('faible', 0)
-  
-  model.trees.forEach(tree => {
-    const predictionIndex = predictTree(tree, features)
-    const labels: string[] = ['critique', 'eleve', 'moyen', 'faible']
-    const label = labels[predictionIndex] || 'moyen'
-    votes.set(label, (votes.get(label) || 0) + 1)
-  })
-  
-  // Retourner l'étiquette avec le plus de votes
-  return [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0] as 'critique' | 'eleve' | 'moyen' | 'faible'
+  // Priorité : utiliser l'instance ClassRF si disponible
+  const rf = classRFMap.get(model)
+  if (rf) {
+    try {
+      const arr = featuresToArray(features)
+      const pred = rf.predict(arr)
+      // pred.prediction est déjà le label final traité par la version B
+      // (classMapping interne de la classe a déjà fait l'aller-retour index ↔ label)
+      const labelStr = pred.prediction as string
+      return (labelStr as 'critique' | 'eleve' | 'moyen' | 'faible') || 'moyen'
+    } catch {
+      return scoreToLabel(features.score_global ?? 50)
+    }
+  }
+
+  // Fallback déterministe
+  if (model.trees.length === 0 && model.trainingSamples === 0) {
+    return 'moyen'
+  }
+  const score = features.score_global ?? 50
+  return scoreToLabel(score)
 }
 
-/**
- * Convertit un ProfilRisque en features pour le Random Forest
- */
+// ============================================================
+// FONCTIONS UNIQUES AU DOMAINE RISQUE
+// ============================================================
+
 export function profilToFeatures(profil: {
   score_global: number
   c1: number
@@ -232,16 +173,71 @@ export function profilToFeatures(profil: {
     prediction_6m: profil.prediction_6m || profil.score_global,
     ecart_c1_c2: Math.abs(profil.c1 - profil.c2),
     ecart_c3_c4: Math.abs(profil.c3 - profil.c4),
-    min_critere: Math.min(profil.c1, profil.c2, profil.c3, profil.c4, profil.c5)
+    min_critere: Math.min(profil.c1, profil.c2, profil.c3, profil.c4, profil.c5),
   }
 }
 
-/**
- * Détermine l'étiquette de risque à partir d'un score global
- */
 export function scoreToLabel(score: number): 'critique' | 'eleve' | 'moyen' | 'faible' {
   if (score < 30) return 'critique'
   if (score < 60) return 'eleve'
   if (score < 80) return 'moyen'
   return 'faible'
+}
+
+// ============================================================
+// UTILITAIRE : SPLIT TRAIN / TEST POUR VALIDATION
+// ============================================================
+
+export interface TrainTestSplit {
+  train: TrainingSample[]
+  test: TrainingSample[]
+}
+
+/**
+ * Sépare un jeu de données en ensemble d'entraînement et de test.
+ * Garantit la stratification (même proportion de classes dans les deux splits).
+ * @param samples Tous les échantillons
+ * @param testRatio Proportion pour le test (défaut: 0.2)
+ * @param seed Graine aléatoire pour reproductibilité (défaut: Date.now())
+ */
+export function trainTestSplit(
+  samples: TrainingSample[],
+  testRatio: number = 0.2,
+  seed?: number,
+): TrainTestSplit {
+  if (samples.length < 2) return { train: [...samples], test: [] }
+  if (testRatio <= 0 || testRatio >= 1) return { train: [...samples], test: [] }
+
+  const rng = seed ? seededRandom(seed) : Math.random
+
+  // Stratification par classe
+  const byClass = new Map<string, TrainingSample[]>()
+  samples.forEach(s => {
+    const list = byClass.get(s.label) || []
+    list.push(s)
+    byClass.set(s.label, list)
+  })
+
+  const train: TrainingSample[] = []
+  const test: TrainingSample[] = []
+
+  for (const [, group] of byClass) {
+    const shuffled = [...group].sort(() => rng() - 0.5)
+    const splitIdx = Math.max(1, Math.floor(shuffled.length * (1 - testRatio)))
+    train.push(...shuffled.slice(0, splitIdx))
+    test.push(...shuffled.slice(splitIdx))
+  }
+
+  return { train, test }
+}
+
+/** Générateur pseudo-aléatoire déterministe (mulberry32) */
+function seededRandom(seed: number): () => number {
+  let s = seed | 0
+  return () => {
+    s = (s + 0x6d2b79f5) | 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
 }

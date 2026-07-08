@@ -15,7 +15,7 @@ export interface TSPrediction {
   actions: TSAction[]
   bestAction: string          // meilleure action actuelle
   bestProbability: number     // probabilité que ce soit vraiment la meilleure
-  recommend: (contextKey: string) => TSAction  // recommande une action pour un contexte
+  recommend: (contextKey?: string) => TSAction  // recommande une action (ctx ignoré, TS non contextuel)
   update: (actionId: string, reward: number) => void  // met à jour avec le résultat
   expectedRewards: Record<string, number>  // récompense espérée par action
 }
@@ -41,7 +41,7 @@ function sampleBeta(alpha: number, beta: number): number {
   // Approximation normale pour grands paramètres
   const mean = alpha / (alpha + beta)
   const std = Math.sqrt(alpha * beta / ((alpha + beta) ** 2 * (alpha + beta + 1)))
-  let sample = mean + std * (Math.random() + Math.random() + Math.random() - 1.5) * Math.sqrt(2)
+  const sample = mean + std * (Math.random() + Math.random() + Math.random() - 1.5) * (2 / Math.sqrt(3))
   return Math.max(1e-6, Math.min(0.9999, sample))
 }
 
@@ -73,7 +73,7 @@ export function createThompsonSampling(
 
   let bestActionId = actions[0]?.id || ''
 
-  const recommend = (contextKey: string): TSAction => {
+  const recommend = (_contextKey?: string): TSAction => {
     let bestSample = -1
     let bestAction = actions[0]
 

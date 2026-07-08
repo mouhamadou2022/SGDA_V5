@@ -1,6 +1,6 @@
 'use client'
 
-import { ProfilRisque, Ecart } from '@/lib/store'
+import { ProfilRisque, Ecart, EvenementSecurite } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { AlertTriangle, Shield, Activity, Zap, BarChart3 } from 'lucide-react'
@@ -75,9 +75,10 @@ interface DiagnosticTabProps {
   surveillances: any[]
   ecarts: Ecart[]
   evenementsCount: number
+  evenements?: EvenementSecurite[]
 }
 
-export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount }: DiagnosticTabProps) {
+export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements }: DiagnosticTabProps) {
   const niveauGlobal = getNiveau(profil.score_global)
   const scenarioCatastrophe = profil.scenarios?.[3]
 
@@ -363,10 +364,10 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount }
       )}
 
       {/* Bow-Tie — Analyse complète data-driven */}
-      <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} />
+      <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
 
       {/* Matrice OACI 5×5 */}
-      <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} />
+      <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
 
       {/* Corrélations C1-C5 + Copulas */}
       <CorrelationSection profil={profil} />

@@ -1,9 +1,10 @@
 -- SGDA v5 — SCHÉMA PRODUCTION
--- Généré le 2026-05-17 | Mis à jour le 2026-06-16
+-- Généré le 2026-05-17 | Mis à jour le 2026-06-22
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
 -- ✅ Inclut colonnes checklist préparée sur plannings
+-- ✅ Fichiers orphelins nettoyés : CertDashboard.tsx, HomoDashboard.tsx, OperatorPACConsolideModule.tsx
 -- ============================================================
 --
 -- CAUSES RACINES DES ERREURS "violates row-level security" :
@@ -34,7 +35,21 @@
 --
 -- 🟡 CAUSE 7 — codes_acces manque colonnes utilisées par auth.ts
 --    (dg_prenom, dg_nom, focal_prenom, focal_nom, etc.)
--- ============================================================
+--
+-- 🟢 CAUSE 8 — notifications sans politique INSERT
+--    Les notifications créées via le store (addNotification → sendNotification)
+--    échouaient pour tous les rôles car aucune policy FOR INSERT n'existait.
+--    → FIX : ajout de notifications_insert policy
+--
+-- 🟢 CAUSE 9 — profils_risque écriture bloquée pour focal_operator
+--    loadInitialData upsertait les profils via le client anon, mais la
+--    policy profils_write n'autorisait que admin/inspector.
+--    → FIX : focal_operator autorisé à écrire sur son propre aerodrome
+--
+-- 🟢 CAUSE 10 — prediction_history écriture bloquée pour focal_operator
+--    Les appels ML (api/ia/ml) échouaient pour le rôle opérateur.
+--    → FIX : focal_operator autorisé à écrire sur son propre aerodrome
+--
 
 -- ============================================================
 -- SECTION 1 — RÉPARATION URGENTE (à exécuter EN PREMIER)
@@ -94,12 +109,14 @@ DO $$ BEGIN
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS checklist_hierarchy    JSONB DEFAULT '[]'::jsonb;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS checklist_pac          JSONB DEFAULT '[]'::jsonb;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS checklist_suivi_ecarts JSONB DEFAULT '[]'::jsonb;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS delegations            JSONB DEFAULT '{}'::jsonb;
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
 COMMENT ON COLUMN plannings.checklist_hierarchy    IS 'Checklist hiérarchique pré-remplie (Standard). Transférée à la surveillance lors de l''exécution.';
 COMMENT ON COLUMN plannings.checklist_pac          IS 'Checklist PAC pré-remplie. Transférée à la surveillance lors de l''exécution.';
 COMMENT ON COLUMN plannings.checklist_suivi_ecarts IS 'Checklist suivi écarts pré-remplie. Transférée à la surveillance lors de l''exécution.';
+COMMENT ON COLUMN plannings.delegations            IS 'Délégations préparatoires { domaine_code → inspecteur_id }. Définies lors de la préparation, utilisées par la checklist.';
 
 -- ============================================================
 -- SECTION 4 — INDEX DE PERFORMANCE RLS
@@ -289,11 +306,12 @@ CREATE POLICY "self_assessments_owner" ON self_assessments
 -- ============================================================
 
 DO $$ BEGIN
-  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS poste        text;
-  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS superieur_id text;
-  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS poste        text;
-  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS superieur_id text;
-  ALTER TABLE dossiers     ADD COLUMN IF NOT EXISTS extensions   jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS poste             text;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS superieur_id      text;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS type_inspecteur   text;
+  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS poste             text;
+  ALTER TABLE inspecteurs  ADD COLUMN IF NOT EXISTS superieur_id      text;
+  ALTER TABLE dossiers     ADD COLUMN IF NOT EXISTS extensions        jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE dossiers     ADD COLUMN IF NOT EXISTS date_limite_initiale timestamptz;
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
@@ -368,7 +386,6 @@ ALTER TABLE notifications                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE codes_acces                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs                    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE registre_entries              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE entrees_registre              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profils_risque                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE signatures                    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prefill_aerodrome_feedbacks   ENABLE ROW LEVEL SECURITY;
@@ -517,13 +534,43 @@ CREATE POLICY "inspecteur_formations_write" ON inspecteur_formations
 -- ║  7.6  KIT DOCUMENTS                                      ║
 -- ╚══════════════════════════════════════════════════════════╝
 
+-- Colonnes manquantes (idempotent)
+ALTER TABLE kit_documents
+  ADD COLUMN IF NOT EXISTS format                  text,
+  ADD COLUMN IF NOT EXISTS domaines                jsonb default '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS fichier_nom             text,
+  ADD COLUMN IF NOT EXISTS fichier_taille          bigint default 0,
+  ADD COLUMN IF NOT EXISTS mots_cles               jsonb default '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS resume                  text,
+  ADD COLUMN IF NOT EXISTS accessible_exploitant   boolean default false,
+  ADD COLUMN IF NOT EXISTS telechargements         integer default 0,
+  ADD COLUMN IF NOT EXISTS reference_base          text,
+  ADD COLUMN IF NOT EXISTS extraits                jsonb,
+  ADD COLUMN IF NOT EXISTS ia_analyse_at           timestamptz,
+  ADD COLUMN IF NOT EXISTS ia_impact               text,
+  ADD COLUMN IF NOT EXISTS shared_aerodrome_ids    jsonb default '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS partage_exploitant      jsonb default '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS contenu_complet          text,
+  ADD COLUMN IF NOT EXISTS texte_extrait_le         timestamptz,
+  ADD COLUMN IF NOT EXISTS items_generes            jsonb,
+  ADD COLUMN IF NOT EXISTS items_generes_le         timestamptz,
+  ADD COLUMN IF NOT EXISTS created_by               uuid;
+
 DROP POLICY IF EXISTS "kit_docs_select" ON kit_documents;
 CREATE POLICY "kit_docs_select" ON kit_documents
   FOR SELECT USING (
     auth.uid() IS NOT NULL
     AND (
       get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
-      OR accessible_exploitant = true
+      OR (
+        accessible_exploitant = true
+        AND get_user_role() IN ('focal_operator','staff_operator','guest','dg_operator')
+        AND (
+          shared_aerodrome_ids IS NULL
+          OR jsonb_array_length(COALESCE(shared_aerodrome_ids, '[]'::jsonb)) = 0
+          OR shared_aerodrome_ids ? get_user_aerodrome_id()::text
+        )
+      )
     )
   );
 
@@ -997,6 +1044,31 @@ CREATE POLICY "messages_update" ON messages
 -- ║  7.16 REGISTRES                                          ║
 -- ╚══════════════════════════════════════════════════════════╝
 
+CREATE TABLE IF NOT EXISTS registre_entries (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type          TEXT NOT NULL CHECK (type IN ('certification','homologation','surveillance','evenement','ecart','dossier','document','formation')),
+  reference     TEXT NOT NULL DEFAULT '',
+  titre         TEXT NOT NULL DEFAULT '',
+  description   TEXT NOT NULL DEFAULT '',
+  date_entree   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE SET NULL,
+  fichiers      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  timeline      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  statut        TEXT NOT NULL DEFAULT 'valide' CHECK (statut IN ('valide','archive')),
+  auto_generated BOOLEAN NOT NULL DEFAULT false,
+  source_id     TEXT,
+  source_type   TEXT,
+  metadata      JSONB,
+  ia_analysis   JSONB,
+  created_by    TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reg_entries_type ON registre_entries(type);
+CREATE INDEX IF NOT EXISTS idx_reg_entries_aerodrome ON registre_entries(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_reg_entries_date ON registre_entries(date_entree DESC);
+
 DROP POLICY IF EXISTS "reg_entries_select" ON registre_entries;
 CREATE POLICY "reg_entries_select" ON registre_entries
   FOR SELECT USING (
@@ -1011,19 +1083,6 @@ DROP POLICY IF EXISTS "reg_entries_write" ON registre_entries;
 CREATE POLICY "reg_entries_write" ON registre_entries
   FOR ALL USING (get_user_role() IN ('admin','inspector'));
 
-DROP POLICY IF EXISTS "entrees_reg_select" ON entrees_registre;
-CREATE POLICY "entrees_reg_select" ON entrees_registre
-  FOR SELECT USING (
-    auth.uid() IS NOT NULL
-    AND (
-      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
-      OR aerodrome_id = get_user_aerodrome_id()
-    )
-  );
-
-DROP POLICY IF EXISTS "entrees_reg_write" ON entrees_registre;
-CREATE POLICY "entrees_reg_write" ON entrees_registre
-  FOR ALL USING (get_user_role() IN ('admin','inspector'));
 
 -- ╔══════════════════════════════════════════════════════════╗
 -- ║  7.17 DOSSIERS                                           ║
@@ -1062,7 +1121,13 @@ CREATE POLICY "profils_select" ON profils_risque
 
 DROP POLICY IF EXISTS "profils_write" ON profils_risque;
 CREATE POLICY "profils_write" ON profils_risque
-  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+  FOR ALL USING (
+    get_user_role() IN ('admin','inspector')
+    OR (
+      get_user_role() = 'focal_operator'
+      AND aerodrome_id = get_user_aerodrome_id()
+    )
+  );
 
 -- Scores historiques
 DROP POLICY IF EXISTS "scores_hist_select" ON scores_historique;
@@ -1103,7 +1168,13 @@ CREATE POLICY "prediction_hist_select" ON prediction_history
 
 DROP POLICY IF EXISTS "prediction_hist_write" ON prediction_history;
 CREATE POLICY "prediction_hist_write" ON prediction_history
-  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+  FOR ALL USING (
+    get_user_role() IN ('admin','inspector')
+    OR (
+      get_user_role() = 'focal_operator'
+      AND aerodrome_id = get_user_aerodrome_id()
+    )
+  );
 
 -- Action outcomes
 DROP POLICY IF EXISTS "action_outcomes_select" ON action_outcomes;
@@ -1230,8 +1301,58 @@ DROP POLICY IF EXISTS "notifications_update" ON notifications;
 CREATE POLICY "notifications_update" ON notifications
   FOR UPDATE USING (user_id = get_user_internal_id());
 
+DROP POLICY IF EXISTS "notifications_insert" ON notifications;
+CREATE POLICY "notifications_insert" ON notifications
+  FOR INSERT WITH CHECK (
+    auth.uid() IS NOT NULL
+    AND get_user_role() IN ('admin','inspector','dg_anacim','dg_operator','focal_operator','staff_operator')
+  );
+
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  7.21 CODES D'ACCÈS                                      ║
+-- ║  7.21 STORAGE — BUCKET DOCUMENTS                          ║
+-- ╚══════════════════════════════════════════════════════════╝
+-- Création idempotente du bucket (ignorée s'il existe déjà)
+INSERT INTO storage.buckets (id, name, public)
+SELECT 'documents', 'documents', true
+WHERE NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'documents');
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  7.22 STORAGE — POLITIQUES BUCKET DOCUMENTS               ║
+-- ╚══════════════════════════════════════════════════════════╝
+-- FIX : l'upload du dossier PAC (PDF) par focal_operator
+--       utilise supabase.storage avec la clé anon → RLS bloquait.
+--       Ces politiques sur storage.objects autorisent le upload/download.
+
+DROP POLICY IF EXISTS "documents_select" ON storage.objects;
+CREATE POLICY "documents_select" ON storage.objects
+  FOR SELECT USING (
+    bucket_id = 'documents'
+    AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "documents_insert" ON storage.objects;
+CREATE POLICY "documents_insert" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'documents'
+    AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "documents_update" ON storage.objects;
+CREATE POLICY "documents_update" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'documents'
+    AND auth.role() = 'authenticated'
+  );
+
+DROP POLICY IF EXISTS "documents_delete" ON storage.objects;
+CREATE POLICY "documents_delete" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'documents'
+    AND auth.role() = 'authenticated'
+  );
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  7.23 CODES D'ACCÈS                                      ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 DROP POLICY IF EXISTS "codes_select" ON codes_acces;
@@ -1272,7 +1393,7 @@ CREATE POLICY "codes_acces_update" ON codes_acces
   );
 
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  7.22 AUDIT LOGS                                         ║
+-- ║  7.24 AUDIT LOGS                                         ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 DROP POLICY IF EXISTS "audit_select" ON audit_logs;
@@ -1284,7 +1405,7 @@ CREATE POLICY "audit_insert" ON audit_logs
   FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  7.23 FEEDBACKS IA                                       ║
+-- ║  7.25 FEEDBACKS IA                                       ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 DROP POLICY IF EXISTS "prefill_feedbacks_select" ON prefill_aerodrome_feedbacks;
@@ -1329,7 +1450,7 @@ CREATE POLICY "model_perf_write" ON model_performance
   FOR ALL USING (get_user_role() IN ('admin','inspector'));
 
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  7.24 SUGGESTION FEEDBACKS (APPRENTISSAGE IA)           ║
+-- ║  7.26 SUGGESTION FEEDBACKS (APPRENTISSAGE IA)           ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 DROP POLICY IF EXISTS "suggestion_fb_select" ON suggestion_feedbacks;
@@ -1345,7 +1466,7 @@ CREATE POLICY "suggestion_fb_update" ON suggestion_feedbacks
   FOR UPDATE USING (get_user_role() = 'admin');
 
 -- ╔══════════════════════════════════════════════════════════╗
--- ║  7.25 ML MODEL WEIGHTS (PERSISTANCE MODÈLE)             ║
+-- ║  7.27 ML MODEL WEIGHTS (PERSISTANCE MODÈLE)             ║
 -- ╚══════════════════════════════════════════════════════════╝
 
 DROP POLICY IF EXISTS "ml_weights_select" ON ml_model_weights;
@@ -1543,6 +1664,13 @@ BEGIN
   ) THEN
     ALTER TABLE aerodromes ADD COLUMN statut_sgs varchar(20) DEFAULT 'complet';
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'aerodromes' AND column_name = 'sgs_checklist_template'
+  ) THEN
+    ALTER TABLE aerodromes ADD COLUMN sgs_checklist_template jsonb;
+  END IF;
 END $$;
 
 -- 12.A.1 Valeur par défaut pour les nouveaux aérodromes
@@ -1630,12 +1758,30 @@ DO $$ BEGIN
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS evaluation_pac              jsonb;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS preuves                     jsonb;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS validation_preuves          jsonb;
+  ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS validation_chef             jsonb;
+  ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS retard_inspecteur           boolean DEFAULT false;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS evaluation_niveau_risque    jsonb;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS cloture_le                  timestamptz;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS rappels_envoyes             jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS created_at                  timestamptz DEFAULT now();
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS updated_at                  timestamptz DEFAULT now();
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS deleted_by                  uuid;
+END $$;
+
+-- 13.B-bis ECARTS_REDACTION — colonnes manquantes (miroir d'ecarts)
+DO $$ BEGIN
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS domaine                    varchar(50);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS reference                  varchar(50);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS ref_reglementaire          text;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS libelle                    text;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS niveau_risque              varchar(20);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS cellule_risque_oaci        varchar(10);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS probabilite_risque         integer;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS gravite_risque             varchar(5);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS justification_risque_ia    text;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS cellule_ia_suggeree        varchar(10);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS created_at                 timestamptz DEFAULT now();
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS updated_at                 timestamptz DEFAULT now();
 END $$;
 
 -- 13.C PLANNINGS — colonnes manquantes
@@ -1705,13 +1851,27 @@ COMMENT ON COLUMN aerodromes.numero_certificat    IS 'Numéro du certificat ANAC
 -- 13.E UTILISATEURS — colonnes manquantes
 DO $$ BEGIN
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS telephone             text;
-  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS password_temporaire   text;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS password_temporaire   boolean DEFAULT false;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notifications_sms     boolean DEFAULT false;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS matricule             varchar(30);
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS service               varchar(50);
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS last_login            timestamptz;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS competences           jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS specialites           jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notification_email    text;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS deleted_by            uuid;
+END $$;
+
+-- 13.E.b — Contrainte FK utilisateurs.aerodrome_id → aerodromes(id) ON DELETE SET NULL
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_utilisateurs_aerodrome'
+  ) THEN
+    ALTER TABLE utilisateurs
+      ADD CONSTRAINT fk_utilisateurs_aerodrome
+      FOREIGN KEY (aerodrome_id) REFERENCES aerodromes(id)
+      ON DELETE SET NULL;
+  END IF;
 END $$;
 
 -- 13.F CERTIFICATIONS — colonnes manquantes
@@ -1982,6 +2142,7 @@ COMMENT ON COLUMN ecarts.pac IS 'Plan d''actions correctives: {actions, observat
 COMMENT ON COLUMN ecarts.evaluation_pac IS 'Évaluation PAC: {note_pertinence, note_exhaustivite, decision, ...}';
 COMMENT ON COLUMN ecarts.preuves IS 'Preuves soumises: {fichiers, commentaire, soumis_par, soumis_le}';
 COMMENT ON COLUMN ecarts.validation_preuves IS 'Validation preuves: {decision, commentaire, valide_par, valide_le}';
+COMMENT ON COLUMN ecarts.validation_chef IS 'Validation chef d''équipe: {type, statut, approuve_par, approuve_le, commentaire}';
 COMMENT ON COLUMN certifications.phases_data IS 'Données des 5 phases: {phase1, phase2, phase3, phase4, phase5}';
 COMMENT ON COLUMN homologations.phases_data IS 'Données des 3 phases: {phase1, phase2, phase3}';
 COMMENT ON COLUMN dossiers.demandeur IS 'Info demandeur: {nom, organisation, contact}';
@@ -2221,4 +2382,14 @@ COMMENT ON COLUMN exemptions.date_decision           IS 'Date de la décision fi
 
 -- ============================================================
 -- FIN SECTION 16 — Workflow instructeur exemptions
+-- ============================================================
+
+-- ============================================================
+-- SECTION 17 — NETTOYAGE FICHIERS ORPHELINS (2026-06-22)
+-- Fichiers supprimés (plus importés depuis la refonte UI) :
+--   components/modules/certification/CertDashboard.tsx
+--   components/modules/homologation/HomoDashboard.tsx
+-- Les KPIs sont désormais intégrés directement dans
+-- CertificationModule.tsx et HomologationModule.tsx.
+-- ✅ Aucune modification DB — documentation uniquement
 -- ============================================================

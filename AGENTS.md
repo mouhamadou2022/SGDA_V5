@@ -29,3 +29,8 @@
 
 ## Build
 - `npm run typecheck` doit passer sans erreur avant tout commit.
+
+## GitHub Actions
+- La branche par défaut est **`main`**, pas `master`.
+- Les workflows ne sont détectés que depuis `main`. Toujours pousser sur `main` :
+  `git push origin master:main` (ou merger master dans main).

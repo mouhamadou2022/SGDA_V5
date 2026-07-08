@@ -73,8 +73,8 @@ export const coordinateUtils = {
     const decimalPattern = /^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/;
     const decimalMatch = clean.match(decimalPattern);
     if (decimalMatch) {
-      let lat = parseFloat(decimalMatch[1]);
-      let lon = parseFloat(decimalMatch[2]);
+      const lat = parseFloat(decimalMatch[1]);
+      const lon = parseFloat(decimalMatch[2]);
       
       // Vérifier les plages
       if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
@@ -90,8 +90,8 @@ export const coordinateUtils = {
     const spacePattern = /^(-?\d+\.?\d*)\s+(-?\d+\.?\d*)$/;
     const spaceMatch = clean.match(spacePattern);
     if (spaceMatch) {
-      let lat = parseFloat(spaceMatch[1]);
-      let lon = parseFloat(spaceMatch[2]);
+      const lat = parseFloat(spaceMatch[1]);
+      const lon = parseFloat(spaceMatch[2]);
       
       if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
         return { latitude: lat, longitude: lon };

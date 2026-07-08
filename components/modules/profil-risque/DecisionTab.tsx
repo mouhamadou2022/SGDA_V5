@@ -4,10 +4,14 @@
 
 'use client'
 
-import { ProfilRisque } from '@/lib/store'
+import { useMemo } from 'react'
+import { ProfilRisque, EvenementSecurite, Ecart } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
+import { getRiskLevelBgVariant } from '@/lib/risque'
+import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
+import RecommandationDuJourCard from './RecommandationDuJourCard'
 
 interface Props {
   profil: ProfilRisque
@@ -18,10 +22,19 @@ interface Props {
   onRecalculate: () => void
   prochainesSurveillances?: any[]
   ecartsActifs?: any[]
+  evenements?: EvenementSecurite[]
 }
 
-export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [] }: Props) {
+export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [], evenements = [] }: Props) {
   const isDG = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
+
+  const recommandationDuJour = useMemo(() => {
+    try {
+      return recommendationEngine.genererRecommandationDuJour(profil, ecartsActifs as Ecart[], evenements, aerodromeCode, aerodromeName)
+    } catch {
+      return null
+    }
+  }, [profil, ecartsActifs, evenements, aerodromeCode, aerodromeName])
 
   const getNiveauConfig = (score: number) => {
     if (score >= 80) return { label: 'Faible', color: 'text-success', bg: 'bg-success-soft', border: 'border-success/30', badge: 'badge success' }
@@ -107,6 +120,11 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
           ))}
         </div>
       </div>
+
+      {/* Recommandation du jour */}
+      {recommandationDuJour && (
+        <RecommandationDuJourCard recommandation={recommandationDuJour} />
+      )}
 
       {/* Alertes immédiates */}
       {topRisks.length > 0 && (
@@ -227,7 +245,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
             {ecartsActifs.map((e: any) => (
               <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${e.niveau_risque === 'critique' ? 'bg-danger' : e.niveau_risque === 'eleve' ? 'bg-warning' : 'bg-primary'}`} />
+                  <span className={`w-2 h-2 rounded-full ${getRiskLevelBgVariant(e.niveau_risque)}`} />
                   <span className="text-foreground">{e.reference}</span>
                   <span className="text-xs text-foreground">{e.libelle?.substring(0, 50)}</span>
                 </div>

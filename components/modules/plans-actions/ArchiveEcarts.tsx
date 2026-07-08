@@ -306,7 +306,7 @@ export function ArchiveEcarts({ userRole }: ArchiveEcartsProps) {
         date_cloture: ecart.cloture_le || ecart.updated_at,
         date_creation: ecart.created_at,
         statut: ecart.statut,
-        decision_pac: ecart.evaluation_pac?.decision === 'accepte' ? 'accepte' : 'refuse',
+        decision_pac: ecart.evaluation_pac?.decision === 'accepte' || ecart.evaluation_pac?.decision === 'reserve' ? 'accepte' : 'refuse',
         preuves_validees: ecart.validation_preuves?.decision === 'valide',
         timeline,
         preuves: ecart.preuves?.fichiers?.map(f => ({ nom: f.nom, url: f.url })) || [],

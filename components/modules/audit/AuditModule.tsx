@@ -1,11 +1,5 @@
 // components/modules/audit/AuditModule.tsx
-// ✅ CDC 5.20 - Journal d'Audit
-// ✅ Traçabilité complète des actions
-// ✅ Filtres avancés harmonisés (style AerodromesModule)
-// ✅ Graphique d'activité intégré
-// ✅ Badges de gravité avec animations
-// ✅ Design system premium
-// ✅ Actions Modifier/Supprimer (rouge pour supprimer)
+// Traçabilité complète des actions — journal append-only
 
 'use client';
 
@@ -18,33 +12,24 @@ import {
   Search,
   Filter,
   Calendar,
-  User,
   Shield,
   Clock,
   Eye,
   AlertCircle,
-  CheckCircle2,
+  AlertTriangle,
   XCircle,
-  Edit3,
-  Trash2,
   Key,
   Mail,
-  Phone,
   LogIn,
   LogOut,
   FileText,
   Briefcase,
   Users,
   Plane,
-  AlertTriangle,
   MessageSquare,
-  Activity,
   TrendingUp,
-  Printer,
   Grid3x3,
   List,
-  Plus,
-  Save,
 } from 'lucide-react';
 import { useAppStore, type AuditLog } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
@@ -63,21 +48,22 @@ interface AuditModuleProps {
   userRole: string;
 }
 
-// Types d'actions avec gravité et icônes
+const PAGE_SIZE = 50;
+
+// Types d'actions (labels via auditUtils pour éviter la duplication)
 const ACTIONS = [
-  { id: 'connexion', label: 'Connexion', icon: LogIn, severity: 'success', badgeClass: 'badge success' },
-  { id: 'deconnexion', label: 'Déconnexion', icon: LogOut, severity: 'neutral', badgeClass: 'badge neutral' },
-  { id: 'creation', label: 'Création', icon: FileText, severity: 'primary', badgeClass: 'badge primary' },
-  { id: 'modification', label: 'Modification', icon: Edit3, severity: 'warning', badgeClass: 'badge warning' },
-  { id: 'suppression', label: 'Suppression', icon: Trash2, severity: 'danger', badgeClass: 'badge danger pulse' },
-  { id: 'consultation', label: 'Consultation', icon: Eye, severity: 'info', badgeClass: 'badge teal' },
-  { id: 'signature', label: 'Signature', icon: FileText, severity: 'primary', badgeClass: 'badge primary' },
-  { id: 'transmission', label: 'Transmission', icon: Mail, severity: 'teal', badgeClass: 'badge teal' },
-  { id: 'generation_code', label: 'Génération code', icon: Key, severity: 'warning', badgeClass: 'badge warning' },
-  { id: 'revocation', label: 'Révocation', icon: XCircle, severity: 'danger', badgeClass: 'badge danger pulse' },
+  { id: 'connexion', icon: LogIn, severity: 'success', badgeClass: 'badge success' },
+  { id: 'deconnexion', icon: LogOut, severity: 'neutral', badgeClass: 'badge neutral' },
+  { id: 'creation', icon: FileText, severity: 'primary', badgeClass: 'badge primary' },
+  { id: 'modification', icon: FileText, severity: 'warning', badgeClass: 'badge warning' },
+  { id: 'suppression', icon: FileText, severity: 'danger', badgeClass: 'badge danger pulse' },
+  { id: 'consultation', icon: Eye, severity: 'info', badgeClass: 'badge teal' },
+  { id: 'signature', icon: FileText, severity: 'primary', badgeClass: 'badge primary' },
+  { id: 'transmission', icon: Mail, severity: 'teal', badgeClass: 'badge teal' },
+  { id: 'generation_code', icon: Key, severity: 'warning', badgeClass: 'badge warning' },
+  { id: 'revocation', icon: XCircle, severity: 'danger', badgeClass: 'badge danger pulse' },
 ];
 
-// Modules
 const MODULES = [
   { id: 'auth', label: 'Authentification', icon: Shield },
   { id: 'aerodromes', label: 'Aérodromes', icon: Plane },
@@ -110,16 +96,12 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
   });
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showActivityChart] = useState(true);
   const [activeTab, setActiveTab] = useState<'details' | 'raw'>('details');
   const [viewMode, setViewMode] = useState<'liste' | 'compact'>('liste');
-  const [editFormData, setEditFormData] = useState<Partial<AuditLog>>({});
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
 
   const listeLogs = auditLogs ?? [];
 
-  // Filtrer les logs
   const filteredLogs = useMemo(() => {
     return listeLogs.filter(log => {
       if (searchTerm) {
@@ -152,7 +134,18 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     });
   }, [listeLogs, searchTerm, filters]);
 
-  // Données pour le graphique d'activité (7 derniers jours)
+  const paginatedLogs = useMemo(() => {
+    return filteredLogs.slice(0, displayLimit);
+  }, [filteredLogs, displayLimit]);
+
+  const hasMore = displayLimit < filteredLogs.length;
+
+  const handleLoadMore = useCallback(() => {
+    setDisplayLimit(prev => prev + PAGE_SIZE);
+  }, []);
+
+  // Graphique d'activité (7 derniers jours)
+  const showActivityChart = true;
   const chartData = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
@@ -166,51 +159,45 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     });
   }, [listeLogs]);
 
-  // Statistiques
   const stats = useMemo(() => ({
     total: listeLogs.length,
     parAction: listeLogs.reduce((acc, log) => {
       acc[log.action] = (acc[log.action] || 0) + 1;
       return acc;
     }, {} as Record<string, number>),
-    parModule: listeLogs.reduce((acc, log) => {
-      acc[log.module] = (acc[log.module] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
     utilisateursActifs: new Set(listeLogs.map(l => l.utilisateur_id)).size,
     actionsCritiques: listeLogs.filter(l => l.action === 'suppression' || l.action === 'revocation').length,
   }), [listeLogs]);
 
-  const getActionBadge = (action: string) => {
+  const getActionBadge = useCallback((action: string) => {
     const config = ACTIONS.find(a => a.id === action);
     return config?.badgeClass || 'badge neutral';
-  };
+  }, []);
 
-  const getActionIcon = (action: string) => {
+  const getActionIcon = useCallback((action: string) => {
     const config = ACTIONS.find(a => a.id === action);
     if (!config) return <FileText className="w-4 h-4" />;
     const Icon = config.icon;
     return <Icon className="w-4 h-4" />;
-  };
+  }, []);
 
-  const getActionLabel = (action: string) => {
-    const config = ACTIONS.find(a => a.id === action);
-    return config?.label || action;
-  };
+  const getActionLabel = useCallback((action: string) => {
+    return auditUtils.formatAction(action);
+  }, []);
 
-  const getModuleIcon = (moduleId: string) => {
+  const getModuleIcon = useCallback((moduleId: string) => {
     const config = MODULES.find(m => m.id === moduleId);
     if (!config) return <FileText className="w-4 h-4" />;
     const Icon = config.icon;
     return <Icon className="w-4 h-4" />;
-  };
+  }, []);
 
-  const getModuleLabel = (moduleId: string) => {
+  const getModuleLabel = useCallback((moduleId: string) => {
     const config = MODULES.find(m => m.id === moduleId);
-    return config?.label || moduleId;
-  };
+    return config?.label || auditUtils.formatModule(moduleId);
+  }, []);
 
-  const handleExportCSV = () => {
+  const handleExportCSV = useCallback(() => {
     const csv = auditUtils.exporterCSV(filteredLogs as any);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -218,7 +205,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     a.href = url;
     a.download = `audit_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    
+
     addNotification?.({
       user_id: '',
       type: 'success',
@@ -226,59 +213,16 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
       message: `${filteredLogs.length} lignes exportées en CSV`,
       canal: 'in_app',
     });
-  };
+  }, [filteredLogs, addNotification]);
 
-  const handleExportPDF = () => {
-    addNotification?.({
-      user_id: '',
-      type: 'info',
-      title: 'Export PDF',
-      message: 'Export PDF en cours de développement',
-      canal: 'in_app',
-    });
-  };
-
-  // Actions CRUD
-  const handleEdit = (log: any) => {
+  const handleOpenDetails = useCallback((log: AuditLog) => {
     setSelectedLog(log);
-    setEditFormData({
-      entite_nom: log.entite_nom,
-      details: log.details,
-    });
-    setShowEditDialog(true);
-  };
-
-  const handleSaveEdit = () => {
-    addNotification?.({
-      user_id: '',
-      type: 'success',
-      title: 'Audit modifié',
-      message: `L'entrée ${selectedLog?.entite_id} a été modifiée`,
-      canal: 'in_app',
-    });
-    setShowEditDialog(false);
-    setSelectedLog(null);
-  };
-
-  const handleDelete = (log: any) => {
-    setSelectedLog(log);
-    setShowDeleteDialog(true);
-  };
-
-  const confirmDelete = () => {
-    addNotification?.({
-      user_id: '',
-      type: 'warning',
-      title: 'Audit supprimé',
-      message: `L'entrée ${selectedLog?.entite_id} a été supprimée`,
-      canal: 'in_app',
-    });
-    setShowDeleteDialog(false);
-    setSelectedLog(null);
-  };
+    setActiveTab('details');
+    setShowDetails(true);
+  }, []);
 
   const utilisateursList = useMemo(() => {
-    const unique = new Map();
+    const unique = new Map<string, { id: string; nom: string }>();
     listeLogs.forEach(log => {
       if (!unique.has(log.utilisateur_id)) {
         unique.set(log.utilisateur_id, {
@@ -290,7 +234,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     return Array.from(unique.values());
   }, [listeLogs]);
 
-  // Vue Liste détaillée
+  // Vue liste
   const renderListView = () => (
     <div className="table-container">
       <table className="table">
@@ -302,19 +246,15 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             <th>Module</th>
             <th>Entité</th>
             <th>IP</th>
-            <th className="text-right">Actions</th>
+            <th className="text-right">Détails</th>
           </tr>
         </thead>
         <tbody>
-          {filteredLogs.slice(0, 100).map((log, idx) => (
+          {paginatedLogs.map((log) => (
             <tr
               key={log.id}
               className="cursor-pointer hover:bg-role-primary-soft group transition-colors"
-              onClick={() => {
-                setSelectedLog(log);
-                setActiveTab('details');
-                setShowDetails(true);
-              }}
+              onClick={() => handleOpenDetails(log)}
             >
               <td>
                 <div className="flex items-center gap-1">
@@ -360,42 +300,33 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
                 </code>
               </td>
               <td className="text-right">
-                <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                  <button 
-                    className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
-                    onClick={() => handleEdit(log)}
-                    title="Modifier"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button 
-                    className="action-button danger hover:bg-danger/10 transition-all duration-200"
-                    onClick={() => handleDelete(log)}
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  <button 
-                    className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
-                    onClick={() => {
-                      setSelectedLog(log);
-                      setActiveTab('details');
-                      setShowDetails(true);
-                    }}
-                    title="Voir détails"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                </div>
+                <button
+                  className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
+                  onClick={(e) => { e.stopPropagation(); handleOpenDetails(log); }}
+                  title="Voir détails"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {filteredLogs.length > 100 && (
-        <div className="p-4 text-center text-small text-foreground border-t border-border">
-          Affichage des 100 premiers résultats sur {filteredLogs.length}
+      {hasMore && (
+        <div className="p-4 text-center border-t border-border">
+          <button
+            onClick={handleLoadMore}
+            className="btn btn-ghost gap-2 text-sm"
+          >
+            Voir plus ({filteredLogs.length - paginatedLogs.length} restants)
+          </button>
+        </div>
+      )}
+
+      {filteredLogs.length > 0 && !hasMore && paginatedLogs.length > PAGE_SIZE && (
+        <div className="p-3 text-center text-xs text-foreground border-t border-border">
+          Affichage de tous les {filteredLogs.length} résultats
         </div>
       )}
 
@@ -409,19 +340,15 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     </div>
   );
 
-  // Vue Compacte (cartes)
+  // Vue compacte (cartes)
   const renderCompactView = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {filteredLogs.slice(0, 50).map((log) => (
+      {paginatedLogs.map((log) => (
         <Card
           key={log.id}
           variant="role"
           className="cursor-pointer hover:shadow-role-glow transition-all"
-          onClick={() => {
-            setSelectedLog(log);
-            setActiveTab('details');
-            setShowDetails(true);
-          }}
+          onClick={() => handleOpenDetails(log)}
         >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -446,29 +373,10 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             <span className="text-xs text-foreground">{getModuleLabel(log.module)}</span>
             <code className="code-oaci-badge text-[10px] ml-auto">{log.ip || '-'}</code>
           </div>
-          {/* Actions dans la vue compacte */}
-          <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-border" onClick={(e) => e.stopPropagation()}>
-            <button 
-              className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
-              onClick={() => handleEdit(log)}
-              title="Modifier"
-            >
-              <Edit3 className="w-3 h-3" />
-            </button>
-            <button 
-              className="action-button danger hover:bg-danger/10 transition-all duration-200"
-              onClick={() => handleDelete(log)}
-              title="Supprimer"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-            <button 
+          <div className="flex justify-end mt-3 pt-2 border-t border-border">
+            <button
               className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
-              onClick={() => {
-                setSelectedLog(log);
-                setActiveTab('details');
-                setShowDetails(true);
-              }}
+              onClick={(e) => { e.stopPropagation(); handleOpenDetails(log); }}
               title="Voir détails"
             >
               <Eye className="w-3 h-3" />
@@ -476,6 +384,17 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
           </div>
         </Card>
       ))}
+
+      {hasMore && (
+        <div className="col-span-full text-center py-4">
+          <button
+            onClick={handleLoadMore}
+            className="btn btn-ghost gap-2 text-sm"
+          >
+            Voir plus ({filteredLogs.length - paginatedLogs.length} restants)
+          </button>
+        </div>
+      )}
 
       {filteredLogs.length === 0 && (
         <div className="col-span-full p-12 text-center text-foreground">
@@ -486,123 +405,22 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
     </div>
   );
 
-  // Modale de suppression
-  const DeleteConfirmModal = () => (
-    <FormShell
-      open={showDeleteDialog && !!selectedLog}
-      onClose={() => setShowDeleteDialog(false)}
-      title="Confirmer la suppression"
-      icon={AlertTriangle}
-      size="md"
-      dataRole={userRole}
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={() => setShowDeleteDialog(false)}>
-            Annuler
-          </button>
-          <button className="btn btn-danger gap-2 hover:bg-danger/20 transition-all duration-200" onClick={confirmDelete}>
-            <Trash2 className="w-4 h-4" />
-            Supprimer définitivement
-          </button>
-        </>
-      }
-    >
-      {selectedLog && (
-        <>
-          <p className="text-body text-foreground">
-            Êtes-vous sûr de vouloir supprimer cette entrée d'audit ?
-          </p>
-          <p className="text-small text-foreground mt-2">
-            ID: <span className="font-mono">{selectedLog.entite_id}</span><br />
-            Action: {getActionLabel(selectedLog.action)}<br />
-            Date: {new Date(selectedLog.date).toLocaleString('fr-FR')}
-          </p>
-          <p className="text-small text-danger mt-2">
-            Cette action est irréversible.
-          </p>
-        </>
-      )}
-    </FormShell>
-  );
-
-  // Modale d'édition
-  const EditModal = () => (
-    <FormShell
-      open={showEditDialog && !!selectedLog}
-      onClose={() => setShowEditDialog(false)}
-      title="Modifier l'entrée d'audit"
-      icon={Edit3}
-      size="lg"
-      dataRole={userRole}
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={() => setShowEditDialog(false)}>
-            Annuler
-          </button>
-          <button className="btn btn-primary gap-2 hover:bg-primary/20 transition-all duration-200" onClick={handleSaveEdit}>
-            <Save className="w-4 h-4" />
-            Enregistrer
-          </button>
-        </>
-      }
-    >
-      {selectedLog && (
-        <div className="space-y-4">
-          <div className="form-field">
-            <label className="filter-label">ID de l'entité</label>
-            <p className="code-oaci-badge">{selectedLog.entite_id}</p>
-          </div>
-          <div className="form-field">
-            <label className="filter-label">Nom de l'entité</label>
-            <input
-              type="text"
-              value={editFormData.entite_nom || ''}
-              onChange={(e) => setEditFormData({...editFormData, entite_nom: e.target.value})}
-              className={`w-full form-input ${focusClass}`}
-            />
-          </div>
-          <div className="form-field">
-            <label className="filter-label">Détails (JSON)</label>
-            <textarea
-              value={JSON.stringify(editFormData.details, null, 2)}
-              onChange={(e) => {
-                try {
-                  const parsed = JSON.parse(e.target.value);
-                  setEditFormData({...editFormData, details: parsed});
-                } catch (err) {
-                  // Invalid JSON, ignore
-                }
-              }}
-              rows={6}
-              className={`w-full form-textarea font-mono text-xs ${focusClass}`}
-            />
-          </div>
-        </div>
-      )}
-    </FormShell>
-  );
-
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="audit">
 
-      {/* En-tête */}
       <ModuleHeader
         icon={<FileSearch />}
         title="Journal d'Audit"
-        description={`Traçabilité complète des actions - ${stats.total} événements`}
-        actions={<div className="flex items-center gap-2">
+        description={`Traçabilité complète des actions — ${stats.total} événements`}
+        actions={
           <button onClick={handleExportCSV} className="btn btn-secondary gap-2 hover:bg-secondary/20 transition-all duration-200">
             <Download className="w-4 h-4" />
             CSV
           </button>
-          <button onClick={handleExportPDF} className="btn btn-secondary gap-2 hover:bg-secondary/20 transition-all duration-200">
-            <Printer className="w-4 h-4" />
-            PDF
-          </button>
-        </div>}
+        }
       />
 
-      {/* KPIs premium avec animations */}
+      {/* KPIs */}
       <div className="kpi-grid animate-fade-up">
         <div className="kpi-card">
           <div className="kpi-icon bg-role-primary-soft">
@@ -635,7 +453,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
           <div className="kpi-label text-foreground">Actions critiques</div>
           <div className="kpi-value text-danger">{stats.actionsCritiques}</div>
           {stats.actionsCritiques > 0 && (
-            <div className="kpi-trend down pulse text-[10px] text-foreground">⚠️ Surveiller</div>
+            <div className="kpi-trend down pulse text-[10px] text-foreground">Actions à surveiller</div>
           )}
         </div>
       </div>
@@ -652,9 +470,9 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
         </Card>
       )}
 
+      {/* Filtres */}
       <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Recherche */}
           <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground" />
             <input
@@ -666,7 +484,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             />
           </div>
 
-          {/* Filtre Action */}
           <select
             className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
             style={selectStyle}
@@ -675,11 +492,10 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
           >
             <option value="tous">Toutes actions</option>
             {ACTIONS.map(a => (
-              <option key={a.id} value={a.id}>{a.label}</option>
+              <option key={a.id} value={a.id}>{auditUtils.formatAction(a.id)}</option>
             ))}
           </select>
 
-          {/* Filtre Module */}
           <select
             className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
             style={selectStyle}
@@ -692,7 +508,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             ))}
           </select>
 
-          {/* Filtre Utilisateur */}
           <select
             className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
             style={selectStyle}
@@ -705,7 +520,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             ))}
           </select>
 
-          {/* Filtre Date Début */}
           <input
             type="date"
             value={filters.dateDebut}
@@ -713,7 +527,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             className={`h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm ${focusClass}`}
           />
 
-          {/* Filtre Date Fin */}
           <input
             type="date"
             value={filters.dateFin}
@@ -721,7 +534,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             className={`h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm ${focusClass}`}
           />
 
-          {/* View Toggle */}
           <div className="view-toggle">
             <button className={viewMode === 'liste' ? 'active' : ''} onClick={() => setViewMode('liste')} title="Vue détaillée">
               <List className="w-4 h-4" />
@@ -731,22 +543,16 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
             </button>
           </div>
 
-          {/* Bouton export */}
           <button onClick={handleExportCSV} className="action-button hover:bg-primary/10 transition-all duration-200" title="Exporter CSV">
             <Download className="w-4 h-4" />
           </button>
         </div>
       </Card>
 
-      {/* Vue principale */}
       {viewMode === 'liste' && renderListView()}
       {viewMode === 'compact' && renderCompactView()}
 
-      {/* Modales */}
-      {showDeleteDialog && DeleteConfirmModal()}
-      {showEditDialog && EditModal()}
-
-      {/* Modal Détails premium */}
+      {/* Modal Détails */}
       <FormShell
         open={showDetails && !!selectedLog}
         onClose={() => setShowDetails(false)}
@@ -760,30 +566,6 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
         ]}
         activeTab={activeTab}
         onTabChange={(id) => setActiveTab(id as 'details' | 'raw')}
-        footer={
-          <>
-            <button
-              className="btn btn-secondary gap-2 hover:bg-secondary/20 transition-all duration-200"
-              onClick={() => {
-                setShowDetails(false);
-                if (selectedLog) handleEdit(selectedLog);
-              }}
-            >
-              <Edit3 className="w-4 h-4" />
-              Modifier
-            </button>
-            <button
-              className="btn btn-danger gap-2 hover:bg-danger/20 transition-all duration-200"
-              onClick={() => {
-                setShowDetails(false);
-                if (selectedLog) handleDelete(selectedLog);
-              }}
-            >
-              <Trash2 className="w-4 h-4" />
-              Supprimer
-            </button>
-          </>
-        }
       >
         {selectedLog && (
           <>

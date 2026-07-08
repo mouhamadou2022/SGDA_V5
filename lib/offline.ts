@@ -2,30 +2,13 @@
 // Couche IndexedDB pour le mode hors-ligne.
 // Toutes les données de travail hors-ligne passent par ces fonctions.
 
+import { IDB_STORES, IDBStoreName } from './idb-stores'
+
+// Re-export pour backward compatibilité (les imports existants utilisent @/lib/offline)
+export { IDB_STORES } from './idb-stores'
+export type { IDBStoreName } from './idb-stores'
+
 const DB_NAME = 'sgda_offline'
-const DB_VERSION = 3 // Incrémenté pour ajouter les nouveaux stores (checklist hierarchy + templates)
-
-export const IDB_STORES = {
-  CHECKLISTS: 'idb_checklists',
-  SURVEILLANCES: 'idb_surveillances',
-  ECARTS: 'idb_ecarts',
-  RAPPORTS: 'idb_rapports',
-  PAC: 'idb_pac',
-  EVENEMENTS: 'idb_evenements',
-  DOSSIERS: 'idb_dossiers',
-  MESSAGES: 'idb_messages',
-  SIGNATURES: 'idb_signatures',
-  SYNC_QUEUE: 'idb_sync_queue',
-  DELEGATIONS: 'idb_delegations',
-  ALERTES: 'idb_alertes',
-  FICHES_PRESENCE: 'idb_fiches_presence',
-  RISK_INDEX_FEEDBACKS: 'idb_risk_index_feedbacks',
-  // NOUVEAUX STORES POUR L'ARBORESCENCE
-  CHECKLIST_HIERARCHY: 'idb_checklist_hierarchy',
-  CHECKLIST_TEMPLATES: 'idb_checklist_templates',
-} as const
-
-export type IDBStoreName = (typeof IDB_STORES)[keyof typeof IDB_STORES]
 
 export interface SyncQueueItem {
   id: string
@@ -187,6 +170,10 @@ export interface ChecklistTemplateOffline {
 // ─────────────────────────────────────────────────────────────
 
 let _db: IDBDatabase | null = null
+
+// Version : incrémenter manuellement à chaque ajout/suppression de store dans IDB_STORES
+// (Object.keys(IDB_STORES) est évité à cause d'un hoisting Turbopack)
+const DB_VERSION = 17
 
 export function openDB(): Promise<IDBDatabase> {
   if (_db) return Promise.resolve(_db)
@@ -382,6 +369,43 @@ export async function incrementSyncRetry(item: SyncQueueItem, error: string): Pr
 export async function getPendingSyncCount(): Promise<number> {
   const items = await getPendingSyncItems()
   return items.length
+}
+
+/**
+ * Flushe la file de synchronisation vers l'API /api/sync
+ * Retourne le nombre d'éléments synchronisés avec succès
+ */
+export async function flushSyncQueue(): Promise<{ synced: number; errors: string[] }> {
+  const items = await getPendingSyncItems()
+  if (items.length === 0) return { synced: 0, errors: [] }
+
+  try {
+    const res = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    })
+    if (!res.ok) throw new Error(`Sync API: ${res.status}`)
+    const data = await res.json()
+
+    if (data.synced === items.length) {
+      // Tout a réussi → vider la file
+      for (const item of items) await removeSyncItem(item.id)
+      return { synced: items.length, errors: [] }
+    }
+
+    // Certains ont échoué → incrémenter les retries et garder les erreurs
+    const errors: string[] = data.errors || ['Erreur de synchronisation']
+    for (const item of items) {
+      await incrementSyncRetry(item, errors[0])
+    }
+    return { synced: data.synced || 0, errors }
+  } catch (err: any) {
+    for (const item of items) {
+      await incrementSyncRetry(item, err.message)
+    }
+    return { synced: 0, errors: [err.message] }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -66,6 +66,11 @@ export interface AdvancedModelsSlice {
 
   // Nouveau : Corrélation ML ↔ Profil de Risque
   getMLRiskCorrelation: () => MLRiskCorrelationData
+
+  // Cache interne pour getMLRiskCorrelation (évite infinite loop React)
+  _mlCorrelationCache: MLRiskCorrelationData | null
+  _mlCorrelationCacheKey: Record<string, ProfilRisque> | null
+  _clearMLCorrelationCache: () => void
 }
 
 // C1-C5 labels for alignment mapping
@@ -90,6 +95,9 @@ export const createAdvancedModelsSlice = (
   modelMetrics: advancedModels.getMetrics(),
   rfSamplesCount: advancedModels.getSamplesCount(),
   isTraining: false,
+  _mlCorrelationCache: null,
+  _mlCorrelationCacheKey: null,
+  _clearMLCorrelationCache: () => set({ _mlCorrelationCache: null, _mlCorrelationCacheKey: null }),
 
   trainRandomForestModel: async (nTrees = 10, maxDepth = 4) => {
     set({ isTraining: true })
@@ -172,6 +180,10 @@ export const createAdvancedModelsSlice = (
   getMLRiskCorrelation: () => {
     const state = get()
     const profils = state.profilsRisque as Record<string, ProfilRisque> | undefined
+    // Retourner le cache si les entrées n'ont pas changé (même référence profilsRisque)
+    if (profils === get()._mlCorrelationCacheKey && get()._mlCorrelationCache) {
+      return get()._mlCorrelationCache!
+    }
     const rfInfo = advancedModels.getRFModelInfo()
     const metrics = advancedModels.getMetrics()
     const samplesCount = advancedModels.getSamplesCount()
@@ -228,7 +240,7 @@ export const createAdvancedModelsSlice = (
       .slice(0, 8)
       .map(([name, importance]) => ({ name, importance }))
 
-    return {
+    const result: MLRiskCorrelationData = {
       rfAccuracy: rfInfo ? rfInfo.accuracy : 0,
       avgRiskScore,
       riskLevelDistribution,
@@ -239,5 +251,9 @@ export const createAdvancedModelsSlice = (
       convergenceScore,
       latestTrainingDate: rfInfo?.trained_at ?? null,
     }
+    // Mettre en cache
+    get()._mlCorrelationCache = result
+    get()._mlCorrelationCacheKey = profils ?? null
+    return result
   },
 })

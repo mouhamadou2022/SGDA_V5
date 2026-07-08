@@ -3,10 +3,11 @@
 // Version enrichie avec gestion des types périodique/inopiné/maintien
 // Intègre le ML agent pour les prédictions de type de surveillance
 
-import { ProfilRisque, Ecart, SuggestionFeedback } from './store';
+import type { ProfilRisque, Ecart, SuggestionFeedback } from './store';
 import { RISK_LEVELS, getRiskLevel, computeVelocityMetrics } from './risque';
 import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes } from './domaines';
 import { suggestionMLAgent, type SurveillanceType, type EnsemblePrediction } from '@/lib/ia/agents/suggestionMLAgent';
+import { anomalyDetector } from '@/lib/ia/models/randomForest';
 
 // ============================================================
 // TYPES EXISTANTS (conservés)
@@ -100,13 +101,14 @@ export interface InspectionRecommandation {
 
 export function detectUrgentEcards(ecarts: Ecart[], profil: ProfilRisque): EcartUrgent[] {
   const maintenant = new Date();
+  const seuilJours = profil?.score_global !== undefined && profil.score_global < 40 ? 14 : 7;
   
   return ecarts
     .filter(ecart => {
       if (ecart.statut === 'cloture') return false;
       const delai = new Date(ecart.delai_regularisation);
       const joursRestants = Math.ceil((delai.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24));
-      return joursRestants <= 7 || ecart.niveau_risque === 'critique';
+      return joursRestants <= seuilJours || ecart.niveau_risque === 'critique';
     })
     .map(ecart => {
       const delai = new Date(ecart.delai_regularisation);
@@ -256,7 +258,7 @@ export function determineTypeSurveillanceContinue(
   if (degradationsSeveres.length > 0) {
     const domainesDeg: DomaineCode[] = [];
     degradationsSeveres.forEach(d => {
-      if (d.domaine === 'SGS') domainesDeg.push('SGS');
+      if (d.domaine === 'SGS' && statut_sgs !== 'non_applicable') domainesDeg.push('SGS');
       if (d.domaine === 'Conformité technique') domainesDeg.push('PHY', 'OLS', 'ELEC', 'MFP');
       if (d.domaine === 'Résilience') domainesDeg.push('SLI', 'RA');
     });
@@ -305,7 +307,9 @@ export function determineTypeSurveillanceContinue(
       raison: `Charge critique élevée (C4=${profil.c4}/100) — inspection inopinée recommandée`,
       priorite: 'moyenne',
       delaiRecommandation: ajusterDelai(60),
-      domainesCibles: isHelistation ? ['SGS', 'OPS'] as DomaineCode[] : ['SGS', 'OPS'],
+      domainesCibles: statut_sgs === 'non_applicable'
+        ? (isHelistation ? ['OPS'] as DomaineCode[] : ['OPS'])
+        : (isHelistation ? ['SGS', 'OPS'] as DomaineCode[] : ['SGS', 'OPS']),
       typesChecklist: ajusterChecklists(['standard']),
       suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
     };
@@ -695,39 +699,16 @@ export const riskEngine = {
 // NOUVELLES FONCTIONS — DÉCLENCHEMENT PAC/ÉCARTS
 // ============================================================
 
-const OACI_URGENCY_MAP: Record<string, { label: string; delaiJours: number; urgence: 'critique' | 'haute' | 'moyenne' | 'basse' }> = {
-  '5A': { label: 'Intolérable', delaiJours: 7, urgence: 'critique' },
-  '5B': { label: 'Intolérable', delaiJours: 7, urgence: 'critique' },
-  '4A': { label: 'Intolérable', delaiJours: 7, urgence: 'critique' },
-  '4B': { label: 'Intolérable', delaiJours: 7, urgence: 'critique' },
-  '5C': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
-  '5D': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
-  '4C': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
-  '3A': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
-  '3B': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
-  '4D': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '4E': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '3C': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '3D': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '2A': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '2B': { label: 'Tolérable', delaiJours: 30, urgence: 'moyenne' },
-  '3E': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '2C': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '2D': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '2E': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '1A': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '1B': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '1C': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '1D': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-  '1E': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
-};
+// Délègue à la référence unique dans lib/risque/oaciReference.ts
+import { OACI_URGENCY_MAP as _OACI_MAP } from './risque/oaciReference'
+export const OACI_URGENCY_MAP = _OACI_MAP
 
 function getCelluleOACI(ecart: Ecart): string {
-  if (ecart.domaine === 'SGS') return 'SGS';
   if (ecart.cellule_risque_oaci) return ecart.cellule_risque_oaci;
-  const prob = ecart.probabilite_risque ?? 3;
-  const grav = ecart.gravite_risque ?? 'C';
-  return `${prob}${grav}`;
+  if (ecart.probabilite_risque && ecart.gravite_risque) return `${ecart.probabilite_risque}${ecart.gravite_risque}`;
+  // Fallback: mappe le niveau de risque déclaré par l'inspecteur vers une cellule OACI
+  const niveauToCell: Record<string, string> = { critique: '4A', eleve: '3B', moyen: '2C', faible: '1D', tres_faible: '1E' };
+  return niveauToCell[ecart.niveau_risque] || '2C';
 }
 
 export function computeEcartUrgency(ecart: Ecart, c2Score?: number): {
@@ -799,14 +780,17 @@ export function getEcartTriggers(
         typeSurveillanceSuggere = 'suivi_ecarts';
         justification = `PAC non soumis — délai dépassé de ${joursRetard}j (cellule ${celluleOACI})`;
         predictionResultat = 'NS';
-        predictionConfiance = Math.min(95, 70 + joursRetard * 2 + (c2 ? (100 - c2) / 5 : 0));
+        predictionConfiance = Math.min(95, Math.round(50 + Math.sqrt(joursRetard) * 8 + (c2 ? (100 - c2) / 5 : 0)));
       } else if (ecart.statut === 'pac_attendu') {
         typeSurveillanceSuggere = 'suivi_ecarts';
         justification = `PAC attendu — échéance dans ${joursAvantEcheance}j`;
         predictionConfiance = 30;
       } else if (ecart.statut === 'pac_soumis') {
+        const estEnRetardInsp = ecart.evaluation_pac?.deadline && new Date(ecart.evaluation_pac.deadline) < new Date()
         typeSurveillanceSuggere = 'suivi_ecarts';
-        justification = 'PAC soumis — en attente d\'évaluation par l\'inspecteur';
+        justification = estEnRetardInsp
+          ? `PAC soumis — EN ATTENTE INSPECTEUR (délai dépassé le ${new Date(ecart.evaluation_pac!.deadline!).toLocaleDateString('fr-FR')})`
+          : 'PAC soumis — en attente d\'évaluation par l\'inspecteur';
         predictionResultat = 'NV';
         predictionConfiance = 50;
       } else if (ecart.statut === 'pac_refuse') {
@@ -831,8 +815,11 @@ export function getEcartTriggers(
           }
         }
       } else if (ecart.statut === 'preuves_soumises') {
+        const estEnRetardInsp = ecart.validation_preuves?.deadline && new Date(ecart.validation_preuves.deadline) < new Date()
         typeSurveillanceSuggere = 'mise_oeuvre_pac';
-        justification = 'Preuves soumises — évaluation en cours';
+        justification = estEnRetardInsp
+          ? `Preuves soumises — EN ATTENTE INSPECTEUR (délai dépassé le ${new Date(ecart.validation_preuves!.deadline!).toLocaleDateString('fr-FR')})`
+          : 'Preuves soumises — évaluation en cours';
         predictionResultat = c2 && c2 > 70 ? 'SA' : 'NV';
         predictionConfiance = c2 && c2 > 70 ? 70 : 50;
       } else if (ecart.statut === 'preuves_evaluees') {
@@ -866,7 +853,6 @@ export function getEcartTriggers(
 
       // Détection d'anomalies (RF Isolation Forest)
       try {
-        const { anomalyDetector } = require('@/lib/ia/models/randomForest')
         if (anomalyDetector && ecart.cellule_risque_oaci) {
           const features = [
             ecart.niveau_risque === 'critique' ? 4 : ecart.niveau_risque === 'eleve' ? 3 : ecart.niveau_risque === 'moyen' ? 2 : 1,
@@ -874,13 +860,13 @@ export function getEcartTriggers(
             profil?.score_global || 50,
             profil?.c2 || 50,
           ]
-          const anomalyScore = anomalyDetector.predictAnomaly(features)
-          if (anomalyScore > 0.7) {
-            justification += `\n🔍 Anomalie détectée (score: ${Math.round(anomalyScore * 100)}%) — pattern suspect identifié par le modèle d'isolation`
+          const anomalyResult = anomalyDetector.detectAnomaly(features)
+          if (anomalyResult.isAnomaly) {
+            justification += `\n🔍 Anomalie détectée (score: ${Math.round(anomalyResult.score * 100)}%) — pattern suspect identifié par le modèle d'isolation`
             if (predictionConfiance < 70) predictionConfiance = Math.max(predictionConfiance, 70)
           }
         }
-      } catch { /* anomaly detector unavailable */ }
+      } catch { console.warn('[getEcartTriggers] anomalyDetector indisponible') }
 
       return {
         ecart,

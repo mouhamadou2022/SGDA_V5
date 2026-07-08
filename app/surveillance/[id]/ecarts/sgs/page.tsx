@@ -11,7 +11,9 @@ import SurveillanceEcartsRedaction, {
   QuestionNSNV,
   EcartRedaction,
 } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
+import { Card } from '@/components/ui/card';
 import type { EvaluationSGS, PAOELevel } from '@/types/checklist';
+import { getPAOENiveauFromScore, PAOE_LABELS } from '@/types/checklist';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -76,6 +78,8 @@ export default function SGSEcartsPage() {
   const getEcartsBySurveillance = useAppStore(s => s.getEcartsBySurveillance);
   const setEcartsRedaction = useAppStore(s => s.setEcartsRedaction);
   const allEcartsRedaction = useAppStore(s => s.ecartsRedaction);
+  const certifications = useAppStore(s => s.certifications);
+  const homologations = useAppStore(s => s.homologations);
 
   const handleSaveEcarts = (ecarts: EcartRedaction[]) => {
     const otherEcarts = allEcartsRedaction.filter(e => e.surveillance_id !== surveillanceId);
@@ -111,6 +115,38 @@ export default function SGSEcartsPage() {
     if (!surveillance?.sgs_evaluation_prepa) return null;
     return surveillance.sgs_evaluation_prepa as EvaluationSGS;
   }, [surveillance]);
+
+  // Libellé enrichi du type de surveillance avec phase (certification / homologation)
+  const typeLibelle = useMemo(() => {
+    if (!surveillance) return '';
+    if (surveillance.type === 'certification') {
+      const cert = certifications.find(c =>
+        c.phases_data.phase3?.surveillance_id === surveillanceId
+      );
+      if (cert) return `Certification — Phase ${cert.phase_active} — Vérification sur site`;
+      return 'Certification';
+    }
+    if (surveillance.type === 'homologation') {
+      const homo = homologations.find(h =>
+        h.phases_data.phase2?.surveillance_id === surveillanceId
+      );
+      if (homo) return `Homologation — Phase ${homo.phase_active} — Vérification sur site`;
+      return 'Homologation';
+    }
+    const labels: Record<string, string> = {
+      audit_complet: 'Audit Complet',
+      periodique: 'Périodique',
+      suivi_ecarts: 'Suivi des Écarts',
+      inopinee: 'Inopinée',
+      inopine: 'Inopinée',
+      mise_oeuvre_pac: 'Mise en Œuvre PAC',
+      speciale: 'Spéciale',
+      urgence: 'Urgence',
+      programmee: 'Programmée',
+      maintien: 'Maintien',
+    };
+    return labels[surveillance.type] || surveillance.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }, [surveillance, surveillanceId, certifications, homologations]);
 
   /**
    * Extraction des éléments non conformes (absent ou présent) depuis les composantes PAOE.
@@ -175,14 +211,29 @@ export default function SGSEcartsPage() {
   }, [sgsEvaluation]);
 
   const elementsNonConformes = useMemo(() => itemsNonConformes.length, [itemsNonConformes]);
+
+  // Progression de conformité PAOE (éléments conformes / total)
   const progression = totalElements > 0
     ? Math.round(((totalElements - elementsNonConformes) / totalElements) * 100)
     : 100;
 
+  // Progression de rédaction des écarts (écarts créés / éléments non conformes)
+  const ecartProgress = elementsNonConformes > 0
+    ? Math.round((ecartsExistants.length / elementsNonConformes) * 100)
+    : 100;
+
   // Handlers
   const handleEcartsSignes = (_signatureUrl?: string) => {
-    useAppStore.getState().updateSurveillance(surveillanceId, { statut: 'ecarts_signes' });
-    router.push(`/surveillance/${surveillanceId}`);
+    useAppStore.getState().updateSurveillance(surveillanceId, { sgs_ecarts_signes_le: new Date().toISOString() });
+    // Vérifier si les écarts standard sont déjà signés → avancer le statut global
+    const updated = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
+    if (updated?.statut === 'ecarts_signes') {
+      // Les écarts standard étaient déjà signés, on reste sur ecarts_signes
+      router.push(`/surveillance/${surveillanceId}`);
+    } else {
+      // Sinon, on reste en checklist_signee jusqu'à ce que les écarts standard soient signés
+      router.push(`/surveillance/${surveillanceId}`);
+    }
   };
 
   // Gardes
@@ -289,14 +340,49 @@ export default function SGSEcartsPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="progress h-1.5 w-24">
+                <div className="progress h-2 w-28 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className={`progress-bar ${progression >= 70 ? 'bg-success' : progression >= 40 ? 'bg-warning' : 'bg-danger'}`}
-                    style={{ width: `${progression}%` }}
+                    className={`progress-bar rounded-full transition-all duration-700 ease-out ${
+                      sgsEvaluation.scoreGlobal >= 80 ? 'bg-gradient-to-r from-green-400 to-green-600' :
+                      sgsEvaluation.scoreGlobal >= 60 ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
+                      sgsEvaluation.scoreGlobal >= 40 ? 'bg-gradient-to-r from-amber-400 to-amber-600' :
+                      sgsEvaluation.scoreGlobal >= 20 ? 'bg-gradient-to-r from-orange-400 to-orange-600' :
+                      'bg-gradient-to-r from-red-400 to-red-600'
+                    }`}
+                    style={{ width: `${sgsEvaluation.scoreGlobal}%` }}
                   />
                 </div>
-                <span className="text-xs font-semibold">{progression}%</span>
+                <span className={`text-xs font-bold ${
+                  sgsEvaluation.scoreGlobal >= 80 ? 'text-green-600' :
+                  sgsEvaluation.scoreGlobal >= 60 ? 'text-blue-600' :
+                  sgsEvaluation.scoreGlobal >= 40 ? 'text-amber-600' :
+                  'text-red-600'
+                }`}>{sgsEvaluation.scoreGlobal}%</span>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <div className="progress h-1.5 w-16 bg-gray-200 rounded-full overflow-hidden">
+                    <div className={`progress-bar rounded-full transition-all duration-500 ${
+                      ecartProgress >= 80 ? 'bg-gradient-to-r from-green-400 to-green-500' :
+                      ecartProgress >= 40 ? 'bg-gradient-to-r from-amber-400 to-amber-500' :
+                      'bg-gradient-to-r from-red-400 to-red-500'
+                    }`} style={{ width: `${ecartProgress}%` }} />
+                  </div>
+                  <span className="text-muted-foreground">{ecartsExistants.length}/{elementsNonConformes}</span>
+                </div>
+              </div>
+              <span className={`badge font-semibold ${
+                (() => {
+                  const n = getPAOENiveauFromScore(sgsEvaluation.scoreGlobal);
+                  if (n === 'efficace')     return 'success';
+                  if (n === 'operationnel') return 'primary';
+                  if (n === 'approprie')    return 'warning';
+                  if (n === 'present')      return 'muted';
+                  return 'danger';
+                })()
+              }`}>
+                {PAOE_LABELS[getPAOENiveauFromScore(sgsEvaluation.scoreGlobal)]}
+              </span>
             </div>
           </div>
         </div>
@@ -308,7 +394,7 @@ export default function SGSEcartsPage() {
         <div className="card border-border">
           <div className="card-content p-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-role-primary flex-shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Aérodrome</p>
@@ -333,12 +419,19 @@ export default function SGSEcartsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-role-primary flex-shrink-0" />
+                <Shield className="w-4 h-4 text-role-primary flex-shrink-0" />
                 <div>
-                  <p className="text-xs text-muted-foreground">Score global PAOE</p>
-                  <p className="font-bold text-role-primary text-lg">
-                    {sgsEvaluation.scoreGlobal}%
-                  </p>
+                  <p className="text-xs text-muted-foreground">Type</p>
+                  <span className={`badge font-semibold ${
+                    surveillance.type === 'certification' ? 'success' :
+                    surveillance.type === 'homologation' ? 'primary' :
+                    surveillance.type === 'audit_complet' ? 'warning' :
+                    surveillance.type === 'suivi_ecarts' ? 'danger' :
+                    surveillance.type === 'urgence' ? 'danger' :
+                    'muted'
+                  }`}>
+                    {typeLibelle}
+                  </span>
                 </div>
               </div>
             </div>
@@ -346,14 +439,7 @@ export default function SGSEcartsPage() {
         </div>
 
         {/* Synthèse par composante */}
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Shield className="w-4 h-4 text-role-primary" />
-              Synthèse PAOE par composante
-            </div>
-          </div>
-          <div className="card-content">
+        <Card heading="Synthèse PAOE par composante" icon={<Shield className="w-4 h-4" />}>
             <div className="space-y-3">
               {sgsEvaluation.composantes.map(composante => {
                 const nonConformes = composante.elements.filter(e =>
@@ -413,29 +499,26 @@ export default function SGSEcartsPage() {
                 );
               })}
             </div>
-          </div>
-        </div>
+          </Card>
 
         {/* Zone de rédaction des écarts */}
         {itemsNonConformes.length === 0 ? (
-          <div className="card border-border">
-            <div className="card-content py-12 text-center">
-              <CheckCircle2 className="w-12 h-12 text-success mx-auto mb-4 opacity-70" />
-              <p className="text-lg font-semibold text-success mb-2">
-                Aucun écart SGS à rédiger
-              </p>
-              <p className="text-sm text-muted-foreground mb-6">
-                Tous les éléments PAOE évalués sont au moins au niveau "Approprié".
-              </p>
-              <button
-                onClick={() => handleEcartsSignes()}
-                className="btn btn-primary gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                Valider et continuer
-              </button>
-            </div>
-          </div>
+          <Card className="text-center">
+            <CheckCircle2 className="w-12 h-12 text-success mx-auto mb-4 opacity-70" />
+            <p className="text-lg font-semibold text-success mb-2">
+              Aucun écart SGS à rédiger
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
+              Tous les éléments PAOE évalués sont au moins au niveau "Approprié".
+            </p>
+            <button
+              onClick={() => handleEcartsSignes()}
+              className="btn btn-primary gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Valider et continuer
+            </button>
+          </Card>
         ) : (
           <SurveillanceEcartsRedaction
             surveillanceId={surveillanceId}
@@ -445,6 +528,10 @@ export default function SGSEcartsPage() {
             onSave={handleSaveEcarts}
             onSigner={handleEcartsSignes}
             userRole={user?.role || 'inspector'}
+            surveillanceType={surveillance?.type}
+            aerodromeCode={aerodrome?.code_oaci}
+            ecartPrefix="SGS"
+            readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)}
           />
         )}
       </div>

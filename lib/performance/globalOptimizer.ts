@@ -1,7 +1,7 @@
 // lib/performance/globalOptimizer.ts
 'use client';
 
-import React, { useEffect, useRef, createContext, useContext, ReactNode, useState, useCallback, useTransition } from 'react';
+import React, { useEffect, useRef, createContext, useContext, ReactNode, useState, useCallback, useTransition, useMemo } from 'react';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore, type AppStore } from '@/lib/store';
@@ -101,11 +101,14 @@ export function LazyLoad({
       { rootMargin: '200px' }
     );
     
-    if (ref.current) observer.observe(ref.current);
+    const element = ref.current;
+    if (element) observer.observe(element);
     return () => observer.disconnect();
   }, []);
   
-  return React.createElement('div', { ref: ref },
+  
+  // eslint-disable-next-line react-hooks/refs
+  return React.createElement('div', { ref },
     isVisible ? children : (fallback || React.createElement('div', { className: 'min-h-[200px]' }))
   );
 }
@@ -166,7 +169,9 @@ export function PerformanceProvider({ children }: { children: ReactNode }) {
     }
   };
   
-  return React.createElement(PerformanceContext.Provider, { value: { mark, measure } }, children);
+  const ctxValue = useMemo(() => ({ mark, measure }), []);
+  // eslint-disable-next-line react-hooks/refs
+  return React.createElement(PerformanceContext.Provider, { value: ctxValue }, children);
 }
 
 export const usePerformance = () => useContext(PerformanceContext);

@@ -115,6 +115,144 @@ function viterbi(
 }
 
 /**
+ * Algorithme Backward — P(O_{t+1}...O_T | q_t = i, λ)
+ */
+function backward(
+  observations: number[],
+  states: HMMState[],
+  transitions: number[][]
+): number[][] {
+  const T = observations.length
+  const N = states.length
+  const beta: number[][] = Array.from({ length: T }, () => new Array(N).fill(0))
+
+  // Initialisation : β_T(i) = 1 pour tout i
+  for (let i = 0; i < N; i++) beta[T - 1][i] = 1
+
+  // Récursion inverse
+  for (let t = T - 2; t >= 0; t--) {
+    for (let i = 0; i < N; i++) {
+      let sum = 0
+      for (let j = 0; j < N; j++) {
+        const diff = observations[t + 1] - states[j].mean
+        const emission = Math.exp(-diff * diff / (2 * states[j].variance)) / Math.sqrt(2 * Math.PI * states[j].variance)
+        sum += transitions[i][j] * emission * beta[t + 1][j]
+      }
+      beta[t][i] = sum
+    }
+  }
+
+  return beta
+}
+
+/**
+ * Algorithme Baum-Welch (EM) — estime les transitions depuis l'historique.
+ * Met à jour la matrice de transition pour maximiser P(O | λ).
+ * @param observations Séquence d'observations
+ * @param states États HMM (mean, variance conservés)
+ * @param transitions Matrice de transition initiale (sera modifiée)
+ * @param maxIter Nombre max d'itérations EM
+ * @param tol Tolérance de convergence
+ * @returns Nouvelle matrice de transition calibrée
+ */
+export function baumWelch(
+  observations: number[],
+  states: HMMState[],
+  transitions: number[][],
+  maxIter: number = 20,
+  tol: number = 1e-4
+): number[][] {
+  const T = observations.length
+  const N = states.length
+  if (T < 3) return transitions
+
+  let a = transitions.map(row => [...row]) // copie
+  let prevLogProb = -Infinity
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    // E-step : forward-backward
+    const alpha = forward(observations, states, a)
+    const beta = backward(observations, states, a)
+
+    // ξ_t(i,j) = P(q_t=i, q_{t+1}=j | O, λ)
+    // γ_t(i) = P(q_t=i | O, λ)
+    const xi: number[][][] = Array.from({ length: T - 1 }, () =>
+      Array.from({ length: N }, () => new Array(N).fill(0))
+    )
+    const gamma: number[][] = Array.from({ length: T }, () => new Array(N).fill(0))
+
+    for (let t = 0; t < T - 1; t++) {
+      let denom = 0
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const diff = observations[t + 1] - states[j].mean
+          const emission = Math.exp(-diff * diff / (2 * states[j].variance)) / Math.sqrt(2 * Math.PI * states[j].variance)
+          xi[t][i][j] = alpha[t][i] * a[i][j] * emission * beta[t + 1][j]
+          denom += xi[t][i][j]
+        }
+      }
+      if (denom > 0) {
+        for (let i = 0; i < N; i++) {
+          for (let j = 0; j < N; j++) {
+            xi[t][i][j] /= denom
+            gamma[t][i] += xi[t][i][j]
+          }
+        }
+      }
+    }
+
+    // Dernier gamma_T
+    const lastAlpha = alpha[T - 1]
+    const sumLast = lastAlpha.reduce((a, b) => a + b, 1e-8)
+    for (let i = 0; i < N; i++) gamma[T - 1][i] = lastAlpha[i] / sumLast
+
+    // M-step : ré-estimer les transitions
+    const newA: number[][] = Array.from({ length: N }, () => new Array(N).fill(0))
+    for (let i = 0; i < N; i++) {
+      let denom = 0
+      for (let t = 0; t < T - 1; t++) denom += gamma[t][i]
+      if (denom > 0) {
+        for (let j = 0; j < N; j++) {
+          let numer = 0
+          for (let t = 0; t < T - 1; t++) numer += xi[t][i][j]
+          newA[i][j] = Math.max(0.01, Math.min(0.99, numer / denom))
+        }
+      } else {
+        for (let j = 0; j < N; j++) newA[i][j] = a[i][j]
+      }
+      // Normaliser la ligne
+      const rowSum = newA[i].reduce((a, b) => a + b, 0)
+      for (let j = 0; j < N; j++) newA[i][j] /= rowSum
+    }
+
+    a = newA
+
+    // Vérifier la convergence (log-vraisemblance)
+    const logProb = Math.log(alpha[T - 1].reduce((a, b) => a + b, 1e-8))
+    if (iter > 0 && logProb - prevLogProb < tol) break
+    prevLogProb = logProb
+  }
+
+  return a
+}
+
+/**
+ * Calibre les transitions HMM à partir de l'historique d'un aérodrome.
+ * Retourne les transitions calibrées (ou les défauts si historique insuffisant).
+ */
+export function calibrateTransitions(
+  observations: number[],
+  customStates?: HMMState[]
+): number[][] {
+  return baumWelch(
+    observations,
+    customStates || DEFAULT_STATES,
+    DEFAULT_TRANSITIONS.map(row => [...row]),
+    15
+  )
+}
+
+/**
  * Prédiction HMM complète
  */
 export function predictHMM(

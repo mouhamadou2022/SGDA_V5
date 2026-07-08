@@ -51,10 +51,6 @@ jest.mock('@/components/ui/FormShell', () => ({
     ) : null,
 }))
 
-jest.mock('../HomoDashboard', () => ({
-  HomoDashboard: () => <div data-testid="homo-dashboard" />,
-}))
-
 jest.mock('../../certification/CertificationDocumentUpload', () => ({
   CertificationDocumentUpload: () => <div data-testid="cert-doc-upload" />,
 }))
@@ -180,16 +176,10 @@ describe('HomologationModule', () => {
       expect(screen.getByTestId('module-title')).toHaveTextContent('Homologation')
     })
 
-    it('affiche les 3 onglets (Tableau de bord, Liste, Archives)', () => {
+    it('affiche les KPIs et la liste des homologations', () => {
       renderModule()
-      expect(screen.getByText(/tableau de bord/i)).toBeInTheDocument()
       expect(screen.getByText(/liste des homologations/i)).toBeInTheDocument()
-      expect(screen.getByText(/archives/i)).toBeInTheDocument()
-    })
-
-    it('affiche le tableau de bord par défaut (HomoDashboard)', () => {
-      renderModule()
-      expect(screen.getByTestId('homo-dashboard')).toBeInTheDocument()
+      expect(screen.getByText(/filtres/i)).toBeInTheDocument()
     })
 
     it("n'affiche pas les aérodromes directement au démarrage", () => {
@@ -198,32 +188,13 @@ describe('HomologationModule', () => {
     })
   })
 
-  // ── 2. Navigation par onglets ─────────────────────────────────────────────
+  // ── 2. Navigation ─────────────────────────────────────────────────────────
 
-  describe('Navigation par onglets', () => {
-    it('passe à l\'onglet Liste au clic', async () => {
-      renderModule()
-      await goToListTab()
-      expect(screen.queryByTestId('homo-dashboard')).not.toBeInTheDocument()
-    })
-
-    it('affiche la barre de recherche dans l\'onglet Liste', async () => {
-      renderModule()
-      await goToListTab()
-      expect(screen.getByPlaceholderText(/rechercher un aérodrome/i)).toBeInTheDocument()
-    })
-
-    it('passe à l\'onglet Archives au clic', () => {
+  describe('Navigation', () => {
+    it('affiche le bouton Archives qui redirige vers Registres', () => {
       renderModule()
       fireEvent.click(screen.getByText(/archives/i))
       expect(mockSetActiveModule).toHaveBeenCalledWith('registres')
-    })
-
-    it('revient au tableau de bord au clic', async () => {
-      renderModule()
-      await goToListTab()
-      fireEvent.click(screen.getByText(/tableau de bord/i))
-      expect(screen.getByTestId('homo-dashboard')).toBeInTheDocument()
     })
   })
 

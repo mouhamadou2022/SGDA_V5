@@ -425,7 +425,10 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
       }
 
       // Mettre à jour le profil de risque
-      await store.recalculerProfilRisque(surveillanceId)
+      const surv = store.surveillances.find(s => s.id === surveillanceId)
+      if (surv?.aerodrome_id) {
+        await store.recalculerProfilRisque(surv.aerodrome_id)
+      }
 
       return { synced: true, itemsSynced, errors }
     } catch (error) {

@@ -2,7 +2,7 @@
 // Données des checklists selon RAS 14
 // Conforme à la Section 5.6.1 du CDC
 
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
+import type { ResultatChecklist } from '@/types/checklist'
 
 export interface ChecklistItemData {
   id: string;

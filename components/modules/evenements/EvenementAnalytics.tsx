@@ -4,15 +4,18 @@
 
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import {
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
-  BarChart3, PieChart, Activity, Target, Calendar, Zap, Shield
+  BarChart3, PieChart, Activity, Target, Calendar, Zap, Shield,
+  Loader2, Sparkles
 } from 'lucide-react'
 import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
-import { computeIncidentPredictions } from '@/lib/risque/predictions'
+import { computeSaisonStats } from '@/lib/risque/predictions'
+import { computeICaoMatrix, getICaoLabels } from '@/lib/risque/icaoMatrix'
+import type { NiveauRisqueICAO } from '@/lib/risque/icaoMatrix'
 import { Card } from '@/components/ui/card'
 interface Props {
   aerodromeId?: string
@@ -100,22 +103,67 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
       .map(([label, valeur]) => ({ label, valeur }))
   }, [filtered, aerodromes])
 
-  // ── Prédictions (fonction partagée avec le profil de risque) ──
-  const predictionsData = useMemo(() => {
+  // ── Prédictions IA (Groq) — chargement explicite via bouton
+  const [iaPredictions, setIaPredictions] = useState<any[]>([])
+  const [iaPredictionsLoading, setIaPredictionsLoading] = useState(false)
+  const [iaNoteGlobale, setIaNoteGlobale] = useState('')
+  const [iaPredictionsLoaded, setIaPredictionsLoaded] = useState(false)
+
+  const saisonStats = useMemo(() => {
     const evts = filtered.map(e => ({ date: e.date || e.created_at, gravite: e.gravite, type: e.type }))
-    return computeIncidentPredictions(evts, aerodromeId ? profilsRisque?.[aerodromeId]?.c5 : undefined)
-  }, [filtered, aerodromeId, profilsRisque])
-
-  const predictions = predictionsData.details
-  const saisonStats = predictionsData.saisonStats
-
-  // EVT analysis
-  const evtData = useMemo(() => {
-    try {
-      const { predictEVT } = require('@/lib/risque/extreme')
-      return predictEVT(filtered.map(e => ({ value: e.gravite === 'CRITIQUE' ? 4 : e.gravite === 'ORANGE' ? 3 : e.gravite === 'JAUNE' ? 2 : 1, date: e.date || e.created_at })))
-    } catch { return null }
+    return computeSaisonStats(evts)
   }, [filtered])
+
+  const icaoMatrix = useMemo(() => {
+    const evts = filtered.map(e => ({ type: e.type || '', gravite: e.gravite, date: e.date || e.created_at }))
+    return computeICaoMatrix(evts)
+  }, [filtered])
+
+  const icaoLabels = useMemo(() => getICaoLabels(), [])
+
+  const getNiveauCouleur = (niveau: NiveauRisqueICAO): string => {
+    const map: Record<NiveauRisqueICAO, string> = {
+      critique: 'text-danger border-danger/30 bg-danger/5',
+      eleve: 'text-warning border-warning/30 bg-warning/5',
+      moyen: 'text-primary border-primary/30 bg-primary/5',
+      faible: 'text-success border-success/30 bg-success/5',
+    }
+    return map[niveau]
+  }
+
+  const getBadgeNiveau = (niveau: NiveauRisqueICAO): string => {
+    const map: Record<NiveauRisqueICAO, string> = {
+      critique: 'badge danger',
+      eleve: 'badge warning',
+      moyen: 'badge primary',
+      faible: 'badge success',
+    }
+    return map[niveau]
+  }
+
+  const chargePredictionsIA = useCallback(async () => {
+    const evts = filtered.map(e => ({ date: e.date || e.created_at, gravite: e.gravite, type: e.type }))
+    if (evts.length === 0) { setIaPredictions([]); setIaNoteGlobale(''); return }
+    setIaPredictionsLoading(true)
+    try {
+      const aerodrome = aerodromeId ? aerodromes?.find(a => a.id === aerodromeId) : undefined
+      const res = await fetch('/api/ai/evenement-predictions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ evenements: evts, aerodrome_code: aerodrome?.code_oaci || aerodromeId || '' }),
+      })
+      const data = await res.json()
+      const loaded = Array.isArray(data?.predictions) ? data.predictions : []
+      setIaPredictions(loaded)
+      setIaNoteGlobale(data?.noteGlobale || '')
+      setIaPredictionsLoaded(true)
+    } catch (err) {
+      console.error('Erreur chargement predictions IA:', err)
+      setIaPredictions([])
+    } finally {
+      setIaPredictionsLoading(false)
+    }
+  }, [filtered, aerodromeId, aerodromes])
 
   // ── Top événements récents ──
   const recents = useMemo(() =>
@@ -191,7 +239,7 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
         </Card>
       </div>
 
-      {/* Top 5 aérodromes + Prédictions */}
+      {/* Top 5 aérodromes + Prédictions + Matrice ICAO */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card icon={<Target />} title="Top 5 aérodromes les plus touchés">
             {topAerodromes.length === 0 ? (
@@ -212,33 +260,89 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
             )}
         </Card>
 
-        <Card icon={<Zap />} title="Prédictions — 3 prochains mois">
+        <Card heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Zap className="w-4 h-4" />Prédictions — 3 prochains mois</div>{!iaPredictionsLoaded && !iaPredictionsLoading && (<button onClick={chargePredictionsIA} className="btn btn-sm btn-primary gap-1.5"><Sparkles className="w-3.5 h-3.5" />Charger l'analyse IA</button>)}</div>}>
           <div className="space-y-2">
-            {predictions.map((p, i) => (
-              <div key={i} className={`p-3 rounded-lg border ${p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'border-danger/30 bg-danger/5' : 'border-border'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-foreground">{p.mois}</span>
-                  <span className={`badge ${p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType ? 'danger' : 'warning'} text-[10px]`}>
-                    ~{p.critiques} critiques(s) prévu(s)
+            {iaPredictionsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Analyse IA des tendances...
+              </div>
+            ) : !iaPredictionsLoaded ? (
+              <p className="text-muted-foreground text-sm py-4 text-center">
+                {filtered.length === 0 ? 'Aucun événement — pas de prédiction disponible' : 'Cliquez sur « Charger l\'analyse IA » pour générer les prédictions'}
+              </p>
+            ) : (
+              <>
+                {iaPredictions.map((p, i) => {
+                  const auDessusMoyenne = p.critiques > saisonStats.moyenneCritiques + saisonStats.ecartType
+                  return (
+                    <div key={i} className={`p-3 rounded-lg border ${auDessusMoyenne ? 'border-danger/30 bg-danger/5' : 'border-border'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-foreground">{p.mois}</span>
+                        <span className={`badge ${auDessusMoyenne ? 'danger' : 'warning'} text-[10px]`}>
+                          ~{p.critiques} critique(s) prévu(s)
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{p.tendance}</p>
+                      {p.risquesContextuels?.slice(0, 2).map((r: string, ri: number) => (
+                        <p key={ri} className="text-[10px] text-warning italic flex items-center gap-1">
+                          <AlertTriangle className="w-2.5 h-2.5" />{r}
+                        </p>
+                      ))}
+                      {p.saisons?.map((s: string, si: number) => (
+                        <p key={si} className="text-[10px] text-muted-foreground italic">{s}</p>
+                      ))}
+                    </div>
+                  )
+                })}
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Analyse saisonnière — moy. {saisonStats.moyenneCritiques}/mois, écart-type {saisonStats.ecartType}
+                  </p>
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Sparkles className="w-2.5 h-2.5" />IA
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{p.tendance}</p>
-                {p.risquesContextuels?.slice(0, 2).map((r, ri) => (
-                  <p key={ri} className="text-[10px] text-warning italic flex items-center gap-1">
-                    <AlertTriangle className="w-2.5 h-2.5" />{r}
-                  </p>
-                ))}
-                {p.saisons?.map((s, si) => (
-                  <p key={si} className="text-[10px] text-muted-foreground italic">{s}</p>
-                ))}
-              </div>
-            ))}
-            <p className="text-[10px] text-muted-foreground italic pt-1">
-              Analyse saisonnière — moy. {saisonStats.moyenneCritiques}/mois, écart-type {saisonStats.ecartType}
-            </p>
+                {iaNoteGlobale && (
+                  <p className="text-[10px] text-role-primary italic pt-0.5">{iaNoteGlobale}</p>
+                )}
+              </>
+            )}
           </div>
         </Card>
       </div>
+
+      {/* Matrice ICAO dynamique */}
+      <Card icon={<Shield />} title="Matrice risque ICAO (dynamique)">
+        {icaoMatrix.size === 0 ? (
+          <p className="text-muted-foreground text-sm py-4 text-center">Aucun événement — pas de matrice disponible</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table text-xs w-full">
+              <thead>
+                <tr>
+                  <th className="text-left">Type d'événement</th>
+                  <th className="text-center">Fréquence/an</th>
+                  <th className="text-center">Probabilité</th>
+                  <th className="text-center">Sévérité</th>
+                  <th className="text-center">Niveau risque</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(icaoMatrix.entries()).map(([type, cell]) => (
+                  <tr key={type}>
+                    <td className="font-medium">{type.replace(/_/g, ' ')}</td>
+                    <td className="text-center">{cell.freqObservee}/an</td>
+                    <td className="text-center text-muted-foreground">{icaoLabels.probabilite.find(p => p.value === cell.probabilite)?.label || cell.probabilite}</td>
+                    <td className="text-center text-muted-foreground">{icaoLabels.severite.find(s => s.value === cell.severite)?.label || cell.severite}</td>
+                    <td className="text-center"><span className={getBadgeNiveau(cell.niveau)}>{icaoLabels.niveaux.find(n => n.value === cell.niveau)?.label || cell.niveau}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       {/* Événements critiquess récents */}
       {recents.length > 0 && (

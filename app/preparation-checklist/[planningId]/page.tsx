@@ -11,18 +11,26 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
+import type { Ecart } from '@/lib/store';
 import {
   ArrowLeft, Save, Wifi, WifiOff, ClipboardList, Brain, Sparkles,
-  AlertTriangle, Shield, CheckCircle2, XCircle, AlertCircle,
-  TrendingDown, Activity, FileText, LayoutGrid,
+  AlertTriangle, Shield, CheckCircle2, AlertCircle, ChevronDown,
+  Activity, LayoutGrid, FileText, Eye, Trash2, Upload, X, Check, Loader2,
 } from 'lucide-react';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
-import type { DomaineChecklist, ChecklistItem, EvaluationTerrain, EvaluationSGS } from '@/types/checklist';
-import { computeEvaluationTerrainScore } from '@/types/checklist';
+import type { DomaineChecklist, ChecklistItem, EvaluationSGS, PAOELevel, EvaluationAction } from '@/types/checklist';
+import { computeEvaluationActionScore } from '@/types/checklist';
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable';
 import { SGSEvaluationModal, SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation';
+import { EcartEvaluationCard } from '@/components/modules/surveillance';
+import type { EcartEvaluation, NiveauRisque } from '@/components/modules/surveillance';
+import { getDomaineLabel, getDomaineCode } from '@/lib/domaines';
+import { getCellColor } from '@/lib/risque';
+import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral';
+import { checklistAgent } from '@/lib/ia/agents/checklistAgent';
 
 // ─────────────────────────────────────────────────────────────
 // Helper — normalisation des domaines chargés
@@ -48,10 +56,8 @@ function normalizeDomaines(domaines: DomaineChecklist[]): DomaineChecklist[] {
   }));
 }
 
-function excludeSGSDomaines(domaines: DomaineChecklist[], portee: string[]): DomaineChecklist[] {
-  const isMixedWithSGS = portee.includes('SGS') && portee.length > 1;
-  if (!isMixedWithSGS) return domaines;
-  return domaines.filter(d => !(d.nom || d.id || '').toUpperCase().includes('SGS'));
+function excludeSGSDomaines(domaines: DomaineChecklist[], _portee: string[]): DomaineChecklist[] {
+  return domaines.filter(d => (d.nom || d.id || '').toUpperCase() !== 'SGS');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -120,6 +126,13 @@ async function dbDelete(key: string): Promise<void> {
 // Item PAC
 // ─────────────────────────────────────────────────────────────
 
+interface PreuveItem {
+  id: string;
+  nom: string;
+  url: string;
+  dateUpload: string;
+}
+
 interface PACItem {
   id: string;
   ecart_id: string;
@@ -136,6 +149,18 @@ interface PACItem {
   prefilled?: boolean;
   alerte?: boolean;
   ordre: number;
+  domaine?: string;
+  livrables?: string[];
+  preuves?: PreuveItem[];
+  // Rappel écart source
+  ecart_libelle?: string;
+  ecart_niveau_risque?: string;
+  ecart_cellule_oaci?: string;
+  // Risque résiduel évalué par l'inspecteur
+  risque_residuel?: string;
+  risque_residuel_oaci?: string;
+  // Évaluation 6 critères (pré-remplissage)
+  evaluation_action?: EvaluationAction;
 }
 
 function ResultatBadge({ resultat }: { resultat: string }) {
@@ -152,243 +177,432 @@ function ResultatBadge({ resultat }: { resultat: string }) {
   );
 }
 
-function PACChecklistItem({ item, onUpdate }: { item: PACItem; onUpdate: (item: PACItem) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const isPrefilled = item.prefilled === true;
-  const currentResultat = item.resultat || 'NV';
+function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
+  isOpen: boolean; onClose: () => void; itemRef: string;
+  preuves: PreuveItem[]; onAdd: (p: PreuveItem) => void; onRemove: (id: string) => void;
+}) {
+  const [nom, setNom] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  if (!isOpen) return null;
 
-  const couleurs: Record<string, string> = {
-    SA: 'bg-success/20 text-success border-success hover:bg-success/30',
-    NS: 'bg-danger/20 text-danger border-danger hover:bg-danger/30',
-    NV: 'bg-warning/20 text-warning border-warning hover:bg-warning/30',
+  const handleAdd = () => {
+    if (!file) return;
+    onAdd({ id: `pf-${Date.now()}`, nom: nom.trim() || file.name, url: URL.createObjectURL(file), dateUpload: new Date().toISOString() });
+    setNom(''); setFile(null);
   };
 
-  const statutColors: Record<string, string> = {
-    termine: 'bg-green-100 text-green-700 border-green-200',
-    en_cours: 'bg-amber-100 text-amber-700 border-amber-200',
-    planifie: 'bg-gray-100 text-gray-700 border-gray-200',
-  };
-
-  return (
-    <div className={`border border-border rounded-lg mb-2 overflow-hidden ${isPrefilled ? 'border-l-4 border-l-purple-400' : ''} ${item.alerte ? 'border-l-danger' : ''}`}>
-      <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50" onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <Shield className="w-4 h-4 text-role-secondary flex-shrink-0" />
-          <span className="text-sm truncate">{item.description}</span>
-          {isPrefilled && <Sparkles className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${statutColors[item.statut_origine] || statutColors.planifie}`}>
-            {item.statut_origine}
-          </span>
-          <ResultatBadge resultat={currentResultat} />
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content max-w-lg" onClick={e => e.stopPropagation()}>
+        <div className="border-t-4 border-t-role-primary rounded-2xl overflow-hidden">
+          <div className="modal-header">
+            <div className="modal-title flex items-center gap-2">
+              <FileText className="w-4 h-4 text-role-primary" />
+              Preuves — <span className="font-mono font-bold text-role-primary">{itemRef}</span>
+            </div>
+            <button className="modal-close" onClick={onClose}><X className="w-4 h-4" /></button>
+          </div>
+          <div className="modal-body p-4 space-y-3">
+            {preuves.length > 0 && (
+              <div className="mb-3">
+                <p className="text-[12px] font-semibold text-muted-foreground mb-1.5">{preuves.length} preuve(s)</p>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {preuves.map(p => (
+                    <div key={p.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-border">
+                      <div className="w-7 h-7 rounded bg-role-gradient flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <p className="flex-1 text-[12px] font-medium truncate">{p.nom}</p>
+                      <button onClick={() => window.open(p.url, '_blank')} className="btn btn-sm px-1.5 py-1 btn-ghost"><Eye className="w-3 h-3" /></button>
+                      <button onClick={() => onRemove(p.id)} className="btn btn-sm px-1.5 py-1 btn-ghost text-red-600"><Trash2 className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="border border-border rounded-lg p-3 bg-gray-50 space-y-2">
+              <p className="text-[12px] font-semibold flex items-center gap-1"><Upload className="w-3.5 h-3.5 text-role-primary" /> Ajouter une preuve</p>
+              <input type="text" value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom de la preuve…" className="form-input w-full text-xs" />
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); if (f && !nom) setNom(f.name); }} className="form-input w-full text-xs" />
+              <button type="button" onClick={handleAdd} disabled={!file}
+                className={`btn btn-sm w-full gap-1.5 ${!file ? 'opacity-50 cursor-not-allowed' : 'btn-primary'}`}>
+                <Upload className="w-3 h-3" /> Ajouter
+              </button>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-sm btn-primary px-4" onClick={onClose}>Fermer</button>
+          </div>
         </div>
       </div>
-      {expanded && (
-        <div className="p-3 border-t border-border bg-muted/30 space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-xs text-muted-foreground">Responsable:</span> <span className="text-sm">{item.responsable}</span></div>
-            <div><span className="text-xs text-muted-foreground">Échéance:</span> <span className="text-sm">{new Date(item.date_prevue).toLocaleDateString('fr-FR')}</span></div>
-          </div>
-          {item.prediction && item.confiance && (
-            <div className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-950/30 rounded-lg">
-              <Brain className="w-4 h-4 text-purple-500" />
-              <div>
-                <p className="text-xs text-purple-700 dark:text-purple-300">
-                  Prédiction: <strong>{item.prediction === 'SA' ? 'Satisfaisant' : 'Non satisfaisant'}</strong> ({item.confiance}%)
-                </p>
-                {item.justification && <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">{item.justification}</p>}
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2 flex-wrap">
-            {(['SA', 'NS', 'NV'] as const).map(r => (
-              <button key={r} type="button" onClick={() => onUpdate({ ...item, resultat: r, prefilled: false })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${currentResultat === r ? couleurs[r] + ' ring-2 ring-offset-1 ring-role-primary' : 'bg-background border border-border text-muted-foreground hover:bg-muted'}`}>
-                {r === 'SA' ? 'Satisfaisant' : r === 'NS' ? 'Non satisfaisant' : 'Non vérifié'}
-              </button>
-            ))}
-          </div>
-          <textarea value={item.observation || ''} onChange={(e) => onUpdate({ ...item, observation: e.target.value })}
-            placeholder="Observations terrain..." rows={2} className="w-full text-sm border border-border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-role-primary" />
-        </div>
-      )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Item Suivi Écarts
-// ─────────────────────────────────────────────────────────────
+function PACChecklistItem({ item, onUpdate }: { item: PACItem; onUpdate: (item: PACItem) => void }) {
+  const [expanded, setExpanded] = useState(true);
+  const [preuveOpen, setPreuveOpen] = useState(false);
+  const [preuveWarning, setPreuveWarning] = useState<'SA' | 'NV' | null>(null);
+  const [observation, setObservation] = useState(item.observation || '');
+  const [selectedResultat, setSelectedResultat] = useState<'SA' | 'NS' | 'NV'>(item.resultat || 'NV');
+  const [risqueResiduel, setRisqueResiduel] = useState(item.risque_residuel || '');
+  const initialOACI = item.risque_residuel_oaci || item.ecart_cellule_oaci || '';
+  const [risqueResiduelOACI, setRisqueResiduelOACI] = useState(/^[1-5][A-E]$/.test(initialOACI) ? initialOACI : '');
+  const [oaciEditing, setOaciEditing] = useState(false);
+  const [criteriaState, setCriteriaState] = useState<Omit<EvaluationAction, 'score' | 'decision'>>({
+    realisation: item.evaluation_action?.realisation ?? null,
+    conformitePAC: item.evaluation_action?.conformitePAC ?? null,
+    efficacite: item.evaluation_action?.efficacite ?? null,
+    perennite: item.evaluation_action?.perennite ?? null,
+    preuves: item.evaluation_action?.preuves ?? null,
+    effetsSecondaires: item.evaluation_action?.effetsSecondaires ?? null,
+    observation: item.evaluation_action?.observation || '',
+  });
+  const criteriaScore = useMemo(() => computeEvaluationActionScore(criteriaState), [criteriaState]);
 
-interface SuiviEcartItem {
-  id: string;
-  ecart_id: string;
-  reference: string;
-  libelle: string;
-  niveau_risque: string;
-  action_prevue: string;
-  responsable: string;
-  echeance: string;
-  statut: string;
-  resultat?: 'SA' | 'NS' | 'NV';
-  observation?: string;
-  efficacite?: number;
-  prefilled?: boolean;
-  evaluationTerrain?: EvaluationTerrain;
-}
+  // Auto-sauvegarde évaluation
+  useEffect(() => {
+    onUpdate({ ...item, evaluation_action: { ...criteriaState, ...criteriaScore } });
+  }, [criteriaScore.score]);
 
-function SuiviEcartChecklistItem({ item, onUpdate }: { item: SuiviEcartItem; onUpdate: (item: SuiviEcartItem) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showEval, setShowEval] = useState(false);
+  const handleCriteriaToggle = (key: keyof Omit<EvaluationAction, 'score' | 'decision'>, value: boolean) => {
+    setCriteriaState(prev => ({ ...prev, [key]: prev[key] === value ? null : value }));
+  };
+
+  const handleResultatChange = (r: 'SA' | 'NS' | 'NV') => {
+    if ((r === 'SA' || r === 'NV') && (!item.preuves || item.preuves.length === 0)) {
+      setPreuveWarning(r);
+      setPreuveOpen(true);
+      return;
+    }
+    setPreuveWarning(null);
+    setSelectedResultat(r);
+    if (r === 'NS') {
+      const reset = { conformitePAC: null as boolean | null, efficacite: null as boolean | null, perennite: null as boolean | null, preuves: null as boolean | null, effetsSecondaires: null as boolean | null };
+      setCriteriaState(prev => ({ ...prev, realisation: false, ...reset, observation: '' }));
+    } else if (r === 'SA') {
+      setCriteriaState(prev => ({ ...prev, realisation: true }));
+    }
+    onUpdate({ ...item, resultat: r });
+  };
+
+  const handleRisqueResiduelChange = (niveau: string) => {
+    setRisqueResiduel(niveau);
+    onUpdate({ ...item, risque_residuel: niveau });
+  };
+
+  const handleRisqueResiduelOACIChange = (val: string) => {
+    const upper = val.toUpperCase().replace(/[^A-E1-5]/g, '').slice(0, 2);
+    setRisqueResiduelOACI(upper);
+    onUpdate({ ...item, risque_residuel_oaci: upper });
+  };
+
+  const coherenceOk = criteriaScore.decision === 'non_evaluee' || !risqueResiduel ? null
+    : (criteriaScore.score >= 75 && (risqueResiduel === 'eleve' || risqueResiduel === 'critique')) ? false
+    : (criteriaScore.score < 75 && risqueResiduel === 'faible') ? false
+    : true;
+
+  const handleObservationChange = (obs: string) => {
+    setObservation(obs);
+    onUpdate({ ...item, observation: obs });
+  };
+
   const isPrefilled = item.prefilled === true;
   const currentResultat = item.resultat || 'NV';
-
-  const couleurs: Record<string, string> = {
-    SA: 'bg-success/20 text-success border-success hover:bg-success/30',
-    NS: 'bg-danger/20 text-danger border-danger hover:bg-danger/30',
-    NV: 'bg-warning/20 text-warning border-warning hover:bg-warning/30',
-  };
-
-  const risqueColors: Record<string, string> = {
-    critique: 'text-danger', haute: 'text-warning', moyenne: 'text-primary', basse: 'text-success',
-  };
-
-  const ev = item.evaluationTerrain;
-  const evNiveauBadge = ev
-    ? ev.niveau === 'maitrise' ? { label: 'MAÎTRISÉ', color: 'bg-success text-white', icon: CheckCircle2 }
-    : ev.niveau === 'surveillance' ? { label: 'SOUS SURVEILLANCE', color: 'bg-warning text-white', icon: AlertTriangle }
-    : { label: 'NON MAÎTRISÉ', color: 'bg-danger text-white', icon: XCircle }
-    : null;
-
-  const handleEvalChange = (field: keyof Omit<EvaluationTerrain, 'score' | 'niveau'>, value: any) => {
-    const updated = { ...(item.evaluationTerrain || {
-      evolutionCriticite: 'stable' as const, defensesExistantes: false,
-      facteursAggravants: false, recurrence: false, impactOperationnel: false, justificationAbsence: '',
-    }), [field]: value };
-    const { score, niveau } = computeEvaluationTerrainScore(updated);
-    onUpdate({ ...item, evaluationTerrain: { ...updated, score, niveau } });
+  const getEcheanceClass = () => {
+    const echeance = new Date(item.date_prevue);
+    const aujourdhui = new Date();
+    const diffJours = Math.ceil((echeance.getTime() - aujourdhui.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffJours < 0) return 'text-danger';
+    if (diffJours < 7) return 'text-warning';
+    return 'text-muted-foreground';
   };
 
   return (
-    <div className={`border border-border rounded-lg mb-2 overflow-hidden ${isPrefilled ? 'border-l-4 border-l-purple-400' : ''} ${evNiveauBadge?.label === 'NON MAÎTRISÉ' ? 'border-l-danger' : evNiveauBadge?.label === 'MAÎTRISÉ' ? 'border-l-success' : ''}`}>
-      <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50" onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0" />
-          <span className="text-sm truncate">{item.libelle}</span>
-          {isPrefilled && <Sparkles className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />}
-          {evNiveauBadge && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${evNiveauBadge.color}`}>
-              <evNiveauBadge.icon className="w-3 h-3 inline mr-0.5" />{evNiveauBadge.label}
+    <div className={`border border-border rounded-lg mb-3 overflow-hidden ${isPrefilled ? 'border-l-4 border-l-purple-400' : 'border-l-4 border-l-role-primary'} ${item.alerte ? 'border-l-danger' : ''}`}>
+      {/* En-tête */}
+      <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-role-primary/5 to-transparent cursor-pointer hover:bg-role-primary-soft transition-colors"
+        onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center justify-center w-7 h-6 rounded-md text-[11px] font-bold bg-blue-900 text-white">{getDomaineCode(item.domaine || 'SGS')}</span>
+          <span className="text-[12px] font-medium text-foreground">{getDomaineLabel(getDomaineCode(item.domaine || 'SGS'))}</span>
+          {item.reference && <span className="code-oaci-badge text-[12px]">{item.reference}</span>}
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${currentResultat === 'SA' ? 'badge success' : currentResultat === 'NS' ? 'badge danger' : 'badge warning'}`}>
+            {currentResultat}
+          </span>
+          {isPrefilled && <Sparkles className="w-3 h-3 text-purple-500" />}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted-foreground">Action {item.ordre + 1}</span>
+          {item.evaluation_action && item.evaluation_action.decision !== 'non_evaluee' && (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${item.evaluation_action.decision === 'validee' ? 'bg-success/20 text-success border-success' : item.evaluation_action.decision === 'partielle' ? 'bg-warning/20 text-warning border-warning' : 'bg-danger/20 text-danger border-danger'}`}>
+              {item.evaluation_action.score}%
+            </span>
+          )}
+          <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform" />
+        </div>
+      </div>
+
+      {/* Rappel écart source */}
+      {item.ecart_libelle && (
+        <div className={`px-3 py-1.5 ${item.ecart_niveau_risque === 'critique' ? 'bg-gradient-to-r from-red-50 to-red-100 border-red-200' : item.ecart_niveau_risque === 'eleve' ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200' : item.ecart_niveau_risque === 'moyen' ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200' : 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200'} border-b flex items-center gap-3 flex-wrap`}>
+          <span className={`text-[12px] font-medium ${item.ecart_niveau_risque === 'critique' ? 'text-red-900' : item.ecart_niveau_risque === 'eleve' ? 'text-amber-900' : item.ecart_niveau_risque === 'moyen' ? 'text-blue-900' : 'text-emerald-900'}`}>Écart : {item.ecart_libelle}</span>
+          {item.ecart_niveau_risque && (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${item.ecart_niveau_risque === 'critique' ? 'badge danger animate-pulse' : item.ecart_niveau_risque === 'eleve' ? 'badge warning' : item.ecart_niveau_risque === 'moyen' ? 'badge primary' : 'badge success'}`}>
+              {item.ecart_niveau_risque}
+            </span>
+          )}
+          {item.ecart_cellule_oaci && (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${getCellColor(item.ecart_cellule_oaci)}`}>
+              {item.ecart_cellule_oaci}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {ev && <span className={`text-xs font-bold ${ev.score >= 80 ? 'text-success' : ev.score >= 50 ? 'text-warning' : 'text-danger'}`}>{ev.score}%</span>}
-          <span className={`text-xs font-medium ${risqueColors[item.niveau_risque] || 'text-muted-foreground'}`}>{item.niveau_risque}</span>
-          <ResultatBadge resultat={currentResultat} />
-        </div>
-      </div>
+      )}
+
       {expanded && (
-        <div className="p-3 border-t border-border bg-muted/30 space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-xs text-muted-foreground">Référence:</span> <span>{item.reference}</span></div>
-            <div><span className="text-xs text-muted-foreground">Responsable:</span> <span>{item.responsable}</span></div>
-            <div><span className="text-xs text-muted-foreground">Échéance:</span> <span>{new Date(item.echeance).toLocaleDateString('fr-FR')}</span></div>
-            <div><span className="text-xs text-muted-foreground">Statut:</span> <span>{item.statut}</span></div>
-          </div>
-          <div className="p-2 bg-muted rounded-lg"><p className="text-xs text-muted-foreground">Action prévue:</p><p className="text-sm">{item.action_prevue}</p></div>
-          {/* Évaluation terrain */}
-          <div>
-            <button type="button" onClick={() => setShowEval(!showEval)}
-              className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition-all ${showEval ? 'border-role-primary bg-role-primary/5' : 'border-border hover:bg-muted/50'}`}>
-              <div className="flex items-center gap-2"><Activity className="w-4 h-4 text-role-primary" /><span className="text-sm font-semibold">Évaluation terrain</span></div>
-              <div className="flex items-center gap-2">
-                {ev && <span className={`text-sm font-bold ${ev.score >= 80 ? 'text-success' : ev.score >= 50 ? 'text-warning' : 'text-danger'}`}>{ev.score}%</span>}
-                <svg className={`w-4 h-4 transition-transform ${showEval ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-              </div>
-            </button>
-            {showEval && (
-              <div className="mt-2 space-y-2 p-3 bg-background rounded-lg border border-border">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" />Évolution de la criticité</label>
-                  <div className="flex gap-1.5">
-                    {([
-                      { value: 'amelioree', label: '📉 Améliorée', color: 'border-success text-success' },
-                      { value: 'stable', label: '➡️ Stable', color: 'border-warning text-warning' },
-                      { value: 'pire', label: '📈 Pire', color: 'border-danger text-danger' },
-                    ] as const).map(opt => (
-                      <button key={opt.value} type="button" onClick={() => handleEvalChange('evolutionCriticite', opt.value)}
-                        className={`flex-1 py-1.5 px-2 rounded text-[11px] font-medium border-2 transition-all ${ev?.evolutionCriticite === opt.value ? `${opt.color} bg-background ring-1 ring-role-primary` : 'border-border text-muted-foreground hover:bg-muted'}`}>
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {([
-                  { field: 'defensesExistantes' as const, label: '🛡️ Défenses existantes', positif: 'Oui', negatif: 'Non', inversé: false },
-                  { field: 'facteursAggravants' as const, label: '⚠️ Facteurs aggravants', positif: 'Non', negatif: 'Oui', inversé: true },
-                  { field: 'recurrence' as const, label: '🔄 Récurrence', positif: 'Non', negatif: 'Oui', inversé: true },
-                  { field: 'impactOperationnel' as const, label: '📊 Impact opérationnel', positif: 'Non', negatif: 'Oui', inversé: true },
-                ]).map(crit => {
-                  const value = ev?.[crit.field];
-                  const favorable = crit.inversé ? !value : value;
-                  return (
-                    <div key={crit.field} className="flex items-center justify-between">
-                      <span className="text-xs font-medium">{crit.label}</span>
+        <div className="bg-gray-50/70">
+          {/* Table 4 colonnes */}
+          <div className="border border-blue-100 rounded-lg mx-3 my-2 overflow-hidden">
+            <table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="bg-blue-50 border-b border-blue-200">
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[35%]">Action corrective</th>
+                  <th className="p-1.5 text-center text-[11px] font-bold text-foreground border-r border-blue-100 w-32 min-w-[7rem] max-w-[9rem]">Preuve</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground border-r border-blue-100 w-[20%]">État</th>
+                  <th className="p-1.5 text-left text-[11px] font-bold text-foreground w-[30%]">Observation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-blue-100">
+                  <td className="p-1.5 border-r border-blue-100 align-top">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[12px] text-foreground font-medium">{item.description}</span>
+                      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+                        <span>Responsable : {item.responsable}</span>
+                        <span className={getEcheanceClass()}>Échéance : {new Date(item.date_prevue).toLocaleDateString('fr-FR')}</span>
+                      </div>
+                      {item.livrables && item.livrables.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {item.livrables.map((l, i) => (
+                            <span key={i} className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">{l}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-1.5 text-center border-r border-blue-100 w-32 min-w-[7rem] max-w-[9rem] align-middle">
+                    <button type="button" onClick={() => setPreuveOpen(true)}
+                      className="inline-flex flex-col items-center gap-0.5 px-2 py-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 w-full justify-center">
+                      <FileText className="w-3.5 h-3.5" />
+                      {item.preuves && item.preuves.length > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5 w-full">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-[11px] font-bold text-primary">{item.preuves.length}</span>
+                          {item.preuves.slice(0, 2).map(p => (
+                            <span key={p.id} className="text-[9px] text-primary truncate max-w-[90px] text-center">{p.nom}</span>
+                          ))}
+                          {item.preuves.length > 2 && <span className="text-[9px] text-muted-foreground">+{item.preuves.length - 2}</span>}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">Ajouter</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="p-1.5 border-r border-blue-100 align-top">
+                    <div className="flex flex-col gap-1">
                       <div className="flex gap-1">
-                        <button type="button" onClick={() => handleEvalChange(crit.field, crit.inversé ? false : true)}
-                          className={`py-1 px-3 rounded text-[11px] font-medium border transition-all ${favorable === true ? 'border-success bg-success/10 text-success' : 'border-border text-muted-foreground hover:bg-muted'}`}>
-                          {crit.positif} ✅
-                        </button>
-                        <button type="button" onClick={() => handleEvalChange(crit.field, crit.inversé ? true : false)}
-                          className={`py-1 px-3 rounded text-[11px] font-medium border transition-all ${favorable === false ? 'border-danger bg-danger/10 text-danger' : 'border-border text-muted-foreground hover:bg-muted'}`}>
-                          {crit.negatif} ❌
-                        </button>
+                        {(['SA', 'NS', 'NV'] as const).map(r => (
+                          <button key={r} type="button" onClick={() => handleResultatChange(r)}
+                            className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${selectedResultat === r ? (r === 'SA' ? 'bg-success text-white border-success' : r === 'NS' ? 'bg-danger text-white border-danger' : 'bg-warning text-white border-warning') : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>{r === 'SA' ? 'Réalisée' : r === 'NS' ? 'Non réalisée' : 'En cours'}</button>
+                        ))}
                       </div>
+                      {preuveWarning && (
+                        <p className="text-[10px] text-danger flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> Preuve requise
+                        </p>
+                      )}
                     </div>
-                  );
-                })}
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold flex items-center gap-1"><FileText className="w-3.5 h-3.5" />Justification</label>
-                  <textarea value={ev?.justificationAbsence || ''} onChange={(e) => handleEvalChange('justificationAbsence', e.target.value)}
-                    placeholder="Expliquez pourquoi les actions n'ont pas été mises en oeuvre..." rows={2}
-                    className="w-full text-xs border border-border rounded p-2 focus:outline-none focus:ring-2 focus:ring-role-primary" />
-                </div>
-                {ev && (
-                  <div className={`p-2.5 rounded-lg border-2 ${ev.niveau === 'maitrise' ? 'border-success/30 bg-success/5' : ev.niveau === 'surveillance' ? 'border-warning/30 bg-warning/5' : 'border-danger/30 bg-danger/5'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {evNiveauBadge && <evNiveauBadge.icon className={`w-4 h-4 ${evNiveauBadge.color.includes('success') ? 'text-success' : evNiveauBadge.color.includes('warning') ? 'text-warning' : 'text-danger'}`} />}
-                        <span className={`text-sm font-bold ${evNiveauBadge?.color.includes('success') ? 'text-success' : evNiveauBadge?.color.includes('warning') ? 'text-warning' : 'text-danger'}`}>ÉCART {evNiveauBadge?.label}</span>
-                      </div>
-                      <span className={`text-lg font-bold ${ev.score >= 80 ? 'text-success' : ev.score >= 50 ? 'text-warning' : 'text-danger'}`}>{ev.score}%</span>
-                    </div>
-                  </div>
+                  </td>
+                  <td className="p-1.5 align-top">
+                    <textarea value={observation} onChange={e => handleObservationChange(e.target.value)}
+                      placeholder="Observation terrain..." rows={2}
+                      className="form-textarea w-full text-[13px] resize-none" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Prédiction système */}
+          {!item.resultat && item.prediction && item.confiance && (
+            <div className="mx-3 mb-2 p-2 bg-primary/5 rounded-lg border border-primary/20">
+              <div className="flex items-center gap-2 text-[11px]">
+                <Brain className="w-3 h-3 text-primary" />
+                <span className="font-medium text-primary">
+                  Prédiction : {item.prediction === 'SA' ? 'Satisfaisant (SA)' : 'Non satisfaisant (NS)'}
+                </span>
+                <span className="text-[11px] text-primary font-medium">({item.confiance}%)</span>
+                {item.justification && (
+                  <span className="text-[10px] text-muted-foreground ml-1">{item.justification}</span>
                 )}
               </div>
-            )}
-          </div>
-          {item.efficacite !== undefined && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Efficacité estimée:</span>
-              <span className="text-sm font-semibold text-role-primary">{item.efficacite}%</span>
             </div>
           )}
-          <div className="flex gap-2 flex-wrap">
-            {(['SA', 'NS', 'NV'] as const).map(r => (
-              <button key={r} type="button" onClick={() => onUpdate({ ...item, resultat: r, prefilled: false })}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${currentResultat === r ? couleurs[r] + ' ring-2 ring-offset-1 ring-role-primary' : 'bg-background border border-border text-muted-foreground hover:bg-muted'}`}>
-                {r === 'SA' ? 'Satisfaisant' : r === 'NS' ? 'Non satisfaisant' : 'Non vérifié'}
-              </button>
-            ))}
+
+          {/* Évaluation 6 critères */}
+          <div className="mx-3 mb-2">
+            <p className="text-[12px] font-semibold text-muted-foreground mb-1">Évaluation des critères</p>
+            <div className="border border-blue-100 rounded-lg overflow-hidden">
+              <div className="grid grid-cols-6">
+                {([
+                  { key: 'realisation' as const, label: 'Réalisation' },
+                  { key: 'conformitePAC' as const, label: 'Conformité' },
+                  { key: 'efficacite' as const, label: 'Efficacité' },
+                  { key: 'perennite' as const, label: 'Pérennité' },
+                  { key: 'preuves' as const, label: 'Preuves' },
+                  { key: 'effetsSecondaires' as const, label: 'Effets second.' },
+                ]).map(({ key, label }) => (
+                  <div key={key} className="border-r border-blue-100 last:border-r-0">
+                    <div className="p-1 text-[10px] font-semibold text-center text-muted-foreground bg-blue-50/50 border-b border-blue-100">{label}</div>
+                    <div className="flex gap-0.5 justify-center p-1">
+                      <button type="button" onClick={() => handleCriteriaToggle(key, true)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${criteriaState[key] === true ? 'bg-success text-white border-success' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}>Oui</button>
+                      <button type="button" onClick={() => handleCriteriaToggle(key, false)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${criteriaState[key] === false ? 'bg-danger text-white border-danger' : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'}`}>Non</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold">Score: {criteriaScore.score}%</span>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${criteriaScore.decision === 'validee' ? 'bg-success/20 text-success border-success' : criteriaScore.decision === 'partielle' ? 'bg-warning/20 text-warning border-warning' : criteriaScore.decision === 'non_validee' ? 'bg-danger/20 text-danger border-danger' : 'bg-gray-200 text-gray-500 border-gray-300'}`}>
+                  {criteriaScore.decision === 'validee' ? 'Validée' : criteriaScore.decision === 'partielle' ? 'Partielle' : criteriaScore.decision === 'non_validee' ? 'Non validée' : 'Non évaluée'}
+                </span>
+              </div>
+              {criteriaScore.decision !== 'non_evaluee' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Conclusion :</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border ${criteriaScore.score >= 75 ? 'bg-success text-white border-success' : 'bg-danger text-white border-danger'}`}>
+                    {criteriaScore.score >= 75 ? 'SA' : 'NS'}
+                  </span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border ${criteriaScore.score >= 75 ? 'bg-success/20 text-success border-success' : criteriaScore.score >= 25 ? 'bg-warning/20 text-warning border-warning' : 'bg-danger/20 text-danger border-danger'}`}>
+                    {criteriaScore.score >= 75 ? '100%' : criteriaScore.score >= 25 ? '75%' : criteriaScore.score > 0 ? '25%' : '0%'}
+                  </span>
+                </div>
+              )}
+              {/* Risque résiduel */}
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[11px] font-semibold text-muted-foreground">Risque résiduel :</span>
+                <div className="flex gap-1">
+                  {['faible', 'moyen', 'eleve', 'critique'].map(niveau => (
+                    <button key={niveau} type="button"
+                      onClick={() => handleRisqueResiduelChange(risqueResiduel === niveau ? '' : niveau)}
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${risqueResiduel === niveau
+                        ? (niveau === 'critique' ? 'badge danger animate-pulse' : niveau === 'eleve' ? 'badge warning' : niveau === 'moyen' ? 'badge primary' : 'badge success')
+                        : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>
+                      {niveau === 'eleve' ? 'Élevé' : niveau.charAt(0).toUpperCase() + niveau.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                {risqueResiduel && (
+                  oaciEditing ? (
+                    <input type="text" value={risqueResiduelOACI} onChange={e => handleRisqueResiduelOACIChange(e.target.value)}
+                      onBlur={() => setOaciEditing(false)} autoFocus maxLength={2}
+                      className="w-14 text-center text-[11px] font-bold border border-blue-300 rounded bg-white px-1 py-0.5" />
+                  ) : (
+                    <button type="button" onClick={() => setOaciEditing(true)}
+                      className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-bold border min-w-[2.5rem] ${!/^[1-5][A-E]$/.test(risqueResiduelOACI) ? 'bg-gray-100 text-gray-400 border-gray-200' : getCellColor(risqueResiduelOACI)}`}>
+                      {/^[1-5][A-E]$/.test(risqueResiduelOACI) ? risqueResiduelOACI : '—'}
+                    </button>
+                  )
+                )}
+                {coherenceOk === false && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-danger" title="Incohérent avec l'évaluation">
+                    <AlertTriangle className="w-3 h-3" /> Incohérent
+                  </span>
+                )}
+                {coherenceOk === true && risqueResiduel && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-success">
+                    <Check className="w-3 h-3" /> Cohérent
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <textarea value={item.observation || ''} onChange={(e) => onUpdate({ ...item, observation: e.target.value })}
-            placeholder="Observations de suivi..." rows={2} className="w-full text-sm border border-border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-role-primary" />
         </div>
       )}
+
+      {/* Modal preuve */}
+      <PreuveModal
+        isOpen={preuveOpen}
+        onClose={() => setPreuveOpen(false)}
+        itemRef={item.reference}
+        preuves={item.preuves || []}
+        onAdd={(p) => onUpdate({ ...item, preuves: [...(item.preuves || []), p] })}
+        onRemove={(id) => onUpdate({ ...item, preuves: (item.preuves || []).filter(x => x.id !== id) })}
+      />
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Helper : niveau de maturité PAOE pour un écart SGS
+// ─────────────────────────────────────────────────────────────
+
+function getNiveauMaturiteForEcart(ecart: Ecart, sgsEval?: EvaluationSGS | null): PAOELevel | undefined {
+  if (ecart.domaine !== 'SGS') return undefined;
+  if (sgsEval?.composantes) {
+    const m = ecart.ref_reglementaire?.match(/Composante\s+(\d)/i);
+    if (m) {
+      const comp = sgsEval.composantes.find(c => c.id === parseInt(m[1]) as 1|2|3|4|5);
+      if (comp) return comp.niveauGlobal;
+    }
+    for (const comp of sgsEval.composantes) {
+      if (ecart.ref_reglementaire?.includes(comp.label)) return comp.niveauGlobal;
+    }
+  }
+  const niveauxRisque: Record<string, PAOELevel> = { critique: 'absent', eleve: 'present', moyen: 'approprie', faible: 'operationnel' };
+  return niveauxRisque[ecart.niveau_risque] || 'present';
+}
+
+// ─────────────────────────────────────────────────────────────
+// Migration d'anciens SuiviEcartItem → EcartEvaluation
+// ─────────────────────────────────────────────────────────────
+
+function migrateSuiviItem(old: any, ecarts?: Ecart[], sgsEval?: EvaluationSGS | null): EcartEvaluation {
+  if (old.criticite && old.risque_initial !== undefined) {
+    const ecart = ecarts?.find(e => e.id === old.ecart_id);
+    return { ...old, reference: ecart?.reference || old.reference || '' };
+  }
+  const ecartSrc = ecarts?.find(e => e.id === old.ecart_id);
+  return {
+    id: old.id,
+    ecart_id: old.ecart_id,
+    reference: ecartSrc?.reference || old.reference || '',
+    libelle: old.libelle || 'Écart sans libellé',
+    niveau_risque: (old.niveau_risque || 'moyen') as NiveauRisque,
+    statut_mesure: old.statut_mesure || 'aucune',
+    mesure_description: old.action_prevue || '',
+    preuves: old.preuves || [],
+    risque_initial: (old.risque_initial || old.niveau_risque || 'moyen') as NiveauRisque,
+    niveau_maturite: old.niveau_maturite || (ecartSrc ? getNiveauMaturiteForEcart(ecartSrc, sgsEval) : undefined),
+    niveau_maturite_residuel: old.niveau_maturite_residuel,
+    criticite: {
+      defenses_existantes: { valeur: null },
+      facteurs_aggravants: { valeur: null },
+      recurrence: { valeur: null },
+      impact_operationnel: { valeur: null },
+      delai_correction: { valeur: null },
+      ...(old.criticite || {}),
+    },
+    commentaire: old.observation || old.commentaire,
+    conclusion: (old.resultat || old.conclusion) as 'SA' | 'NS' | 'NV' | undefined,
+    ordre: old.ordre ?? 0,
+    isExpanded: true,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -560,7 +774,8 @@ export default function PreparationChecklistPage() {
   // ── États ──────────────────────────────────────────────────
   const [standardDomaines, setStandardDomaines] = useState<DomaineChecklist[]>([]);
   const [pacItems, setPacItems] = useState<PACItem[]>([]);
-  const [suiviItems, setSuiviItems] = useState<SuiviEcartItem[]>([]);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
+  const [suiviItems, setSuiviItems] = useState<EcartEvaluation[]>([]);
   const [sgsEvaluation, setSgsEvaluation] = useState<EvaluationSGS | null>(null);
 
   const [isOffline, setIsOffline] = useState(false);
@@ -569,6 +784,7 @@ export default function PreparationChecklistPage() {
   const [iaPrefilledCount, setIaPrefilledCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  const [iaBatchLoading, setIaBatchLoading] = useState(false);
 
   // Onglet actif en mode mixte
   const [mixteTab, setMixteTab] = useState<MixteTab>('standard');
@@ -625,6 +841,8 @@ export default function PreparationChecklistPage() {
     if (!planning) return;
     const typeSurv = (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine'
       : planning.type === 'maintien' ? 'maintien' : 'periodique';
+    const checklistPrefix = planning.type === 'certification' ? 'CERT'
+      : planning.type === 'homologation' ? 'HMG' : 'QSC';
 
     // Détermine si on doit charger un type de données
     const needsStandard = checklistType === 'standard' || isMixte;
@@ -633,6 +851,7 @@ export default function PreparationChecklistPage() {
     // SGS mode : chargement de l'évaluation PAOE existante depuis le planning
 
     const load = async () => {
+      try {
       // ── Standard ──
       if (needsStandard) {
         const key = `preparation-${planningId}-standard`;
@@ -663,13 +882,12 @@ export default function PreparationChecklistPage() {
             enriched.forEach(d => walk(d));
             setIaPrefilledCount(prev => prev + cnt);
           } else {
-            const analysesDocs = kitDocAgent.getAnalysesForPortee(planning.portee || []);
             try {
-              const result = kitDocAgent.generateChecklist({
+              const result = await kitDocAgent.generateChecklist({
                 surveillance_id: planningId, entite_id: planning.aerodrome_id,
                 type_entite: aerodrome?.type_entite ?? 'aerodrome', type_surveillance: typeSurv,
                 portee: planning.portee || [], profil_risque: profil,
-                analyses_docs: analysesDocs.length > 0 ? analysesDocs : undefined,
+                prefix_numero: checklistPrefix,
               });
               const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodrome) } : result;
               setStandardDomaines(normalizeDomaines(excludeSGSDomaines(toDomaineChecklistArray(resultFiltered) as unknown as DomaineChecklist[], planning.portee || [])));
@@ -700,6 +918,11 @@ export default function PreparationChecklistPage() {
                 prediction: (() => { const d = new Date(action.date_prevue || ecart.delai_pac || ''); return (!isNaN(d.getTime()) && d.getTime() < Date.now()) ? 'NS' : 'NV' })(),
                 confiance: (() => { const d = new Date(action.date_prevue || ecart.delai_pac || ''); return !isNaN(d.getTime()) ? 85 : 40 })(),
                 justification: "Basé sur l'historique des vérifications", ordre: idx * 100 + aIdx,
+                domaine: ecart.domaine || (ecart as any).domaine,
+                livrables: action.livrables || [],
+                ecart_libelle: ecart.libelle,
+                ecart_niveau_risque: ecart.niveau_risque,
+                ecart_cellule_oaci: ecart.cellule_risque_oaci,
               });
             });
           });
@@ -714,21 +937,33 @@ export default function PreparationChecklistPage() {
         const key = `preparation-${planningId}-suivi`;
         const offline = await dbGet(key);
         if (offline?.items) {
-          setSuiviItems(offline.items);
+          setSuiviItems(offline.items.map((item: any) => migrateSuiviItem(item, ecarts, planning.sgs_evaluation_prepa as EvaluationSGS | null | undefined)));
           setHasChanges(true);
         } else if (planning.checklist_suivi_ecarts?.length) {
-          setSuiviItems(planning.checklist_suivi_ecarts as SuiviEcartItem[]);
-          setIaPrefilledCount(prev => prev + planning.checklist_suivi_ecarts!.filter((i: SuiviEcartItem) => i.prefilled).length);
+          setSuiviItems(planning.checklist_suivi_ecarts.map((item: any) => migrateSuiviItem(item, ecarts, planning.sgs_evaluation_prepa as EvaluationSGS | null | undefined)));
         } else {
-          const ecartsActifs = ecarts.filter(e => e.aerodrome_id === planning.aerodrome_id && e.statut !== 'cloture');
-          const items: SuiviEcartItem[] = ecartsActifs.map((ecart) => ({
-            id: `suivi-${ecart.id}`, ecart_id: ecart.id, reference: ecart.reference,
-            libelle: ecart.libelle, niveau_risque: ecart.niveau_risque || 'moyen',
-            action_prevue: ecart.pac?.observations || ecart.libelle || 'Aucune action définie',
-            responsable: ecart.responsable_id || 'Non assigné',
-            echeance: ecart.delai_pac || ecart.delai_regularisation || '', statut: ecart.statut || 'ouvert',
-            efficacite: (() => { const echeance = new Date(ecart.delai_pac || ecart.delai_regularisation || ''); if (isNaN(echeance.getTime())) return 60; const joursRestants = (echeance.getTime() - Date.now()) / 86400000; if (joursRestants < 0) return 30; if (joursRestants < 30) return 50; return 70 })(),
-          }));
+          const items: EcartEvaluation[] = ecarts
+            .filter(e => e.aerodrome_id === planning.aerodrome_id && e.statut !== 'cloture')
+            .map((ecart, idx) => ({
+              id: `eval-${ecart.id}-${Date.now()}`, ecart_id: ecart.id,
+              reference: ecart.reference || ecart.ref_reglementaire || '',
+              libelle: ecart.libelle || 'Écart sans libellé',
+              niveau_risque: (ecart.niveau_risque || 'moyen') as NiveauRisque,
+              statut_mesure: 'aucune' as const,
+              preuves: [],
+              risque_initial: (ecart.niveau_risque || 'moyen') as NiveauRisque,
+              niveau_maturite: getNiveauMaturiteForEcart(ecart, planning.sgs_evaluation_prepa as EvaluationSGS | null | undefined),
+              niveau_maturite_residuel: undefined,
+              criticite: {
+                defenses_existantes: { valeur: null },
+                facteurs_aggravants: { valeur: null },
+                recurrence: { valeur: null },
+                impact_operationnel: { valeur: null },
+                delai_correction: { valeur: null },
+              },
+              ordre: idx,
+              isExpanded: true,
+            }));
           setSuiviItems(items);
         }
       }
@@ -745,6 +980,10 @@ export default function PreparationChecklistPage() {
       }
 
       setIsLoading(false);
+    } catch (e) {
+      console.error('Erreur chargement préparation checklist:', e);
+      setIsLoading(false);
+    }
     };
 
     load();
@@ -821,10 +1060,69 @@ export default function PreparationChecklistPage() {
     setHasChanges(true);
   }, []);
 
-  const handleUpdateSuiviItem = useCallback((item: SuiviEcartItem) => {
+  const handleUpdateSuiviItem = useCallback((item: EcartEvaluation) => {
     setSuiviItems(prev => prev.map(i => i.id === item.id ? item : i));
     setHasChanges(true);
   }, []);
+
+  // ── Enrichissement IA batch ─────────────────────────────────
+  const walkItems = useCallback((domaines: DomaineChecklist[]): Array<{ id: string; numero: string; point_verification: string; domaine: string; sousDomaine: string; sousSousDomaine: string }> => {
+    const items: any[] = [];
+    const walk = (d: { items?: ChecklistItem[]; nom: string }, sdNom?: string, ssdNom?: string) => {
+      (d.items || []).forEach(i => items.push({ id: i.id, numero: i.numero, point_verification: i.point_verification, domaine: d.nom, sousDomaine: sdNom || d.nom, sousSousDomaine: ssdNom || '' }));
+    };
+    domaines.forEach(d => {
+      walk(d);
+      (d.sousDomaines || []).forEach(sd => {
+        walk(sd, sd.nom);
+        (sd.sousSousDomaines || []).forEach(ssd => walk(ssd, sd.nom, ssd.nom));
+      });
+    });
+    return items;
+  }, []);
+
+  const handleBatchPredict = useCallback(async () => {
+    if (!aerodrome || !planning || iaBatchLoading) return;
+    setIaBatchLoading(true);
+    try {
+      const flatItems = walkItems(standardDomaines);
+      if (flatItems.length === 0) return;
+      const result = await checklistAgent.predictBatch({
+        surveillanceId: planningId,
+        aerodromeId: planning.aerodrome_id,
+        items: flatItems,
+        profil: profil ?? undefined,
+      }, {});
+      // Appliquer les prédictions enrichies dans l'arbre
+      const applyToTree = (d: DomaineChecklist): DomaineChecklist => ({
+        ...d,
+        items: (d.items || []).map(i => {
+          const pred = result.predictions.get(i.id);
+          if (!pred) return i;
+          return { ...i, prediction: pred.prediction as any, confiance: pred.confidence, justification: pred.justification, prefilled: pred.confidence >= 70 } as any;
+        }),
+        sousDomaines: (d.sousDomaines || []).map(sd => ({
+          ...sd,
+          items: (sd.items || []).map(i => {
+            const pred = result.predictions.get(i.id);
+            if (!pred) return i;
+            return { ...i, prediction: pred.prediction as any, confiance: pred.confidence, justification: pred.justification, prefilled: pred.confidence >= 70 } as any;
+          }),
+          sousSousDomaines: (sd.sousSousDomaines || []).map(ssd => ({
+            ...ssd,
+            items: (ssd.items || []).map(i => {
+              const pred = result.predictions.get(i.id);
+              if (!pred) return i;
+              return { ...i, prediction: pred.prediction as any, confiance: pred.confidence, justification: pred.justification, prefilled: pred.confidence >= 70 } as any;
+            }),
+          })) as any,
+        })) as any,
+      });
+      setStandardDomaines(prev => prev.map(d => applyToTree(d)));
+      setIaPrefilledCount(result.stats.sa + result.stats.ns);
+    } catch (e) { console.error('[BatchPredict]', e); }
+    finally { setIaBatchLoading(false); }
+  }, [standardDomaines, aerodrome, planning, planningId, profil, iaBatchLoading, walkItems]);
 
   // ── Stats ──────────────────────────────────────────────────
   const stats = React.useMemo(() => {
@@ -844,8 +1142,8 @@ export default function PreparationChecklistPage() {
       return { total, sa, ns, nv, na: 0, progression: total > 0 ? Math.round(((sa + ns) / total) * 100) : 0 };
     }
     if (activeType === 'suivi') {
-      const total = suiviItems.length; const sa = suiviItems.filter(i => i.resultat === 'SA').length;
-      const ns = suiviItems.filter(i => i.resultat === 'NS').length; const nv = suiviItems.filter(i => !i.resultat || i.resultat === 'NV').length;
+      const total = suiviItems.length; const sa = suiviItems.filter(i => i.conclusion === 'SA').length;
+      const ns = suiviItems.filter(i => i.conclusion === 'NS').length; const nv = suiviItems.filter(i => !i.conclusion || i.conclusion === 'NV').length;
       return { total, sa, ns, nv, na: 0, progression: total > 0 ? Math.round(((sa + ns) / total) * 100) : 0 };
     }
     return { total: 0, sa: 0, ns: 0, nv: 0, na: 0, progression: 0 };
@@ -954,6 +1252,12 @@ export default function PreparationChecklistPage() {
                   {isSaving ? 'Sauvegarde...' : `Sauvegardé ${lastSaved.toLocaleTimeString()}`}
                 </span>
               )}
+              <button
+                onClick={() => setShowAiAssistant(!showAiAssistant)}
+                className={`btn btn-sm gap-1.5 ${showAiAssistant ? 'btn-primary' : 'btn-secondary'}`}
+              >
+                <Brain className="w-3.5 h-3.5" /> IA
+              </button>
               <button onClick={handleSave} className="btn btn-sm btn-primary gap-1.5" disabled={isSaving}>
                 <Save className="w-3.5 h-3.5" /> Sauvegarder
               </button>
@@ -1026,7 +1330,16 @@ export default function PreparationChecklistPage() {
       </div>
 
       {/* Content — pleine largeur */}
-      <div className="w-full px-2 py-4 space-y-4">
+      <div className={`w-full ${showAiAssistant ? 'flex flex-row gap-3 px-2 py-4' : 'px-2 py-4 space-y-4'}`}>
+        {showAiAssistant && (
+          <div className="w-80 shrink-0 overflow-y-auto max-h-[calc(100vh-140px)] space-y-2">
+            <ChatIALateral
+              checklistJson={standardDomaines}
+              onChecklistUpdate={(updated) => setStandardDomaines(updated)}
+            />
+          </div>
+        )}
+        <div className={showAiAssistant ? 'flex-1 space-y-4' : ''}>
         {/* Bandeau IA */}
         {iaPrefilledCount > 0 && (
           <div className="card border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30">
@@ -1043,6 +1356,11 @@ export default function PreparationChecklistPage() {
                     {iaPrefilledCount} item{iaPrefilledCount > 1 ? 's' : ''} pré-rempli{iaPrefilledCount > 1 ? 's' : ''} via profil de risque et historique.
                   </p>
                 </div>
+                <button onClick={handleBatchPredict} disabled={iaBatchLoading}
+                  className="btn btn-sm btn-secondary gap-1.5 shrink-0">
+                  {iaBatchLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+                  Enrichir
+                </button>
               </div>
             </div>
           </div>
@@ -1117,7 +1435,16 @@ export default function PreparationChecklistPage() {
                 </div>
               </div>
             ) : (
-              suiviItems.map(item => <SuiviEcartChecklistItem key={item.id} item={item} onUpdate={handleUpdateSuiviItem} />)
+              suiviItems.map(item => (
+                <EcartEvaluationCard
+                  key={item.id}
+                  item={item}
+                  readOnly={false}
+                  onUpdate={handleUpdateSuiviItem}
+                  onAddFile={() => {}}
+                  onDeleteFile={() => {}}
+                />
+              ))
             )}
           </div>
         )}
@@ -1128,6 +1455,7 @@ export default function PreparationChecklistPage() {
             <p>💡 Sauvegarde automatique toutes les 5 secondes. Fonctionne hors ligne.</p>
             <p className="mt-1">Revenez au planning pour exécuter la surveillance sur site.</p>
           </div>
+        </div>
         </div>
       </div>
     </div>

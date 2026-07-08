@@ -13,7 +13,6 @@ import {
   AlertCircle,
   Eye,
   Key,
-  Settings,
   FileSearch,
   BarChart3,
   CheckCircle2,
@@ -26,6 +25,7 @@ import {
   Flame,
 } from 'lucide-react';
 import { useAppStore, type ApiKey } from '@/lib/store';
+import { Card } from '@/components/ui/card';
 import { FormShell } from '@/components/ui/FormShell';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -119,42 +119,35 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
         </div>
       </div>
 
-      {/* ==================== ACCÈS RAPIDES ==================== */}
-      <div className="card animate-fade-up" style={{ animationDelay: '0.3s' }}>
-        <div className="card-header">
-          <div className="card-title flex items-center gap-2">
-            <Settings className="h-5 w-5 text-role-primary" />
-            Accès rapides — Administration
-          </div>
-        </div>
-        <div className="card-content">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {([
-              { id: 'utilisateurs', label: 'Gérer les utilisateurs', icon: Users },
-              { id: 'codes', label: "Codes d'accès", icon: Key },
-              { id: 'audit', label: "Journal d'audit", icon: FileSearch },
-              { id: 'planning', label: 'Planning général', icon: BarChart3 },
-              { id: 'certification', label: 'Certifications', icon: CheckCircle2 },
-              { id: 'homologation', label: 'Homologations', icon: Shield },
-              { id: 'formation', label: 'Formation', icon: TrendingUp },
-              { id: 'charge', label: 'Charge de travail', icon: Gauge },
-            ] as const).map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-role-primary-soft hover:bg-role-primary/10 transition-colors border border-transparent hover:border-role-primary/20 text-center group"
-                  onClick={() => setActiveModule(item.id)}
-                >
-                  <div className="w-10 h-10 bg-role-primary/10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Icon className="h-5 w-5 text-role-primary" />
-                  </div>
-                  <span className="text-xs font-medium text-role-primary leading-tight">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {/* ==================== ACTIONS RAPIDES ==================== */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-fade-up" style={{ animationDelay: '0.27s' }}>
+        {([
+          { id: 'utilisateurs', label: 'Gérer les utilisateurs', desc: 'Comptes et permissions', icon: Users },
+          { id: 'codes', label: "Codes d'accès", desc: 'Génération et révocation', icon: Key },
+          { id: 'audit', label: "Journal d'audit", desc: 'Traçabilité des actions', icon: FileSearch },
+          { id: 'planning', label: 'Planning général', desc: 'Vue d\'ensemble', icon: BarChart3 },
+          { id: 'certification', label: 'Certifications', desc: 'Suivi des dossiers', icon: CheckCircle2 },
+          { id: 'homologation', label: 'Homologations', desc: 'Gestion des phases', icon: Shield },
+          { id: 'formation', label: 'Formation', desc: 'Planification', icon: TrendingUp },
+          { id: 'charge', label: 'Charge de travail', desc: 'Répartition des missions', icon: Gauge },
+        ] as const).map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              className="flex items-center gap-3 p-4 rounded-xl border bg-card hover:bg-role-primary-soft transition-colors text-left group"
+              onClick={() => setActiveModule(item.id)}
+            >
+              <div className="p-2 rounded-lg bg-role-primary-soft group-hover:scale-110 transition-transform">
+                <Icon className="h-5 w-5 text-role-primary" />
+              </div>
+              <div>
+                <div className="text-sm font-medium">{item.label}</div>
+                <div className="text-xs text-muted-foreground">{item.desc}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* ==================== CLÉS API ==================== */}
@@ -206,17 +199,18 @@ function ApiKeysManager() {
   const getServiceLabel = (s: string) => services.find(x => x.value === s)?.label || s;
 
   return (
-    <div className="card animate-fade-up" style={{ animationDelay: '0.35s' }}>
-      <div className="card-header">
-        <div className="card-title flex items-center gap-2">
-          <Key className="h-5 w-5 text-role-primary" />
-          Clés API
-        </div>
+    <Card
+      variant="role"
+      title="Clés API"
+      icon={<Key className="h-5 w-5 text-role-primary" />}
+      badge={
         <button className="btn btn-primary btn-sm gap-1" onClick={openAdd}>
-          <Plus className="w-3.5 h-3.5" />Ajouter une clé
+          <Plus className="w-3.5 h-3.5" />Ajouter
         </button>
-      </div>
-      <div className="card-content">
+      }
+      className="animate-fade-up"
+      style={{ animationDelay: '0.35s' } as any}
+    >
         {apiKeys.length === 0 ? (
           <div className="text-center py-8">
             <Key className="h-10 w-10 text-muted mx-auto mb-3 opacity-30" />
@@ -247,8 +241,6 @@ function ApiKeysManager() {
             </table>
           </div>
         )}
-      </div>
-
       {showModal && createPortal(
         <FormShell open={showModal} onClose={() => setShowModal(false)}
           title={editKey ? 'Modifier la clé API' : 'Ajouter une clé API'}
@@ -283,6 +275,6 @@ function ApiKeysManager() {
           </div>
         </FormShell>, document.body
       )}
-    </div>
+    </Card>
   );
 }

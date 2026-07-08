@@ -16,14 +16,17 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { getABStats, clearABHistory } from '@/lib/ab_testing'
+import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engineFeedback'
+import { thresholdController } from '@/lib/ia/thresholdController'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
 } from 'recharts'
 import {
   Brain, Target, TrendingUp, Activity, AlertTriangle, CheckCircle2, RefreshCw,
   Settings, Database, BarChart3, Layers, Download, Upload, RotateCcw, Clock,
-  BookOpen, FlaskConical, GitCompare, Network,
+  BookOpen, FlaskConical, GitCompare, Network, Users, Shield,
 } from 'lucide-react'
+import { getConfianceLabel, getConfianceDot } from '@/lib/risque/bayesianNetwork'
 
 interface Props { user: AuthUser }
 
@@ -58,6 +61,9 @@ export default function MLMonitoringModule({ user }: Props) {
   const [activeTab, setActiveTab] = useState<'performances' | 'modeles'>('performances')
   const [showHelp, setShowHelp] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [engineStats, setEngineStats] = useState<EngineLearningStats | null>(null)
+
+  useEffect(() => { setEngineStats(engineFeedback.getStats()) }, [])
 
   const isAdmin = user?.role === 'admin'
   const stats = learningFeedbacks.length > 0 ? calculatePerformance() : null
@@ -88,12 +94,18 @@ export default function MLMonitoringModule({ user }: Props) {
 
   const barColor = 'var(--role-primary)'
 
+  const sourceInfo = (persistent: boolean, label: string) => (
+    <span className={`text-[10px] ${persistent ? 'text-success' : 'text-warning'} ml-1`} title={persistent ? 'Données persistées Supabase' : 'Stockage temporaire (session) — perdu à la fermeture'}>
+      {persistent ? '🟢' : '🟡'} {label}
+    </span>
+  )
+
   const kpis = [
-    { label: 'Feedbacks', value: detailedStats?.total_feedbacks || 0, icon: <Brain className="h-5 w-5" />, tooltip: "Retours inspecteurs intégrés au modèle d'apprentissage.", trend: 'collectés', trendUp: true },
-    { label: 'Précision', value: `${stats?.precision_globale ?? 0}%`, icon: <Activity className="h-5 w-5" />, tooltip: "Taux de prédictions correctes. Seuil acceptable ≥ 70 %.", trend: `v${currentModel?.version || 1}`, trendUp: (stats?.precision_globale ?? 0) >= 70 },
-    { label: 'Alertes', value: pendingAlerts.length, icon: <AlertTriangle className="h-5 w-5" />, tooltip: "Alertes de recalibration en attente.", trend: 'en attente', trendUp: false, warning: pendingAlerts.length > 0 },
-    { label: 'Échantillons RF', value: rfSamplesCount, icon: <Database className="h-5 w-5" />, tooltip: "Échantillons pour Random Forest. Minimum 10 requis.", trend: rfModelInfo ? `${(rfModelInfo.accuracy * 100).toFixed(0)}%` : 'non entraîné', trendUp: true },
-    { label: 'Convergence ML', value: `${mlRiskCorrelation.convergenceScore}%`, icon: <Target className="h-5 w-5" />, tooltip: "Cohérence entre prédictions ML et profil de risque. ≥ 60 % = bonne convergence.", trend: `${mlRiskCorrelation.aerodromeCount} aérodromes`, trendUp: mlRiskCorrelation.convergenceScore >= 60 },
+    { label: 'Feedbacks', value: detailedStats?.total_feedbacks || 0, icon: <Brain className="h-5 w-5" />, tooltip: "Retours inspecteurs intégrés au modèle d'apprentissage.", trend: 'collectés', trendUp: true, source: sourceInfo(false, 'session') },
+    { label: 'Précision', value: `${stats?.precision_globale ?? 0}%`, icon: <Activity className="h-5 w-5" />, tooltip: "Taux de prédictions correctes. Seuil acceptable ≥ 70 %.", trend: `v${currentModel?.version || 1}`, trendUp: (stats?.precision_globale ?? 0) >= 70, source: sourceInfo(false, 'session') },
+    { label: 'Alertes', value: pendingAlerts.length, icon: <AlertTriangle className="h-5 w-5" />, tooltip: "Alertes de recalibration en attente.", trend: 'en attente', trendUp: false, warning: pendingAlerts.length > 0, source: sourceInfo(false, 'session') },
+    { label: 'Échantillons RF', value: rfSamplesCount > 0 ? rfSamplesCount : 'modèle non alimenté', icon: <Database className="h-5 w-5" />, tooltip: rfSamplesCount > 0 ? "Échantillons pour Random Forest." : "Aucun échantillon réel — modèle jamais entraîné. Les prédictions RF utilisent des valeurs par défaut.", trend: rfModelInfo ? `${(rfModelInfo.accuracy * 100).toFixed(0)}%` : 'non entraîné', trendUp: rfModelInfo ? rfModelInfo.accuracy >= 0.7 : false, source: sourceInfo(false, 'session') },
+    { label: 'Convergence ML', value: `${mlRiskCorrelation.convergenceScore}%`, icon: <Target className="h-5 w-5" />, tooltip: "Cohérence entre prédictions ML et profil de risque. ≥ 60 % = bonne convergence.", trend: `${mlRiskCorrelation.aerodromeCount} aérodromes`, trendUp: mlRiskCorrelation.convergenceScore >= 60, source: sourceInfo(false, 'session') },
   ]
 
   const domainChartData = useMemo(() => {
@@ -119,10 +131,11 @@ export default function MLMonitoringModule({ user }: Props) {
         {kpis.map((kpi, idx) => (
           <div key={kpi.label} className="kpi-card animate-fade-up" style={{ animationDelay: `${idx * 0.05}s` }}>
             <div className="kpi-icon">{kpi.icon}</div>
-            <div className="kpi-content">
-              <div className="kpi-label">{kpi.label}<InfoTooltip content={kpi.tooltip} /></div>
-              <div className={`kpi-value ${kpi.warning ? 'text-warning' : ''}`}>{kpi.value}</div>
+              <div className="kpi-content">
+                <div className="kpi-label">{kpi.label}<InfoTooltip content={kpi.tooltip} /></div>
+              <div className={`kpi-value ${kpi.warning ? 'text-warning' : ''} ${typeof kpi.value === 'string' && kpi.value.includes('non alimenté') ? 'text-muted-foreground italic' : ''}`}>{kpi.value}</div>
               <div className={`kpi-trend ${kpi.trendUp ? 'up' : 'down'}`}>{kpi.trend}</div>
+              {kpi.source}
             </div>
           </div>
         ))}
@@ -188,6 +201,96 @@ export default function MLMonitoringModule({ user }: Props) {
             </div>
           </Card>
 
+          {/* AERORISQ Engines */}
+          <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="AERORISQ — Engines décisionnels" className="h-full">
+            {engineStats ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-muted-foreground">Feedback total</span>
+                  <span className="font-bold text-foreground">{engineStats.totalFeedbacks}</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-muted-foreground">Taux de pertinence global</span>
+                  <span className={`font-bold ${engineStats.pertinenceRate >= 60 ? 'text-success' : engineStats.pertinenceRate >= 40 ? 'text-warning' : 'text-danger'}`}>{engineStats.pertinenceRate}%</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
+                  {(Object.entries(engineStats.parEngine) as [string, { total: number; pertinents: number; taux: number }][]).map(([engine, data]) => (
+                    <div key={engine} className="bg-role-primary-soft rounded-lg p-2.5">
+                      <p className="text-xs text-muted-foreground capitalize mb-1">{engine === 'riskProfile' ? 'Profil risque' : engine === 'compliance' ? 'Conformité' : engine === 'certificate' ? 'Certificat' : engine === 'team' ? 'Équipe' : 'Recommandations'}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">{data.taux}%</span>
+                        <span className="text-[10px] text-muted-foreground">{data.total} votes</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {engineStats.dernieresSuggestions.length > 0 && (
+                  <details className="text-xs pt-2 border-t border-border">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Derniers feedbacks ({engineStats.dernieresSuggestions.length})</summary>
+                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                      {engineStats.dernieresSuggestions.slice(0, 5).map(f => (
+                        <div key={f.id} className="flex items-center justify-between p-1.5 rounded bg-role-primary-soft/50">
+                          <span className="text-muted-foreground">{f.engineType} — {f.decision.type}</span>
+                          <span className={`font-medium ${f.vote === 'pertinent' ? 'text-success' : f.vote === 'non_pertinent' ? 'text-danger' : 'text-warning'}`}>{f.vote}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {/* Seuils auto-ajustés */}
+                {(() => {
+                  const histo = thresholdController.getHistorique()
+                  return histo.length > 0 && (
+                    <details className="text-xs pt-2 border-t border-border">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ajustements auto ({histo.length})</summary>
+                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                        {histo.slice(-10).reverse().map((h, i) => (
+                          <div key={i} className="p-1.5 rounded bg-role-primary-soft/50">
+                            <span className="text-muted-foreground">{h.parametre}: {h.ancienneValeur}→{h.nouvelleValeur}</span>
+                            <p className="text-muted mt-0.5">{h.raison}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })()}
+              </div>
+            ) : <p className="text-sm text-muted text-center py-4">Aucun feedback AERORISQ enregistré</p>}
+          </Card>
+
+          {/* Réseau bayésien causal */}
+          <Card icon={<Shield className="h-4 w-4 text-role-primary" />} title="Réseau bayésien causal — Confiance">
+            <div className="space-y-3">
+              {(() => {
+                const totalBowTies = Object.values(profilsRisque).reduce((sum: number, p: any) => sum + (p.bowtie_metrics?.length || 0), 0)
+                return (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-foreground">Modèles Bow-Tie configurés</span>
+                      <span className="text-lg font-bold">{totalBowTies}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-foreground">Lissage Dirichlet</span>
+                      <span className="text-xs text-success flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Actif (α=1.0)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-foreground">Inférence</span>
+                      <span className="text-xs text-foreground">Élimination de variables</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-foreground">Nœuds organisationnels COP</span>
+                      <span className="text-xs text-foreground">3 (charge, formation, supervision)</span>
+                    </div>
+                    <div className="pt-3 border-t border-border text-xs text-foreground flex items-center gap-1">
+                      <Database className="w-3 h-3" />
+                      Persistance : Supabase (prévue)
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </Card>
+
           {/* Alertes + Actions */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card icon={<AlertTriangle className="h-4 w-4 text-warning" />} title={`Alertes (${pendingAlerts.length})`} levelColor="warning">
@@ -222,7 +325,11 @@ export default function MLMonitoringModule({ user }: Props) {
       {activeTab === 'modeles' && isAdmin && (
         <div className="space-y-6">
           {/* Random Forest */}
-          <Card heading="Random Forest" icon={<TrendingUp className="h-4 w-4 text-role-primary" />} badge={<button onClick={handleTrainRF} className="btn btn-primary btn-sm gap-1.5"><RefreshCw className="h-4 w-4" />Entraîner</button>}>
+          <Card heading="Random Forest" icon={<TrendingUp className="h-4 w-4 text-role-primary" />} badge={
+            <span title={rfSamplesCount < 10 ? "En attente de données d'entraînement réelles — voir decisionTracker" : 'Lancer l\'entraînement du Random Forest'}>
+              <button onClick={rfSamplesCount >= 10 ? handleTrainRF : undefined} disabled={rfSamplesCount < 10} className="btn btn-primary btn-sm gap-1.5"><RefreshCw className="h-4 w-4" />Entraîner</button>
+            </span>
+          }>
             {!rfModelInfo ? (
               <div className="text-center py-8 text-muted">
                 <Database className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>Modèle non entraîné</p>
@@ -287,21 +394,8 @@ export default function MLMonitoringModule({ user }: Props) {
           {/* Historique */}
           <HistorySection getTrainingHistory={getTrainingHistory} getTrainingStats={getTrainingStats} exportTrainingHistoryCSV={exportTrainingHistoryCSV} barColor={barColor} />
 
-          {/* Graph Network + A/B + Settings */}
+            {/* A/B Testing + Settings */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Graph Network */}
-            <Card icon={<Network className="h-4 w-4 text-role-primary" />} title="Graph Network">
-              {graphModelInfo ? (
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted">Nœuds</span><span>{graphModelInfo.nodes_count}</span></div>
-                  <div className="flex justify-between"><span className="text-muted">Arêtes</span><span>{graphModelInfo.edges_count}</span></div>
-                  <div className="flex justify-between"><span className="text-muted">Chemins critiques</span><span>{graphModelInfo.critical_paths_count}</span></div>
-                  {graphModelInfo.top_central_nodes?.slice(0, 3).map((n: { id: string; centrality: number }, i: number) => (
-                    <div key={n.id} className="flex items-center gap-2"><span className="text-xs font-mono truncate">{n.id.replace(/^[^_]+_/, '')}</span><div className="flex-1"><div className="progress h-1.5"><div className="progress-bar" style={{ width: `${Math.min(100, n.centrality * 10)}%` }} /></div></div></div>
-                  ))}
-                </div>
-              ) : <p className="text-sm text-muted">Graphe non calculé</p>}
-            </Card>
 
             {/* A/B Testing */}
             <ABTestingSection />

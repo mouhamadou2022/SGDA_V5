@@ -5,7 +5,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   AlertTriangle, FileText, Calendar, Clock, MapPin,
   Plane, Users, Save, X, Upload, AlertCircle,
-  Flame, AlertOctagon, Info, Sparkles, TrendingUp, TrendingDown
+  Flame, AlertOctagon, Info, Sparkles, TrendingUp, TrendingDown, Wand2,
+  CheckCircle2
 } from 'lucide-react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { TYPES_EVENEMENT } from '@/lib/config'
@@ -94,6 +95,15 @@ export function EvenementForm({
   const [iaAnalysis, setIaAnalysis] = useState<RiskAnalysisResult | null>(null)
   const [isLoadingIA, setIsLoadingIA] = useState(false)
   const [showIaInsight, setShowIaInsight] = useState(true)
+  const [iaSuggestion, setIaSuggestion] = useState<{
+    type: string
+    gravite: EvenementSecurite['gravite']
+    classification: EvenementSecurite['classification']
+    actions_immediates: string
+    services_alertes: string[]
+  } | null>(null)
+  const [iaSuggestLoading, setIaSuggestLoading] = useState(false)
+  const [showIaSuggestion, setShowIaSuggestion] = useState(true)
 
   // Charger l'analyse IA du profil de risque
   useEffect(() => {
@@ -277,6 +287,44 @@ export function EvenementForm({
     return null
   }
 
+  const handleIaSuggestion = async () => {
+    if (formData.description.trim().length < 20) return
+    setIaSuggestLoading(true)
+    setIaSuggestion(null)
+    try {
+      const res = await fetch('/api/ai/evenement-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: formData.description,
+          localisation: formData.localisation,
+          aerodrome_code: aerodrome?.code_oaci || aerodromeId,
+        }),
+      })
+      const data = await res.json()
+      if (data?.suggestion) {
+        setIaSuggestion(data.suggestion)
+        setShowIaSuggestion(true)
+      }
+    } catch (err) {
+      console.error('Erreur suggestion IA:', err)
+    } finally {
+      setIaSuggestLoading(false)
+    }
+  }
+
+  const appliquerSuggestionIA = () => {
+    if (!iaSuggestion) return
+    setFormData(prev => ({
+      ...prev,
+      type: iaSuggestion.type,
+      actions_immediates: iaSuggestion.actions_immediates,
+      services_alertes: iaSuggestion.services_alertes,
+    }))
+    setGravite(iaSuggestion.gravite)
+    setShowIaSuggestion(false)
+  }
+
   const TABS = mode === 'instruction'
     ? [{ id: 'informations', label: 'Informations', icon: AlertTriangle },
        { id: 'details', label: 'Détails', icon: Plane },
@@ -424,7 +472,51 @@ export function EvenementForm({
                 {errors.description && (
                   <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.description}</p>
                 )}
-                <p className="field-description">Minimum 20 caractères. Incluez les faits objectifs.</p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="field-description">Minimum 20 caractères. Incluez les faits objectifs.</p>
+                  {formData.description.trim().length >= 20 && mode === 'declaration' && (
+                    <button
+                      type="button"
+                      onClick={handleIaSuggestion}
+                      disabled={iaSuggestLoading}
+                      className="btn btn-sm btn-ghost gap-1.5 text-xs"
+                    >
+                      {iaSuggestLoading ? (
+                        <><div className="spinner spinner-xs inline-block mr-1" />Analyse...</>
+                      ) : (
+                        <><Wand2 className="w-3.5 h-3.5" />Suggestion IA</>
+                      )}
+                    </button>
+                  )}
+                </div>
+                {showIaSuggestion && iaSuggestion && (
+                  <div className="mt-3 p-3 rounded-xl border border-role-primary/30 bg-gradient-to-r from-role-primary/5 to-transparent animate-fade-in">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 space-y-2">
+                        <p className="text-xs font-semibold text-role-primary uppercase tracking-wide flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5" />Suggestion IA — validez avant application
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                          <div><span className="text-muted-foreground">Type :</span> <span className="font-medium">{iaSuggestion.type}</span></div>
+                          <div><span className="text-muted-foreground">Gravité :</span> <span className={`font-medium ${iaSuggestion.gravite === 'CRITIQUE' ? 'text-danger' : iaSuggestion.gravite === 'ORANGE' ? 'text-warning' : ''}`}>{iaSuggestion.gravite}</span></div>
+                          <div><span className="text-muted-foreground">Classification :</span> <span className="font-medium capitalize">{iaSuggestion.classification === 'incident_grave' ? 'incident grave' : iaSuggestion.classification}</span></div>
+                          <div><span className="text-muted-foreground">Services :</span> <span className="font-medium">{iaSuggestion.services_alertes.join(', ') || '—'}</span></div>
+                        </div>
+                        {iaSuggestion.actions_immediates && (
+                          <p className="text-xs text-muted-foreground mt-1"><span className="font-medium">Actions :</span> {iaSuggestion.actions_immediates}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button type="button" onClick={appliquerSuggestionIA} className="btn btn-sm btn-primary text-xs gap-1">
+                          <CheckCircle2 className="w-3 h-3" />Appliquer
+                        </button>
+                        <button type="button" onClick={() => setShowIaSuggestion(false)} className="btn btn-sm btn-ghost text-xs">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="form-field">

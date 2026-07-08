@@ -2,6 +2,7 @@
 'use client'
 
 import { AlertTriangle, Clock, Eye, Send, FileText } from 'lucide-react'
+import { getCellColor } from '@/lib/risque'
 
 interface OperatorEcartCardProps {
   ecart: {
@@ -9,6 +10,7 @@ interface OperatorEcartCardProps {
     reference: string
     libelle: string
     niveau_risque: 'critique' | 'eleve' | 'moyen' | 'faible'
+    cellule_risque_oaci?: string
     statut: string
     delai_pac?: string
     aerodrome_code?: string
@@ -49,8 +51,9 @@ export function OperatorEcartCard({
 
   const niveauBadge = niveauMap[ecart.niveau_risque] || { label: ecart.niveau_risque, cls: 'badge neutral' }
   const statutBadge = statutMap[ecart.statut] || { label: ecart.statut, cls: 'badge neutral' }
+  const isValidOACI = (cellule: string | undefined | null): cellule is string => typeof cellule === 'string' && /^[1-5][A-E]$/.test(cellule);
   const peutSoumettrePAC = ['ouvert', 'pac_refuse'].includes(ecart.statut)
-  const peutSoumettrePreuves = ecart.statut === 'pac_accepte'
+  const peutSoumettrePreuves = ['pac_accepte', 'preuves_evaluees'].includes(ecart.statut)
   const isOverdue = ecart.delai_pac && new Date(ecart.delai_pac) < new Date() && ecart.statut !== 'cloture'
 
   if (compact) {
@@ -82,6 +85,11 @@ export function OperatorEcartCard({
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={niveauBadge.cls}>{niveauBadge.label}</span>
+            {isValidOACI(ecart.cellule_risque_oaci) && (
+              <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                {ecart.cellule_risque_oaci}
+              </span>
+            )}
             <span className={statutBadge.cls}>{statutBadge.label}</span>
             <span className="code-oaci-badge">{ecart.reference}</span>
           </div>

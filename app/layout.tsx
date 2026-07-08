@@ -1,8 +1,9 @@
 // app/layout.tsx
 import type { Metadata, Viewport } from 'next'
 import { Sora, JetBrains_Mono } from 'next/font/google'
-import Script from 'next/script'
 import { GlobalOptimizer } from '@/components/providers/GlobalOptimizer'
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
+import { ThemeScript } from './ThemeScript'
 import './globals.css'
 
 const sora = Sora({
@@ -129,7 +130,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${sora.variable} ${jetbrainsMono.variable}`}
     >
       <head>
-        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -141,20 +141,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="SGDA" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="msapplication-TileColor" content="#1a237e" />
-        <meta name="msapplication-tap-highlight" content="no" />
+        <meta name="theme-color" content="#0f172a" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="description" content="SGDA — Système de Gestion des Données Aéroportuaires de l'ANACIM" />
+        <meta name="author" content="ANACIM Sénégal" />
         <meta name="geo.region" content="SN" />
         <meta name="geo.placename" content="Dakar" />
         <meta name="geo.position" content="14.6937;-17.4441" />
         <meta name="ICBM" content="14.6937, -17.4441" />
       </head>
-      <body 
+      <body
         className={`${sora.className} antialiased min-h-screen bg-gradient-to-br from-background to-muted/20`}
         suppressHydrationWarning
       >
+        <ThemeScript themeScript={themeScript} />
         <GlobalOptimizer>
           {children}
         </GlobalOptimizer>
+        <ServiceWorkerRegister />
       </body>
     </html>
   )

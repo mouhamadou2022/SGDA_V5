@@ -404,6 +404,13 @@ export default function SurveillanceDetailPage() {
                         <span>Rédiger le rapport</span>
                       </button>
                       <button
+                        onClick={handleEcartClick}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                      >
+                        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir les écarts</span>
+                      </button>
+                      <button
                         onClick={handleChecklistAction}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
                       >
@@ -437,6 +444,13 @@ export default function SurveillanceDetailPage() {
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
+                      <button
+                        onClick={handleChecklistAction}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                      >
+                        <ClipboardList className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir la checklist</span>
+                      </button>
                     </>
                   )}
 
@@ -464,6 +478,20 @@ export default function SurveillanceDetailPage() {
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Voir le rapport</span>
                       </button>
+                      <button
+                        onClick={handleEcartClick}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                      >
+                        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir les écarts</span>
+                      </button>
+                      <button
+                        onClick={handleChecklistAction}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                      >
+                        <ClipboardList className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir la checklist</span>
+                      </button>
                     </>
                   )}
 
@@ -483,6 +511,13 @@ export default function SurveillanceDetailPage() {
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
+                      </button>
+                      <button
+                        onClick={handleChecklistAction}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                      >
+                        <ClipboardList className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir la checklist</span>
                       </button>
 
                       {/* ── Bouton réparation — visible si écarts officiels absents mais brouillons disponibles ── */}

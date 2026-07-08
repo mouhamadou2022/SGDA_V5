@@ -92,8 +92,9 @@ function computeTailDependence(
 
   const sortedX = [...x].sort((a, b) => a - b)
   const sortedY = [...y].sort((a, b) => a - b)
-  const upperIdx = Math.floor(n * (1 - quantile))
-  const lowerIdx = Math.floor(n * quantile)
+  const pLow = 1 - quantile
+  const upperIdx = Math.floor(n * pLow)
+  const lowerIdx = Math.floor(n * pLow)
 
   const upperThresholdX = sortedX[n - upperIdx - 1]
   const upperThresholdY = sortedY[n - upperIdx - 1]

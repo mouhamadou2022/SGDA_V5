@@ -5,7 +5,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { FileText, X } from 'lucide-react';
-import { EvaluationPACForm } from '@/components/forms/EvaluationPACForm';
+import { EvaluationPACForm, EvaluationDraftData } from '@/components/forms/EvaluationPACForm';
 import { AideMemoirePAC } from './AideMemoirePAC';
 
 interface EvaluationPACModalProps {
@@ -13,9 +13,11 @@ interface EvaluationPACModalProps {
   onClose: () => void;
   ecartId: string;
   userRole: string;
+  onSaveDraft?: (evaluation: EvaluationDraftData) => void;
+  initialEvaluation?: Partial<EvaluationDraftData>;
 }
 
-export function EvaluationPACModal({ isOpen, onClose, ecartId, userRole }: EvaluationPACModalProps) {
+export function EvaluationPACModal({ isOpen, onClose, ecartId, userRole, onSaveDraft, initialEvaluation }: EvaluationPACModalProps) {
   const ecarts = useOptimizedStore(s => s.ecarts);
   const ecart = ecarts.find(e => e.id === ecartId);
 
@@ -45,6 +47,8 @@ export function EvaluationPACModal({ isOpen, onClose, ecartId, userRole }: Evalu
             onSuccess={onClose}
             onCancel={onClose}
             userRole={userRole}
+            onSaveDraft={onSaveDraft}
+            initialEvaluation={initialEvaluation}
           />
         </div>
       </div>

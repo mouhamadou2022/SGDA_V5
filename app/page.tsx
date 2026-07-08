@@ -4,7 +4,7 @@
 
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy, Component, type ReactNode } from 'react'
 import {
   Plane, LogIn, User, Lock, Eye, EyeOff, AlertCircle,
   ShieldCheck, TrendingUp, Cloud, Wind,
@@ -14,7 +14,8 @@ import {
   Key, HelpCircle, Phone, CheckCircle2, XCircle, RefreshCw
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
-import { loadInitialData, subscribeToEcarts } from '@/lib/datastore'
+import { loadInitialData, sanitizeEcart } from '@/lib/datastore'
+import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances, subscribeToNotifications, subscribeToMessages, subscribeToEvenements } from '@/lib/subscriptions'
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
@@ -441,10 +442,18 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
                     </span>
                   </h2>
                   <p className="text-white/40 text-base mt-3">des aérodromes du Sénégal</p>
+                  <div className="mt-6 flex items-center gap-2 px-3 py-2 rounded-lg border border-cyan-500/15" style={{ background: 'rgba(56,189,248,0.05)' }}>
+                    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-[8px] font-bold text-white shadow-sm shadow-cyan-500/30">
+                      AR
+                    </div>
+                    <p className="text-cyan-400/70 text-[11px] font-medium tracking-wide">
+                      <span className="text-cyan-300 font-bold">AERORISQ</span> — Analyse &amp; Décision par Intelligence Artificielle
+                    </p>
+                  </div>
                 </div>
 
                 {/* Espace SLOGAN → RÉSEAU */}
-                <div className="h-12" />
+                <div className="h-8" />
 
                 {/* SECTION 2 : RÉSEAU AÉROPORTUAIRE */}
                 <div className="animate-fade-up" style={{ animationDelay: '0.1s' }}>
@@ -905,6 +914,12 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
                     <p className="text-white/25 text-[10px] tracking-wide">
                       Code d'accès temporaire fourni par l'ANACIM
                     </p>
+                    <div className="mt-4 px-3 py-1.5 rounded-full border border-cyan-500/20 inline-flex items-center gap-1.5" style={{ background: 'rgba(56,189,248,0.06)' }}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-cyan-400/60 text-[9px] font-semibold tracking-wider">
+                        Propulsé par <span className="text-cyan-300 font-bold">AERORISQ</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -971,7 +986,6 @@ const MODULES = {
   'operator-conformite-echeances': lazy(() => import('@/components/modules/portail-exploitant/ConformiteEcheancesModule').then((m) => resolveModule(m, 'ConformiteEcheancesModule'))),
   'operator-impact-decisions': lazy(() => import('@/components/modules/portail-exploitant/ImpactDecisionsModule').then((m) => resolveModule(m, 'ImpactDecisionsModule'))),
   'operator-ecarts': lazy(() => import('@/components/modules/portail-exploitant/OperatorEcartsModule').then((m) => resolveModule(m, 'OperatorEcartsModule'))),
-  'operator-pac-consolide': lazy(() => import('@/components/modules/portail-exploitant/OperatorPACConsolideModule').then((m) => resolveModule(m, 'OperatorPACConsolideModule'))),
   'operator-planning': lazy(() => import('@/components/modules/portail-exploitant/OperatorPlanningModule').then((m) => resolveModule(m, 'OperatorPlanningModule'))),
   'operator-self-assessment': lazy(() => import('@/components/modules/portail-exploitant/OperatorSelfAssessment').then((m) => resolveModule(m, 'OperatorSelfAssessment'))),
   'operator-evenements': lazy(() => import('@/components/modules/portail-exploitant/OperatorEvenementsModule').then((m) => resolveModule(m, 'OperatorEvenementsModule'))),
@@ -980,12 +994,14 @@ const MODULES = {
   'operator-messagerie': lazy(() => import('@/components/modules/portail-exploitant/OperatorMessagerie').then((m) => resolveModule(m, 'OperatorMessagerie'))),
   'operator-certification': lazy(() => import('@/components/modules/portail-exploitant/OperatorCertificationModule').then((m) => resolveModule(m, 'OperatorCertificationModule'))),
   'operator-homologation': lazy(() => import('@/components/modules/portail-exploitant/OperatorHomologationModule').then((m) => resolveModule(m, 'OperatorHomologationModule'))),
+  'operator-archives': lazy(() => import('@/components/modules/portail-exploitant/OperatorArchivesModule').then((m) => resolveModule(m, 'OperatorArchivesModule'))),
   'dg-dashboard': lazy(() => import('@/components/modules/dashboard/DgDashboardModule').then((m) => resolveModule(m, 'DgDashboardModule'))),
   'dg-pilotage-securite': lazy(() => import('@/components/modules/dashboard/PilotageSecuriteModule').then((m) => resolveModule(m, 'PilotageSecuriteModule'))),
   'dg-conformite-controle': lazy(() => import('@/components/modules/dashboard/ConformiteControleModule').then((m) => resolveModule(m, 'ConformiteControleModule'))),
   'dg-decisions-impact': lazy(() => import('@/components/modules/dashboard/DecisionsImpactModule').then((m) => resolveModule(m, 'DecisionsImpactModule'))),
   'guest-dashboard': lazy(() => import('@/components/modules/dashboard/GuestDashboardModule').then((m) => resolveModule(m, 'GuestDashboardModule'))),
   'admin-dashboard': lazy(() => import('@/components/modules/dashboard/AdminDashboardModule').then((m) => resolveModule(m, 'AdminDashboardModule'))),
+  'staff-dashboard': lazy(() => import('@/components/modules/portail-exploitant/StaffDashboardModule').then((m) => resolveModule(m, 'StaffDashboardModule'))),
   'ml-monitoring': lazy(() => import('@/components/modules/ml-monitoring/MLMonitoringModule').then((m) => resolveModule(m, 'MLMonitoringModule'))),
 } as Record<string, React.LazyExoticComponent<React.ComponentType<{ user: AuthUser }>>>
 
@@ -1039,16 +1055,23 @@ export default function Page() {
         const survCount = data.surveillances?.length ?? 0
         const ecartCount = data.ecarts?.length ?? 0
         const formCount = data.formations?.length ?? 0
-        // Fusionner les inspecteurs existants (localStorage) avec ceux de Supabase
+        // Fusionner les inspecteurs existants (indexedDB) avec ceux de Supabase
+        // Déduplication par id, puis email, puis matricule (rétrocompatibilité ID auto-généré)
         const existingInspecteurs = useAppStore.getState().inspecteurs || []
         const supabaseInspecteurs = data.inspecteurs || []
         const existingIds = new Set(existingInspecteurs.map(i => i.id))
+        const existingEmails = new Set(existingInspecteurs.map(i => i.email).filter(Boolean))
+        const existingMatricules = new Set(existingInspecteurs.map(i => i.matricule).filter(Boolean))
         const mergedInspecteurs = [
           ...existingInspecteurs,
-          ...supabaseInspecteurs.filter(i => !existingIds.has(i.id))
+          ...supabaseInspecteurs.filter(i =>
+            !existingIds.has(i.id) &&
+            !(i.email && existingEmails.has(i.email)) &&
+            !(i.matricule && existingMatricules.has(i.matricule))
+          )
         ]
         
-         const existingMessages = useAppStore.getState().messages || []
+          const existingMessages = useAppStore.getState().messages || []
          // Fusionner les dossiers locaux (Zustand persist) avec ceux de Supabase
          const existingDossiers = useAppStore.getState().dossiers || []
          const existingDossierIds = new Set(existingDossiers.map(d => d.id))
@@ -1056,12 +1079,29 @@ export default function Page() {
            ...existingDossiers,
            ...(data.dossiers || []).filter(d => !existingDossierIds.has(d.id))
          ]
-         useAppStore.setState({
-            aerodromes: data.aerodromes || [],
-            surveillances: data.surveillances || [],
-            ecarts: data.ecarts || [],
-            dossiers: mergedDossiers,
-            utilisateurs: data.utilisateurs || [],
+         const existingRegistre = useAppStore.getState().registreEntries || []
+         const existingRegIds = new Set(existingRegistre.map(r => r.id))
+         const mergedRegistre = [
+           ...existingRegistre,
+           ...(data.registreEntries || []).filter(r => !existingRegIds.has(r.id))
+         ]
+          // Fusionner les utilisateurs existants (indexedDB) avec Supabase
+          const existingUtilisateurs = useAppStore.getState().utilisateurs || []
+          const existingUserIds = new Set(existingUtilisateurs.map(u => u.id))
+          const existingUserEmails = new Set(existingUtilisateurs.map(u => u.email).filter(Boolean))
+          const mergedUtilisateurs = [
+            ...existingUtilisateurs,
+            ...(data.utilisateurs || []).filter(u =>
+              !existingUserIds.has(u.id) &&
+              !(u.email && existingUserEmails.has(u.email))
+            )
+          ]
+          useAppStore.setState({
+             aerodromes: data.aerodromes || [],
+             surveillances: data.surveillances || [],
+             ecarts: data.ecarts || [],
+             dossiers: mergedDossiers,
+             utilisateurs: mergedUtilisateurs,
            plannings: data.plannings || [],
            certifications: data.certifications || [],
            homologations: data.homologations || [],
@@ -1074,6 +1114,7 @@ export default function Page() {
            kitDocuments: data.kitDocuments || [],
            messages: data.messages && data.messages.length > 0 ? data.messages : existingMessages,
            apiKeys: data.apiKeys || [],
+           registreEntries: mergedRegistre,
          })
          if (aeroCount === 0) {
            // Aucun aérodrome — silencieux en production
@@ -1081,10 +1122,34 @@ export default function Page() {
        }
      } catch (err) {
        // Erreur silencieuse en production
-    } finally {
-      setSyncing(false)
-    }
-  }, [])
+     } finally {
+       setSyncing(false)
+       // Vérifier les codes d'accès expirés après chaque sync
+       const codes = useAppStore.getState().codesAcces
+       const now = Date.now()
+       codes.forEach(c => {
+         if (c.statut === 'actif' && c.expires_at && new Date(c.expires_at).getTime() < now) {
+           useAppStore.getState().revoquerCode(c.id)
+         }
+       })
+     }
+   }, [])
+ 
+   // Intervalle de vérification des codes expirés (toutes les 5 min)
+   useEffect(() => {
+     if (!user) return
+     const checkExpiredCodes = () => {
+       const codes = useAppStore.getState().codesAcces
+       const now = Date.now()
+       codes.forEach(c => {
+         if (c.statut === 'actif' && c.expires_at && new Date(c.expires_at).getTime() < now) {
+           useAppStore.getState().revoquerCode(c.id)
+         }
+       })
+     }
+     const intervalId = setInterval(checkExpiredCodes, 5 * 60 * 1000)
+     return () => clearInterval(intervalId)
+   }, [user])
 
   // Souscription temps réel — met à jour le store Zustand quand un écart change dans Supabase.
   // Indispensable pour que l'inspecteur voie les PAC soumis sans rafraîchir le navigateur.
@@ -1094,16 +1159,101 @@ export default function Page() {
       const { eventType, new: newEcart, old: oldEcart } = payload
       if (eventType === 'UPDATE' && newEcart) {
         useAppStore.setState(state => ({
-          ecarts: state.ecarts.map(e => e.id === newEcart.id ? { ...e, ...newEcart } : e)
+          ecarts: state.ecarts.map(e => e.id === newEcart.id ? { ...e, ...sanitizeEcart(newEcart) } : e)
         }))
       } else if (eventType === 'INSERT' && newEcart) {
         useAppStore.setState(state => ({
-          ecarts: [newEcart, ...state.ecarts]
+          ecarts: [sanitizeEcart(newEcart), ...state.ecarts]
         }))
       } else if (eventType === 'DELETE' && oldEcart) {
         useAppStore.setState(state => ({
           ecarts: state.ecarts.filter(e => e.id !== oldEcart.id)
         }))
+      }
+    })
+    return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Souscription temps réel certifications
+  useEffect(() => {
+    if (!user) return
+    const channel = subscribeToCertifications((payload: any) => {
+      const { eventType, new: newCert, old: oldCert } = payload
+      if (eventType === 'INSERT' && newCert) {
+        useAppStore.setState(state => ({
+          certifications: [...state.certifications, newCert]
+        }))
+      } else if (eventType === 'UPDATE' && newCert) {
+        useAppStore.setState(state => ({
+          certifications: state.certifications.map(c => c.id === newCert.id ? { ...c, ...newCert } : c)
+        }))
+      } else if (eventType === 'DELETE' && oldCert) {
+        useAppStore.setState(state => ({
+          certifications: state.certifications.filter(c => c.id !== oldCert.id)
+        }))
+      }
+    })
+    return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Realtime surveillance
+  useEffect(() => {
+    if (!user) return
+    const channel = subscribeToSurveillances((payload: any) => {
+      const { eventType, new: s, old: o } = payload
+      if (eventType === 'UPDATE' && s) {
+        useAppStore.setState(state => ({
+          surveillances: state.surveillances.map(sv => sv.id === s.id ? { ...sv, ...s } : sv)
+        }))
+      } else if (eventType === 'INSERT' && s) {
+        useAppStore.setState(state => ({ surveillances: [s, ...state.surveillances] }))
+      } else if (eventType === 'DELETE' && o) {
+        useAppStore.setState(state => ({ surveillances: state.surveillances.filter(sv => sv.id !== o.id) }))
+      }
+    })
+    return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Realtime notifications
+  useEffect(() => {
+    if (!user) return
+    const channel = subscribeToNotifications(user.id, (payload: any) => {
+      if (payload.eventType === 'INSERT' && payload.new) {
+        useAppStore.setState(state => ({
+          notifications: [...state.notifications, payload.new],
+          unreadCount: state.unreadCount + 1,
+        }))
+      }
+    })
+    return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Realtime messages
+  useEffect(() => {
+    if (!user) return
+    const channel = subscribeToMessages(user.id, (payload: any) => {
+      if (payload.eventType === 'INSERT' && payload.new) {
+        useAppStore.setState(state => ({
+          messages: [...state.messages, payload.new],
+        }))
+      }
+    })
+    return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Realtime evenements
+  useEffect(() => {
+    if (!user) return
+    const channel = subscribeToEvenements((payload: any) => {
+      const { eventType, new: e, old: o } = payload
+      if (eventType === 'UPDATE' && e) {
+        useAppStore.setState(state => ({
+          evenements: (state.evenements || []).map(ev => ev.id === e.id ? { ...ev, ...e } : ev)
+        }))
+      } else if (eventType === 'INSERT' && e) {
+        useAppStore.setState(state => ({ evenements: [e, ...(state.evenements || [])] }))
+      } else if (eventType === 'DELETE' && o) {
+        useAppStore.setState(state => ({ evenements: (state.evenements || []).filter(ev => ev.id !== o.id) }))
       }
     })
     return () => { channel.unsubscribe() }
@@ -1203,8 +1353,37 @@ const DASHBOARD_BY_ROLE: Record<string, string> = {
   dg_anacim: 'dg-dashboard',
   dg_operator: 'dg-operator-dashboard',
   focal_operator: 'operator-dashboard',
-  staff_operator: 'operator-dashboard',
+  staff_operator: 'staff-dashboard',
   guest: 'guest-dashboard',
+}
+
+class ChunkErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center p-8 max-w-md">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-warning/10 flex items-center justify-center">
+              <AlertCircle className="w-12 h-12 text-warning" />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground mb-2">Échec de chargement</h2>
+            <p className="text-muted mb-4">Le module n'a pas pu être chargé. Un rechargement de la page peut résoudre le problème.</p>
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
+              Recharger la page
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 function ActiveModuleRenderer({ moduleKey, user }: { moduleKey: string; user: AuthUser }) {
@@ -1251,15 +1430,17 @@ function ActiveModuleRenderer({ moduleKey, user }: { moduleKey: string; user: Au
   }
 
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-role-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted">Chargement du module...</p>
+    <ChunkErrorBoundary>
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-role-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-muted">Chargement du module...</p>
+          </div>
         </div>
-      </div>
-    }>
-      <ModuleComponent key={resolvedKey} user={user} />
-    </Suspense>
+      }>
+        <ModuleComponent key={resolvedKey} user={user} />
+      </Suspense>
+    </ChunkErrorBoundary>
   )
 }

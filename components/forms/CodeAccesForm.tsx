@@ -116,6 +116,12 @@ export function CodeAccesForm({
       }
     }
 
+    if (!formData.email) {
+      newErrors.email = "L'email de l'exploitant est requis";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = "Format d'email invalide";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

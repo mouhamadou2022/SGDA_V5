@@ -57,10 +57,6 @@ jest.mock('@/components/ui/FormShell', () => ({
     ) : null,
 }))
 
-jest.mock('../CertDashboard', () => ({
-  CertDashboard: () => <div data-testid="cert-dashboard" />,
-}))
-
 jest.mock('../CertExpiryAlert', () => ({
   CertExpiryAlert: () => <div data-testid="cert-expiry-alert" />,
 }))
@@ -200,46 +196,20 @@ describe('CertificationModule', () => {
       expect(screen.getByTestId('module-title')).toHaveTextContent('Certification')
     })
 
-    it('affiche les 3 onglets (Tableau de bord, Liste, Archives)', () => {
+    it('affiche les KPIs et la liste des certifications', () => {
       renderModule()
-      expect(screen.getByText(/tableau de bord/i)).toBeInTheDocument()
       expect(screen.getByText(/liste des certifications/i)).toBeInTheDocument()
-      expect(screen.getByText(/archives/i)).toBeInTheDocument()
-    })
-
-    it("affiche le tableau de bord par défaut", () => {
-      renderModule()
-      expect(screen.getByTestId('cert-dashboard')).toBeInTheDocument()
-    })
-
-    it("n'affiche pas la liste des certifications par défaut", () => {
-      renderModule()
-      // GOOY (international) ne doit pas encore être dans la liste
-      expect(screen.queryByText('GOOY')).not.toBeInTheDocument()
+      expect(screen.getByText(/filtres/i)).toBeInTheDocument()
     })
   })
 
-  // ── 2. Onglets ────────────────────────────────────────────────────────────
+  // ── 2. Navigation ─────────────────────────────────────────────────────────
 
-  describe('Navigation par onglets', () => {
-    it('passe à l\'onglet Liste au clic', async () => {
-      renderModule()
-      await goToListTab()
-      // La liste doit être visible (plus le dashboard)
-      expect(screen.queryByTestId('cert-dashboard')).not.toBeInTheDocument()
-    })
-
-    it('passe à l\'onglet Archives au clic', () => {
+  describe('Navigation', () => {
+    it('affiche le bouton Archives qui redirige vers Registres', () => {
       renderModule()
       fireEvent.click(screen.getByText(/archives/i))
       expect(mockSetActiveModule).toHaveBeenCalledWith('registres')
-    })
-
-    it('revient au tableau de bord au clic', () => {
-      renderModule()
-      fireEvent.click(screen.getByText(/liste des certifications/i))
-      fireEvent.click(screen.getByText(/tableau de bord/i))
-      expect(screen.getByTestId('cert-dashboard')).toBeInTheDocument()
     })
   })
 

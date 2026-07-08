@@ -4,6 +4,7 @@ import React, { useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { upsertEcartsRedaction } from '@/lib/datastore';
+import { getRiskLevelClass } from '@/lib/risque';
 import SurveillanceEcartsRedaction, { QuestionNSNV, EcartRedaction } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
 import {
   ArrowLeft,
@@ -34,16 +35,6 @@ function getProgressBarColor(taux: number): string {
   if (taux >= 60) return 'bg-primary';
   if (taux >= 40) return 'bg-warning';
   return 'bg-danger';
-}
-
-function getNiveauRisqueBadge(niveau: string): string {
-  switch (niveau) {
-    case 'critique': return 'badge danger';
-    case 'eleve': return 'badge warning';
-    case 'moyen': return 'badge primary';
-    case 'faible': return 'badge success';
-    default: return 'badge neutral';
-  }
 }
 
 export default function EcartsPage() {
@@ -129,7 +120,24 @@ export default function EcartsPage() {
     );
   }
 
+  const hasSGS = (surveillance.portee || []).includes('SGS');
+  const isSgsOnly = (surveillance.portee || []).length === 1 && hasSGS;
+
   const handleEcartsSignes = () => {
+    // Pour une portée mixte SGS+autres, vérifier que les écarts SGS sont aussi signés
+    if (hasSGS && !isSgsOnly) {
+      const updated = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
+      if (!updated?.sgs_ecarts_signes_le) {
+        useAppStore.getState().addNotification({
+          user_id: user?.id || '',
+          type: 'warning' as const,
+          title: 'Écarts SGS non signés',
+          message: 'Vous devez d\'abord signer les écarts SGS avant de finaliser les écarts standard.',
+          canal: 'in_app' as const,
+        });
+        return;
+      }
+    }
     useAppStore.getState().updateSurveillance(surveillanceId, { statut: 'ecarts_signes' });
     router.push(`/surveillance/${surveillanceId}`);
   };
@@ -250,69 +258,73 @@ export default function EcartsPage() {
           </div>
         </div>
 
-        {/* Stats NS/NV + Écarts existants */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Items NS */}
-          <div className="card bg-danger/5 border-danger/30">
-            <div className="card-content p-4 text-center">
-              <XCircle className="w-8 h-8 text-danger mx-auto mb-2" />
-              <p className="text-2xl font-bold text-danger">{statsNS}</p>
-              <p className="text-xs text-muted-foreground mt-1">Non satisfaisant (NS)</p>
-            </div>
-          </div>
-
-          {/* Items NV */}
-          <div className="card bg-warning/5 border-warning/30">
-            <div className="card-content p-4 text-center">
-              <AlertTriangle className="w-8 h-8 text-warning mx-auto mb-2" />
-              <p className="text-2xl font-bold text-warning">{statsNV}</p>
-              <p className="text-xs text-muted-foreground mt-1">Non vérifié (NV)</p>
-            </div>
-          </div>
-
-          {/* Écarts rédigés */}
-          <div className="card bg-success/5 border-success/30">
-            <div className="card-content p-4 text-center">
-              <CheckCircle className="w-8 h-8 text-success mx-auto mb-2" />
-              <p className="text-2xl font-bold text-success">{surveillanceEcarts.length}</p>
-              <p className="text-xs text-muted-foreground mt-1">Écarts rédigés</p>
-              {surveillanceEcarts.length > 0 && (
-                <div className="flex flex-wrap gap-1 justify-center mt-2">
-                  {surveillanceEcarts.slice(0, 3).map((e) => (
-                    <span key={e.id} className={`badge ${getNiveauRisqueBadge(e.niveau)} text-[10px]`}>
-                      {e.reference}
-                    </span>
-                  ))}
-                  {surveillanceEcarts.length > 3 && (
-                    <span className="badge outline text-[10px]">+{surveillanceEcarts.length - 3}</span>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Bannière SGS pour surveillance mixte (SGS + autres domaines) */}
-        {(surveillance.portee || []).includes('SGS') && (surveillance.portee || []).length > 1 && (
-          <div className="alert alert-primary flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Shield className="h-5 w-5 text-role-primary flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-sm">Surveillance mixte — Domaine SGS inclus</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Les écarts physiques (NS/NV) sont traités ci-dessous. Les écarts SGS (PAOE) se traitent sur une page dédiée.
-                </p>
+        {/* Stats NS/NV + Écarts existants — masqué si écarts déjà signés/transmis */}
+        {!['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) && (
+          <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Items NS */}
+            <div className="card bg-danger/5 border-danger/30">
+              <div className="card-content p-4 text-center">
+                <XCircle className="w-8 h-8 text-danger mx-auto mb-2" />
+                <p className="text-2xl font-bold text-danger">{statsNS}</p>
+                <p className="text-xs text-muted-foreground mt-1">Non satisfaisant (NS)</p>
               </div>
             </div>
-            <button
-              onClick={() => router.push(`/surveillance/${surveillanceId}/ecarts/sgs`)}
-              className="btn btn-primary btn-sm gap-1.5 flex-shrink-0"
-            >
-              <Shield className="w-4 h-4" />
-              Écarts SGS
-              <ChevronRight className="w-4 h-4" />
-            </button>
+
+            {/* Items NV */}
+            <div className="card bg-warning/5 border-warning/30">
+              <div className="card-content p-4 text-center">
+                <AlertTriangle className="w-8 h-8 text-warning mx-auto mb-2" />
+                <p className="text-2xl font-bold text-warning">{statsNV}</p>
+                <p className="text-xs text-muted-foreground mt-1">Non vérifié (NV)</p>
+              </div>
+            </div>
+
+            {/* Écarts rédigés */}
+            <div className="card bg-success/5 border-success/30">
+              <div className="card-content p-4 text-center">
+                <CheckCircle className="w-8 h-8 text-success mx-auto mb-2" />
+                <p className="text-2xl font-bold text-success">{surveillanceEcarts.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">Écarts rédigés</p>
+                {surveillanceEcarts.length > 0 && (
+                  <div className="flex flex-wrap gap-1 justify-center mt-2">
+                    {surveillanceEcarts.slice(0, 3).map((e) => (
+                       <span key={e.id} className={`badge ${getRiskLevelClass(e.niveau)} text-[10px]`}>
+                        {e.reference}
+                      </span>
+                    ))}
+                    {surveillanceEcarts.length > 3 && (
+                      <span className="badge outline text-[10px]">+{surveillanceEcarts.length - 3}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Bannière SGS pour surveillance mixte (SGS + autres domaines) */}
+          {(surveillance.portee || []).includes('SGS') && (surveillance.portee || []).length > 1 && (
+            <div className="alert alert-primary flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-5 w-5 text-role-primary flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-sm">Surveillance mixte — Domaine SGS inclus</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Les écarts physiques (NS/NV) sont traités ci-dessous. Les écarts SGS (PAOE) se traitent sur une page dédiée.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => router.push(`/surveillance/${surveillanceId}/ecarts/sgs`)}
+                className="btn btn-primary btn-sm gap-1.5 flex-shrink-0"
+              >
+                <Shield className="w-4 h-4" />
+                Écarts SGS
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          </>
         )}
 
         {/* Composant de rédaction */}
@@ -324,6 +336,10 @@ export default function EcartsPage() {
           onSave={handleSaveEcarts}
           onSigner={handleEcartsSignes}
           userRole={user?.role || 'inspector'}
+          surveillanceType={surveillance?.type}
+          aerodromeCode={aerodrome?.code_oaci}
+          ecartPrefix="SDT"
+          readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)}
         />
       </div>
     </div>

@@ -101,7 +101,7 @@ export class RiskAgent {
 
   async analyzeRisk(
     request: RiskAnalysisRequest,
-    storeData: any
+    storeData?: any
   ): Promise<RiskAnalysisResult> {
     const cacheKey = `${request.aerodromeId}_${request.includePredictions}_${request.includeBlackSwan}`
     const cached = this.lastAnalysisCache.get(cacheKey)
@@ -461,7 +461,7 @@ ${JSON.stringify(contextData, null, 2)}`,
       // posterior = niveau de risque actuel sur ce domaine (inverse du score)
       const posterior = (100 - currentValue) / 100
       // Black Swan : aérodrome historiquement sûr (priorMean < 0.3) mais domaine soudainement à risque (posterior > 0.5)
-      if (detectBlackSwan(priorMean, posterior, 0.5, 0.3)) {
+      if (priorMean < 0.3 && posterior > 0.5 && detectBlackSwan(priorMean, posterior, 2.5)) {
         result.push({
           domaine: domaine.nom,
           priorProbability: Math.round(priorMean * 100),

@@ -39,7 +39,8 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { useAppStore, Planning, Aerodrome, Utilisateur, Surveillance, Ecart } from '@/lib/store'
-import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines } from '@/lib/domaines'
+import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines'
+import { getBadgeClassFromScore } from '@/lib/config'
 
 function EntiteIcon({ typeEntite }: { typeEntite?: string }) {
   if (typeEntite === 'helistation') return <span className="flex-shrink-0" style={{ fontSize: '0.95rem', lineHeight: 1 }}>🚁</span>
@@ -81,6 +82,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user)
   const utilisateurs = useAppStore(s => s.utilisateurs)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
   
   const getSurveillanceBadge = (statut: string) => {
     const labels: Record<string, string> = {
@@ -121,8 +123,15 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
   
   // Récupérer les inspecteurs disponibles depuis le store
   const inspecteursDisponibles = useMemo(() => {
-    return utilisateurs.filter((u: Utilisateur) => u.role === 'inspector' && u.statut !== 'inactif')
-  }, [utilisateurs])
+    return utilisateurs
+      .filter((u: Utilisateur) => u.role === 'inspector' && u.statut !== 'inactif')
+      .map((u: Utilisateur) => {
+        const linkedInsp = u.inspecteur_id
+          ? inspecteurs.find((i: any) => i.id === u.inspecteur_id)
+          : inspecteurs.find((i: any) => i.email === u.email || (i.prenom === u.prenom && i.nom === u.nom))
+        return { ...u, _insp: linkedInsp }
+      })
+  }, [utilisateurs, inspecteurs])
   
   // Récupérer les domaines depuis DOMAINES_SURVEILLANCE
   const domainesList = useMemo(() => {
@@ -189,13 +198,6 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
     return <Minus className="w-4 h-4 text-gray-400" />
   }
   
-  const getProfilColor = () => {
-    if (!profil) return 'text-gray-500'
-    if (profil.score_global < 30) return 'text-danger'
-    if (profil.score_global < 60) return 'text-warning'
-    return 'text-success'
-  }
-  
   const handleSaveDelegations = async () => {
     const nbDelegations = Object.keys(delegations).filter(d => delegations[d]).length
     
@@ -252,7 +254,8 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
   const handleNotifyOperator = () => {
     const operateurs = utilisateurs.filter((u: Utilisateur) =>
       u.aerodrome_id === planning.aerodrome_id &&
-      ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+      (['dg_operator', 'focal_operator', 'staff_operator'].includes(u.role ?? '') || u.role === 'guest') &&
+      u.statut !== 'inactif' && u.statut !== 'suspendu'
     )
     const domainesLabels = (planning.portee || []).map(getDomaineLabel).join(', ')
     const checklistUrl = `${window.location.origin}/preparation-checklist/${planning.id}`
@@ -384,7 +387,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                   onClick={() => setActiveTab('profil')}
                   className={`px-4 py-2 text-sm font-medium transition-all rounded-t-lg ${
                     activeTab === 'profil' 
-                      ? 'bg-role-primary text-white shadow-md' 
+                      ? 'bg-role-primary !text-white shadow-md' 
                       : 'text-muted-foreground hover:text-role-primary hover:bg-role-primary-soft'
                   }`}
                 >
@@ -395,7 +398,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                   onClick={() => setActiveTab('historique')}
                   className={`px-4 py-2 text-sm font-medium transition-all rounded-t-lg ${
                     activeTab === 'historique' 
-                      ? 'bg-role-primary text-white shadow-md' 
+                      ? 'bg-role-primary !text-white shadow-md' 
                       : 'text-muted-foreground hover:text-role-primary hover:bg-role-primary-soft'
                   }`}
                 >
@@ -406,7 +409,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                   onClick={() => setActiveTab('checklist')}
                   className={`px-4 py-2 text-sm font-medium transition-all rounded-t-lg ${
                     activeTab === 'checklist' 
-                      ? 'bg-role-primary text-white shadow-md' 
+                      ? 'bg-role-primary !text-white shadow-md' 
                       : 'text-muted-foreground hover:text-role-primary hover:bg-role-primary-soft'
                   }`}
                 >
@@ -417,7 +420,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                   onClick={() => setActiveTab('delegation')}
                   className={`px-4 py-2 text-sm font-medium transition-all rounded-t-lg ${
                     activeTab === 'delegation' 
-                      ? 'bg-role-primary text-white shadow-md' 
+                      ? 'bg-role-primary !text-white shadow-md' 
                       : 'text-muted-foreground hover:text-role-primary hover:bg-role-primary-soft'
                   }`}
                 >
@@ -434,7 +437,7 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                   <div className="card border-border">
                     <div className="card-content p-3 text-center">
                       <p className="text-xs text-muted-foreground">Score global</p>
-                      <p className={`text-3xl font-bold ${getProfilColor()}`}>{profil.score_global}/100</p>
+                      <p className={`text-3xl font-bold ${getBadgeClassFromScore(profil.score_global).replace('badge', 'text')}`}>{profil.score_global}/100</p>
                       {profil.niveau && (
                         <span className="badge mt-1">Niveau: {profil.niveau}</span>
                       )}
@@ -565,9 +568,12 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
                       </div>
                       <select value={delegations[d.code] || ''} onChange={e => setDelegations(prev => ({ ...prev, [d.code]: e.target.value }))} className="input max-w-[200px] text-sm">
                         <option value="">Non assigné</option>
-                        {inspecteursDisponibles.map((insp: Utilisateur) => (
+                        {inspecteursDisponibles.map((insp: any) => (
                           <option key={insp.id} value={insp.id}>
-                            {insp.prenom} {insp.nom} ({insp.service || 'Inspecteur'})
+                            {insp.prenom} {insp.nom} (
+                            {(insp.specialites || []).map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s).join(', ')
+                            || (insp._insp ? `${insp._insp.type?.replace(/_/g, ' ')} · ${insp._insp.domaine_principal?.toUpperCase()}` : undefined)
+                            || insp.service || 'Inspecteur'})
                           </option>
                         ))}
                       </select>
@@ -948,6 +954,9 @@ export function PlanningCard({
               <div className="truncate">
                 <span className="code-oaci-badge">{aerodrome?.code_oaci}</span>
                 <span className="text-muted-foreground ml-1">- {aerodrome?.nom}</span>
+                {profilScore !== undefined && profilScore !== null && (
+                  <span className={getBadgeClassFromScore(profilScore)}>{profilScore}/100</span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -983,7 +992,7 @@ export function PlanningCard({
             </div>
             {chef && (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border">
-                <span className="w-7 h-7 rounded-full bg-role-gradient text-white text-xs flex items-center justify-center font-bold flex-shrink-0">
+                <span className="w-7 h-7 rounded-full bg-role-gradient !text-white text-xs flex items-center justify-center font-bold flex-shrink-0">
                   {getInitiales(chef.prenom, chef.nom)}
                 </span>
                 <div>
@@ -1004,7 +1013,7 @@ export function PlanningCard({
                     key={id}
                     className="flex items-center gap-1 bg-background px-2 py-1 rounded-full border border-border text-xs"
                   >
-                    <span className="w-5 h-5 rounded-full bg-role-gradient text-white text-[10px] flex items-center justify-center font-bold">
+                    <span className="w-5 h-5 rounded-full bg-role-gradient !text-white text-[10px] flex items-center justify-center font-bold">
                       {getInitiales(insp.prenom, insp.nom)}
                     </span>
                     <span>

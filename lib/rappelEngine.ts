@@ -70,8 +70,8 @@ const DEFAULT_CONFIG: RappelConfig[] = [
 ];
 
 let rappelsProgrammes: RappelProgramme[] = [];
-let rappelsManuels: RappelManuel[] = [];
-let configs: RappelConfig[] = [...DEFAULT_CONFIG];
+const rappelsManuels: RappelManuel[] = [];
+const configs: RappelConfig[] = [...DEFAULT_CONFIG];
 
 /**
  * Programmer les rappels automatiques pour un écart

@@ -111,6 +111,7 @@ class AdvancedModelsManager {
 
   private _trainingHistory: TrainingHistoryEntry[] | null = null
   private _trainingHistoryLoaded = false
+  private _autoTrainIntervalId: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this.loadFromStorage()
@@ -270,7 +271,7 @@ class AdvancedModelsManager {
 
     const startTime = performance.now()
     console.log(`[Models] Entraînement Random Forest avec ${this.rfSamples.length} échantillons...`)
-    const model = trainRandomForest(this.rfSamples, nTrees, maxDepth, 3)
+    const model = await trainRandomForest(this.rfSamples, nTrees, maxDepth, 3)
     const durationMs = Math.round(performance.now() - startTime)
     this.rfModel = model
 
@@ -455,12 +456,20 @@ class AdvancedModelsManager {
   private scheduleAutoTrain() {
     if (!this.config.auto_train_enabled) return
 
-    // Vérifier toutes les heures
-    setInterval(() => {
+    if (this._autoTrainIntervalId !== null) return
+
+    this._autoTrainIntervalId = setInterval(() => {
       this.trainRandomForestIfNeeded()
-    }, 60 * 60 * 1000) // 1 heure
+    }, 60 * 60 * 1000)
 
     console.log('[Models] Auto-train scheduled (check every hour)')
+  }
+
+  stopAutoTrain() {
+    if (this._autoTrainIntervalId !== null) {
+      clearInterval(this._autoTrainIntervalId)
+      this._autoTrainIntervalId = null
+    }
   }
 
   // ============================================================

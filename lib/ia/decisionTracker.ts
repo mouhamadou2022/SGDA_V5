@@ -182,6 +182,7 @@ export class DecisionTracker {
             thresholdController.enregistrerAjustementDepuisDecision('recommendation', 'scoreAlerteImmediate', ancien, Math.max(20, ancien - 2), '5 décisions efficaces consécutives — baisse progressive du seuil d\'alerte')
           }
         }
+        this.recalibrerDepuisDecision(d).catch(console.error)
       }
     })
   }
@@ -225,6 +226,39 @@ export class DecisionTracker {
       tauxEfficacite: appliquees > 0 ? Math.round((efficaces / appliquees) * 100) : 0,
       parType,
     }
+  }
+
+  private async recalibrerDepuisDecision(record: DecisionRecord): Promise<void> {
+    const orgStateMap: Record<string, number | undefined> = {
+      'efficace': 0,
+      'partiellement_efficace': 1,
+      'inefficace': 2,
+    }
+    const orgState = orgStateMap[record.effectiveness]
+    if (orgState === undefined) return
+
+    const domaine = record.recommendation?.domaine
+    if (!domaine) return
+
+    const storeKey = `cpts_bt-${domaine}`
+
+    let savedData = await iaStorage.get<Record<string, { observations: Record<string, number[]> }>>('bayes_cpts', storeKey) ?? {}
+
+    const orgNodeIds = [
+      `charge_travail_bt-${domaine}`,
+      `formation_adequation_bt-${domaine}`,
+      `supervision_quality_bt-${domaine}`,
+    ]
+
+    for (const nodeId of orgNodeIds) {
+      if (!savedData[nodeId]) {
+        savedData[nodeId] = { observations: { '': [0, 0, 0] } }
+      }
+      const obs = savedData[nodeId].observations['']
+      obs[orgState] = (obs[orgState] || 0) + 1
+    }
+
+    await iaStorage.set('bayes_cpts', storeKey, savedData)
   }
 
   clear(aerodromeId?: string): void {

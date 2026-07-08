@@ -9,18 +9,6 @@ import {
   Download,
   Printer,
   PenLine,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignJustify,
-  List,
-  ListOrdered,
-  Bold,
-  Italic,
-  Underline,
-  Link2,
-  Image as ImageIcon,
-  Table,
   X,
   CheckCircle,
   AlertCircle,
@@ -33,47 +21,35 @@ import {
   Users,
   Calendar,
   MapPin,
-  Brain,
-  RotateCcw,
-  RotateCw,
-  Plus,
-  Minus,
-  Maximize2,
-  Minimize2,
-  Moon,
-  Sun,
-  FolderTree,
-  Quote,
-  Info,
-  AlertTriangle,
   Upload,
   File,
   Mic,
   MicOff,
   TrendingUp,
   TrendingDown,
+  Bold,
+  Italic,
+  Underline,
   Strikethrough,
-  Palette,
-  Highlighter,
-  SeparatorHorizontal,
-  ClipboardList,
-  CheckSquare,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  List,
+  ListOrdered,
+  Link2,
+  Image as ImageIcon,
+  Table as TableIcon,
+  RotateCcw,
+  RotateCw,
+  Brain,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
 import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
-import { generatePDFFromHTMLString, downloadBlob } from '@/lib/pdfGenerator';
-import {
-  calculateRapportStatsByDomaine,
-  formatEcartsForRapport,
-  formatProfilForRapport,
-  generatePageGardeHTML,
-  generateTableMatiereHTML,
-  generateResultatsHTML,
-  generateAnnexesHTML,
-  generateRapportCompletHTML,
-} from '@/lib/rapportUtils';
+import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
+import { reportAgent } from '@/lib/ia/agents/reportAgent';
+
 
 // Classes CSS réutilisées
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -89,93 +65,37 @@ async function generateWithIA(prompt: string): Promise<string> {
   return data.content || '';
 }
 
-// Composant: Table des matières flottante
-function TableOfContents({ headings, onNavigate }: { headings: { id: string; text: string; level: number }[]; onNavigate: (id: string) => void }) {
-  const [isOpen, setIsOpen] = useState(true);
-
-  if (headings.length === 0) return null;
-
-  return (
-    <div className="fixed right-4 top-1/2 -translate-y-1/2 z-40 hidden xl:block">
-      <Card className="shadow-lg max-h-96 overflow-y-auto w-60">
-        <div className="p-3">
-          <button
-            onClick={() => setIsOpen(!isOpen)}
-            className="flex items-center justify-between w-full text-xs font-semibold text-role-primary mb-2"
-          >
-            <span className="flex items-center gap-1">
-              <FolderTree className="w-3 h-3" />
-              Table des matières
-            </span>
-            <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {isOpen && (
-            <div className="space-y-1">
-              {headings.map((h, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onNavigate(h.id)}
-                  className="text-left text-xs hover:text-role-primary transition-colors block truncate w-full"
-                  style={{ paddingLeft: `${(h.level - 1) * 12}px` }}
-                >
-                  {h.text || `Section ${idx + 1}`}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// Composant: Barre d'outils à onglets
+// Composant: Barre d'outils deux lignes
 function RapportToolbar({
   onExecCommand,
-  onToggleWatermark,
-  watermarkEnabled,
-  onToggleFocusMode,
-  focusMode,
-  onZoomIn,
-  onZoomOut,
-  zoom,
-  onToggleDarkMode,
-  darkMode,
   onSave,
   onPrint,
   onExportPDF,
   onLoadReport,
-  onIACommand,
-  isIaGenerating,
   readOnly,
   onSign,
   isSigned,
+  onIACommand,
+  isIaGenerating,
   onDictate,
   isDictating,
+  onAnalyse,
 }: {
   onExecCommand: (cmd: string, value?: string) => void;
-  onToggleWatermark: () => void;
-  watermarkEnabled: boolean;
-  onToggleFocusMode: () => void;
-  focusMode: boolean;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  zoom: number;
-  onToggleDarkMode: () => void;
-  darkMode: boolean;
   onSave: () => void;
   onPrint: () => void;
   onExportPDF: () => void;
   onLoadReport: () => void;
-  onIACommand: (instruction: string) => void;
-  isIaGenerating: boolean;
   readOnly: boolean;
   onSign: () => void;
   isSigned: boolean;
+  onIACommand: (instruction: string) => void;
+  isIaGenerating: boolean;
   onDictate: () => void;
   isDictating: boolean;
+  onAnalyse?: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'accueil' | 'insertion' | 'ia'>('accueil');
+  const [iaPanelOpen, setIaPanelOpen] = useState(false);
   const [iaInstruction, setIaInstruction] = useState('');
 
   const execOnDown = (e: React.MouseEvent, cmd: string, value?: string) => {
@@ -190,353 +110,108 @@ function RapportToolbar({
     }
   };
 
-  if (readOnly || isSigned) {
-    return (
-      <Card className="mb-4 sticky top-0 z-[100]">
-        <div className="p-2 flex flex-wrap items-center justify-between gap-2 bg-white border-b border-border">
-          <div className="flex items-center gap-2">
-            <button onClick={onPrint} className="btn btn-secondary btn-sm gap-1">
-              <Printer className="w-3.5 h-3.5" />
-              Imprimer
-            </button>
-            <button onClick={onExportPDF} className="btn btn-secondary btn-sm gap-1">
-              <Download className="w-3.5 h-3.5" />
-              PDF
-            </button>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            <span>👁️ Mode lecture seule</span>
-          </div>
-        </div>
-      </Card>
-    );
-  }
-
   return (
-    <Card className="mb-4 sticky top-0 z-[100]">
-      <div className="tabs border-b border-border px-2 pt-1 bg-gray-50">
-        <button
-          onClick={() => setActiveTab('accueil')}
-          className={`tab px-3 py-1.5 text-xs ${activeTab === 'accueil' ? 'active' : ''}`}
-        >
-          ✏️ Accueil
+    <div className="mb-4 sticky top-0 z-[100] bg-white border-b border-border shadow-sm">
+      {/* Row 1: Actions principales */}
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        <button onClick={onSave} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <Save className="w-3 h-3" /> Sauvegarder
         </button>
-        <button
-          onClick={() => setActiveTab('insertion')}
-          className={`tab px-3 py-1.5 text-xs ${activeTab === 'insertion' ? 'active' : ''}`}
-        >
-          📄 Insertion
+        <button onClick={onExportPDF} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <Download className="w-3 h-3" /> PDF
         </button>
-        <button
-          onClick={() => setActiveTab('ia')}
-          className={`tab px-3 py-1.5 text-xs ${activeTab === 'ia' ? 'active' : ''}`}
-        >
-          <Brain className="w-3 h-3 inline mr-1" />
-          IA Assistant
+        <button onClick={onPrint} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <Printer className="w-3 h-3" /> Imprimer
         </button>
-      </div>
-
-      {activeTab === 'accueil' && (
-        <div className="p-2 flex flex-wrap items-center gap-1 border-b border-border">
-          <button onClick={onSave} className="btn btn-sm px-3 py-1 gap-1">
-            <Save className="w-3.5 h-3.5" />
-            Sauvegarder
-          </button>
-          <button onClick={onExportPDF} className="btn btn-sm px-3 py-1 gap-1">
-            <Download className="w-3.5 h-3.5" />
-            PDF
-          </button>
-          <button onClick={onPrint} className="btn btn-sm px-3 py-1 gap-1">
-            <Printer className="w-3.5 h-3.5" />
-            Imprimer
-          </button>
-          <button onClick={onLoadReport} className="btn btn-sm px-3 py-1 gap-1">
-            <Upload className="w-3.5 h-3.5" />
-            Charger
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('undo'); }} className="action-button" title="Annuler">
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('redo'); }} className="action-button" title="Rétablir">
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onMouseDown={(e) => execOnDown(e, 'bold')} className="action-button" title="Gras">
-            <Bold className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'italic')} className="action-button" title="Italique">
-            <Italic className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'underline')} className="action-button" title="Souligné">
-            <Underline className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'strikeThrough')} className="action-button" title="Barré">
-            <Strikethrough className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onClick={() => { const c = prompt('Couleur hexa (ex: #ff0000) :', '#ff0000'); if (c) document.execCommand('foreColor', false, c); }} className="action-button" title="Couleur du texte">
-            <Palette className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => { const c = prompt('Couleur hexa (ex: #ffff00) :', '#ffff00'); if (c) document.execCommand('hiliteColor', false, c); }} className="action-button" title="Surlignage">
-            <Highlighter className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onMouseDown={(e) => execOnDown(e, 'justifyLeft')} className="action-button" title="Aligner gauche">
-            <AlignLeft className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyCenter')} className="action-button" title="Centrer">
-            <AlignCenter className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyRight')} className="action-button" title="Aligner droite">
-            <AlignRight className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyFull')} className="action-button" title="Justifier">
-            <AlignJustify className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onMouseDown={(e) => execOnDown(e, 'insertUnorderedList')} className="action-button" title="Liste à puces">
-            <List className="w-3.5 h-3.5" />
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'insertOrderedList')} className="action-button" title="Liste numérotée">
-            <ListOrdered className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h1>')} className="action-button text-xs px-2" title="Titre 1">
-            T1
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h2>')} className="action-button text-xs px-2" title="Titre 2">
-            T2
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h3>')} className="action-button text-xs px-2" title="Titre 3">
-            T3
-          </button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<p>')} className="action-button text-xs px-2" title="Normal">
-            Normal
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button onClick={onSign} className="btn btn-sm px-3 py-1 btn-primary gap-1">
-            <PenLine className="w-3.5 h-3.5" />
-            Signer
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'insertion' && (
-        <div className="p-2 flex flex-wrap items-center gap-1 border-b border-border">
-          <button
-            onClick={() => {
-              const rows = prompt('Nombre de lignes:', '3');
-              const cols = prompt('Nombre de colonnes:', '3');
-              if (rows && cols) {
-                let html = '<table class="table-normal" border="1" style="border-collapse:collapse;width:100%">';
-                for (let i = 0; i < parseInt(rows); i++) {
-                  html += '<tr>';
-                  for (let j = 0; j < parseInt(cols); j++) {
-                    html += i === 0 ? '<th style="padding:8px;background:#f0f0f0">&nbsp;</th>' : '<td style="padding:8px">&nbsp;</td>';
-                  }
-                  html += '</tr>';
-                }
-                html += '</table><br>';
-                onExecCommand('insertHTML', html);
-              }
-            }}
-            className="action-button"
-            title="Insérer un tableau"
-          >
-            <Table className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              const url = prompt('URL de l\'image :');
-              if (url) onExecCommand('insertImage', url);
-            }}
-            className="action-button"
-            title="Insérer une image"
-          >
-            <ImageIcon className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              const url = prompt('URL du lien :');
-              if (url) onExecCommand('createLink', url);
-            }}
-            className="action-button"
-            title="Insérer un lien"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              const html = '<div class="alert alert-info my-2 p-3 rounded border-l-4 border-l-primary"><strong>ℹ️ Information</strong><br/>Contenu de l\'encadré...</div>';
-              onExecCommand('insertHTML', html);
-            }}
-            className="action-button"
-            title="Encadré info"
-          >
-            <Info className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              const html = '<div class="alert alert-warning my-2 p-3 rounded border-l-4 border-l-warning"><strong>⚠️ Avertissement</strong><br/>Contenu de l\'avertissement...</div>';
-              onExecCommand('insertHTML', html);
-            }}
-            className="action-button"
-            title="Encadré avertissement"
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => {
-              const html = '<blockquote class="border-l-4 border-role-primary pl-4 my-2 italic text-muted-foreground">Citation réglementaire...</blockquote>';
-              onExecCommand('insertHTML', html);
-            }}
-            className="action-button"
-            title="Citation"
-          >
-            <Quote className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-px h-5 bg-border mx-1" />
-
-          <button
-            onClick={() => onExecCommand('insertHorizontalRule')}
-            className="action-button"
-            title="Ligne horizontale"
-          >
-            <SeparatorHorizontal className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="relative group inline-flex">
-            <button className="action-button group" title="Snippet">
-              <ClipboardList className="w-3.5 h-3.5" />
-              <ChevronDown className="w-2 h-2 ml-0.5" />
-            </button>
-            <div className="absolute top-full left-0 mt-1 hidden group-hover:block z-50">
-              <Card className="shadow-lg w-64">
-                <div className="p-1 space-y-0.5">
-                  {[
-                    { label: 'Constat de sécurité', html: '<p><strong>Constat :</strong> Il a été observé que...</p>' },
-                    { label: 'Recommandation', html: '<p><strong>Recommandation :</strong> Il est recommandé de...</p>' },
-                    { label: 'Observation', html: '<p><strong>Observation :</strong> Aucun écart n\'a été relevé concernant...</p>' },
-                    { label: 'Mesure corrective', html: '<p><strong>Mesure corrective :</strong> L\'exploitant doit mettre en œuvre...</p>' },
-                    { label: 'Non-conformité', html: '<p><strong>Non-conformité :</strong> Le point suivant n\'est pas conforme...</p>' },
-                    { label: 'Délai de mise en œuvre', html: '<p><strong>Délai :</strong> La corrective doit être mise en œuvre sous...</p>' },
-                  ].map((s) => (
-                    <button
-                      key={s.label}
-                      onClick={() => onExecCommand('insertHTML', s.html)}
-                      className="block w-full text-left text-xs px-2 py-1.5 hover:bg-primary-soft rounded transition-colors"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            </div>
-          </div>
-
-          <button
-            onClick={() => {
-              const html = '<div class="flex items-start gap-2 my-1"><input type="checkbox" class="mt-1" /> <span>Tâche à réaliser</span></div>';
-              onExecCommand('insertHTML', html);
-            }}
-            className="action-button"
-            title="Liste de tâches"
-          >
-            <CheckSquare className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'ia' && (
-        <div className="p-3 border-b border-border bg-primary-soft/30">
-          <div className="flex gap-2 mb-2">
+        <button onClick={onLoadReport} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <Upload className="w-3 h-3" /> Charger
+        </button>
+        <div className="w-px h-4 bg-border mx-1" />
+        {!readOnly && !isSigned && (
+          <>
             <button
-              onClick={onDictate}
-              className={`btn btn-sm px-3 py-1 gap-1 ${isDictating ? 'bg-danger text-white' : ''}`}
-              title="Dictée vocale"
+              onClick={() => setIaPanelOpen(!iaPanelOpen)}
+              className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${iaPanelOpen ? 'btn-primary' : ''}`}
             >
-              {isDictating ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              <Brain className="w-3 h-3" /> IA
+            </button>
+            <button onClick={onDictate} className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${isDictating ? 'bg-danger text-white' : ''}`}>
+              {isDictating ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
               {isDictating ? 'Arrêter' : 'Dictée'}
             </button>
-            <div className="flex-1 flex gap-2">
-              <input
-                type="text"
-                value={iaInstruction}
-                onChange={(e) => setIaInstruction(e.target.value)}
-                placeholder="Ex: Améliore la conclusion, Ajoute des recommandations..."
-                className={`flex-1 form-input text-sm ${focusClass}`}
-                onKeyDown={(e) => e.key === 'Enter' && handleIA()}
-              />
-              <button
-                onClick={handleIA}
-                disabled={isIaGenerating || !iaInstruction.trim()}
-                className="btn btn-sm px-3 py-1 btn-primary gap-2"
-              >
-                {isIaGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                Améliorer
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => onIACommand("Génère un résumé exécutif")} className="btn btn-sm px-3 py-1">
-              Générer résumé
-            </button>
-            <button onClick={() => onIACommand("Ajoute des recommandations")} className="btn btn-sm px-3 py-1">
-              Générer recommandations
-            </button>
-            <button onClick={() => onIACommand("Rédige une conclusion")} className="btn btn-sm px-3 py-1">
-              Générer conclusion
-            </button>
-            <button onClick={() => onIACommand("Analyse les résultats et propose des actions")} className="btn btn-sm px-3 py-1">
-              Analyser résultats
-            </button>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-2">
-            💡 L'IA peut générer, améliorer ou reformuler n'importe quelle section
-          </p>
+            <div className="w-px h-4 bg-border mx-1" />
+          </>
+        )}
+        <div className="flex-1" />
+        {!readOnly && !isSigned && (
+          <button onClick={onSign} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
+            <PenLine className="w-3 h-3" /> Signer
+          </button>
+        )}
+        {isSigned && <span className="text-xs text-muted-foreground">✓ Signé</span>}
+        {readOnly && !isSigned && <span className="text-xs text-muted-foreground">👁️ Lecture seule</span>}
+      </div>
+
+      {/* Row 2: Formatage (visible en édition) */}
+      {!readOnly && !isSigned && (
+        <div className="flex items-center gap-1 px-3 py-1 border-t border-border bg-gray-50 flex-wrap">
+          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('undo'); }} className="action-button p-1" title="Annuler">
+            <RotateCcw className="w-3 h-3" />
+          </button>
+          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('redo'); }} className="action-button p-1" title="Rétablir">
+            <RotateCw className="w-3 h-3" />
+          </button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onMouseDown={(e) => execOnDown(e, 'bold')} className="action-button p-1" title="Gras"><Bold className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'italic')} className="action-button p-1" title="Italique"><Italic className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'underline')} className="action-button p-1" title="Souligné"><Underline className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'strikeThrough')} className="action-button p-1" title="Barré"><Strikethrough className="w-3 h-3" /></button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h1>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 1">H1</button>
+          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h2>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 2">H2</button>
+          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h3>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 3">H3</button>
+          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<p>')} className="action-button text-[10px] px-1.5 py-1" title="Normal">Normal</button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onMouseDown={(e) => execOnDown(e, 'insertUnorderedList')} className="action-button p-1" title="Liste à puces"><List className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'insertOrderedList')} className="action-button p-1" title="Liste numérotée"><ListOrdered className="w-3 h-3" /></button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onMouseDown={(e) => execOnDown(e, 'justifyLeft')} className="action-button p-1" title="Aligner gauche"><AlignLeft className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'justifyCenter')} className="action-button p-1" title="Centrer"><AlignCenter className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'justifyRight')} className="action-button p-1" title="Aligner droite"><AlignRight className="w-3 h-3" /></button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onClick={() => { const url = prompt('URL du lien :'); if (url) onExecCommand('createLink', url); }} className="action-button p-1" title="Lien"><Link2 className="w-3 h-3" /></button>
+          <button onClick={() => { const url = prompt('URL de l\'image :'); if (url) onExecCommand('insertImage', url); }} className="action-button p-1" title="Image"><ImageIcon className="w-3 h-3" /></button>
+          <button onClick={() => { const r = prompt('Lignes:', '3'); const c = prompt('Colonnes:', '3'); if (r && c) { let h = '<table border="1" style="border-collapse:collapse;width:100%">'; for (let i = 0; i < parseInt(r); i++) { h += '<tr>'; for (let j = 0; j < parseInt(c); j++) { h += i === 0 ? '<th style="padding:8px;background:#f0f0f0">&nbsp;</th>' : '<td style="padding:8px">&nbsp;</td>'; } h += '</tr>'; } h += '</table><br>'; onExecCommand('insertHTML', h); } }} className="action-button p-1" title="Tableau"><TableIcon className="w-3 h-3" /></button>
         </div>
       )}
 
-      <div className="p-2 flex flex-wrap items-center justify-between gap-2 bg-white">
-        <div className="flex items-center gap-2">
-          <button onClick={onToggleWatermark} className="action-button" title="Filigrane">
-            {watermarkEnabled ? '🖼️ ON' : '🖼️ OFF'}
-          </button>
-          <button onClick={onToggleFocusMode} className="action-button" title="Mode focus">
-            {focusMode ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
-          </button>
-          <button onClick={onToggleDarkMode} className="action-button" title="Mode nuit">
-            {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
-          <button onClick={onZoomOut} className="action-button" title="Zoom -">
-            <Minus className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-xs w-12 text-center">{zoom}%</span>
-          <button onClick={onZoomIn} className="action-button" title="Zoom +">
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+      {/* IA Panel (expansible) */}
+      {iaPanelOpen && !readOnly && !isSigned && (
+        <div className="border-t border-border px-3 py-2 bg-primary-soft/20">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={iaInstruction}
+              onChange={(e) => setIaInstruction(e.target.value)}
+              placeholder="Ex: Améliore la conclusion, ajoute des recommandations..."
+              className="flex-1 form-input text-xs"
+              onKeyDown={(e) => e.key === 'Enter' && handleIA()}
+            />
+            <button onClick={handleIA} disabled={isIaGenerating || !iaInstruction.trim()} className="btn btn-sm px-3 py-1 btn-primary gap-1 text-xs">
+              {isIaGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              Appliquer
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1 mt-2">
+            <button onClick={() => onIACommand("Génère un résumé exécutif")} className="btn btn-sm px-2 py-0.5 text-[10px]">Résumé</button>
+            <button onClick={() => onIACommand("Ajoute des recommandations")} className="btn btn-sm px-2 py-0.5 text-[10px]">Recommandations</button>
+            <button onClick={() => onIACommand("Rédige une conclusion")} className="btn btn-sm px-2 py-0.5 text-[10px]">Conclusion</button>
+            <button onClick={() => onIACommand("Analyse les résultats")} className="btn btn-sm px-2 py-0.5 text-[10px]">Analyser</button>
+            <button onClick={onAnalyse} className="btn btn-sm px-2 py-0.5 text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200">Qualité</button>
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground">
-          <span>✏️ Mode édition</span>
-        </div>
-      </div>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -618,7 +293,7 @@ function PageGarde({
             type="text"
             value={ministere}
             onChange={handleMinistereChange}
-            className="form-input text-sm font-semibold text-center w-full max-w-md mx-auto"
+            className="form-input font-semibold text-center w-full max-w-md mx-auto hg-label"
           />
         ) : (
           <p className="text-sm font-semibold">{ministere}</p>
@@ -630,7 +305,7 @@ function PageGarde({
             type="text"
             value={direction}
             onChange={handleDirectionChange}
-            className="form-input text-sm text-center w-full max-w-md mx-auto mt-1"
+            className="form-input text-center w-full max-w-md mx-auto mt-1 hg-label"
           />
         ) : (
           <p className="text-sm">{direction}</p>
@@ -644,7 +319,7 @@ function PageGarde({
           type="text"
           value={titreLigne1}
           onChange={handleTitreLigne1Change}
-          className="form-input text-xl font-bold text-center w-full max-w-lg mx-auto"
+          className="form-input text-center w-full max-w-lg mx-auto hg-titre"
         />
       ) : (
         <h2 className="sous-titre">{titreLigne1}</h2>
@@ -654,7 +329,7 @@ function PageGarde({
           type="text"
           value={titreLigne2}
           onChange={handleTitreLigne2Change}
-          className="form-input text-lg text-center w-full max-w-lg mx-auto mt-2"
+          className="form-input text-center w-full max-w-lg mx-auto mt-2 hg-sous-titre"
         />
       ) : (
         <h3 className="sous-titre">{titreLigne2}</h3>
@@ -666,7 +341,7 @@ function PageGarde({
         <div className="flex items-center gap-2">
           <strong>Date de l'inspection :</strong>
           {editable ? (
-            <input type="text" value={dateInspection} onChange={handleDateChange} className="form-input text-sm flex-1" />
+            <input type="text" value={dateInspection} onChange={handleDateChange} className="form-input flex-1 hg-label" />
           ) : (
             <span>{dateInspection}</span>
           )}
@@ -674,7 +349,7 @@ function PageGarde({
         <div className="flex items-center gap-2">
           <strong>Référentiel :</strong>
           {editable ? (
-            <input type="text" value={referentiel} onChange={handleReferentielChange} className="form-input text-sm flex-1" />
+            <input type="text" value={referentiel} onChange={handleReferentielChange} className="form-input flex-1 hg-label" />
           ) : (
             <span>{referentiel}</span>
           )}
@@ -692,7 +367,7 @@ function PageGarde({
   );
 }
 
-// Composant: Section éditable
+// Composant: Section éditable (style document, sans Card)
 function EditableSection({
   title,
   content,
@@ -730,113 +405,81 @@ function EditableSection({
 
   if (!editable) {
     return (
-      <Card title={title} className="mb-4">
-        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
-      </Card>
+      <div className="rapport-section">
+        <h2 className="rapport-heading">{title}</h2>
+        <div className="rapport-text" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
+      </div>
     );
   }
 
   if (isEditing) {
     return (
-      <Card
-        className="mb-4"
-        heading={
-          <>
-            <span>{title}</span>
-            <div className="flex items-center gap-2">
-              <button onClick={handleSave} className="btn btn-sm px-3 py-1 btn-success">
-                <CheckCircle className="w-3 h-3 mr-1" />
-                Valider
-              </button>
-              <button onClick={handleCancel} className="btn btn-sm px-3 py-1 btn-danger">
-                <X className="w-3 h-3 mr-1" />
-                Annuler
-              </button>
-            </div>
-          </>
-        }
-      >
+      <div className="rapport-section">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="rapport-heading !mb-0">{title}</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={handleSave} className="btn btn-sm px-2 py-0.5 btn-success text-xs">
+              <CheckCircle className="w-3 h-3 mr-1" /> Valider
+            </button>
+            <button onClick={handleCancel} className="btn btn-sm px-2 py-0.5 btn-danger text-xs">
+              <X className="w-3 h-3 mr-1" /> Annuler
+            </button>
+          </div>
+        </div>
         <div
           ref={editorRef}
           contentEditable
           suppressContentEditableWarning
           onInput={() => editorRef.current && setLocalContent(editorRef.current.innerHTML)}
-          className="min-h-[150px] p-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-role-primary prose prose-sm max-w-none"
+          className="rapport-text-editable min-h-[120px]"
           dangerouslySetInnerHTML={{ __html: localContent }}
         />
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card
-      className="mb-4"
-      heading={
-        <>
-          <span>{title}</span>
-          <div className="flex items-center gap-2">
-            {onImprove && (
-              <div className="relative">
-                <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-3 py-1 gap-1">
-                  {isImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                  IA
-                </button>
-                {showIaInput && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-72 bg-white rounded-xl shadow-xl border border-border p-3">
-                    <p className="text-xs text-muted-foreground mb-2">Que voulez-vous que l'IA fasse ?</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={iaInput}
-                        onChange={(e) => setIaInput(e.target.value)}
-                        placeholder="Ex: Améliore, ajoute des stats..."
-                        className="flex-1 form-input text-sm"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && iaInput.trim()) {
-                            setShowIaInput(false);
-                            onImprove(iaInput.trim());
-                            setIaInput('');
-                          }
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => {
-                          if (iaInput.trim()) {
-                            setShowIaInput(false);
-                            onImprove(iaInput.trim());
-                            setIaInput('');
-                          }
-                        }}
-                        className="btn btn-sm px-3 py-1 btn-primary"
-                      >
-                        <Send className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setShowIaInput(false);
-                        onImprove('');
-                        setIaInput('');
-                      }}
-                      className="text-xs text-muted-foreground mt-2 hover:text-foreground"
-                    >
-                      Génération rapide (sans instruction)
+    <div className="rapport-section">
+      <div className="flex items-center justify-between">
+        <h2 className="rapport-heading !mb-0">{title}</h2>
+        <div className="flex items-center gap-1">
+          {onImprove && (
+            <div className="relative">
+              <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-2 py-0.5 text-xs gap-1">
+                {isImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                IA
+              </button>
+              {showIaInput && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white rounded-xl shadow-xl border border-border p-3">
+                  <p className="text-xs text-muted-foreground mb-2">Que voulez-vous que l'IA fasse ?</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={iaInput}
+                      onChange={(e) => setIaInput(e.target.value)}
+                      placeholder="Ex: Améliore, ajoute des stats..."
+                      className="flex-1 form-input text-sm"
+                      onKeyDown={(e) => { if (e.key === 'Enter' && iaInput.trim()) { setShowIaInput(false); onImprove(iaInput.trim()); setIaInput(''); } }}
+                      autoFocus
+                    />
+                    <button onClick={() => { if (iaInput.trim()) { setShowIaInput(false); onImprove(iaInput.trim()); setIaInput(''); } }} className="btn btn-sm px-3 py-1 btn-primary">
+                      <Send className="w-3 h-3" />
                     </button>
                   </div>
-                )}
-              </div>
-            )}
-            <button onClick={() => setIsEditing(true)} className="btn btn-sm px-3 py-1">
-              <PenLine className="w-3 h-3 mr-1" />
-              Modifier
-            </button>
-          </div>
-        </>
-      }
-    >
-      <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
-    </Card>
+                  <button onClick={() => { setShowIaInput(false); onImprove(''); setIaInput(''); }} className="text-xs text-muted-foreground mt-2 hover:text-foreground">
+                    Génération rapide (sans instruction)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <button onClick={() => setIsEditing(true)} className="btn btn-sm px-2 py-0.5 text-xs">
+            <PenLine className="w-3 h-3 mr-1" /> Modifier
+          </button>
+        </div>
+      </div>
+      <div className="rapport-text" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
+    </div>
   );
 }
 
@@ -960,6 +603,7 @@ export default function SurveillanceRapport({
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes = useAppStore(s => s.aerodromes);
   const utilisateurs = useAppStore(s => s.utilisateurs);
+  const inspecteurs = useAppStore(s => s.inspecteurs);
   const ecarts = useAppStore(s => s.ecarts);
   const checklistItems = useAppStore(s => s.checklistItems);
   const profilsRisque = useAppStore(s => s.profilsRisque);
@@ -977,13 +621,11 @@ export default function SurveillanceRapport({
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [isSigned, setIsSigned] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  const [zoom, setZoom] = useState(100);
   const [headings, setHeadings] = useState<{ id: string; text: string; level: number }[]>([]);
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [savedReports, setSavedReports] = useState<{ id: string; date: string; preview: string; content?: string }[]>([]);
+  const [showAnalyse, setShowAnalyse] = useState(false);
+  const [analyseResult, setAnalyseResult] = useState<{ score: number; grade: string; forces: string[]; faiblesses: string[] } | null>(null);
   const recognitionRef = useRef<any>(null);
 
   // Contenu du rapport
@@ -1027,33 +669,24 @@ export default function SurveillanceRapport({
   // Génération du tableau de l'équipe
   const generateEquipeHtml = useCallback(() => {
     const equipeIds = surveillance?.equipe_ids || [];
-    const equipeList = utilisateurs.filter(u => equipeIds.includes(u.id));
-    if (equipeList.length === 0) return '<p>Aucune équipe assignée</p>';
-    let html = '<table class="table"><thead><tr><th>Nom</th><th>Fonction</th><th>Rôle</th></tr></thead><tbody>';
-    equipeList.forEach(u => {
-      html += `<tr><td>${u.prenom} ${u.nom}</td><td>${u.service || '-'}</td><td>${u.id === surveillance?.chef_id ? 'Chef d\'équipe' : 'Inspecteur'}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    return html;
+    const membres = utilisateurs.filter(u => equipeIds.includes(u.id));
+    return generateEquipeTableHtml(membres, surveillance?.chef_id);
   }, [surveillance, utilisateurs]);
 
   // Génération du tableau des écarts
   const generateEcartsTable = useCallback(() => {
-    const ecartsList = surveillanceEcarts();
-    if (ecartsList.length === 0) return '<p>Aucun écart constaté</p>';
-    let html = '<table class="table"><thead><tr><th>Référence</th><th>Libellé</th><th>Niveau</th><th>Statut</th></tr></thead><tbody>';
-    ecartsList.forEach(e => {
-      html += `<tr><td class="code-oaci-badge">${e.reference}</td><td>${e.libelle}</td><td><span class="badge ${e.niveau_risque === 'critique' ? 'danger' : e.niveau_risque === 'eleve' ? 'warning' : 'primary'}">${e.niveau_risque}</span></td><td>${e.statut}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    return html;
+    return generateEcartsTableHtml(surveillanceEcarts());
   }, [surveillanceEcarts]);
 
-  // Génération du HTML des résultats (graphiques)
+  // Génération du HTML des résultats (tableaux de bord chiffrés)
   const generateResultsHtml = useCallback(() => {
     if (!profil) return '<p>Données de risque non disponibles</p>';
-    
+
     const items = checklistItems[surveillanceId] || [];
+    const portee = surveillance?.portee || [];
+    const hasSGS = portee.includes('SGS');
+
+    // Statistiques par domaine
     const byDomaine: Record<string, { sa: number; ns: number; nv: number; total: number }> = {};
     items.forEach(item => {
       if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0, total: 0 };
@@ -1066,176 +699,261 @@ export default function SurveillanceRapport({
     const ecartsList = surveillanceEcarts();
     const globalTaux = checklistStats.taux;
     const globalColor = globalTaux >= 70 ? 'success' : globalTaux >= 50 ? 'warning' : 'danger';
+    const totalDomaines = Object.keys(byDomaine).length;
+    const domainesConformes = Object.entries(byDomaine).filter(([, s]) => (s.total > 0 ? Math.round((s.sa / s.total) * 100) : 100) >= 90).length;
+
+    const sgsEval = surveillance?.sgs_evaluation_prepa as any;
+    const sgsScore = sgsEval?.scoreGlobal;
+    const sgsNiveau = sgsScore !== undefined
+      ? sgsScore >= 80 ? 'Efficace' : sgsScore >= 60 ? 'Opérationnel' : sgsScore >= 40 ? 'Approprié' : 'Non conforme'
+      : null;
 
     let html = `
-      <div className="space-y-6">
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title text-sm">Score global de risque</div>
+      <div class="space-y-5">
+
+        <div class="card border-border">
+          <div class="card-header">
+            <div class="card-title text-sm">Taux de conformité global</div>
           </div>
-          <div className="card-content">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-3xl font-bold ${globalColor === 'success' ? 'text-success' : globalColor === 'warning' ? 'text-warning' : 'text-danger'}">${profil.score_global}/100</span>
-              <div className="flex items-center gap-1">
-                ${profil.tendance === 'hausse' ? '<TrendingUp className="w-4 h-4 text-success" />' : profil.tendance === 'baisse' ? '<TrendingDown className="w-4 h-4 text-danger" />' : ''}
-                <span className="text-sm capitalize">${profil.tendance}</span>
-              </div>
+          <div class="card-content">
+            <div class="flex items-center justify-between mb-2">
+              <span>
+                <span class="text-3xl font-bold ${globalColor === 'success' ? 'text-success' : globalColor === 'warning' ? 'text-warning' : 'text-danger'}">${checklistStats.taux}%</span>
+                <span class="text-sm text-muted-foreground ml-2">sur ${checklistStats.total} point(s)</span>
+              </span>
+              <span class="badge ${globalColor === 'success' ? 'success' : globalColor === 'warning' ? 'warning' : 'danger'} text-sm px-3 py-1">
+                ${globalTaux >= 70 ? 'Généralement conforme' : globalTaux >= 50 ? 'Partiellement conforme' : 'Non conforme'}
+              </span>
             </div>
-            <div className="progress h-2">
-              <div className="progress-bar ${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" style="width: ${profil.score_global}%"></div>
+            <div class="progress h-2">
+              <div class="progress-bar ${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" style="width: ${checklistStats.taux}%"></div>
+            </div>
+            <div class="flex gap-3 mt-2 text-xs text-muted-foreground">
+              <span>SA : <strong class="text-success">${checklistStats.sa}</strong></span>
+              <span>NS : <strong class="text-danger">${checklistStats.ns}</strong></span>
+              <span>NV : <strong class="text-warning">${checklistStats.nv}</strong></span>
+              <span class="ml-auto">${domainesConformes}/${totalDomaines} domaine(s) ≥ 90%</span>
             </div>
           </div>
         </div>
 
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title text-sm">Critères d'évaluation (C1 à C5)</div>
+        <div class="card border-border">
+          <div class="card-header">
+            <div class="card-title text-sm">Résultats par domaine</div>
           </div>
-          <div className="card-content">
-            <div className="space-y-3">
-              <ProgressBar label="C1 - Maturité SGS" value="${profil.c1}" colorClass="${profil.c1 >= 70 ? 'bg-success' : profil.c1 >= 50 ? 'bg-warning' : 'bg-danger'}" />
-              <ProgressBar label="C2 - Efficacité PAC" value="${profil.c2}" colorClass="${profil.c2 >= 70 ? 'bg-success' : profil.c2 >= 50 ? 'bg-warning' : 'bg-danger'}" />
-              <ProgressBar label="C3 - Conformité" value="${profil.c3}" colorClass="${profil.c3 >= 70 ? 'bg-success' : profil.c3 >= 50 ? 'bg-warning' : 'bg-danger'}" />
-              <ProgressBar label="C4 - Charge critique" value="${profil.c4}" colorClass="${profil.c4 >= 70 ? 'bg-success' : profil.c4 >= 50 ? 'bg-warning' : 'bg-danger'}" />
-              <ProgressBar label="C5 - Résilience" value="${profil.c5}" colorClass="${profil.c5 >= 70 ? 'bg-success' : profil.c5 >= 50 ? 'bg-warning' : 'bg-danger'}" />
-            </div>
-          </div>
-        </div>
-
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title text-sm">Taux de conformité</div>
-          </div>
-          <div className="card-content">
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="text-center p-2 bg-success/10 rounded-lg"><div className="text-xl font-bold text-success">${checklistStats.sa}</div><div className="text-xs">SA</div></div>
-              <div className="text-center p-2 bg-danger/10 rounded-lg"><div className="text-xl font-bold text-danger">${checklistStats.ns}</div><div className="text-xs">NS</div></div>
-              <div className="text-center p-2 bg-warning/10 rounded-lg"><div className="text-xl font-bold text-warning">${checklistStats.nv}</div><div className="text-xs">NV</div></div>
-            </div>
-            <ProgressBar label="Taux de conformité réel (NV=NS)" value="${checklistStats.taux}" colorClass="${globalColor === 'success' ? 'bg-success' : globalColor === 'warning' ? 'bg-warning' : 'bg-danger'}" />
-          </div>
-        </div>
-
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title text-sm">Écarts par niveau de risque</div>
-          </div>
-          <div className="card-content">
-            <div className="space-y-3">
-              <ProgressBar label="Critique" value="${ecartsList.filter(e => e.niveau_risque === 'critique').length}" colorClass="bg-danger" maxValue="${Math.max(ecartsList.length, 1)}" />
-              <ProgressBar label="Élevé" value="${ecartsList.filter(e => e.niveau_risque === 'eleve').length}" colorClass="bg-warning" maxValue="${Math.max(ecartsList.length, 1)}" />
-              <ProgressBar label="Moyen" value="${ecartsList.filter(e => e.niveau_risque === 'moyen').length}" colorClass="bg-primary" maxValue="${Math.max(ecartsList.length, 1)}" />
-              <ProgressBar label="Faible" value="${ecartsList.filter(e => e.niveau_risque === 'faible').length}" colorClass="bg-info" maxValue="${Math.max(ecartsList.length, 1)}" />
-            </div>
-            ${ecartsList.filter(e => e.niveau_risque === 'critique').length > 0 ? `
-              <div className="alert alert-danger mt-3">
-                <AlertTriangle className="alert-icon" />
-                <div className="alert-content">
-                  <div className="alert-title">⚠️ Action immédiate requise</div>
-                  <div className="alert-description">${ecartsList.filter(e => e.niveau_risque === 'critique').length} écart(s) critique(s) nécessitent une attention immédiate.</div>
-                </div>
-              </div>
-            ` : ''}
-          </div>
-        </div>
-
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title text-sm">Détail par domaine</div>
-          </div>
-          <div className="card-content space-y-3">
+          <div class="card-content space-y-3">
     `;
-    
+
     Object.entries(byDomaine).forEach(([domaine, stats]) => {
       const taux = stats.total > 0 ? Math.round((stats.sa / (stats.sa + stats.ns + stats.nv)) * 100) : 0;
-      const colorClass = taux >= 70 ? 'bg-success' : taux >= 50 ? 'bg-warning' : 'bg-danger';
+      const colorBar = taux >= 90 ? 'bg-success' : taux >= 70 ? 'bg-warning' : taux >= 50 ? 'bg-orange-400' : 'bg-danger';
       html += `
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="font-medium">${domaine}</span>
-            <span>${taux}%</span>
+        <div class="p-3 rounded-lg border border-border">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-semibold text-sm">${domaine}</span>
+            <span class="${taux >= 90 ? 'text-success' : taux >= 70 ? 'text-warning' : 'text-danger'} font-semibold text-sm">${taux}%</span>
           </div>
-          <div className="progress h-2 mb-1">
-            <div className="progress-bar ${colorClass}" style="width: ${taux}%"></div>
+          <div class="progress h-1.5 mb-2">
+            <div class="progress-bar ${colorBar}" style="width: ${taux}%"></div>
           </div>
-          <div className="flex gap-2 text-xs">
-            <span className="text-success">SA:${stats.sa}</span>
-            <span className="text-danger">NS:${stats.ns}</span>
-            <span className="text-warning">NV:${stats.nv}</span>
+          <div class="flex gap-3 text-xs text-muted-foreground">
+            <span>SA : <strong class="text-success">${stats.sa}</strong></span>
+            <span>NS : <strong class="text-danger">${stats.ns}</strong></span>
+            <span>NV : <strong class="text-warning">${stats.nv}</strong></span>
+            <span class="ml-auto">${stats.total} point(s) vérifié(s)</span>
           </div>
         </div>
       `;
     });
-    
+
+    if (hasSGS) {
+      const sgsColor = sgsScore !== undefined
+        ? sgsScore >= 80 ? 'success' : sgsScore >= 60 ? 'primary' : sgsScore >= 40 ? 'warning' : 'danger'
+        : 'muted';
+      html += `
+        <div class="p-3 rounded-lg border border-${sgsColor}/30 bg-${sgsColor}/5">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-semibold text-sm">Système de Gestion de la Sécurité (SGS)</span>
+            ${sgsNiveau ? `<span class="badge ${sgsColor}">${sgsNiveau}</span>` : '<span class="badge muted">Non évalué</span>'}
+          </div>
+          ${sgsScore !== undefined ? `
+          <div class="flex items-center gap-2 mt-2">
+            <span class="text-2xl font-bold text-${sgsColor}">${sgsScore}%</span>
+            <div class="flex-1 progress h-1.5">
+              <div class="progress-bar bg-${sgsColor}" style="width: ${sgsScore}%"></div>
+            </div>
+          </div>
+          <p class="text-xs text-muted-foreground mt-1">
+            Évaluation PAOE (OACI Annexe 19) — ${sgsEval?.composantes?.length || 0} composante(s) évaluée(s).
+          </p>` : '<p class="text-xs text-muted-foreground mt-1">L\'évaluation PAOE n\'a pas été renseignée.</p>'}
+        </div>
+      `;
+    }
+
+    if (ecartsList.length > 0) {
+      html += `
+        <div class="p-3 rounded-lg border border-border">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-semibold text-sm">Synthèse des écarts</span>
+            <span class="badge outline">${ecartsList.length} écart(s)</span>
+          </div>
+          <div class="grid grid-cols-4 gap-2">
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'critique').length; return c > 0 ? `<div class="text-center p-2 bg-danger/10 rounded"><div class="text-lg font-bold text-danger">${c}</div><div class="text-xs text-muted-foreground">Critique</div></div>` : ''; })()}
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'eleve').length; return c > 0 ? `<div class="text-center p-2 bg-warning/10 rounded"><div class="text-lg font-bold text-warning">${c}</div><div class="text-xs text-muted-foreground">Élevé</div></div>` : ''; })()}
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'moyen').length; return c > 0 ? `<div class="text-center p-2 bg-primary/10 rounded"><div class="text-lg font-bold text-primary">${c}</div><div class="text-xs text-muted-foreground">Moyen</div></div>` : ''; })()}
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'faible' || e.niveau_risque === 'tres_faible').length; return c > 0 ? `<div class="text-center p-2 bg-gray-100 rounded"><div class="text-lg font-bold text-gray-600">${c}</div><div class="text-xs text-muted-foreground">Faible</div></div>` : ''; })()}
+          </div>
+          <p class="text-xs text-muted-foreground mt-2">Se référer à l'<strong>Annexe A-2</strong> pour le détail complet.</p>
+        </div>
+      `;
+    }
+
     html += `</div></div></div>`;
     return html;
-  }, [profil, checklistItems, surveillanceId, checklistStats, surveillanceEcarts]);
+  }, [profil, checklistItems, surveillanceId, checklistStats, surveillanceEcarts, surveillance, aerodrome]);
 
   // Génération complète du rapport avec IA
   const generateFullReport = useCallback(async () => {
     setIsGenerating(true);
     try {
+      const ecartsList = surveillanceEcarts();
+      const items = checklistItems[surveillanceId] || [];
+      const byDomaine: Record<string, { sa: number; ns: number; nv: number; total: number }> = {};
+      items.forEach(item => {
+        if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0, total: 0 };
+        byDomaine[item.domaine].total++;
+        if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
+        else if (item.resultat === 'NS') byDomaine[item.domaine].ns++;
+        else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
+      });
+      const domainesStr = Object.entries(byDomaine)
+        .map(([d, s]) => `${d}: ${s.sa} SA / ${s.ns} NS / ${s.nv} NV (${s.total} pts, taux ${s.total > 0 ? Math.round((s.sa / s.total) * 100) : 100}%)`)
+        .join('\n');
+      const pacStatuses = ['pac_attendu', 'pac_soumis', 'pac_accepte', 'preuves_soumises', 'preuves_evaluees', 'en_retard', 'cloture'];
+      const pacCount = ecartsList.filter(e => pacStatuses.includes(e.statut)).length;
+      const closedCount = ecartsList.filter(e => e.statut === 'cloture').length;
+      const overdueCount = ecartsList.filter(e => e.statut === 'en_retard').length;
+      const ecartsStr = ecartsList.map(e =>
+        `- ${e.reference}: ${e.libelle.replace(/<[^>]*>/g, '').substring(0, 120)} — Niveau: ${e.niveau_risque} — Statut: ${e.statut}${e.cellule_risque_oaci ? ` — OACI: ${e.cellule_risque_oaci}` : ''}`
+      ).join('\n');
+      const sgsEval = surveillance?.sgs_evaluation_prepa as any;
+      const portee = Array.isArray(surveillance?.portee) ? surveillance.portee.join(', ') : surveillance?.portee || 'N/A';
+
       const context = `
-        Aérodrome: ${aerodrome?.nom} (${aerodrome?.code_oaci})
-        Dates: ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
-        Type: ${surveillance?.type}
-        Score risque: ${profil?.score_global || 'N/A'}/100
-        Niveau risque: ${profil?.niveau || 'N/A'}
-        Tendance: ${profil?.tendance || 'stable'}
-        Nombre d'écarts: ${surveillanceEcarts().length}
-        Taux conformité: ${checklistStats.taux}%
-      `;
+AÉRODROME: ${aerodrome?.nom} (${aerodrome?.code_oaci})
+PÉRIODE: ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} → ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
+TYPE: ${surveillance?.type}
+PORTÉE: ${portee}
+SCORE RISQUE: ${profil?.score_global || 'N/A'}/100 — NIVEAU: ${profil?.niveau || 'N/A'} — TENDANCE: ${profil?.tendance || 'stable'}
 
-      const prompt = `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige les sections suivantes d'un rapport de surveillance au format HTML (paragraphes, listes si besoin). Sois professionnel, concis et technique. N'inclus PAS le titre de la section dans le contenu.
+PROFIL DE RISQUE DÉTAILLÉ:
+- C1 (Maturité SGS): ${profil?.c1 || 'N/A'}/100
+- C2 (Efficacité PAC): ${profil?.c2 || 'N/A'}/100
+- C3 (Conformité): ${profil?.c3 || 'N/A'}/100
+- C4 (Charge critique): ${profil?.c4 || 'N/A'}/100
+- C5 (Résilience): ${profil?.c5 || 'N/A'}/100
+${profil?.prediction_3m ? `- Prédiction 3 mois: ${profil.prediction_3m}/100` : ''}
+${profil?.prediction_6m ? `- Prédiction 6 mois: ${profil.prediction_6m}/100` : ''}
 
-Contexte: ${context}
+RÉSULTATS CHECKLIST:
+- Total: ${checklistStats.total} points vérifiés
+- SA (Satisfaisant): ${checklistStats.sa}
+- NS (Non Satisfaisant): ${checklistStats.ns}
+- NV (Non Vérifié): ${checklistStats.nv}
+- Taux de conformité global: ${checklistStats.taux}%
 
-1. RÉSUMÉ EXÉCUTIF (synthèse des constats clés)
-2. INTRODUCTION ET CONTEXTE (objectifs et cadre)
-3. MÉTHODOLOGIE (approche utilisée)
-4. DÉROULEMENT - Préparation
-5. DÉROULEMENT - Réunion d'ouverture
-6. DÉROULEMENT - Phase de vérification sur site
-7. DÉROULEMENT - Réunion de clôture
-8. PRÉOCCUPATIONS DE SÉCURITÉ (points critiques à surveiller)
-9. INTRODUCTION DES RÉSULTATS (présentation des résultats)
-10. ANALYSE DES RÉSULTATS (interprétation des données)
-11. RECOMMANDATIONS (actions correctives)
-12. CONCLUSION (bilan et perspectives)`;
+RÉSULTATS PAR DOMAINE:
+${domainesStr}
+
+ÉCARTS CONSTATÉS:
+- Total: ${ecartsList.length}
+- Clôturés: ${closedCount}
+- En retard: ${overdueCount}
+- Avec PAC: ${pacCount}
+
+DÉTAIL DES ÉCARTS:
+${ecartsStr || 'Aucun écart'}
+
+SGS:
+${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% — ${sgsEval.composantes?.length || 0} composante(s)` : 'Non évalué / Non inclus'}
+`;
+
+      const prompt = `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Tu rédiges un rapport de surveillance technique et professionnel destiné à un exploitant d'aérodrome.
+
+Contexte:
+${context}
+
+Réponds UNIQUEMENT avec un objet JSON valide contenant les clés suivantes (chaque valeur est une chaîne HTML sans le titre de la section) :
+{
+  "resume": "RÉSUMÉ EXÉCUTIF — Synthèse des constats clés",
+  "introduction": "INTRODUCTION ET CONTEXTE — Objectifs, cadre réglementaire, périmètre",
+  "methodologie": "MÉTHODOLOGIE — Approche utilisée (revue documentaire, inspection sur site, entretiens, checklist)",
+  "preparation": "DÉROULEMENT - Préparation",
+  "reunionOuverture": "DÉROULEMENT - Réunion d'ouverture",
+  "verificationSite": "DÉROULEMENT - Phase de vérification sur site",
+  "reunionCloture": "DÉROULEMENT - Réunion de clôture",
+  "preoccupations": "PRÉOCCUPATIONS DE SÉCURITÉ",
+  "resultsIntro": "INTRODUCTION DES RÉSULTATS",
+  "resultsAnalysis": "ANALYSE DES RÉSULTATS — Interprétation détaillée (par domaine, écarts, PAC, SGS/PAOE, profil C1-C5 en langage clair, tendance, priorités)",
+  "recommandations": "RECOMMANDATIONS — Actions correctives prioritaires/secondaires avec échéances",
+  "conclusion": "CONCLUSION — Bilan global, conformité, perspectives"
+}
+
+Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes <p>, listes <ul>/<li>).`;
 
 
       const generatedContent = await generateWithIA(prompt);
-      
-      const newSections = { ...sections };
-      const lines = generatedContent.split('\n');
-      let currentSection = '';
+      let parsed: Record<string, string> = {};
+      try {
+        const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+      } catch { /* fallback parsing */ }
 
-      for (const line of lines) {
-        if (line.includes('RÉSUMÉ EXÉCUTIF')) currentSection = 'resume';
-        else if (line.includes('INTRODUCTION ET CONTEXTE')) currentSection = 'introduction';
-        else if (line.includes('MÉTHODOLOGIE')) currentSection = 'methodologie';
-        else if (line.includes('PRÉOCCUPATIONS')) currentSection = 'preoccupations';
-        else if (line.includes('RECOMMANDATIONS')) currentSection = 'recommandations';
-        else if (line.includes('CONCLUSION')) currentSection = 'conclusion';
-        else if (line.includes('INTRODUCTION DES RÉSULTATS')) currentSection = 'resultsIntro';
-        else if (line.includes('ANALYSE DES RÉSULTATS')) currentSection = 'resultsAnalysis';
-        else if (line.includes('Préparation')) currentSection = 'preparation';
-        else if (line.includes('Réunion d\'ouverture')) currentSection = 'reunionOuverture';
-        else if (line.includes('Phase de vérification')) currentSection = 'verificationSite';
-        else if (line.includes('Réunion de clôture')) currentSection = 'reunionCloture';
-        else if (currentSection && line.trim()) {
-          if (currentSection === 'preparation') newSections.deroulement.preparation += line + '<br/>';
-          else if (currentSection === 'reunionOuverture') newSections.deroulement.reunionOuverture += line + '<br/>';
-          else if (currentSection === 'verificationSite') newSections.deroulement.verificationSite += line + '<br/>';
-          else if (currentSection === 'reunionCloture') newSections.deroulement.reunionCloture += line + '<br/>';
-          else if (currentSection === 'resume') newSections.resume += line + '<br/>';
-          else if (currentSection === 'introduction') newSections.introduction += line + '<br/>';
-          else if (currentSection === 'methodologie') newSections.methodologie += line + '<br/>';
-          else if (currentSection === 'preoccupations') newSections.preoccupations += line + '<br/>';
-          else if (currentSection === 'recommandations') newSections.recommandations += line + '<br/>';
-          else if (currentSection === 'conclusion') newSections.conclusion += line + '<br/>';
-          else if (currentSection === 'resultsIntro') newSections.resultsIntro += line + '<br/>';
-          else if (currentSection === 'resultsAnalysis') newSections.resultsAnalysis += line + '<br/>';
+      const newSections = { ...sections };
+      if (Object.keys(parsed).length > 0) {
+        if (parsed.resume) newSections.resume = parsed.resume;
+        if (parsed.introduction) newSections.introduction = parsed.introduction;
+        if (parsed.methodologie) newSections.methodologie = parsed.methodologie;
+        if (parsed.preoccupations) newSections.preoccupations = parsed.preoccupations;
+        if (parsed.recommandations) newSections.recommandations = parsed.recommandations;
+        if (parsed.conclusion) newSections.conclusion = parsed.conclusion;
+        if (parsed.resultsIntro) newSections.resultsIntro = parsed.resultsIntro;
+        if (parsed.resultsAnalysis) newSections.resultsAnalysis = parsed.resultsAnalysis;
+        if (parsed.preparation) newSections.deroulement.preparation = parsed.preparation;
+        if (parsed.reunionOuverture) newSections.deroulement.reunionOuverture = parsed.reunionOuverture;
+        if (parsed.verificationSite) newSections.deroulement.verificationSite = parsed.verificationSite;
+        if (parsed.reunionCloture) newSections.deroulement.reunionCloture = parsed.reunionCloture;
+      } else {
+        // Fallback: parsing par sections (ancien format)
+        const lines = generatedContent.split('\n');
+        let currentSection = '';
+        for (const line of lines) {
+          if (line.includes('RÉSUMÉ EXÉCUTIF')) currentSection = 'resume';
+          else if (line.includes('INTRODUCTION ET CONTEXTE')) currentSection = 'introduction';
+          else if (line.includes('MÉTHODOLOGIE')) currentSection = 'methodologie';
+          else if (line.includes('PRÉOCCUPATIONS')) currentSection = 'preoccupations';
+          else if (line.includes('RECOMMANDATIONS')) currentSection = 'recommandations';
+          else if (line.includes('CONCLUSION')) currentSection = 'conclusion';
+          else if (line.includes('INTRODUCTION DES RÉSULTATS')) currentSection = 'resultsIntro';
+          else if (line.includes('ANALYSE DES RÉSULTATS')) currentSection = 'resultsAnalysis';
+          else if (line.includes('Préparation')) currentSection = 'preparation';
+          else if (line.includes("Réunion d'ouverture")) currentSection = 'reunionOuverture';
+          else if (line.includes('Phase de vérification')) currentSection = 'verificationSite';
+          else if (line.includes('Réunion de clôture')) currentSection = 'reunionCloture';
+          else if (currentSection && line.trim()) {
+            if (currentSection === 'preparation') newSections.deroulement.preparation += line + '<br/>';
+            else if (currentSection === 'reunionOuverture') newSections.deroulement.reunionOuverture += line + '<br/>';
+            else if (currentSection === 'verificationSite') newSections.deroulement.verificationSite += line + '<br/>';
+            else if (currentSection === 'reunionCloture') newSections.deroulement.reunionCloture += line + '<br/>';
+            else if (currentSection === 'resume') newSections.resume += line + '<br/>';
+            else if (currentSection === 'introduction') newSections.introduction += line + '<br/>';
+            else if (currentSection === 'methodologie') newSections.methodologie += line + '<br/>';
+            else if (currentSection === 'preoccupations') newSections.preoccupations += line + '<br/>';
+            else if (currentSection === 'recommandations') newSections.recommandations += line + '<br/>';
+            else if (currentSection === 'conclusion') newSections.conclusion += line + '<br/>';
+            else if (currentSection === 'resultsIntro') newSections.resultsIntro += line + '<br/>';
+            else if (currentSection === 'resultsAnalysis') newSections.resultsAnalysis += line + '<br/>';
+          }
         }
       }
 
@@ -1266,20 +984,53 @@ Contexte: ${context}
     setIsImproving(true);
     try {
       const isRempli = currentContent && currentContent.trim() !== '';
+      const ecartsList = surveillanceEcarts();
+      const ecartsStr = ecartsList.map(e =>
+        `- ${e.reference}: ${e.libelle.replace(/<[^>]*>/g, '').substring(0, 120)} — Niveau: ${e.niveau_risque} — Statut: ${e.statut}${e.cellule_risque_oaci ? ` — OACI: ${e.cellule_risque_oaci}` : ''}`
+      ).join('\n');
+      const sgsEval = surveillance?.sgs_evaluation_prepa as any;
+      let richContext = '';
+      if (sectionKey === 'resultsAnalysis') {
+        richContext = `
+RÉSULTATS COMPLETS:
+- Taux conformité: ${checklistStats.taux}% (${checklistStats.sa} SA / ${checklistStats.ns} NS / ${checklistStats.nv} NV sur ${checklistStats.total} points)
+
+PROFIL DE RISQUE:
+- Score global: ${profil?.score_global || 'N/A'}/100 — ${profil?.niveau || 'N/A'} — Tendance: ${profil?.tendance || 'stable'}
+- C1 Maturité SGS: ${profil?.c1 || 'N/A'}/100
+- C2 Efficacité PAC: ${profil?.c2 || 'N/A'}/100
+- C3 Conformité: ${profil?.c3 || 'N/A'}/100
+- C4 Charge critique: ${profil?.c4 || 'N/A'}/100
+- C5 Résilience: ${profil?.c5 || 'N/A'}/100
+${profil?.effectiveness_score != null ? `- Efficacité PAC: ${profil.effectiveness_score}/100` : ''}
+
+ÉCARTS:
+${ecartsStr || 'Aucun écart'}
+
+SGS: ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}%` : 'Non évalué'}
+SCORE RISQUE: ${profil?.score_global || 'N/A'}/100 — TENDANCE: ${profil?.tendance || 'stable'}
+`;
+      }
       const context = `Aérodrome: ${aerodrome?.nom} (${aerodrome?.code_oaci})
 Date: ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
 Type: ${surveillance?.type}
 Score risque: ${profil?.score_global || 'N/A'}/100
 Tendance: ${profil?.tendance || 'stable'}
 Écarts: ${surveillanceEcarts().length}
-Taux conformité: ${checklistStats.taux}%`;
+Taux conformité: ${checklistStats.taux}%${richContext}`;
 
       const instructionPart = userInstruction
         ? `\nInstruction supplémentaire de l'utilisateur : ${userInstruction}\n`
         : '';
 
-      const prompt = isRempli
-        ? `Améliore et reformule le texte suivant de manière plus professionnelle, sans changer le sens. Le texte fait partie d'un rapport de surveillance aéronautique ANACIM.${instructionPart}
+      const isAnalysis = sectionKey === 'resultsAnalysis';
+      const prompt = isAnalysis && !isRempli
+        ? `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige l'analyse détaillée des résultats au format HTML (paragraphes, listes si besoin). Interprète les données suivantes : analyse par domaine, distribution des écarts par niveau, analyse des PAC (taux de clôture, retards), interprétation du SGS/PAOE si applicable, tendance du risque, points prioritaires. Sois pédagogique sans jargon excessif.${instructionPart}
+Contexte: ${context}
+
+N'inclus PAS le titre de la section dans le contenu.`
+        : isRempli
+          ? `Améliore et reformule le texte suivant de manière plus professionnelle, sans changer le sens. Le texte fait partie d'un rapport de surveillance aéronautique ANACIM.${instructionPart}
 Contexte: ${context}
 
 Titre de la section: ${sectionTitle}
@@ -1288,7 +1039,7 @@ Texte à améliorer:
 ${currentContent}
 
 Renvoie uniquement le texte amélioré, sans le titre de la section.`
-        : `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige la section "${sectionTitle}" d'un rapport de surveillance au format HTML (paragraphes, listes si besoin). Sois professionnel, concis et technique.${instructionPart}
+          : `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige la section "${sectionTitle}" d'un rapport de surveillance au format HTML (paragraphes, listes si besoin). Sois professionnel, concis et technique.${instructionPart}
 Contexte: ${context}
 
 N'inclus PAS le titre de la section dans le contenu.`;
@@ -1322,7 +1073,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
     } finally {
       setIsImproving(false);
     }
-  }, [user, addNotification]);
+  }, [user, addNotification, aerodrome, surveillance, profil, surveillanceEcarts, checklistStats]);
 
   // Dictée vocale
   useEffect(() => {
@@ -1368,24 +1119,79 @@ N'inclus PAS le titre de la section dans le contenu.`;
     }
   };
 
-  // Sauvegarde auto
+  // Sauvegarde auto — toutes les 15s, persist aussi les sections
   useEffect(() => {
     if (readOnly || isSigned) return;
     const interval = setInterval(() => {
       setLastSaved(new Date());
       const rapportHtml = reportContainerRef.current?.innerHTML || '';
       onSave?.(rapportHtml);
-      updateSurveillance(surveillanceId, { rapport_html: rapportHtml });
+      updateSurveillance(surveillanceId, {
+        rapport_html: rapportHtml,
+        rapport_sections: JSON.stringify(sections),
+      });
     }, 15000);
     return () => clearInterval(interval);
-  }, [readOnly, isSigned, onSave, surveillanceId, updateSurveillance]);
+  }, [readOnly, isSigned, onSave, surveillanceId, updateSurveillance, sections]);
 
-  // Pré-remplir les sections au chargement
+  // Restaurer les sections depuis le stockage persistant au montage
   useEffect(() => {
-    if (!sections.resume && aerodrome && surveillance) {
+    if (!surveillance) return;
+    if (surveillance.rapport_sections) {
+      try {
+        const parsed = JSON.parse(surveillance.rapport_sections);
+        setSections(prev => ({
+          ...prev,
+          ...parsed,
+          deroulement: { ...prev.deroulement, ...(parsed.deroulement || {}) },
+        }));
+      } catch { /* ignore parse error */ }
+    }
+  }, [surveillance?.id]);
+
+  // Persister les sections à chaque modification (debounced 3s)
+  useEffect(() => {
+    if (readOnly || isSigned || !surveillance) return;
+    const timer = setTimeout(() => {
+      updateSurveillance(surveillanceId, {
+        rapport_sections: JSON.stringify(sections),
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [sections, readOnly, isSigned, surveillanceId, updateSurveillance, surveillance]);
+
+  // Générer le rapport IA uniquement si :
+  // - le rapport n'est pas déjà signé/transmis
+  // - aucune section sauvegardée n'a été trouvée
+  // - les données aérodrome/surveillance sont chargées
+  useEffect(() => {
+    if (readOnly || isSigned) return;
+    if (!sections.resume && aerodrome && surveillance && !surveillance.rapport_sections) {
       generateFullReport();
     }
-  }, [aerodrome?.code_oaci]);
+  }, [aerodrome?.code_oaci, readOnly, isSigned]);
+
+  // Analyse qualité du rapport via reportAgent
+  const handleAnalyse = useCallback(async () => {
+    if (!surveillance) return;
+    setShowAnalyse(true);
+    setAnalyseResult(null);
+    try {
+      const content = [
+        sections.resume, sections.introduction, sections.methodologie,
+        sections.preoccupations, sections.recommandations, sections.conclusion,
+      ].filter(Boolean).join('\n\n');
+      const analysis = await reportAgent.analyzeReportContent(content, surveillanceId);
+      setAnalyseResult({
+        score: analysis.score,
+        grade: analysis.grade,
+        forces: analysis.forces,
+        faiblesses: analysis.faiblesses.map((f: any) => `${f.probleme} (${f.section})`),
+      });
+    } catch {
+      setAnalyseResult({ score: 0, grade: 'Erreur', forces: [], faiblesses: ["Impossible d'analyser le rapport"] });
+    }
+  }, [surveillance, surveillanceId, sections]);
 
   // Extraire les titres pour le sommaire
   useEffect(() => {
@@ -1413,8 +1219,11 @@ N'inclus PAS le titre de la section dans le contenu.`;
   const onSignatureSave = (signatureUrl: string) => {
     setIsSigned(true);
     setSignatureDialogOpen(false);
+    const rapportHtml = reportContainerRef.current?.innerHTML || '';
     updateSurveillance(surveillanceId, {
       statut: 'rapport_signe',
+      rapport_html: rapportHtml,
+      rapport_sections: JSON.stringify(sections),
       signatures_rapport: [{
         signataire_id: user?.id || '',
         signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
@@ -1435,6 +1244,10 @@ N'inclus PAS le titre de la section dans le contenu.`;
   const handleSave = () => {
     const rapportHtml = reportContainerRef.current?.innerHTML || '';
     onSave?.(rapportHtml);
+    updateSurveillance(surveillanceId, {
+      rapport_html: rapportHtml,
+      rapport_sections: JSON.stringify(sections),
+    });
     setLastSaved(new Date());
     addNotification({
       user_id: user?.id || '',
@@ -1450,118 +1263,431 @@ N'inclus PAS le titre de la section dans le contenu.`;
       addNotification({
         user_id: user?.id || '',
         type: 'info',
-        title: 'Export PDF',
-        message: 'Génération du PDF en cours...',
+        title: 'Préparation du document',
+        message: 'Génération du document…',
         canal: 'in_app',
       });
 
       const ecartsList = surveillanceEcarts();
-      const presences = (getFichesBySurveillance?.(surveillanceId) || []).map(p => ({
-        id: p.id,
-        prenom_nom: p.prenom_nom,
-        structure: p.structure,
-        fonction: p.fonction,
-        signature_url: p.signature_url,
-        signature_date: p.signature_date,
-      }));
-      const items = checklistItems[surveillanceId] || [];
-      const stats = {
-        total_items: checklistStats.total,
-        sa: checklistStats.sa,
-        ns: checklistStats.ns,
-        nv: checklistStats.nv,
-        na: checklistStats.na,
-        taux_conformite_classique: items.length > 0 ? Math.round((checklistStats.sa / items.length) * 100) : 0,
-        taux_conformite_reel: checklistStats.taux,
-        progression: items.length > 0 ? Math.round(((checklistStats.sa + checklistStats.ns + checklistStats.na) / items.length) * 100) : 0,
-      };
-      const statsByDomaine = calculateRapportStatsByDomaine(items);
-      const ecartsFormatted = formatEcartsForRapport(ecartsList);
-      const profilFormatted = formatProfilForRapport(profil);
-
-      const chefEquipe = utilisateurs.find(u => u.id === surveillance?.chef_id);
       const today = new Date();
-const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${String(today.getMonth()+1).padStart(2,'0')}_SURV`;
+      const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${String(today.getMonth()+1).padStart(2,'0')}_SURV`;
+
+      const equipeHtml = generateEquipeHtml();
+      const ecartsTableHtml = generateEcartsTable();
+      
+      // Build results HTML for the standalone document (simpler than the UI version)
+      const ecartsListDoc = surveillanceEcarts();
+      const itemsDoc = checklistItems[surveillanceId] || [];
+      const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
+      const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
+      const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
+      const totalItems = itemsDoc.length;
+      const tauxConformite = totalItems > 0 ? Math.round((saCount / totalItems) * 100) : 0;
+      const byDomaine: Record<string, { sa: number; ns: number; nv: number }> = {};
+      itemsDoc.forEach(item => {
+        if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0 };
+        if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
+        else if (item.resultat === 'NS') byDomaine[item.domaine].ns++;
+        else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
+      });
+      const critCount = ecartsListDoc.filter(e => e.niveau_risque === 'critique').length;
+      const hautCount = ecartsListDoc.filter(e => e.niveau_risque === 'eleve').length;
+      
+      let byDomaineRows = '';
+      Object.entries(byDomaine).forEach(([domaine, st]) => {
+        const dTaux = (st.sa + st.ns + st.nv) > 0 ? Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100) : 0;
+        byDomaineRows += `<tr><td>${domaine}</td><td>${st.sa}</td><td>${st.ns}</td><td>${st.nv}</td><td>${dTaux}%</td></tr>`;
+      });
+
+      const resultsHtml = `
+        <h3>6.1 Score de risque</h3>
+        <p>Score global : <strong>${profil?.score_global || 'N/A'}/100</strong> (tendance : ${profil?.tendance || 'stable'})</p>
+        <table>
+          <tr><th>Critère</th><th>Valeur</th></tr>
+          <tr><td>C1 — Maturité SGS</td><td>${profil?.c1 ?? 'N/A'}/100</td></tr>
+          <tr><td>C2 — Efficacité PAC</td><td>${profil?.c2 ?? 'N/A'}/100</td></tr>
+          <tr><td>C3 — Conformité</td><td>${profil?.c3 ?? 'N/A'}/100</td></tr>
+          <tr><td>C4 — Charge critique</td><td>${profil?.c4 ?? 'N/A'}/100</td></tr>
+          <tr><td>C5 — Résilience</td><td>${profil?.c5 ?? 'N/A'}/100</td></tr>
+        </table>
+        <h3>6.2 Taux de conformité</h3>
+        <div class="stats-grid">
+          <div><div class="num">${saCount}</div><div class="label">SA</div></div>
+          <div><div class="num">${nsCount}</div><div class="label">NS</div></div>
+          <div><div class="num">${nvCount}</div><div class="label">NV</div></div>
+        </div>
+        <p>Taux de conformité réel (NV = NS) : <strong>${checklistStats.taux}%</strong></p>
+        ${critCount > 0 ? `<div style="background:#fde8e8;border:1px solid #fecaca;border-radius:4pt;padding:8pt 12pt;margin:12pt 0"><strong style="color:#c53030">⚠ Attention :</strong> ${critCount} écart(s) critique(s) nécessitent une action immédiate.</div>` : ''}
+        <h3>6.3 Détail par domaine</h3>
+        <table>
+          <thead><tr><th>Domaine</th><th>SA</th><th>NS</th><th>NV</th><th>Taux</th></tr></thead>
+          <tbody>${byDomaineRows || '<tr><td colspan="5">Aucun domaine évalué</td></tr>'}</tbody>
+        </table>`;
 
       const deroulementHtml = [
-        sections.deroulement.preparation && `<h3>Préparation</h3>${sections.deroulement.preparation}`,
-        sections.deroulement.reunionOuverture && `<h3>Réunion d'ouverture</h3>${sections.deroulement.reunionOuverture}`,
-        sections.deroulement.verificationSite && `<h3>Vérification sur site</h3>${sections.deroulement.verificationSite}`,
-        sections.deroulement.reunionCloture && `<h3>Réunion de clôture</h3>${sections.deroulement.reunionCloture}`,
+        sections.deroulement.preparation && `<h3>5.1 Préparation</h3>${sections.deroulement.preparation}`,
+        sections.deroulement.reunionOuverture && `<h3>5.2 Réunion d'ouverture</h3>${sections.deroulement.reunionOuverture}`,
+        sections.deroulement.verificationSite && `<h3>5.3 Vérification sur site</h3>${sections.deroulement.verificationSite}`,
+        sections.deroulement.reunionCloture && `<h3>5.4 Réunion de clôture</h3>${sections.deroulement.reunionCloture}`,
       ].filter(Boolean).join('');
 
-      const sectionsList = [
-        { id: 'resume', titre: 'Résumé exécutif' },
-        { id: 'introduction', titre: 'Introduction et contexte' },
-        { id: 'equipe', titre: "Équipe d'inspection" },
-        { id: 'methodologie', titre: 'Méthodologie' },
-        { id: 'deroulement', titre: 'Déroulement de la surveillance' },
-        { id: 'resultats', titre: "Résultats de l'inspection" },
-        { id: 'preoccupations', titre: 'Préoccupations de sécurité' },
-        { id: 'recommandations', titre: 'Recommandations' },
-        { id: 'conclusion', titre: 'Conclusion' },
-        { id: 'annexes', titre: 'Annexes' },
-      ];
+      const pageGardeHtml = `
+        <div class="page-garde">
+          <p class="devise">République du Sénégal</p>
+          <p class="devise-sous">Un Peuple – Un But – Une Foi</p>
+          <hr class="sep" />
+          <p class="ministere">${pageGardeFields.ministere || 'MINISTERE DES TRANSPORTS TERRESTRES ET AERIENS'}</p>
+          <div class="logo-placeholder"></div>
+          <p class="anacim">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
+          <p class="direction">${pageGardeFields.direction || 'DIRECTION DE LA NAVIGATION AERIENNE ET DES AERODROMES'}</p>
+          <hr class="sep" />
+          <h1 class="titre-rapport">${pageGardeFields.titreLigne1 || 'Rapport de surveillance'}</h1>
+          <h2 class="sous-titre">${pageGardeFields.titreLigne2 || `Aéroport de ${aerodrome?.nom || ''} (${aerodrome?.code_oaci || ''})`}</h2>
+          <hr class="sep" />
+          <table class="infos">
+            <tr><td><strong>Date de l'inspection :</strong></td><td>${pageGardeFields.dateInspection || `du ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}`}</td></tr>
+            <tr><td><strong>Référentiel :</strong></td><td>${pageGardeFields.referentiel || reference}</td></tr>
+          </table>
+          <hr class="sep" />
+          <div class="mandataire">
+            <p class="mb-1"><strong>Mandataire</strong></p>
+            <p>${dgNom || 'Directeur général ANACIM'}</p>
+            <p>Directeur général ANACIM</p>
+          </div>
+        </div>
+      `;
 
-      const rapportSections: Record<string, string> = {
-        page_garde: generatePageGardeHTML(
-          aerodrome?.nom || '',
-          aerodrome?.code_oaci || '',
-          surveillance?.date_debut || '',
-          surveillance?.date_fin || '',
-          surveillance?.type || '',
-          reference,
-          chefEquipe ? `${chefEquipe.prenom} ${chefEquipe.nom}` : undefined
-        ),
-        table_matieres: generateTableMatiereHTML(sectionsList),
-        resume: `<div><h2>Résumé exécutif</h2>${sections.resume || '<p>À compléter...</p>'}</div>`,
-        introduction: `<div><h2>Introduction et contexte</h2>${sections.introduction || '<p>À compléter...</p>'}</div>`,
-        equipe: `<div><h2>Équipe d\'inspection</h2>${sections.equipe || generateEquipeHtml()}</div>`,
-        methodologie: `<div><h2>Méthodologie</h2>${sections.methodologie || '<p>À compléter...</p>'}</div>`,
-        deroulement: `<div><h2>Déroulement de la surveillance</h2>${deroulementHtml || '<p>À compléter...</p>'}</div>`,
-        resultats: generateResultatsHTML(stats, statsByDomaine, { profil: profilFormatted, checklistItems: items }),
-        preoccupations: `<div><h2>Préoccupations de sécurité</h2>${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>`,
-        recommandations: `<div><h2>Recommandations</h2>${sections.recommandations || '<p>À compléter...</p>'}</div>`,
-        conclusion: `<div><h2>Conclusion</h2>${sections.conclusion || '<p>À compléter...</p>'}</div>`,
-        annexes: generateAnnexesHTML(presences, ecartsFormatted, profilFormatted, items),
-      };
+      const fullHtml = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Rapport de surveillance — ${aerodrome?.nom} (${aerodrome?.code_oaci})</title>
+<style>
+  @page { margin: 20mm 15mm; size: A4; }
+  @media print { html, body { background: white; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 20pt; font-weight: 700; margin: 24pt 0 12pt; color: #1a1a1a; }
+  h2 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14pt; font-weight: 600; margin: 20pt 0 10pt; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
+  h3 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt; color: #333; }
+  p { margin: 6pt 0; text-align: justify; }
+  table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 10pt; }
+  th, td { border: 1px solid #999; padding: 6pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; font-weight: 600; }
+  .page-break { page-break-before: always; }
+  .page-garde { text-align: center; padding-top: 60pt; }
+  .page-garde .devise { font-size: 11pt; font-weight: 700; margin-bottom: 2pt; }
+  .page-garde .devise-sous { font-size: 10pt; font-style: italic; margin-bottom: 16pt; color: #555; }
+  .page-garde .sep { border: none; border-top: 2px solid #333; margin: 16pt auto; width: 60%; }
+  .page-garde .ministere { font-size: 10pt; font-weight: 600; margin-bottom: 12pt; }
+  .page-garde .logo-placeholder { height: 48pt; margin: 12pt 0; }
+  .page-garde .anacim { font-size: 10pt; font-weight: 700; margin-bottom: 4pt; }
+  .page-garde .direction { font-size: 10pt; margin-bottom: 12pt; }
+  .page-garde .titre-rapport { font-size: 20pt; font-weight: 700; margin: 20pt 0 8pt; border: none; }
+  .page-garde .sous-titre { font-size: 14pt; font-weight: 500; margin-bottom: 12pt; border: none; color: #555; }
+  .page-garde .infos { width: auto; margin: 16pt auto; border: none; }
+  .page-garde .infos td { border: none; padding: 4pt 8pt; text-align: left; }
+  .page-garde .mandataire { margin-top: 24pt; font-size: 10pt; }
+  .sommaire { margin: 24pt 0; }
+  .sommaire h2 { border: none; text-align: center; font-size: 14pt; margin-bottom: 16pt; }
+  .sommaire ul { list-style: none; padding: 0; }
+  .sommaire li { padding: 4pt 0; font-size: 12pt; border-bottom: 1px dotted #ccc; }
+  .section-content { margin: 8pt 0; }
+  ul, ol { margin: 6pt 0; padding-left: 24pt; }
+  li { margin: 2pt 0; }
+  .badge { display: inline-block; padding: 1pt 6pt; border-radius: 2pt; font-size: 9pt; font-weight: 600; }
+  .badge.danger { background: #fde8e8; color: #c53030; }
+  .badge.warning { background: #fef3c7; color: #b45309; }
+  .badge.primary { background: #dbeafe; color: #1d4ed8; }
+  .code-oaci-badge { font-family: 'Courier New', monospace; background: #f5f5f5; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; }
+  .stats-grid { display: flex; gap: 12pt; margin: 12pt 0; }
+  .stats-grid > div { flex: 1; text-align: center; padding: 8pt; border: 1px solid #ddd; border-radius: 4pt; }
+  .stats-grid .num { font-size: 18pt; font-weight: 700; }
+  .stats-grid .label { font-size: 9pt; color: #666; }
+</style>
+</head>
+<body>
 
-      const fullHTML = generateRapportCompletHTML(rapportSections, {
-        includeCSS: true,
-        pageSize: 'A4',
-      });
+${pageGardeHtml}
 
-      const filename = `rapport_${aerodrome?.code_oaci || 'aerodrome'}_${reference.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-      const result = await generatePDFFromHTMLString(fullHTML, {
-        title: `Rapport — ${aerodrome?.nom} (${aerodrome?.code_oaci})`,
-        author: user?.nom ? `${user.prenom || ''} ${user.nom}` : 'ANACIM',
-        subject: `Rapport de surveillance — ${aerodrome?.nom}`,
-      });
+<div class="page-break"></div>
+<div class="sommaire">
+  <h2>SOMMAIRE</h2>
+  <ul>
+    <li>1. Résumé exécutif</li>
+    <li>2. Introduction et contexte</li>
+    <li>3. Méthodologie</li>
+    <li>4. Équipe d'inspection</li>
+    <li>5. Déroulement de la surveillance</li>
+    <li>6. Résultats de l'inspection</li>
+    <li>7. Préoccupations de sécurité</li>
+    <li>8. Non-conformités identifiées</li>
+    <li>9. Recommandations</li>
+    <li>10. Conclusion</li>
+    <li>11. Annexes</li>
+  </ul>
+</div>
 
-      if (result.success && result.blob) {
-        downloadBlob(result.blob, filename);
-        addNotification({
-          user_id: user?.id || '',
-          type: 'success',
-          title: 'PDF généré',
-          message: `Le PDF a été téléchargé : ${filename}`,
-          canal: 'in_app',
-        });
-      } else {
-        throw new Error(result.error || 'Échec de la génération PDF');
+<div class="page-break"></div>
+<h2>1. Résumé exécutif</h2>
+<div class="section-content">${sections.resume || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>2. Introduction et contexte</h2>
+<div class="section-content">${sections.introduction || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>3. Méthodologie</h2>
+<div class="section-content">${sections.methodologie || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>4. Équipe d'inspection</h2>
+<div class="section-content">${equipeHtml}</div>
+
+<div class="page-break"></div>
+<h2>5. Déroulement de la surveillance</h2>
+<div class="section-content">${deroulementHtml || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>6. Résultats de l'inspection</h2>
+<div class="section-content">${resultsHtml}</div>
+
+<div class="page-break"></div>
+<h2>7. Préoccupations de sécurité</h2>
+<div class="section-content">${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>
+
+<div class="page-break"></div>
+<h2>8. Non-conformités identifiées</h2>
+<div class="section-content">${ecartsTableHtml}</div>
+
+<div class="page-break"></div>
+<h2>9. Recommandations</h2>
+<div class="section-content">${sections.recommandations || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>10. Conclusion</h2>
+<div class="section-content">${sections.conclusion || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>11. Annexes</h2>
+<div class="section-content">
+  <p><em>Les annexes détaillées sont disponibles dans le dossier de surveillance.</em></p>
+  <h3>Écarts constatés (${ecartsList.length})</h3>
+  ${ecartsTableHtml}
+</div>
+
+</body>
+</html>`;
+
+      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (win) {
+        win.document.title = `Rapport_${aerodrome?.code_oaci || 'rapport'}`;
       }
+      URL.revokeObjectURL(url);
+
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Document généré',
+        message: 'Le document s\'est ouvert dans un nouvel onglet. Utilisez Ctrl+P ou Cmd+P pour l\'exporter en PDF.',
+        canal: 'in_app',
+      });
     } catch (err) {
       addNotification({
         user_id: user?.id || '',
         type: 'danger',
-        title: 'Erreur PDF',
-        message: err instanceof Error ? err.message : 'Erreur lors de la génération du PDF',
+        title: 'Erreur',
+        message: err instanceof Error ? err.message : 'Erreur lors de la génération du document',
         canal: 'in_app',
       });
     }
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    // Generate same clean document HTML as PDF export, but auto-trigger print
+    const ecartsList = surveillanceEcarts();
+    const today = new Date();
+    const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${String(today.getMonth()+1).padStart(2,'0')}_SURV`;
+
+    const equipeHtml = generateEquipeHtml();
+    const ecartsTableHtml = generateEcartsTable();
+
+    const deroulementHtml = [
+      sections.deroulement.preparation && `<h3>5.1 Préparation</h3>${sections.deroulement.preparation}`,
+      sections.deroulement.reunionOuverture && `<h3>5.2 Réunion d'ouverture</h3>${sections.deroulement.reunionOuverture}`,
+      sections.deroulement.verificationSite && `<h3>5.3 Vérification sur site</h3>${sections.deroulement.verificationSite}`,
+      sections.deroulement.reunionCloture && `<h3>5.4 Réunion de clôture</h3>${sections.deroulement.reunionCloture}`,
+    ].filter(Boolean).join('');
+
+    const pageGardeHtml = `
+      <div class="page-garde">
+        <p class="devise">République du Sénégal</p>
+        <p class="devise-sous">Un Peuple – Un But – Une Foi</p>
+        <hr class="sep" />
+        <p class="ministere">${pageGardeFields.ministere || 'MINISTERE DES TRANSPORTS TERRESTRES ET AERIENS'}</p>
+        <div class="logo-placeholder"></div>
+        <p class="anacim">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
+        <p class="direction">${pageGardeFields.direction || 'DIRECTION DE LA NAVIGATION AERIENNE ET DES AERODROMES'}</p>
+        <hr class="sep" />
+        <h1 class="titre-rapport">${pageGardeFields.titreLigne1 || 'Rapport de surveillance'}</h1>
+        <h2 class="sous-titre">${pageGardeFields.titreLigne2 || `Aéroport de ${aerodrome?.nom || ''} (${aerodrome?.code_oaci || ''})`}</h2>
+        <hr class="sep" />
+        <table class="infos">
+          <tr><td><strong>Date de l'inspection :</strong></td><td>${pageGardeFields.dateInspection || `du ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}`}</td></tr>
+          <tr><td><strong>Référentiel :</strong></td><td>${pageGardeFields.referentiel || reference}</td></tr>
+        </table>
+        <hr class="sep" />
+        <div class="mandataire">
+          <p class="mb-1"><strong>Mandataire</strong></p>
+          <p>${dgNom || 'Directeur général ANACIM'}</p>
+          <p>Directeur général ANACIM</p>
+        </div>
+      </div>
+    `;
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Rapport de surveillance — ${aerodrome?.nom} (${aerodrome?.code_oaci})</title>
+<style>
+  @page { margin: 20mm 15mm; size: A4; }
+  @media print { html, body { background: white; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 20pt; font-weight: 700; margin: 24pt 0 12pt; color: #1a1a1a; }
+  h2 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14pt; font-weight: 600; margin: 20pt 0 10pt; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
+  h3 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt; color: #333; }
+  p { margin: 6pt 0; text-align: justify; }
+  table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 10pt; }
+  th, td { border: 1px solid #999; padding: 6pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; font-weight: 600; }
+  .page-break { page-break-before: always; }
+  .page-garde { text-align: center; padding-top: 60pt; }
+  .page-garde .devise { font-size: 11pt; font-weight: 700; margin-bottom: 2pt; }
+  .page-garde .devise-sous { font-size: 10pt; font-style: italic; margin-bottom: 16pt; color: #555; }
+  .page-garde .sep { border: none; border-top: 2px solid #333; margin: 16pt auto; width: 60%; }
+  .page-garde .ministere { font-size: 10pt; font-weight: 600; margin-bottom: 12pt; }
+  .page-garde .logo-placeholder { height: 48pt; margin: 12pt 0; }
+  .page-garde .anacim { font-size: 10pt; font-weight: 700; margin-bottom: 4pt; }
+  .page-garde .direction { font-size: 10pt; margin-bottom: 12pt; }
+  .page-garde .titre-rapport { font-size: 20pt; font-weight: 700; margin: 20pt 0 8pt; border: none; }
+  .page-garde .sous-titre { font-size: 14pt; font-weight: 500; margin-bottom: 12pt; border: none; color: #555; }
+  .page-garde .infos { width: auto; margin: 16pt auto; border: none; }
+  .page-garde .infos td { border: none; padding: 4pt 8pt; text-align: left; }
+  .sommaire { margin: 24pt 0; }
+  .sommaire h2 { border: none; text-align: center; font-size: 14pt; margin-bottom: 16pt; }
+  .sommaire ul { list-style: none; padding: 0; }
+  .sommaire li { padding: 4pt 0; font-size: 12pt; border-bottom: 1px dotted #ccc; }
+  .section-content { margin: 8pt 0; }
+  ul, ol { margin: 6pt 0; padding-left: 24pt; }
+  li { margin: 2pt 0; }
+  .badge { display: inline-block; padding: 1pt 6pt; border-radius: 2pt; font-size: 9pt; font-weight: 600; }
+  .badge.danger { background: #fde8e8; color: #c53030; }
+  .badge.warning { background: #fef3c7; color: #b45309; }
+  .badge.primary { background: #dbeafe; color: #1d4ed8; }
+  .code-oaci-badge { font-family: 'Courier New', monospace; background: #f5f5f5; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; }
+  .stats-grid { display: flex; gap: 12pt; margin: 12pt 0; }
+  .stats-grid > div { flex: 1; text-align: center; padding: 8pt; border: 1px solid #ddd; border-radius: 4pt; }
+  .stats-grid .num { font-size: 18pt; font-weight: 700; }
+  .stats-grid .label { font-size: 9pt; color: #666; }
+</style>
+</head>
+<body>
+
+${pageGardeHtml}
+
+<div class="page-break"></div>
+<div class="sommaire">
+  <h2>SOMMAIRE</h2>
+  <ul>
+    <li>1. Résumé exécutif</li>
+    <li>2. Introduction et contexte</li>
+    <li>3. Méthodologie</li>
+    <li>4. Équipe d'inspection</li>
+    <li>5. Déroulement de la surveillance</li>
+    <li>6. Résultats de l'inspection</li>
+    <li>7. Préoccupations de sécurité</li>
+    <li>8. Non-conformités identifiées</li>
+    <li>9. Recommandations</li>
+    <li>10. Conclusion</li>
+    <li>11. Annexes</li>
+  </ul>
+</div>
+
+<div class="page-break"></div>
+<h2>1. Résumé exécutif</h2>
+<div class="section-content">${sections.resume || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>2. Introduction et contexte</h2>
+<div class="section-content">${sections.introduction || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>3. Méthodologie</h2>
+<div class="section-content">${sections.methodologie || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>4. Équipe d'inspection</h2>
+<div class="section-content">${equipeHtml}</div>
+
+<div class="page-break"></div>
+<h2>5. Déroulement de la surveillance</h2>
+<div class="section-content">${deroulementHtml || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>6. Résultats de l'inspection</h2>
+<div class="section-content">
+  ${sections.resultsIntro || ''}
+  <p>Score global : ${profil?.score_global || 'N/A'}/100 (tendance : ${profil?.tendance || 'stable'})</p>
+  <p>Taux de conformité : ${checklistStats.taux}% (SA: ${checklistStats.sa}, NS: ${checklistStats.ns}, NV: ${checklistStats.nv})</p>
+  ${sections.resultsAnalysis || ''}
+</div>
+
+<div class="page-break"></div>
+<h2>7. Préoccupations de sécurité</h2>
+<div class="section-content">${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>
+
+<div class="page-break"></div>
+<h2>8. Non-conformités identifiées</h2>
+<div class="section-content">${ecartsTableHtml}</div>
+
+<div class="page-break"></div>
+<h2>9. Recommandations</h2>
+<div class="section-content">${sections.recommandations || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>10. Conclusion</h2>
+<div class="section-content">${sections.conclusion || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>11. Annexes</h2>
+<div class="section-content">
+  <p><em>Les annexes détaillées sont disponibles dans le dossier de surveillance.</em></p>
+  <h3>Écarts constatés (${ecartsList.length})</h3>
+  ${ecartsTableHtml}
+</div>
+
+</body>
+</html>`;
+
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    if (win) {
+      win.document.title = `Rapport_${aerodrome?.code_oaci || 'rapport'}`;
+      // Trigger browser print after document loads
+      const checkReady = setInterval(() => {
+        if (win.document.readyState === 'complete') {
+          clearInterval(checkReady);
+          win.print();
+        }
+      }, 300);
+    }
+    URL.revokeObjectURL(url);
+  };
 
   const handleLoadReport = () => {
     const versions = JSON.parse(localStorage.getItem(`rapport_versions_${surveillanceId}`) || '[]');
@@ -1583,13 +1709,13 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
     });
   };
 
-  const execCommand = (cmd: string, value?: string) => {
-    document.execCommand(cmd, false, value);
-  };
-
   const navigateToHeading = (id: string) => {
     const element = document.getElementById(id);
     if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const execCommand = (cmd: string, value?: string) => {
+    document.execCommand(cmd, false, value);
   };
 
   if (isSigned) {
@@ -1613,201 +1739,181 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
   }
 
   return (
-    <div className={`space-y-4 ${darkMode ? 'dark' : ''}`} data-role={userRole} data-module="surveillance-rapport">
-
-      {watermarkEnabled && (
-        <div className="fixed inset-0 pointer-events-none z-0 opacity-5 select-none">
-          <div className="text-9xl font-black rotate-45 mt-32 text-center">ANACIM</div>
-          <div className="text-6xl font-black -rotate-45 mt-64 text-center">RÉPUBLIQUE DU SÉNÉGAL</div>
-        </div>
-      )}
-
+    <div data-role={userRole} data-module="surveillance-rapport">
       <RapportToolbar
         onExecCommand={execCommand}
-        onToggleWatermark={() => setWatermarkEnabled(!watermarkEnabled)}
-        watermarkEnabled={watermarkEnabled}
-        onToggleFocusMode={() => setFocusMode(!focusMode)}
-        focusMode={focusMode}
-        onZoomIn={() => setZoom(prev => Math.min(150, prev + 10))}
-        onZoomOut={() => setZoom(prev => Math.max(70, prev - 10))}
-        zoom={zoom}
-        onToggleDarkMode={() => setDarkMode(!darkMode)}
-        darkMode={darkMode}
-        onSave={handleSave}
         onPrint={handlePrint}
         onExportPDF={handleExportPDF}
+        onSave={handleSave}
         onLoadReport={handleLoadReport}
-        onIACommand={(instruction) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
-        isIaGenerating={isImproving}
         readOnly={readOnly}
         onSign={handleSign}
         isSigned={isSigned}
+        onIACommand={(instruction) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
+        isIaGenerating={isImproving}
         onDictate={toggleDictation}
         isDictating={isDictating}
+        onAnalyse={handleAnalyse}
       />
 
-      <TableOfContents headings={headings} onNavigate={navigateToHeading} />
+      <div ref={reportContainerRef} className="rapport-a4">
+        <div className="rapport-content">
+        <PageGarde
+          aerodrome={aerodrome}
+          surveillance={surveillance}
+          dgNom={dgNom}
+          editable={!readOnly && !isSigned}
+          onContentChange={handlePageGardeChange}
+          values={pageGardeFields}
+        />
 
-      <div className="rapport-a4">
-        <div
-          ref={reportContainerRef}
-          className="rapport-content space-y-6 bg-white"
-          style={{ zoom: `${zoom}%` }}
-        >
-          <PageGarde
-            aerodrome={aerodrome}
-            surveillance={surveillance}
-            dgNom={dgNom}
-            editable={!readOnly && !isSigned}
-            onContentChange={handlePageGardeChange}
-            values={pageGardeFields}
-          />
+        <div className="page-break-before"></div>
 
-          <div className="page-break-before"></div>
-
-          <div className="sommaire mb-8">
-            <h1 className="text-lg font-bold mb-4">SOMMAIRE</h1>
-            <div className="space-y-1">
-              {headings.map((h, idx) => (
-                <div key={idx} style={{ marginLeft: `${(h.level - 1) * 20}px` }}>
-                  <a href={`#${h.id}`} className="text-sm text-role-primary hover:underline">{h.text}</a>
-                </div>
-              ))}
-            </div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">SOMMAIRE</h2>
+          <div className="sommaire-list">
+            {headings.map((h, idx) => (
+              <div key={idx} className="sommaire-item" style={{ marginLeft: `${(h.level - 1) * 20}px` }}>
+                {h.text}
+              </div>
+            ))}
           </div>
+        </div>
 
-          <div className="page-break-before"></div>
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="1. RÉSUMÉ EXÉCUTIF"
+          content={sections.resume}
+          onContentChange={(val) => setSections(prev => ({ ...prev, resume: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
+          isImproving={isImproving}
+        />
 
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="2. INTRODUCTION ET CONTEXTE"
+          content={sections.introduction}
+          onContentChange={(val) => setSections(prev => ({ ...prev, introduction: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction)}
+          isImproving={isImproving}
+        />
+
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="3. MÉTHODOLOGIE"
+          content={sections.methodologie}
+          onContentChange={(val) => setSections(prev => ({ ...prev, methodologie: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction)}
+          isImproving={isImproving}
+        />
+
+        <div className="page-break-before"></div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">4. ÉQUIPE D'INSPECTION</h2>
+          <div dangerouslySetInnerHTML={{ __html: generateEquipeHtml() }} />
+        </div>
+
+        <div className="page-break-before"></div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">5. DÉROULEMENT DE L'INSPECTION</h2>
           <EditableSection
-            title="1. RÉSUMÉ EXÉCUTIF"
-            content={sections.resume}
-            onContentChange={(val) => setSections(prev => ({ ...prev, resume: val }))}
+            title="5.1. Préparation"
+            content={sections.deroulement.preparation}
+            onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, preparation: val } }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
+          />
+          <EditableSection
+            title="5.2. Réunion d'ouverture"
+            content={sections.deroulement.reunionOuverture}
+            onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionOuverture: val } }))}
+            editable={!readOnly && !isSigned}
+          />
+          <EditableSection
+            title="5.3. Phase de vérification sur site"
+            content={sections.deroulement.verificationSite}
+            onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, verificationSite: val } }))}
+            editable={!readOnly && !isSigned}
+          />
+          <EditableSection
+            title="5.4. Réunion de clôture"
+            content={sections.deroulement.reunionCloture}
+            onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionCloture: val } }))}
+            editable={!readOnly && !isSigned}
+          />
+        </div>
+
+        <div className="page-break-before"></div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">6. RÉSULTATS DE L'INSPECTION</h2>
+          <EditableSection
+            title="6.1. Introduction"
+            content={sections.resultsIntro}
+            onContentChange={(val) => setSections(prev => ({ ...prev, resultsIntro: val }))}
+            editable={!readOnly && !isSigned}
+            onImprove={(instruction?) => improveSection('resultsIntro', sections.resultsIntro, 'Introduction des résultats', instruction)}
             isImproving={isImproving}
           />
-
-          <div className="page-break-before"></div>
+          <div className="rapport-results" dangerouslySetInnerHTML={{ __html: generateResultsHtml() }} />
           <EditableSection
-            title="2. INTRODUCTION ET CONTEXTE"
-            content={sections.introduction}
-            onContentChange={(val) => setSections(prev => ({ ...prev, introduction: val }))}
+            title="6.2. Analyse approfondie"
+            content={sections.resultsAnalysis}
+            onContentChange={(val) => setSections(prev => ({ ...prev, resultsAnalysis: val }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction)}
+            onImprove={(instruction?) => improveSection('resultsAnalysis', sections.resultsAnalysis, 'Analyse des résultats', instruction)}
             isImproving={isImproving}
           />
+        </div>
 
-          <div className="page-break-before"></div>
-          <EditableSection
-            title="3. MÉTHODOLOGIE"
-            content={sections.methodologie}
-            onContentChange={(val) => setSections(prev => ({ ...prev, methodologie: val }))}
-            editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction)}
-            isImproving={isImproving}
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="7. PRÉOCCUPATIONS DE SÉCURITÉ"
+          content={sections.preoccupations}
+          onContentChange={(val) => setSections(prev => ({ ...prev, preoccupations: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('preoccupations', sections.preoccupations, 'PRÉOCCUPATIONS DE SÉCURITÉ', instruction)}
+          isImproving={isImproving}
+        />
+
+        <div className="page-break-before"></div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">8. NON-CONFORMITÉS IDENTIFIÉES</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            Voir <strong>Annexe A-2</strong> — Écarts constatés pour le détail complet (référence, libellé, niveau de risque, indice OACI et signature de l'inspecteur).
+          </p>
+        </div>
+
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="9. RECOMMANDATIONS"
+          content={sections.recommandations}
+          onContentChange={(val) => setSections(prev => ({ ...prev, recommandations: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('recommandations', sections.recommandations, 'RECOMMANDATIONS', instruction)}
+          isImproving={isImproving}
+        />
+
+        <div className="page-break-before"></div>
+        <EditableSection
+          title="10. CONCLUSION"
+          content={sections.conclusion}
+          onContentChange={(val) => setSections(prev => ({ ...prev, conclusion: val }))}
+          editable={!readOnly && !isSigned}
+          onImprove={(instruction?) => improveSection('conclusion', sections.conclusion, 'CONCLUSION', instruction)}
+          isImproving={isImproving}
+        />
+
+        <div className="page-break-before"></div>
+        <div className="rapport-section">
+          <h2 className="rapport-heading">11. ANNEXES</h2>
+          <RapportAnnexes
+            surveillanceId={surveillanceId}
+            readOnly={readOnly || isSigned}
+            userRole={userRole}
           />
-
-          <div className="page-break-before"></div>
-          <Card title="4. ÉQUIPE D'INSPECTION" className="mb-4">
-            <div dangerouslySetInnerHTML={{ __html: generateEquipeHtml() }} />
-          </Card>
-
-          <div className="page-break-before"></div>
-          <Card title="5. DÉROULEMENT DE L'INSPECTION" className="mb-4">
-            <div className="space-y-4">
-              <EditableSection
-                title="5.1. Préparation"
-                content={sections.deroulement.preparation}
-                onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, preparation: val } }))}
-                editable={!readOnly && !isSigned}
-              />
-              <EditableSection
-                title="5.2. Réunion d'ouverture"
-                content={sections.deroulement.reunionOuverture}
-                onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionOuverture: val } }))}
-                editable={!readOnly && !isSigned}
-              />
-              <EditableSection
-                title="5.3. Phase de vérification sur site"
-                content={sections.deroulement.verificationSite}
-                onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, verificationSite: val } }))}
-                editable={!readOnly && !isSigned}
-              />
-              <EditableSection
-                title="5.4. Réunion de clôture"
-                content={sections.deroulement.reunionCloture}
-                onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionCloture: val } }))}
-                editable={!readOnly && !isSigned}
-              />
-            </div>
-          </Card>
-
-          <div className="page-break-before"></div>
-          <Card title="6. RÉSULTATS DE L'INSPECTION" className="mb-4">
-            <div className="space-y-4">
-              <EditableSection
-                title="6.1. Introduction"
-                content={sections.resultsIntro}
-                onContentChange={(val) => setSections(prev => ({ ...prev, resultsIntro: val }))}
-                editable={!readOnly && !isSigned}
-                onImprove={(instruction?) => improveSection('resultsIntro', sections.resultsIntro, 'Introduction des résultats', instruction)}
-                isImproving={isImproving}
-              />
-              <div dangerouslySetInnerHTML={{ __html: generateResultsHtml() }} />
-              <EditableSection
-                title="6.2. Analyse approfondie"
-                content={sections.resultsAnalysis}
-                onContentChange={(val) => setSections(prev => ({ ...prev, resultsAnalysis: val }))}
-                editable={!readOnly && !isSigned}
-                onImprove={(instruction?) => improveSection('resultsAnalysis', sections.resultsAnalysis, 'Analyse des résultats', instruction)}
-                isImproving={isImproving}
-              />
-            </div>
-          </Card>
-
-          <div className="page-break-before"></div>
-          <EditableSection
-            title="7. PRÉOCCUPATIONS DE SÉCURITÉ"
-            content={sections.preoccupations}
-            onContentChange={(val) => setSections(prev => ({ ...prev, preoccupations: val }))}
-            editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('preoccupations', sections.preoccupations, 'PRÉOCCUPATIONS DE SÉCURITÉ', instruction)}
-            isImproving={isImproving}
-          />
-
-          <div className="page-break-before"></div>
-          <Card title="8. NON-CONFORMITÉS IDENTIFIÉES" className="mb-4">
-            <div dangerouslySetInnerHTML={{ __html: generateEcartsTable() }} />
-          </Card>
-
-          <div className="page-break-before"></div>
-          <EditableSection
-            title="9. RECOMMANDATIONS"
-            content={sections.recommandations}
-            onContentChange={(val) => setSections(prev => ({ ...prev, recommandations: val }))}
-            editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('recommandations', sections.recommandations, 'RECOMMANDATIONS', instruction)}
-            isImproving={isImproving}
-          />
-
-          <div className="page-break-before"></div>
-          <EditableSection
-            title="10. CONCLUSION"
-            content={sections.conclusion}
-            onContentChange={(val) => setSections(prev => ({ ...prev, conclusion: val }))}
-            editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('conclusion', sections.conclusion, 'CONCLUSION', instruction)}
-            isImproving={isImproving}
-          />
-
-          <div className="page-break-before"></div>
-          <Card title="11. ANNEXES" className="mb-4">
-            <RapportAnnexes
-              surveillanceId={surveillanceId}
-              readOnly={readOnly || isSigned}
-              userRole={userRole}
-            />
-          </Card>
+        </div>
         </div>
       </div>
 
@@ -1854,6 +1960,52 @@ const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${Str
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setLoadDialogOpen(false)}>Fermer</button></div>
           </div>
         </div>
+      )}
+
+      {showAnalyse && createPortal(
+        <div className="modal-overlay" onClick={() => setShowAnalyse(false)}>
+          <div className="modal-content max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="border-t-4 border-t-purple-500 rounded-2xl overflow-hidden">
+              <div className="modal-header bg-gradient-to-r from-purple-50 to-transparent">
+                <div className="modal-title flex items-center gap-2"><Brain className="w-4 h-4 text-purple-600" /> Analyse qualité</div>
+                <button className="modal-close" onClick={() => setShowAnalyse(false)}><X className="w-4 h-4" /></button>
+              </div>
+              <div className="modal-body p-4">
+                {!analyseResult ? (
+                  <div className="text-center py-6">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple-500 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">Analyse en cours...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      <span className={`inline-flex items-center justify-center w-16 h-16 rounded-full text-2xl font-bold ${analyseResult.score >= 80 ? 'bg-success/20 text-success' : analyseResult.score >= 60 ? 'bg-warning/20 text-warning' : 'bg-danger/20 text-danger'}`}>
+                        {analyseResult.score}/100
+                      </span>
+                      <p className="text-sm font-semibold mt-2">{analyseResult.grade}</p>
+                    </div>
+                    {analyseResult.forces.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-success mb-1">Points forts</p>
+                        <ul className="space-y-1">{analyseResult.forces.map((f, i) => <li key={i} className="text-xs flex items-start gap-1"><CheckCircle className="w-3 h-3 text-success mt-0.5 shrink-0" />{f}</li>)}</ul>
+                      </div>
+                    )}
+                    {analyseResult.faiblesses.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-danger mb-1">Points à améliorer</p>
+                        <ul className="space-y-1">{analyseResult.faiblesses.map((f, i) => <li key={i} className="text-xs flex items-start gap-1"><AlertCircle className="w-3 h-3 text-danger mt-0.5 shrink-0" />{f}</li>)}</ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowAnalyse(false)}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {signatureDialogOpen && createPortal(

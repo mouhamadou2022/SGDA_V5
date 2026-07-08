@@ -5,9 +5,11 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { Activity, TrendingUp, TrendingDown, Minus, Shield, Brain, CheckCircle2, BarChart3, BookOpen, MapPin, ArrowLeft } from 'lucide-react'
+import { Activity, TrendingUp, TrendingDown, Minus, Shield, Brain, CheckCircle2, BarChart3, BookOpen, MapPin, ArrowLeft, AlertTriangle, Gauge } from 'lucide-react'
 import { useAppStore, useHistoricalScores, ProfilRisque } from '@/lib/store'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
+import { getBadgeClassFromScore } from '@/lib/config'
+import { computeAllHealthIndices, getHealthLevel, getEvolutionArrow, getEvolutionColor } from '@/lib/ia/healthIndex'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { Card } from '@/components/ui/card'
@@ -36,25 +38,12 @@ const HELP_SECTIONS: HelpSection[] = [
   { id: 'models', title: 'Modèles IA', icon: Brain, content: 'HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling — intégrés dans le pipeline de calcul du profil.' },
 ]
 
-function getNiveauBadgeCls(score: number): string {
-  if (score >= 80) return 'badge success'
-  if (score >= 60) return 'badge primary'
-  if (score >= 30) return 'badge warning'
-  return 'badge danger'
+function getScoreColor(score: number): string {
+  return getBadgeClassFromScore(score).replace('badge', 'text')
 }
 
 function getBorderCls(score: number): string {
-  if (score >= 80) return 'border-l-success'
-  if (score >= 60) return 'border-l-primary'
-  if (score >= 30) return 'border-l-warning'
-  return 'border-l-danger'
-}
-
-function getScoreColor(score: number): string {
-  if (score >= 80) return 'text-success'
-  if (score >= 60) return 'text-primary'
-  if (score >= 30) return 'text-warning'
-  return 'text-danger'
+  return getBadgeClassFromScore(score).replace('badge', 'border-l')
 }
 
 export function RisqueModule({ userRole }: Props) {
@@ -94,6 +83,12 @@ export function RisqueModule({ userRole }: Props) {
 
   const profil = selected?.profil ?? null
   const aerodrome = selected?.aerodrome ?? null
+
+  const healthIndices = useMemo(() => {
+    const entries = Object.values(profilsRisque).filter(Boolean) as ProfilRisque[]
+    if (entries.length < 2) return null
+    return computeAllHealthIndices(profilsRisque)
+  }, [profilsRisque])
 
   const stats = useMemo(() => {
     const profils = aerodromesActifs.map(a => profilsRisque[a.id]).filter(Boolean) as ProfilRisque[]
@@ -148,14 +143,83 @@ export function RisqueModule({ userRole }: Props) {
 
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Profil de Risque" subtitle="Analyse multicritère et modèles IA" sections={HELP_SECTIONS} />
 
-      {/* KPIs globaux */}
+      {/* Vue d'ensemble — KPIs puis Health Index */}
       {stats && !selectedAerodromeId && (
-        <div className="kpi-grid">
-          <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><BarChart3 className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Score moyen</div><div className={`kpi-value ${getScoreColor(stats.moyenne)}`}>{stats.moyenne}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-success-soft"><CheckCircle2 className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Excellents (≥80)</div><div className="kpi-value text-success">{stats.excellents}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Activity className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Critiques (&lt;30)</div><div className="kpi-value text-danger">{stats.critiques}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><TrendingUp className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label text-foreground">En dégradation</div><div className="kpi-value text-warning">{stats.enDegradation}</div></div></div>
-          <div className="kpi-card"><div className="kpi-icon bg-info-soft"><Shield className="w-5 h-5 text-info" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Total</div><div className="kpi-value text-foreground">{stats.total}</div></div></div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="kpi-card"><div className="kpi-icon bg-role-primary-soft"><BarChart3 className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Score moyen</div><div className={`kpi-value ${getScoreColor(stats.moyenne)}`}>{stats.moyenne}</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon bg-success-soft"><CheckCircle2 className="w-5 h-5 text-success" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Excellents (≥80)</div><div className="kpi-value text-success">{stats.excellents}</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon bg-danger-soft"><Activity className="w-5 h-5 text-danger" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Critiques (&lt;30)</div><div className="kpi-value text-danger">{stats.critiques}</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon bg-warning-soft"><TrendingUp className="w-5 h-5 text-warning" /></div><div className="kpi-content"><div className="kpi-label text-foreground">En dégradation</div><div className="kpi-value text-warning">{stats.enDegradation}</div></div></div>
+            <div className="kpi-card"><div className="kpi-icon bg-info-soft"><Shield className="w-5 h-5 text-info" /></div><div className="kpi-content"><div className="kpi-label text-foreground">Total</div><div className="kpi-value text-foreground">{stats.total}</div></div></div>
+          </div>
+
+          {/* Health Index card */}
+          {healthIndices && healthIndices.length > 0 && aerodromesAvecProfil.length > 0 && (() => {
+            const avg = Math.round(healthIndices.reduce((s, h) => s + h.score, 0) / healthIndices.length)
+            const level = getHealthLevel(avg)
+            const alerts = healthIndices.filter(h => h.topAlert).length
+            const avgConfiance = Math.round(healthIndices.reduce((s, h) => s + h.confiance, 0) / healthIndices.length)
+            const avgPredicted = Math.round(healthIndices.reduce((s, h) => s + (h.prediction.score ?? h.score), 0) / healthIndices.length)
+
+            const worst = aerodromesAvecProfil
+              .filter(e => e.profil)
+              .sort((a, b) => {
+                const pa = a.profil!, pb = b.profil!
+                if (pa.tendance === 'baisse' && pb.tendance !== 'baisse') return -1
+                if (pa.tendance !== 'baisse' && pb.tendance === 'baisse') return 1
+                return pa.score_global - pb.score_global
+              })[0]
+            const p = worst?.profil
+            const DIMS: [keyof ProfilRisque, string][] = [
+              ['c1', 'Maturité SGS'], ['c2', 'Efficacité PAC'],
+              ['c3', 'Conformité'], ['c4', 'Charge critique'], ['c5', 'Résilience'],
+            ]
+            const dominantDim = p ? [...DIMS].sort((a, b) => (p[a[0]] as number) - (p[b[0]] as number))[0] : null
+            const delta = p ? p.prediction_3m - p.score_global : 0
+            const joursSous60 = p && p.tendance === 'baisse' && delta < 0
+              ? Math.ceil((p.score_global - 60) / Math.abs(delta / 90))
+              : null
+            const perte2mois = p && delta < 0 ? Math.round(Math.abs(delta) * 60 / 90) : null
+
+            return (
+              <Card variant="role" headerGradient icon={<Gauge className="w-5 h-5" />} title="Health Index — Synthèse exécutive">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+                    <span title="Score moyen">Index <strong className={level.color}>{avg}</strong>/100</span>
+                    <span title="Niveau" className={level.color}>{level.niveau}</span>
+                    <span title="Alerte" className={alerts > 0 ? 'text-danger' : 'text-success'}>
+                      <AlertTriangle className="w-3.5 h-3.5 inline mr-0.5" />{alerts} alerte{alerts > 1 ? 's' : ''}
+                    </span>
+                    <span title="Confiance moyenne">Fiabilité <strong>{avgConfiance}%</strong></span>
+                    <span title="Prédiction 3 mois" className={avgPredicted < avg ? 'text-warning' : 'text-success'}>
+                      Prévision 3m <strong>{avgPredicted}</strong>
+                    </span>
+                  </div>
+
+                  {p && worst && dominantDim && (
+                    <>
+                      <div className="border-t border-border pt-4 text-sm text-foreground leading-relaxed">
+                        <strong className="text-role-primary">{worst.aerodrome.nom}</strong> est à <strong>{p.score_global}/100</strong>
+                        {p.tendance === 'baisse' && perte2mois !== null
+                          ? ` mais perd ${perte2mois} pts sur 2 mois à cause de ${dominantDim[1].toLowerCase()}.`
+                          : `. La dimension la plus faible est ${dominantDim[1].toLowerCase()} (${p[dominantDim[0]] as number}/100).`}
+                        {joursSous60 !== null && ` Si la tendance continue, le score passera sous 60 dans environ ${joursSous60} jours.`}
+                      </div>
+                      <div className="border-t border-border pt-4 text-sm text-foreground">
+                        <span className="font-medium text-role-primary">Recommandation :</span>{' '}
+                        {dominantDim[0] === 'c1' && 'Réaliser un audit SGS complet pour renforcer la culture sécurité.'}
+                        {dominantDim[0] === 'c2' && 'Prioriser la clôture des PAC en retard avant la prochaine échéance.'}
+                        {dominantDim[0] === 'c3' && 'Planifier une inspection ciblée de la conformité réglementaire.'}
+                        {dominantDim[0] === 'c4' && 'Réduire la charge critique par une redistribution des inspections.'}
+                        {dominantDim[0] === 'c5' && 'Mettre en place un plan de résilience avec des ressources de renfort.'}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Card>
+            )
+          })()}
         </div>
       )}
 
@@ -176,6 +240,7 @@ export function RisqueModule({ userRole }: Props) {
             onRecalculate={handleRecalculer}
             prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
             ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
+            evenements={evenementsAerodrome}
           />
         ) : (
           <Card>
@@ -227,7 +292,7 @@ export function RisqueModule({ userRole }: Props) {
 
       {/* Vue détaillée — DG ANACIM uniquement (exploitants = ExploitantRiskView) */}
       {selectedAerodromeId && aerodrome && profil && userRole === 'dg_anacim' && (
-        <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} />
+        <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} evenements={evenementsAerodrome} ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} />
       )}
 
       {/* Vue détaillée — Inspecteur/Admin (4 onglets) */}
@@ -236,7 +301,7 @@ export function RisqueModule({ userRole }: Props) {
           <div className="flex items-center gap-3 mb-2">
             <span className="code-oaci-badge text-base">{aerodrome.code_oaci}</span>
             <span className="font-semibold text-lg text-foreground">{aerodrome.nom}</span>
-            <span className={`badge text-xs ${getNiveauBadgeCls(profil.score_global)}`}>
+            <span className={`badge text-xs ${getBadgeClassFromScore(profil.score_global)}`}>
               {profil.niveau} ({profil.score_global}/100)
             </span>
             {profil.tendance && <span className="text-xs text-foreground">Tendance: {profil.tendance}</span>}
@@ -253,16 +318,16 @@ export function RisqueModule({ userRole }: Props) {
 
           <div className="tab-content">
             {activeOnglet === 'synthese' && (
-              <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} />
+              <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} evenements={evenementsAerodrome} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} />
             )}
             {activeOnglet === 'diagnostic' && (
-              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} />
+              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} />
             )}
             {activeOnglet === 'anticipation' && (
-              <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} />
+              <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} aerodromeCode={aerodrome.code_oaci} />
             )}
             {activeOnglet === 'actions' && (
-              <ActionsTab profil={profil} aerodromeId={aerodrome.id} userRole={userRole} onRecalculate={handleRecalculer} />
+              <ActionsTab profil={profil} aerodromeId={aerodrome.id} aerodromeCode={aerodrome.code_oaci} userRole={userRole} onRecalculate={handleRecalculer} />
             )}
           </div>
         </>

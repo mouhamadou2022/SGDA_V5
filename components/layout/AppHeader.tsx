@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { LogOut, User, Settings, Shield, Sun, Moon, Monitor } from 'lucide-react';
+import { LogOut, User, Settings, Shield, Sun, Moon, Monitor, Brain, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AuthUser } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -115,8 +115,9 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
       >
         <div className="logo relative">
           <span className="relative z-10" style={logoSyle}>
-            ANACIM · SGDA V5
+            SGDA · <Brain className="w-3 h-3 inline -mt-0.5" style={{color: 'inherit', opacity: 0.6}} /> AERORISQ<sup className="text-[9px] -top-2 ml-0.5 font-semibold inline-flex items-center gap-0.5" style={{WebkitTextFillColor: 'currentColor', color: 'inherit'}}>IA<Sparkles className="w-2.5 h-2.5 ml-0.5 text-yellow-400 inline" /><Sparkles className="w-2 h-2 text-yellow-400 -ml-1 inline" /></sup>
           </span>
+          <div className="text-[8px] tracking-widest text-muted-foreground/50 font-medium -mt-1 leading-tight">IA DÉCISIONNEL</div>
           {isHovered && (
             <div className="absolute -top-6 -right-8 w-5 h-5 opacity-70 animate-takeoff">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getRolePrimaryColor(user.role) }} />

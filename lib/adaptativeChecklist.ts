@@ -3,8 +3,7 @@
 
 import { ProfilRisque, Ecart, Surveillance, ChecklistItem } from './store';
 
-// Types
-export type ResultatChecklist = 'SA' | 'NS' | 'NA' | 'NV';
+import type { ResultatChecklist } from '@/types/checklist'
 
 export interface BaseChecklistItem {
   id: string;

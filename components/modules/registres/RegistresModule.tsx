@@ -326,7 +326,7 @@ function DashboardTab() {
                 const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
                 return (
                   <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
-                    <td className="code-oaci-badge text-xs">{entry.reference}</td>
+                    <td>{entry.reference}</td>
                     <td className="text-foreground">{entry.titre}</td>
                     <td><span className={typeInfo.badgeClass}>{typeInfo.label}</span></td>
                     <td className="text-muted-foreground">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
@@ -1185,7 +1185,7 @@ function EcartsTab() {
   };
   
   const getDecisionBadge = (decision: string) => {
-    return decision === 'accepte' ? 'badge success' : 'badge danger';
+    return decision === 'refuse' ? 'badge danger' : 'badge success';
   };
   
   return (<>
@@ -1238,7 +1238,7 @@ function EcartsTab() {
                               <td>
                                 {ecart.evaluation_pac && (
                                   <span className={getDecisionBadge(ecart.evaluation_pac.decision)}>
-                                    {ecart.evaluation_pac.decision === 'accepte' ? 'Accepté' : 'Refusé'}
+                                    {ecart.evaluation_pac.decision === 'accepte' ? 'Accepté' : ecart.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}
                                   </span>
                                 )}
                               </td>
@@ -1333,7 +1333,7 @@ function EcartsTab() {
               </h4>
               <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                 <span>Note globale : <strong>{selectedEcart.evaluation_pac.note_globale}/10</strong></span>
-                <span>Décision : <span className={selectedEcart.evaluation_pac.decision === 'accepte' ? 'badge success' : 'badge danger'}>{selectedEcart.evaluation_pac.decision === 'accepte' ? 'Accepté' : 'Refusé'}</span></span>
+                <span>Décision : <span className={selectedEcart.evaluation_pac.decision === 'refuse' ? 'badge danger' : 'badge success'}>{selectedEcart.evaluation_pac.decision === 'accepte' ? 'Accepté' : selectedEcart.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}</span></span>
               </div>
               {selectedEcart.evaluation_pac.commentaire_refus && (
                 <p className="text-sm text-muted-foreground">{selectedEcart.evaluation_pac.commentaire_refus}</p>
@@ -1810,7 +1810,7 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails, filte
                   <div className="w-8 h-8 rounded-xl bg-role-primary-soft flex items-center justify-center">
                     <FileText className="w-4 h-4 text-role-primary" />
                   </div>
-                  <span className="code-oaci-badge text-xs" style={{fontSize:'0.75rem'}}>{entry.reference}</span>
+                  <span>{entry.reference}</span>
                 </div>
                 <span className={typeInfo.badgeClass}>{typeInfo.label}</span>
               </div>
@@ -1885,8 +1885,8 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails, filte
                             const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
                             return (
                               <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
-                                <td className="code-oaci-badge text-xs">{entry.reference}</td>
-                                <td className="text-foreground">{entry.titre}</td>
+                    <td className="text-xs">{entry.reference}</td>
+                    <td className="text-foreground">{entry.titre}</td>
                                 <td className="text-small">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
                                 <td>
                                   {entry.fichiers && entry.fichiers.length > 0 && (
@@ -1961,7 +1961,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
       ? certifications?.find(c => c.id === id)
       : homologations?.find(h => h.id === id)
     if (source) {
-      setFormSourceData(source)
+      setFormSourceData({ ...source, source_type: type })
       setShowFormModal(true)
     }
     setPendingRegistreSource(null)

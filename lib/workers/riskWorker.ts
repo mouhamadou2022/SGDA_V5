@@ -11,6 +11,8 @@ export type WorkerMessageType =
   | 'computeStress' 
   | 'computeProactiveAlert'
   | 'computeVelocity'
+  | 'computeHMM'
+  | 'computeSurvival'
 
 export interface WorkerMessage {
   type: WorkerMessageType
@@ -36,6 +38,8 @@ import {
   computeProactiveAlert,
   computeVelocityMetrics
 } from '../risque'
+import { predictHMM } from '../risque/hmm'
+import { predictSurvival } from '../risque/survival'
 
 // Gestion des messages entrants
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -72,6 +76,14 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         
       case 'computeVelocity':
         result = computeVelocityMetrics(payload.historique)
+        break
+
+      case 'computeHMM':
+        result = predictHMM(payload.historiqueScores, payload.nEtats)
+        break
+
+      case 'computeSurvival':
+        result = predictSurvival(payload.dureesAvantIncident, payload.dureesCensurees)
         break
         
       default:

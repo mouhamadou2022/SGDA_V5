@@ -75,30 +75,29 @@ export const PERMISSIONS = {
       'operator-ecarts', 'operator-evenements',
       'operator-documentations', 'operator-enquetes', 'operator-messagerie',
       'operator-pac-consolide',
-      'operator-planning',
+      'operator-planning', 'operator-self-assessment',
       'operator-certification', 'operator-homologation',
+      'operator-archives',
     ],
   },
 
-  // Personnel Exploitant : consultation + notifications événements
+  // Personnel Exploitant : vue aérodrome + déclaration événements + documentation ANACIM + messagerie
   staff_operator: {
     modules: [
-      'dashboard', 'operator-dashboard',
-      'risque',
-      'operator-planning',
+      'dashboard',
+      'staff-dashboard',
       'operator-evenements',
       'operator-documentations',
-      'operator-certification', 'operator-homologation',
+      'operator-messagerie',
     ],
   },
 
-  // Invité : consultation publique — aérodromes, statuts réglementaires, documentation
+  // Invité : consultation publique — vue réseau + documentation technique
   guest: {
     modules: [
-      'dashboard', 'guest-dashboard',
-      'aerodromes',
-      'certification', 'homologation',
-      'dossiers',
+      'dashboard',
+      'guest-dashboard',
+      'operator-documentations',
     ],
   }
 } as const
@@ -196,10 +195,10 @@ export const SURVEILLANCE_DOMAINS = [
 ] as const
 
 export const NIVEAUX_RISQUE_ECART = {
-  critique: { label: 'Critique', color: 'danger', icone: 'Flame', delai_pac: 3, delai_regularisation: 7 },
-  eleve: { label: 'Élevé', color: 'warning', icone: 'AlertOctagon', delai_pac: 7, delai_regularisation: 30 },
-  moyen: { label: 'Moyen', color: 'primary', icone: 'AlertCircle', delai_pac: 15, delai_regularisation: 90 },
-  faible: { label: 'Faible', color: 'success', icone: 'Info', delai_pac: 30, delai_regularisation: 180 }
+  critique: { label: 'Critique', color: 'danger', icone: 'Flame', delai_pac: 3, delai_regularisation: 7, delai_evaluation_pac: 5, delai_evaluation_preuves: 5 },
+  eleve: { label: 'Élevé', color: 'warning', icone: 'AlertOctagon', delai_pac: 7, delai_regularisation: 30, delai_evaluation_pac: 10, delai_evaluation_preuves: 7 },
+  moyen: { label: 'Moyen', color: 'primary', icone: 'AlertCircle', delai_pac: 15, delai_regularisation: 90, delai_evaluation_pac: 15, delai_evaluation_preuves: 10 },
+  faible: { label: 'Faible', color: 'success', icone: 'Info', delai_pac: 30, delai_regularisation: 180, delai_evaluation_pac: 20, delai_evaluation_preuves: 15 }
 } as const
 
 export const STATUTS_ECART = {
