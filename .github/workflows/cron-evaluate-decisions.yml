@@ -1,15 +1,9 @@
-# .github/workflows/cron-evaluate-decisions.yml
-# Évalue les décisions AERORISQ 6 mois après + recalibrage des poids C1-C5
-# Boucle d'apprentissage : décision → outcome → recalibrage
-# Nécessite : secrets.CRON_SECRET et SITE_URL dans les secrets GitHub
-
 name: Evaluation auto des decisions
 
 on:
+  workflow_dispatch:
   schedule:
-    # 1er de chaque mois à 03:00 UTC — les décisions ont besoin de 6 mois de recul
-    - cron: '0 3 1 * *'
-  workflow_dispatch: # Permet un déclenchement manuel
+    - cron: '0 3 * * 0'
 
 jobs:
   evaluate:
@@ -22,5 +16,3 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.SITE_URL }}/api/cron/evaluate-decisions"
           echo "Status: $(cat response.json)"
-      - name: Vérifier le statut
-        run: cat response.json
