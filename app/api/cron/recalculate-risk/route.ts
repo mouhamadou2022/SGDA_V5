@@ -26,6 +26,25 @@ export async function GET(request: Request) {
       auth: { persistSession: false },
     })
 
+    // Nettoyer les anciennes entrées en double (même aerodrome_id + computed_at)
+    const { data: dupes } = await supabaseAdmin
+      .from('score_history')
+      .select('id, aerodrome_id, computed_at')
+      .order('computed_at', { ascending: false })
+    if (dupes && dupes.length > 0) {
+      const seen = new Set<string>()
+      const toDelete: string[] = []
+      for (const d of dupes) {
+        const key = `${d.aerodrome_id}_${d.computed_at}`
+        if (seen.has(key)) toDelete.push(d.id)
+        else seen.add(key)
+      }
+      if (toDelete.length > 0) {
+        await supabaseAdmin.from('score_history').delete().in('id', toDelete)
+        console.log(`[recalculate-risk] Nettoyé ${toDelete.length} doublons score_history`)
+      }
+    }
+
     // Importer les fonctions de calcul (pures, compatibles serveur)
     const risqueUtils = await import('@/lib/risque')
     const { computeIncidentPrediction, computeEventTrendAnalysis, computeBayesianPosterior } = await import('@/lib/risque')
@@ -113,6 +132,8 @@ export async function GET(request: Request) {
             })
           if (shError) {
             console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
+          } else if (results.length === 0) {
+            console.log(`[recalculate-risk] Premier insert score_history: ${aerodrome.code_oaci} score=${scoreGlobal} à ${now}`)
           }
         }
 
