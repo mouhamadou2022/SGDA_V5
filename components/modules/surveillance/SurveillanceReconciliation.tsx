@@ -230,9 +230,11 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
     let compteurNouveaux = 0;
 
     try {
+      // ── Traiter les actions sauf fusion ──
       for (const [ecartId, actionData] of Object.entries(ecartActions)) {
         const ecart = ecarts.find(e => e.id === ecartId);
         if (!ecart) continue;
+        if (actionData.action === 'fusionné') continue;
 
         switch (actionData.action) {
           case 'résolu':
@@ -267,30 +269,6 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
               description: 'Écart déclaré obsolète lors de la réconciliation',
             });
             compteurObsoletes++;
-            break;
-
-          case 'fusionné':
-            const fusionTargetId = actionData.fusionneVersId;
-            const fusionTargetItem = fusionTargetId ? itemsNSNV.find(i => i.id === fusionTargetId) : null;
-            const fusionTargetRef = fusionTargetItem
-              ? `REC-${surveillanceId.slice(0, 6)}-${Date.now().toString(36).toUpperCase()}`
-              : 'Nouvel écart issu des NS/NV';
-            await updateEcart(ecartId, {
-              statut: 'cloture',
-              cloture_le: now,
-              motif_cloture: 'fusionne',
-              fusionne_vers_id: fusionTargetId,
-              updated_at: now,
-            });
-            addHistoriqueEntry(ecartId, {
-              type: 'reconciliation',
-              date: now,
-              acteur,
-              role_acteur: roleActeur,
-              description: `Écart fusionné → ${fusionTargetRef}`,
-              details: { fusionne_vers_id: fusionTargetId, fusion_ne_ref: fusionTargetRef },
-            });
-            compteurFusionnes++;
             break;
 
           case 'aggravé':
@@ -331,17 +309,18 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
         }
       }
 
-      // Créer les nouveaux écarts issus des NS/NV
+      // ── Créer les nouveaux écarts (fusion + simples) ──
+      const fusionIdMap: Record<string, string> = {};
       for (const itemId of nouveauxEcarts) {
         const item = itemsNSNV.find(i => i.id === itemId);
         if (!item) continue;
         const newRef = `REC-${surveillanceId.slice(0, 6)}-${Date.now().toString(36).toUpperCase()}`;
-        // Vérifier si cet item est la cible d'une fusion
+        const newId = crypto.randomUUID();
         const fusionDepuisId = Object.entries(ecartActions)
           .filter(([, a]) => a.action === 'fusionné' && a.fusionneVersId === itemId)
           .map(([id]) => id)[0];
         await addEcart({
-          id: crypto.randomUUID(),
+          id: newId,
           aerodrome_id: aerodromeId || '',
           surveillance_id: surveillanceId,
           domaine: item.domaine || 'Général',
@@ -357,7 +336,36 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
           created_at: now,
           updated_at: now,
         } as any);
+        if (fusionDepuisId) fusionIdMap[itemId] = newId;
         compteurNouveaux++;
+      }
+
+      // ── Traiter les fusions (maintenant avec le bon ID du nouvel écart) ──
+      for (const [ecartId, actionData] of Object.entries(ecartActions)) {
+        if (actionData.action !== 'fusionné') continue;
+        const targetId = actionData.fusionneVersId;
+        if (!targetId) continue;
+        const item = itemsNSNV.find(i => i.id === targetId);
+        const ref = item
+          ? `REC-${surveillanceId.slice(0, 6)}-${Date.now().toString(36).toUpperCase()}`
+          : 'Nouvel écart issu des NS/NV';
+        const fusionneVersId = fusionIdMap[targetId] || targetId;
+        await updateEcart(ecartId, {
+          statut: 'cloture',
+          cloture_le: now,
+          motif_cloture: 'fusionne',
+          fusionne_vers_id: fusionneVersId,
+          updated_at: now,
+        });
+        addHistoriqueEntry(ecartId, {
+          type: 'reconciliation',
+          date: now,
+          acteur,
+          role_acteur: roleActeur,
+          description: `Écart fusionné → ${ref}`,
+          details: { fusionne_vers_id: fusionneVersId, fusion_ne_ref: ref },
+        });
+        compteurFusionnes++;
       }
 
       // ── Basculer tous les écarts actifs des anciennes surveillances vers N+1 ──
