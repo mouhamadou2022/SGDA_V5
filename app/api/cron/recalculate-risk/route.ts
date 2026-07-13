@@ -47,6 +47,18 @@ export async function GET(request: Request) {
 
     // Importer les fonctions de calcul (pures, compatibles serveur)
     const risqueUtils = await import('@/lib/risque')
+    const { weightController } = await import('@/lib/ia/weightController')
+
+    // Charger les poids appris C1-C5 depuis ia_thresholds
+    let learnedWeights: Record<string, number> | undefined
+    const { data: savedWeights } = await supabaseAdmin
+      .from('ia_thresholds')
+      .select('parametre, valeur')
+      .in('parametre', ['weight_c1', 'weight_c2', 'weight_c3', 'weight_c4', 'weight_c5'])
+    if (savedWeights && savedWeights.length > 0) {
+      weightController.initFromSupabase(savedWeights)
+      learnedWeights = weightController.getCurrentWeights()
+    }
     const { computeIncidentPrediction, computeEventTrendAnalysis, computeBayesianPosterior } = await import('@/lib/risque')
 
     // 1. Récupérer tous les aérodromes actifs
@@ -87,7 +99,7 @@ export async function GET(request: Request) {
           : 70
         const c4 = risqueUtils.calculateC4FromEcarts(ecartsAerodrome || [])
         const c5 = risqueUtils.calculateC5(evenementsAerodrome || [])
-        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 })
+        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights)
 
         // 4. Prédictions et tendances
         const incidentPred = computeIncidentPrediction(evenementsAerodrome || [])
@@ -119,29 +131,31 @@ export async function GET(request: Request) {
           .upsert(profil, { onConflict: 'aerodrome_id' })
 
         // 7. Alimenter score_history pour l'apprentissage
-        if (!upsertError) {
-          const { error: shError } = await supabaseAdmin
-            .from('score_history')
-            .insert({
-              aerodrome_id: aerodromeId,
-              score_global: scoreGlobal,
-              c1, c2, c3, c4, c5,
-              niveau: profil.niveau,
-              tendance: 'stable',
-              computed_at: now,
-            })
-          if (shError) {
-            console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
-          } else if (results.length === 0) {
-            console.log(`[recalculate-risk] Premier insert score_history: ${aerodrome.code_oaci} score=${scoreGlobal} à ${now}`)
-          }
+        let shStatus = ''
+        const shPayload: Record<string, unknown> = {
+          aerodrome_id: aerodromeId,
+          score_global: scoreGlobal,
+          computed_at: now,
+        }
+        if (c1 !== undefined) shPayload.c1 = c1
+        if (c2 !== undefined) shPayload.c2 = c2
+        if (c3 !== undefined) shPayload.c3 = c3
+        if (c4 !== undefined) shPayload.c4 = c4
+        if (c5 !== undefined) shPayload.c5 = c5
+        shPayload.niveau = profil.niveau
+        const { error: shError } = await supabaseAdmin
+          .from('score_history')
+          .insert(shPayload)
+        if (shError) {
+          shStatus = ` score_history: ${shError.message}`
+          console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
         }
 
         results.push({
           id: aerodromeId,
           code_oaci: aerodrome.code_oaci || '',
           score: scoreGlobal,
-          status: upsertError ? `Erreur: ${upsertError.message}` : 'OK',
+          status: upsertError ? `Erreur: ${upsertError.message}` : `OK${shStatus}`,
         })
       } catch (aeroError) {
         results.push({

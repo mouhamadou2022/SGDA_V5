@@ -438,13 +438,17 @@ export function calculateC5(evenements: Array<{ gravite: string; date?: string }
   return Math.min(100, Math.round(score));
 }
 
-export function calculateGlobalScore(criteria: RiskCriteria): number {
+export function calculateGlobalScore(
+  criteria: RiskCriteria,
+  weights?: Record<string, number>
+): number {
+  const w = weights ?? { c1: 20, c2: 25, c3: 20, c4: 20, c5: 15 }
   return Math.round(
-    criteria.c1 * 0.20 +
-    criteria.c2 * 0.20 +
-    criteria.c3 * 0.20 +
-    criteria.c4 * 0.15 +
-    criteria.c5 * 0.25
+    criteria.c1 * (w.c1 ?? 20) / 100 +
+    criteria.c2 * (w.c2 ?? 25) / 100 +
+    criteria.c3 * (w.c3 ?? 20) / 100 +
+    criteria.c4 * (w.c4 ?? 20) / 100 +
+    criteria.c5 * (w.c5 ?? 15) / 100
   );
 }
 
