@@ -189,16 +189,10 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
     allProviders.push({ name: `cloudflare_${k.fallback_order}`, key: k.key_value, call: callCloudflare, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' })
   }
 
-  // Ollama (local) en priorité — pas de clé API, zéro dépendance réseau
-  // Vérification rapide si Ollama est joignable
-  const ollamaReachable = await isOllamaReachable()
-  if (ollamaReachable) {
-    allProviders.unshift({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
-    allProviders.unshift({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
-  } else {
-    allProviders.push({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
-    allProviders.push({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
-  }
+  // Ollama (local) toujours en premier — zéro clé API, pas de dépendance réseau.
+  // Si Ollama n'est pas disponible (ex: Vercel), le fallback essaiera les providers externes.
+  allProviders.unshift({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
+  allProviders.unshift({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
 
   // Context-aware routing : sauter les providers dont la fenêtre de contexte est trop petite
   const inputTokens = estimateInputTokens(request.messages)
@@ -224,7 +218,7 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
     try {
       const controller = new AbortController()
       const isLocal = provider.name.startsWith('ollama')
-      const providerTimeout = setTimeout(() => controller.abort(), isLocal ? 30000 : 60000)
+      const providerTimeout = setTimeout(() => controller.abort(), isLocal ? 10000 : 60000)
       const res = await provider.call(provider.key, provider.model, request, controller.signal)
       clearTimeout(providerTimeout)
       if (res.status === 429) { errors.push(`${provider.name}: quota dépassé (429)`); continue }
@@ -247,10 +241,6 @@ export interface LLMResult {
 
 export function isLLMConfigured(): boolean {
   return !!process.env.GROQ_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GOOGLE_AI_API_KEY || !!process.env.DEEPSEEK_API_KEY || !!process.env.MISTRAL_API_KEY || !!process.env.HF_API_KEY || !!process.env.CLOUDFLARE_AI_KEY
-}
-
-export function isOllamaReachable(): Promise<boolean> {
-  return fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) }).then(r => r.ok).catch(() => false)
 }
 
 export function getAvailableProviders(): string[] {
