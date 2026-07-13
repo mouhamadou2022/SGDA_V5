@@ -98,6 +98,14 @@ export class DecisionTracker {
           // Deux évaluations manuelles divergentes — on ne les écrase pas
           // On conserve la divergence dans effectivenessAuto pour getEvalConflicts()
           existing.effectivenessAuto = r.effectiveness
+        } else if (existing && !r.autoEvaluated && existing.effectiveness === 'non_evalue') {
+          // Évaluation manuelle arrive sur un enregistrement non évalué → appliquer
+          existing.effectiveness = r.effectiveness
+          existing.autoEvaluated = false
+        } else if (existing && !r.autoEvaluated && existing.autoEvaluated && existing.effectiveness !== r.effectiveness) {
+          // Manuel écrase auto : l'humain a le dernier mot
+          existing.effectiveness = r.effectiveness
+          existing.autoEvaluated = false
         }
       }
     }

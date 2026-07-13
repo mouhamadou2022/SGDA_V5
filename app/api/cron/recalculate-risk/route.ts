@@ -105,6 +105,29 @@ export async function GET(request: Request) {
         const incidentPred = computeIncidentPrediction(evenementsAerodrome || [])
         const eventTrend = computeEventTrendAnalysis(evenementsAerodrome || [])
 
+        // Charger l'historique des scores pour les prédictions
+        const { data: scoreHistory } = await supabaseAdmin
+          .from('score_history')
+          .select('score_global, computed_at')
+          .eq('aerodrome_id', aerodromeId)
+          .order('computed_at', { ascending: true })
+        const historiqueScores = (scoreHistory || []).map((s: any) => ({
+          date: s.computed_at,
+          score: s.score_global,
+        }))
+        const predictions =
+          historiqueScores.length >= 2
+            ? risqueUtils.predictWithEnsemble(historiqueScores)
+            : { score3m: scoreGlobal, score6m: scoreGlobal, confidence: 30 }
+
+        // Dériver la tendance : delta entre score actuel et prédiction 3m
+        const deltaPrediction = predictions.score3m - scoreGlobal
+        const tendance = Math.abs(deltaPrediction) < 5
+          ? 'stable'
+          : deltaPrediction > 0
+            ? 'amelioration'
+            : 'deterioration'
+
         // 5. Construire le profil
         const now = new Date().toISOString()
         const profil = {
@@ -112,9 +135,9 @@ export async function GET(request: Request) {
           score_global: scoreGlobal,
           niveau: scoreGlobal >= 80 ? 'faible' : scoreGlobal >= 60 ? 'moyen' : scoreGlobal >= 30 ? 'eleve' : 'critique',
           c1, c2, c3, c4, c5,
-          prediction_3m: scoreGlobal,
-          prediction_6m: scoreGlobal,
-          tendance: 'stable',
+          prediction_3m: predictions.score3m,
+          prediction_6m: predictions.score6m,
+          tendance,
           computed_at: now,
           incident_prediction_3m: incidentPred.probability3m,
           incident_prediction_6m: incidentPred.probability6m,
