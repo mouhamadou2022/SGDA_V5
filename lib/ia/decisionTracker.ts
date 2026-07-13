@@ -267,6 +267,25 @@ export class DecisionTracker {
     }
 
     await iaStorage.set('bayes_cpts', storeKey, savedData)
+
+    // Push to Supabase (autorité unique)
+    const aerodromeId = record.aerodromeId
+    if (aerodromeId && typeof fetch !== 'undefined') {
+      try {
+        const noeuds = orgNodeIds.map(id => ({
+          id, nom: id, parents: [], etats: ['faible', 'moyen', 'eleve'],
+          type: 'organisationnel',
+          cpt: { table: {}, observations: savedData[id]?.observations || { '': [0, 0, 0] } },
+        }))
+        await fetch('/api/bayes-cpts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aerodrome_id: aerodromeId, bow_tie_domaine: domaine, noeuds }),
+        })
+      } catch {
+        // Silently fail — IndexedDB still has the data
+      }
+    }
   }
 
   clear(aerodromeId?: string): void {

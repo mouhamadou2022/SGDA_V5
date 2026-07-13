@@ -97,8 +97,8 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
   // Enrichissement bayésien : remplace les efficacités recopiées par des valeurs causales
   const bayesianEnrich = useMemo(() => {
     if (!current || isAiCurrent) return null
-    return computeBarrierEfficacite(current, profil.c1, profil.c2, 50, profil.c5)
-  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c5])
+    return computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5)
+  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5])
 
   // Modèle affiché : déterministe enrichi par bayésien, ou IA enrichi
   const displayModel = useMemo(() => {

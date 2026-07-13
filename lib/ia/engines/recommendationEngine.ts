@@ -1,4 +1,4 @@
-// lib/ia/engines/recommendationEngine.ts
+﻿// lib/ia/engines/recommendationEngine.ts
 // Génère des recommandations actionnables basées sur l'analyse
 
 import type { RiskProfileAnalysis } from './riskProfileEngine'
@@ -269,11 +269,19 @@ export class RecommendationEngine {
 
     // Appliquer le boost de l'orchestrateur sur les scores des signaux
     function applyOrchestratorBoost(motif: string, basePriorite: number): number {
-      if (modelSelection.selected === 'hmm' && motif === 'transition_hmm') return basePriorite + confBoost
-      if (modelSelection.selected === 'survival' && motif === 'defaillance_90j') return basePriorite + confBoost
-      if (modelSelection.selected === 'evt' && motif === 'risque_extreme') return basePriorite + confBoost
-      if (modelSelection.selected === 'linear_regression' && motif === 'dégradation') return basePriorite + confBoost
-      if (modelSelection.selected === 'bayesian_network_causal' && motif === 'scenario_barriere') return basePriorite + confBoost
+      const isDriven = modelSelection.selected === 'hmm' && motif === 'transition_hmm'
+        || modelSelection.selected === 'survival' && motif === 'defaillance_90j'
+        || modelSelection.selected === 'evt' && motif === 'risque_extreme'
+        || modelSelection.selected === 'linear_regression' && motif === 'dégradation'
+        || modelSelection.selected === 'bayesian_network_causal' && motif === 'scenario_barriere'
+      if (isDriven) return basePriorite + confBoost * 3
+      if (modelSelection.alternatives.some(a => a.model === 'hmm' && motif === 'transition_hmm'
+        || a.model === 'survival' && motif === 'defaillance_90j'
+        || a.model === 'evt' && motif === 'risque_extreme'
+        || a.model === 'linear_regression' && motif === 'dégradation'
+        || a.model === 'bayesian_network_causal' && motif === 'scenario_barriere')) {
+        return basePriorite + Math.round(confBoost / 2)
+      }
       return basePriorite
     }
 
@@ -455,7 +463,7 @@ export class RecommendationEngine {
 
     if (signalFort?.motif === 'transition_hmm') {
       titre = `Transition silencieuse détectée — ${aerodromeNom}`
-      action = `Programmer une inspection complète dans les ${profil.hmm_state!.daysToCritical} jours. L'analyse HMM montre un glissement silencieux vers un état critique. Vérifier les barrières de sécurité et les PAC en souffrance.`
+      action = `Modèle sélectionné : ${modelSelection.selected} (confiance ${modelSelection.confidence}%). L'analyse HMM montre un glissement silencieux vers un état critique dans ${profil.hmm_state!.daysToCritical} jours. Programmer une inspection complète. Vérifier les barrières de sécurité et les PAC en souffrance.`
     } else if (signalFort?.motif === 'pac_retard') {
       const domaines = domainesPac.join(', ')
       titre = `${pacEnRetard.length} PAC en retard — ${aerodromeNom}`
@@ -476,12 +484,18 @@ export class RecommendationEngine {
       titre = `Risque de défaillance élevé — ${aerodromeNom}`
       action = `Programmer une inspection préventive. Le modèle de survie estime un risque de défaillance à ${(profil.survival_metrics!.hazard90d * 100).toFixed(0)}% dans les 90 jours.`
     } else if (signalFort?.motif === 'scenario_barriere') {
-      titre = `Dégradation en chaîne des barrières — ${aerodromeNom}`
-      action = `Le réseau bayésien causal détecte une propagation de dégradations sur ${profil.bowtie_metrics?.filter(bt => {
+      const domainesDegradesBarrieres = (profil.bowtie_metrics || []).filter(bt => {
         const p = bt.barrieresPreventives.filter(b => !b.efficace).length
         const c = bt.barrieresCorrectives.filter(b => !b.efficace).length
         return p + c >= 2
-      }).length ?? 0} domaine(s). Réaliser une inspection transverse pour vérifier l'intégrité des barrières de sécurité avant défaillance multiple.`
+      })
+      const domainesListe = domainesDegradesBarrieres.map(bt =>
+        `${bt.domaine} (${bt.probabiliteResiduelle}%)`
+      ).join(', ')
+      titre = `Dégradation en chaîne des barrières — ${aerodromeNom}`
+      action = `Modèle sélectionné : ${modelSelection.selected} (confiance ${modelSelection.confidence}%). `
+        + `Le réseau bayésien causal détecte une propagation de dégradations sur ${domainesDegradesBarrieres.length} domaine(s) : ${domainesListe}. `
+        + `Réaliser une inspection transverse pour vérifier l'intégrité des barrières de sécurité avant défaillance multiple.`
     } else {
       titre = `Aucun signal critique — ${aerodromeNom}`
       action = `Maintenir la vigilance. Aucun signal nécessitant une action immédiate. Prochaine inspection planifiée selon le cycle normal.`

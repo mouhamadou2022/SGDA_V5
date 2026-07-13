@@ -444,7 +444,7 @@ export function computeBarrierEfficacite(
   bowTie: BowTieModele,
   c1: number,
   c2: number,
-  ca: number,
+  c3: number,
   c5: number,
   reseauPreconstruit?: BayesNode[],
 ): {
@@ -458,10 +458,12 @@ export function computeBarrierEfficacite(
 
   for (const b of bowTie.barrieresPreventives) {
     const nodeId = `barriere_${b.id}`
-    if (b.id.includes('sgs') || b.nom.includes('SGS')) {
+    if (b.id.includes('sgs')) {
       evidences[nodeId] = scoreToEvidence(c1)
     } else if (b.id.includes('audit')) {
-      evidences[nodeId] = scoreToEvidence(ca)
+      evidences[nodeId] = scoreToEvidence(c3)
+    } else {
+      evidences[nodeId] = scoreToEvidence(Math.round((c1 + c3) / 2))
     }
   }
 
@@ -469,6 +471,8 @@ export function computeBarrierEfficacite(
     const nodeId = `barriere_${b.id}`
     if (b.id.includes('pac')) {
       evidences[nodeId] = scoreToEvidence(c2)
+    } else {
+      evidences[nodeId] = scoreToEvidence(c5)
     }
   }
 
@@ -556,8 +560,9 @@ export async function computeBarrierEfficaciteAvecApprentissage(
   bowTie: BowTieModele,
   c1: number,
   c2: number,
-  ca: number,
+  c3: number,
   c5: number,
+  aerodromeId?: string,
 ): Promise<{
   barrieresPreventives: Barriere[]
   barrieresCorrectives: Barriere[]
@@ -567,6 +572,33 @@ export async function computeBarrierEfficaciteAvecApprentissage(
   const reseau = construireReseauDepuisBowTie(bowTie)
 
   const storeKey = `cpts_bt-${bowTie.domaine}`
+
+  // 1. Essayer Supabase (autorité unique)
+  if (aerodromeId && typeof fetch !== 'undefined') {
+    try {
+      const res = await fetch(`/api/bayes-cpts?aerodrome_id=${aerodromeId}&domaine=${encodeURIComponent(bowTie.domaine)}`)
+      if (res.ok) {
+        const json = await res.json()
+        const row = json.data?.[0]
+        if (row?.noeuds) {
+          for (const node of reseau) {
+            const nodeData = row.noeuds.find((n: any) => n.id === node.id)
+            if (nodeData?.cpt?.observations) {
+              node.cpt.observations = nodeData.cpt.observations
+            }
+          }
+          for (let i = 0; i < reseau.length; i++) {
+            reseau[i] = recomputeCPTFromObservations(reseau[i])
+          }
+          return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau)
+        }
+      }
+    } catch {
+      // Silently fall back to IndexedDB
+    }
+  }
+
+  // 2. Fallback IndexedDB (cache local)
   if (typeof indexedDB !== 'undefined') {
     try {
       const { iaStorage } = await import('@/lib/persistence/iaStorage')
@@ -583,11 +615,11 @@ export async function computeBarrierEfficaciteAvecApprentissage(
         }
       }
     } catch {
-      // Silently fall back to default CPTs if IndexedDB unavailable
+      // Silently fall back to default CPTs
     }
   }
 
-  return computeBarrierEfficacite(bowTie, c1, c2, ca, c5, reseau)
+  return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau)
 }
 
 export function getConfianceLabel(confiance: number): string {

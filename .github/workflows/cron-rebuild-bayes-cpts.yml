@@ -1,0 +1,22 @@
+# .github/workflows/cron-rebuild-bayes-cpts.yml
+# Reconstruit les CPT du réseau bayésien causal depuis l'historique (écarts, décisions, feedbacks)
+# Une fois par semaine, après le recalcul des profils de risque
+
+name: Rebuild bayes network CPTs (froid)
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Tous les lundis à 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    name: Reconstruire CPTs bayésiennes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler l'API de reconstruction
+        run: |
+          curl -s -o response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.SITE_URL }}/api/cron/rebuild-bayes-cpts"
+          echo "Status: $(cat response.json)"
