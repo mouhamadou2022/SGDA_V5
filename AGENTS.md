@@ -12,8 +12,11 @@
 - Ne jamais utiliser `text-muted-foreground` pour du contenu principal.
 
 ### Pondération C1-C5
-- Uniforme dans tout le système : **C1:20, C2:25, C3:20, C4:20, C5:15**.
-- Fichiers de référence : `lib/risque.ts`, `lib/risque/bowTieEngine.ts`.
+- Les poids par défaut sont **C1:20, C2:25, C3:20, C4:20, C5:15** (`DEFAULT_WEIGHTS` dans `lib/ia/weightController.ts`).
+- `calculateGlobalScore()` dans `lib/risque.ts` accepte un paramètre `weights` optionnel. Sans lui, utilise les défauts.
+- Le cron `recalculate-risk` charge les poids appris depuis `ia_thresholds` avant d'appeler `calculateGlobalScore`.
+- Ne jamais hardcoder les poids dans `calculateGlobalScore` — toujours passer par le paramètre `weights`.
+- Fichiers de référence : `lib/risque.ts`, `lib/risque/bowTieEngine.ts`, `lib/ia/weightController.ts`.
 
 ### Niveaux de risque
 - Utiliser `getRiskLevel(score)` (minuscules : `critique`, `eleve`, `moyen`, `faible`).

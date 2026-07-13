@@ -169,7 +169,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
               }
               const sorted = Array.from(eventTypes.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)
               return sorted.map(([type, count]) => {
-                const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * ((profil.incident_prediction_6m ?? 0) > 0 ? (profil.incident_prediction_6m! * 100) : 50)))
+                const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * ((profil.incident_prediction_6m ?? 0) > 0 ? profil.incident_prediction_6m! : 50)))
                 return (
                   <div key={type} className={`flex items-center justify-between gap-3 p-2 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
                     <span className={`w-2 h-2 rounded-full shrink-0 ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />

@@ -638,19 +638,19 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div className="p-3 bg-role-primary-soft rounded-xl">
                           <p className="text-xs text-muted-foreground">3 mois</p>
-                          <p className="text-xl font-bold text-role-primary">{(profilRisque.incident_prediction_3m! * 100).toFixed(0)}%</p>
+                          <p className="text-xl font-bold text-role-primary">{profilRisque.incident_prediction_3m!}%</p>
                         </div>
                         <div className="p-3 bg-role-primary-soft rounded-xl">
                           <p className="text-xs text-muted-foreground">6 mois</p>
-                          <p className="text-xl font-bold text-role-primary">{(profilRisque.incident_prediction_6m! * 100).toFixed(0)}%</p>
+                          <p className="text-xl font-bold text-role-primary">{profilRisque.incident_prediction_6m!}%</p>
                         </div>
                         <div className="p-3 bg-role-primary-soft rounded-xl">
                           <p className="text-xs text-muted-foreground">12 mois</p>
-                          <p className="text-xl font-bold text-role-primary">{(profilRisque.incident_prediction_12m! * 100).toFixed(0)}%</p>
+                          <p className="text-xl font-bold text-role-primary">{profilRisque.incident_prediction_12m!}%</p>
                         </div>
                       </div>
                       {profilRisque.ensemble_confidence !== undefined && (
-                        <p className="text-xs text-center mt-2 text-muted-foreground">Confiance du modèle: {(profilRisque.ensemble_confidence * 100).toFixed(0)}%</p>
+                        <p className="text-xs text-center mt-2 text-muted-foreground">Confiance du modèle: {profilRisque.ensemble_confidence}%</p>
                       )}
                   </Card>
                 )}
