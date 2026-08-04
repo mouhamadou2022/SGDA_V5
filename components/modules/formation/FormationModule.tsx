@@ -4,6 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   GraduationCap,
@@ -143,6 +144,10 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const [expandedInspectors, setExpandedInspectors] = useState<Record<string, boolean>>({});
   const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({});
   const [mounted, setMounted] = useState(false);
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+
   const [showCertifModal, setShowCertifModal] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [certifFile, setCertifFile] = useState<File | null>(null);
@@ -156,6 +161,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     setMounted(true);
     return () => setMounted(false);
   }, []);
+  useEffect(() => setCurrentPage(1), [filters, debouncedSearchTerm])
 
   const [formData, setFormData] = useState({
     titre: '',
@@ -216,6 +222,11 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       } as Inspecteur));
     return [...fromStore, ...fromUsers];
   }, [inspecteurs, utilisateurs]);
+
+  const paginatedInspecteurs = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return listeInspecteurs.slice(start, start + PAGE_SIZE)
+  }, [listeInspecteurs, currentPage])
 
   const filteredFormations = useMemo(() => {
     return listeFormations.filter(f => {
@@ -1474,59 +1485,49 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       {/* Vue Matrice */}
       {viewMode === 'matrice' && (
         <Card title="Matrice de compétences" size="lg">
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left px-3 py-2">Inspecteur</th>
-                    {DOMAINES_COMPETENCE.map(d => (
-                      <th key={d.id} className="text-center px-3 py-2">{d.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {listeInspecteurs.map(ins => {
+            <DataTable
+              data={paginatedInspecteurs}
+              columns={[
+                { key: 'inspecteur', header: 'Inspecteur', render: (ins: any) => (
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center !text-white text-xs font-semibold">
+                      {getInitials(ins.prenom, ins.nom)}
+                    </div>
+                    <div>
+                      <p className="font-medium">{ins.prenom} {ins.nom}</p>
+                      <p className="text-xs text-muted-foreground">{ins.matricule}</p>
+                    </div>
+                  </div>
+                ) },
+                ...DOMAINES_COMPETENCE.map(d => ({
+                  key: d.id,
+                  header: d.label,
+                  render: (ins: any) => {
                     const matrice = formationUtils.calculerMatriceCompetences(
-                      ins as unknown as Inspecteur,
-                      listeFormations as Formation[],
-                      (ins.competences || []) as Competence[]
+                      ins as any,
+                      listeFormations as any,
+                      (ins.competences || []) as any
                     );
-                    return (
-                      <tr key={ins.id} className="hover:bg-role-primary-soft transition-colors">
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center !text-white text-xs font-semibold">
-                              {getInitials(ins.prenom, ins.nom)}
-                            </div>
-                            <div>
-                              <p className="font-medium">{ins.prenom} {ins.nom}</p>
-                              <p className="text-xs text-muted-foreground">{ins.matricule}</p>
-                            </div>
-                          </div>
-                        </td>
-                        {DOMAINES_COMPETENCE.map(d => {
-                          const comp = matrice[d.id];
-                          return (
-                            <td key={d.id} className="text-center px-3 py-2">
-                              {comp ? (
-                                <div className="flex flex-col items-center">
-                                  <span className="badge success mb-1">{getNiveauLabel(comp.niveau)}</span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {comp.date ? new Date(comp.date).toLocaleDateString('fr-FR') : '-'}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
+                    const comp = matrice[d.id];
+                    return comp ? (
+                      <div className="flex flex-col items-center">
+                        <span className="badge success mb-1">{getNiveauLabel(comp.niveau)}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {comp.date ? new Date(comp.date).toLocaleDateString('fr-FR') : '-'}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  },
+                })),
+              ] as Column<any>[]
+            }
+              keyExtractor={(ins: any) => ins.id}
+              emptyState={{ icon: Users, title: 'Aucun inspecteur' }}
+              pagination={{ total: listeInspecteurs.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+              headerClassName="bg-role-primary-soft/40"
+            />
         </Card>
       )}
 

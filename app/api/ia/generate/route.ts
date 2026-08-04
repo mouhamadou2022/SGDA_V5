@@ -1,6 +1,6 @@
 // app/api/ia/generate/route.ts
 // Endpoint de génération de contenu (rapports, documents, etc.)
-// Multi-provider : Ollama (local) → Groq → OpenRouter → fallbacks
+// Multi-provider : Groq → OpenRouter → Google → … → Ollama (local, dernier recours)
 
 import { NextResponse } from 'next/server'
 import { callWithFallback } from '@/lib/ia/providers'

@@ -317,7 +317,7 @@ export function ValidationChefModal({ isOpen, onClose, ecartId }: ValidationChef
               )}
               {validation.verification_ia && (
                 <div className="p-2 rounded bg-primary/5 border border-primary/20 text-xs">
-                  <p className="font-semibold mb-1">Vérification IA</p>
+                  <p className="font-semibold mb-1">Vérification AERORISQ</p>
                   <p>Conforme: {validation.verification_ia.conforme ? '✓' : '✗'} — Confiance: {validation.verification_ia.niveauConfiance}%</p>
                   {validation.verification_ia.elementsManquants.length > 0 && (
                     <p className="text-danger mt-1">Éléments manquants: {validation.verification_ia.elementsManquants.join(', ')}</p>

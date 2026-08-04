@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Download } from 'lucide-react'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -47,12 +48,14 @@ interface Props {
 export function SignatureHistory({ userId }: Props) {
   const [filtreType, setFiltreType] = useState('tous')
   const [filtreMois, setFiltreMois] = useState('tous')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
 
-  const donnees = HISTORIQUE.filter(h => {
+  const donnees = useMemo(() => HISTORIQUE.filter(h => {
     const typeOk = filtreType === 'tous' || h.type === filtreType
     const moisOk = filtreMois === 'tous' || h.mois === filtreMois
     return typeOk && moisOk
-  })
+  }), [filtreType, filtreMois])
 
   const exportCSV = () => {
     const header = 'Document,Type,Date,Signataire,Résultat'
@@ -109,43 +112,25 @@ export function SignatureHistory({ userId }: Props) {
         </button>
       </div>
 
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th className="text-left">Document</th>
-              <th className="text-center">Type</th>
-              <th className="text-center whitespace-nowrap">Date signature</th>
-              <th className="text-left">Signataire</th>
-              <th className="text-center">Résultat</th>
-            </tr>
-          </thead>
-          <tbody>
-            {donnees.length === 0 && (
-              <tr>
-                <td colSpan={5} className="text-center text-gray-400 py-6">
-                  Aucun résultat pour ces filtres
-                </td>
-              </tr>
-            )}
-            {donnees.map(h => (
-              <tr key={h.id}>
-                <td className="text-small">{h.document}</td>
-                <td className="text-center">
-                  <span className="badge outline text-xs">{h.type}</span>
-                </td>
-                <td className="text-center text-xs">{h.date_signature}</td>
-                <td>{h.signataire}</td>
-                <td className="text-center">
-                  <span className={`badge ${h.resultat === 'Signé' ? 'success' : 'danger'} text-xs`}>
-                    {h.resultat}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {(() => {
+        const columns: Column<EntreeHistorique>[] = [
+          { key: 'document', header: 'Document', render: (h) => <span className="text-small">{h.document}</span> },
+          { key: 'type', header: 'Type', className: 'text-center', render: (h) => <span className="badge outline text-xs">{h.type}</span> },
+          { key: 'date_signature', header: 'Date signature', className: 'text-center whitespace-nowrap', render: (h) => <span className="text-xs">{h.date_signature}</span> },
+          { key: 'signataire', header: 'Signataire', render: (h) => <span>{h.signataire}</span> },
+          { key: 'resultat', header: 'Résultat', className: 'text-center', render: (h) => <span className={`badge ${h.resultat === 'Signé' ? 'success' : 'danger'} text-xs`}>{h.resultat}</span> },
+        ]
+        const paginatedData = donnees.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+        return (
+          <DataTable
+            data={paginatedData}
+            columns={columns}
+            keyExtractor={(h) => h.id}
+            emptyState={{ title: 'Aucun résultat pour ces filtres' }}
+            pagination={{ total: donnees.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+          />
+        )
+      })()}
     </div>
   )
 }

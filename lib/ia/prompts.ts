@@ -131,6 +131,7 @@ Réponds uniquement en JSON valide.`
 
 export const GENERER_ITEMS_CHECKLIST_PROMPT = `Tu es un expert en réglementation aéronautique OACI et ANACIM Sénégal.
 À partir du texte réglementaire fourni, génère les items de checklist standard pour le domaine spécifié.
+Le texte ci-dessous est exclusivement le contenu du document réglementaire. Ne tiens PAS compte des éventuelles notes, observations, commentaires, preuves ou appréciations qui pourraient apparaître dans le texte. Base-toi UNIQUEMENT sur les exigences réglementaires explicites.
 
 STRUCTURE DE CHAQUE ITEM :
 - numero : numéro séquentiel simple (ex: "01", "02", "03"…)
@@ -159,9 +160,11 @@ RÈGLES POUR LES DIRECTIVES SA/NS/NV/NA :
 
 RÈGLES GÉNÉRALES :
 - Génère TOUS les items pertinents — un item par exigence réglementaire distincte dans le texte
-- Parcours le texte méthodiquement : chaque paragraphe, chaque alinéa, chaque article peut contenir une ou plusieurs exigences vérifiables
+- COUVERTURE EXHAUSTIVE : tu dois parcourir TOUS les chapitres et sections du texte réglementaire fourni. Aucun chapitre, aucune section, aucun paragraphe ne doit être volontairement ignoré
+- Parcours le texte méthodiquement : chaque chapitre, chaque paragraphe, chaque alinéa, chaque article peut contenir une ou plusieurs exigences vérifiables
 - Un même article peut produire 1 à 5 items selon le nombre d'exigences distinctes
 - Si le texte contient 20 exigences, génère 20 items
+- Après avoir généré les items, vérifie mentalement que tu n'as PAS sauté un chapitre entier — si un chapitre du réglement n'a produit aucun item, c'est probablement un oubli
 - Le champ sous_domaine est OBLIGATOIRE pour chaque item : nom de la sous-section du document (ex: "Pistes", "Voies de circulation"). Ne mets JAMAIS "Général" — utilise le vrai titre de la section du document.
 - Génère UNIQUEMENT des items pertinents pour le domaine demandé
 - Chaque item doit correspondre à une exigence réglementaire précise du texte fourni
@@ -170,9 +173,101 @@ RÈGLES GÉNÉRALES :
 - La numérotation est purement séquentielle (01, 02, 03…) — le préfixe (QSC, CERT, HMG) sera ajouté automatiquement
 - Réponds UNIQUEMENT en JSON valide`
 
+// ── SUGGESTION DES CRITÈRES SA/NS/NV/NA DEPUIS LE GUIDE D'ÉVALUATION ──
+export const SUGGEST_DIRECTIVES_PROMPT = `Tu es un expert en réglementation aéronautique OACI et ANACIM Sénégal.
+À partir de la QUESTION À VÉRIFIER et du GUIDE D'ÉVALUATION fournis, déduis les critères objectifs pour attribuer chaque état à CETTE question précise.
+
+La QUESTION À VÉRIFIER définit l'OBJET de l'évaluation : tes critères doivent y répondre directement, jamais de manière générique. Relis la question, identifie ce qui est exactement demandé (document, équipement, procédure, seuil), puis déduis les 4 états à partir de cet objet et des étapes du guide.
+
+Le guide d'évaluation décrit les actions concrètes que l'inspecteur doit réaliser (vérifier, demander, observer, mesurer).
+
+Pour chaque état, génère UNE phrase précise et actionnable, directement rattachée à la question :
+- SA (Satisfaisant) : tout est conforme, les vérifications passent — phrase positive
+- NS (Non Satisfaisant) : au moins un point est non conforme ou absent — phrase négative
+- NV (Non Vérifié) : la vérification est impossible (document absent, accès refusé, indisponible)
+- NA (Non Applicable) : la question ne s'applique pas au contexte (type d'entité, équipements absents)
+
+RÈGLES :
+- Chaque critère doit être OBJECTIF, VÉRIFIABLE et directement déduit des étapes du guide ET du sujet de la question
+- Utilise les mêmes seuils chiffrés que le guide (distances, pourcentages, délais)
+- SA doit être la MIROIR POSITIF des étapes : si l'étape dit "Vérifier X ≥ 240 m", SA = "X ≥ 240 m"
+- NS doit être la MIROIR NÉGATIF : "X < 240 m ou absent"
+- Si le guide mentionne des documents, NV = "Document non fourni ou incomplet"
+- Si le guide mentionne des équipements spécifiques, NA = "Équipement non présent sur le site"
+- Si un contexte AERORISQ est fourni, utilise-le pour calibrer les seuils de vigilance (score domaine, tendance, signaux faibles) sans inventer de chiffres absents du guide
+- Réponds UNIQUEMENT avec un JSON valide, COMPLET (non tronqué), de la forme exacte :
+{
+  "directive_sa": "critère pour l'état Satisfaisant (phrase positive, liée à la question)",
+  "directive_ns": "critère pour l'état Non Satisfaisant (phrase négative, liée à la question)",
+  "directive_nv": "critère pour l'état Non Vérifié (1 phrase)",
+  "directive_na": "critère pour l'état Non Applicable (1 phrase)"
+}
+Ne renvoie AUCUN autre champ ni texte hors du JSON.`
+
+// ── SUGGESTION D'UNE QUESTION (point de vérification) ──
+export const SUGGEST_QUESTION_PROMPT = `Tu es un expert en réglementation aéronautique OACI et ANACIM Sénégal.
+À partir du CONTEXTE fourni, rédige le point de vérification (la question) qu'un inspecteur doit évaluer sur le terrain.
+
+La question doit être :
+- CLAIRE, PRÉCISE et ACTIONNABLE : l'inspecteur doit savoir exactement quoi vérifier, demander, observer ou mesurer
+- OBJECTIVE : vérifiable par deux inspecteurs différents avec le même résultat
+- Formulée comme une question ou un point d'évaluation (« La piste est-elle… », « Vérifier que… »)
+- Basée UNIQUEMENT sur la réglementation aéronautique réelle (RAS 14, Annexe 14, Doc 9137, Doc 9859…), sans inventer de référence
+- Une seule exigence par question — pas de questions multiples dans un même point
+- COURTE (1 à 2 lignes maximum) — le détail va dans le guide d'évaluation
+
+RÈGLES :
+- Si une question actuelle existe, reformule-la pour la rendre plus précise et actionnable
+- Si des directives SA/NS/NV/NA existent, elles décrivent l'objet attendu : la question doit refléter cet objet
+- Si un guide d'évaluation existe, la question doit couvrir l'objet de ses étapes
+- Si un contexte AERORISQ est fourni, adapte le niveau d'exigence (vigilance accrue sur les domaines à risque)
+- Réponds UNIQUEMENT avec un JSON valide de la forme exacte :
+{
+  "question": "Le point de vérification clair et actionnable ?"
+}
+Ne renvoie AUCUN autre champ ni texte hors du JSON.`
+
+// ── SUGGESTION DU GUIDE D'ÉVALUATION (ÉTAPE PAR ÉTAPE) ──
+export const SUGGEST_GUIDE_PROMPT = `Tu es un expert en réglementation aéronautique OACI et ANACIM Sénégal.
+À partir de la QUESTION À VÉRIFIER fournie, rédige le GUIDE D'ÉVALUATION ÉTAPE PAR ÉTAPE que l'inspecteur terrain doit suivre pour trancher la question.
+
+Chaque étape = une action CONCRÈTE : « Vérifier X », « Demander Y », « Observer Z », « Mesurer W ».
+- 2 à 6 étapes numérotées (une par ligne, sans numéro — le système les numérote)
+- Inclure des seuils chiffrés précis quand applicables (ex : « vérifier que la pente ≤ 2 % », « distance ≥ 240 m », « délai < 12 mois »)
+- Ordre logique : document → inspection terrain → entretien personnel
+- Pas d'étapes vagues — chaque étape doit guider l'inspecteur vers une conclusion objective
+- Les critères SA/NS/NV/NA seront déduits de ce guide, il doit donc être un MIRROIR des états possibles
+- Si un contexte AERORISQ est fourni, adapte la vigilance (contrôles supplémentaires sur les domaines à risque) sans inventer de chiffres
+
+RÈGLES :
+- Réponse UNIQUEMENT en JSON valide de la forme exacte :
+{
+  "guide": "Étape 1 : …\nÉtape 2 : …\nÉtape 3 : …"
+}
+- Chaque étape commence par « Étape N : » et tient sur une ligne
+- Ne renvoie AUCUN autre champ ni texte hors du JSON.`
+
 // ── AGENT SGS PAOE (Évaluation de la maturité SGS selon le modèle PAOE) ──
 export const GENERER_SGS_QUESTIONS_PROMPT = `Tu es un expert en systèmes de gestion de la sécurité (SGS) aéronautique selon l'OACI.
 Ta mission est de générer des questions d'évaluation PAOE (Présent, Approprié, Opérationnel, Efficace) pour un élément spécifique du SGS.
+Le texte ci-dessous est exclusivement le contenu du document réglementaire. Ne tiens PAS compte des éventuelles notes, observations, commentaires, preuves ou appréciations qui pourraient apparaître dans le texte. Base-toi UNIQUEMENT sur les exigences réglementaires explicites.
+
+RÉFÉRENTIEL RÉGLEMENTAIRE — CHAPITRES COUVERTS PAR LE SGS :
+L'Annexe 19 OACI (RAS 19) couvre les chapitres suivants que tu dois IMPÉRATIVEMENT prendre en compte selon la composante concernée :
+- Ch.2 : Surveillance de la sécurité par l'État (SSO) — cadre réglementaire, obligations État
+- Ch.3 : Système de gestion de la sécurité (SGS/SMS) — la structure SGS complète (politique, objectifs, risques, assurance, promotion, interfaces)
+- Ch.4 : Mise en œuvre du SGS — planification, échéanciers, déploiement
+- Ch.5 : Collecte, analyse et échange de données de sécurité — reporting, banques de données, protection des sources
+
+Le Doc 9859 (Manuel de gestion de la sécurité OACI) chapitres associés :
+- Ch.3 : Culture de sécurité
+- Ch.5 : Identification des dangers et évaluation des risques
+- Ch.6 : Planification du SGS
+- Ch.8 : SGS pour les aérodromes
+- Ch.9 : Mise en œuvre
+- Ch.13 : Le défi dans les petits États
+
+Ne génère PAS de questions hors de la composante et de l'élément demandés, mais dans le périmètre de cet élément, assure-toi que les références réglementaires puisent dans TOUS les chapitres pertinents du RAS 19 et du Doc 9859.
 
 STRUCTURE DE CHAQUE ÉLÉMENT :
 - questions : tableau de questions d'évaluation, chacune avec :
@@ -200,10 +295,11 @@ RÈGLES POUR LE GUIDE ÉTAPES :
 - Minimum 2 étapes, maximum 6
 
 RÈGLES POUR LES QUESTIONS :
-- 2 à 5 questions par élément selon sa complexité
+- Génère TOUTES les questions pertinentes pour l'élément — couvre chaque exigence réglementaire distincte
 - Chaque question doit avoir une référence réglementaire précise
 - Adapter le nombre et la difficulté au type d'aérodrome (international vs national)
 - Les questions doivent couvrir tous les niveaux PAOE (de la base à l'avancé)
+- Minimum 5 questions par élément — vas-y élément par élément sans t'arrêter
 
 FORMAT DE RÉPONSE EXCLUSIVEMENT JSON :
 {

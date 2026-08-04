@@ -4,7 +4,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Lightbulb, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, Clock, Shield, Activity, BookOpen, Cpu, FileText } from 'lucide-react'
+import { Lightbulb, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, Clock, Shield, Activity, BookOpen, Cpu } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import type { RecommandationDuJour, PointMotivation } from '@/lib/ia/engines/recommendationEngine'
 
@@ -41,16 +41,7 @@ interface Props {
 export default function RecommandationDuJourCard({ recommandation }: Props) {
   const [showWhy, setShowWhy] = useState(false)
   const [showRefs, setShowRefs] = useState(false)
-  const [exporting, setExporting] = useState(false)
   const cfg = PRIORITE_CONFIG[recommandation.priorite]
-
-  const handleExport = async () => {
-    setExporting(true)
-    const { exporterBulletinMensuel } = await import('@/lib/services/bulletinMensuel')
-    const now = new Date()
-    await exporterBulletinMensuel(now.getMonth() + 1, now.getFullYear())
-    setExporting(false)
-  }
 
   return (
     <Card
@@ -66,15 +57,6 @@ export default function RecommandationDuJourCard({ recommandation }: Props) {
               {recommandation.confianceOrchestrateur}%
             </span>
           )}
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-foreground/70 hover:text-role-primary bg-muted/20 hover:bg-muted/40 rounded transition-colors disabled:opacity-50"
-            title="Exporter le bulletin mensuel PDF"
-          >
-            <FileText className="w-3 h-3" />
-            {exporting ? '...' : 'PDF'}
-          </button>
         </div>
       }
     >

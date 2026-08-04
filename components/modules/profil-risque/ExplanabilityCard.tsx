@@ -1,55 +1,24 @@
 'use client'
 
-import { useMemo } from 'react'
-import { ProfilRisque } from '@/lib/store'
+// Carte « Explicabilité du score » : l'explication narrative du niveau de score
+// est générée par l'IA (fallback déterministe), depuis les données réelles.
+// Les barres C1-C5 ont été retirées (redondantes avec « Détail par critère » du
+// tab Diagnostic). Sont conservés les éléments uniques : drivers sensibles,
+// alignement ML et inférence bayésienne (C5 prédit, prior→posterior, anomalie).
+
+import { useMemo, useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
+import type { ProfilRisque, Ecart, EvenementSecurite } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { Lightbulb, TrendingUp, TrendingDown, BarChart3, BrainCircuit, AlertTriangle } from 'lucide-react'
-import { computeFeatureContributions, computeBayesianExplainability, getC5Color, getC5Label, type FeatureContribution } from '@/lib/risque/explanability'
+import { Lightbulb, BarChart3, BrainCircuit, AlertTriangle, Loader2, Sparkles } from 'lucide-react'
+import { computeFeatureContributions, computeBayesianExplainability, getC5Color, getC5Label } from '@/lib/risque/explanability'
 import type { NiveauC5 } from '@/lib/risque/naiveBayesC5'
+import { expliquerScoreEnClair, type ExplicabiliteExplication } from '@/lib/ia/explicabiliteIA'
 
 interface Props {
   profil: ProfilRisque
-}
-
-function getRiskLevel(score: number): string {
-  if (score < 30) return 'critique'
-  if (score < 60) return 'eleve'
-  if (score < 80) return 'moyen'
-  return 'faible'
-}
-
-function getBarColor(score: number): string {
-  const level = getRiskLevel(score)
-  return level === 'critique' ? 'var(--color-danger)' : level === 'eleve' ? 'var(--color-warning)' : level === 'moyen' ? 'var(--color-primary)' : 'var(--color-success)'
-}
-
-function ContributionBar({ contrib }: { contrib: FeatureContribution }) {
-  const barColor = getBarColor(contrib.currentValue)
-  const isRisk = contrib.currentValue < 60
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-medium text-foreground truncate">{contrib.name}</span>
-          <span className="text-[10px] text-muted-foreground shrink-0">{(contrib.importance * 100).toFixed(0)}%</span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs font-mono font-bold" style={{ color: barColor }}>{contrib.currentValue}</span>
-          {contrib.delta !== null && contrib.delta !== 0 && (
-            <span className={`flex items-center gap-0.5 text-[10px] font-mono ${contrib.delta > 0 ? 'text-success' : 'text-danger'}`}>
-              {contrib.delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-              {contrib.delta > 0 ? '+' : ''}{contrib.delta}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="progress h-1.5">
-        <div className="progress-bar" style={{ width: `${contrib.currentValue}%`, background: barColor, opacity: isRisk ? 1 : 0.6 }} />
-      </div>
-    </div>
-  )
+  ecarts?: Ecart[]
+  evenements?: EvenementSecurite[]
 }
 
 function BayesianSection({ profil }: { profil: ProfilRisque }) {
@@ -128,8 +97,10 @@ function BayesianSection({ profil }: { profil: ProfilRisque }) {
   )
 }
 
-export function ExplanabilityCard({ profil }: Props) {
+export function ExplanabilityCard({ profil, ecarts = [], evenements }: Props) {
   const correlation = useAppStore(s => s.getMLRiskCorrelation())
+  const [explication, setExplication] = useState<ExplicabiliteExplication | null>(null)
+  const [enCours, setEnCours] = useState(true)
 
   const contributions = useMemo(() =>
     computeFeatureContributions(profil, correlation),
@@ -140,21 +111,49 @@ export function ExplanabilityCard({ profil }: Props) {
   const topDrivers = contributions.slice(0, 3)
   const isMostlyStable = contributions.every(c => c.direction === 'stable' || c.delta === null)
 
+  useEffect(() => {
+    let actif = true
+    setEnCours(true)
+    expliquerScoreEnClair({ profil, ecarts, evenements, correlation })
+      .then((res) => {
+        if (!actif) return
+        setExplication(res)
+        setEnCours(false)
+      })
+      .catch(() => {
+        if (!actif) return
+        setEnCours(false)
+      })
+    return () => { actif = false }
+  }, [profil, ecarts, evenements, correlation])
+
   return (
     <Card variant="role" title="Explicabilité du score" icon={<Lightbulb className="w-4 h-4" />}>
       <div className="space-y-3">
-        <p className="text-xs text-foreground leading-relaxed">
-          {hasML
-            ? `Le modèle RF (précision ${(correlation.rfAccuracy * 100).toFixed(0)}%) priorise les critères ci-dessous. Les scores les plus bas pèsent le plus sur le risque global.`
-            : `Contribution des 5 critères C1-C5 au score global. Les scores les plus bas indiquent les risques prioritaires.`}
-        </p>
-
-        <div className="space-y-2.5">
-          {contributions.map(c => (
-            <ContributionBar key={c.key} contrib={c} />
-          ))}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <span className="text-xs text-foreground font-medium">Pourquoi ce score ?</span>
+          {enCours ? (
+            <span className="inline-flex items-center gap-2 text-xs text-primary">
+              <Loader2 className="w-4 h-4 animate-spin" /> Analyse IA en cours…
+            </span>
+          ) : explication ? (
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full ${explication.fallbackIA ? 'text-foreground/70 bg-muted' : 'text-primary bg-primary/10'}`}>
+              {!explication.fallbackIA && <Sparkles className="w-3.5 h-3.5" />}
+              {explication.fallbackIA ? 'Analyse déterministe' : 'Langage clair AERORISQ'}
+            </span>
+          ) : null}
         </div>
 
+        {explication && (
+          <div className="space-y-2.5 text-sm text-foreground leading-relaxed">
+            <p>{explication.synthese}</p>
+            <p>{explication.facteurs}</p>
+            <p>{explication.evolutions}</p>
+            <p className="text-warning">{explication.priorites}</p>
+          </div>
+        )}
+
+        {/* Facteurs les plus sensibles / Évolutions du mois */}
         <div className="pt-2 border-t border-border">
           <p className="text-[10px] text-foreground uppercase tracking-wide font-semibold mb-2">
             {isMostlyStable ? 'Facteurs les plus sensibles' : 'Évolutions du mois'}

@@ -42,6 +42,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { getModulesExclus } from '@/lib/config/departements';
 
 interface AppNavProps {
   userRole: string;
@@ -52,6 +53,7 @@ interface AppNavProps {
 export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) {
   const ecarts = useAppStore(s => s.ecarts);
   const messages = useAppStore(s => s.messages);
+  const activeDepartement = useAppStore(s => s.activeDepartement);
   const certifications = useAppStore(s => s.certifications);
   const homologations = useAppStore(s => s.homologations);
   const aerodromes = useAppStore(s => s.aerodromes);
@@ -137,7 +139,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
   const modules: NavModule[] = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard, roles: ['admin', 'inspector', 'dg_anacim', 'dg_operator', 'focal_operator', 'staff_operator', 'guest'] },
     // ── Modules ANACIM (admin, inspector, chef DNSA) ──
-    { id: 'aerodromes', label: 'Aérodromes', icon: Plane, roles: ['admin', 'inspector', 'dg_operator'] },
+    { id: 'aerodromes', label: activeDepartement === 'DNA' ? 'Prestataires' : 'Aérodromes', icon: Plane, roles: ['admin', 'inspector', 'dg_operator'] },
     { id: 'certification', label: 'Certification', icon: ShieldCheck, roles: ['admin', 'inspector'], condition: showCertification },
     { id: 'homologation', label: 'Homologation', icon: Scale, roles: ['admin', 'inspector'], condition: showHomologation },
     { id: 'planning', label: 'Planning', icon: CalendarDays, roles: ['admin', 'inspector'] },
@@ -177,9 +179,10 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'operator-messagerie', label: 'Messagerie', icon: Mail, roles: ['dg_operator', 'focal_operator', 'staff_operator'], badge: messagesNonLus, badgeVariant: 'primary' },
   ]
 
-  // Filtrer par rôle ET par condition optionnelle (ex: certification/homologation dynamiques)
+  // Filtrer par rôle, condition optionnelle ET modules exclus par département
+  const excludedModules = getModulesExclus(activeDepartement)
   const filteredModules = modules.filter(m =>
-    m.roles.includes(userRole) && (m.condition === undefined || m.condition)
+    m.roles.includes(userRole) && (m.condition === undefined || m.condition) && !excludedModules.includes(m.id)
   );
 
   return (

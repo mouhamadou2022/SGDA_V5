@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup, AccordionSubGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
 import {
@@ -53,12 +53,14 @@ import {
   Filter,
 } from 'lucide-react';
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
+import { getGraviteRisqueLabel, getGraviteRisqueClasse } from '@/lib/evenementUtils';
 import type { TrainingNeedsAnalysisResult } from '@/lib/ia/agents/registreAgent';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { registreAgent } from '@/lib/ia/agents/registreAgent';
 import { RegistreForm } from '@/components/forms/RegistreForm';
-import { exportElementToPDF } from '@/lib/pdfGenerator';
+import { exporterRegistreSurveillancePDF, exporterRegistreEcartPDF, exporterRegistreEvenementPDF, exporterRegistreFormationPDF } from '@/lib/services/exportRegistres';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = {
@@ -73,18 +75,14 @@ interface RegistreModuleProps {
 }
 
 type ViewMode = 'liste' | 'grille';
-type TabType = 'dashboard' | 'certifications' | 'homologations' | 'surveillances' | 'ecarts' | 'evenements' | 'formations' | 'documents' | 'dossiers';
+type TabType = 'dashboard' | 'cert-homo' | 'surv-ecarts' | 'evenements-formations' | 'documents-dossiers';
 
 const TAB_CONFIG: { id: TabType; label: string; icon: React.ElementType; description: string }[] = [
   { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, description: 'Vue d\'ensemble du registre' },
-  { id: 'certifications', label: 'Certifications', icon: Shield, description: 'Aérodromes internationaux certifiés' },
-  { id: 'homologations', label: 'Homologations', icon: Scale, description: 'Aérodromes nationaux homologués' },
-  { id: 'surveillances', label: 'Surveillances', icon: Eye, description: 'Rapports de surveillance archivés' },
-  { id: 'ecarts', label: 'Écarts & PAC', icon: AlertTriangle, description: 'Non-conformités clôturées' },
-  { id: 'evenements', label: 'Événements', icon: AlertCircle, description: 'Incidents et accidents clôturés' },
-  { id: 'formations', label: 'Formations', icon: GraduationCap, description: 'Formations des inspecteurs' },
-  { id: 'documents', label: 'Documents', icon: FileText, description: 'Décrets, notes, lettres officielles' },
-  { id: 'dossiers', label: 'Dossiers', icon: ClipboardList, description: 'Dossiers techniques et instructions archivés' },
+  { id: 'cert-homo', label: 'Certifications & Homologations', icon: Shield, description: 'Certifications et homologations des aérodromes' },
+  { id: 'surv-ecarts', label: 'Surveillance & Écarts', icon: Eye, description: 'Rapports de surveillance et non-conformités' },
+  { id: 'evenements-formations', label: 'Événements & Formations', icon: AlertCircle, description: 'Incidents, accidents et formations' },
+  { id: 'documents-dossiers', label: 'Documents & Dossiers', icon: FileText, description: 'Décrets, notes, dossiers techniques' },
 ];
 
 // Types d'entrées pour les badges
@@ -110,17 +108,8 @@ const getRiskBadgeClass = (niveau: string, score?: number) => {
   }
 };
 
-// Badge de gravité événement
-const getGraviteBadgeClass = (gravite: string) => {
-  switch(gravite) {
-    case 'CRITIQUE': return 'badge danger';
-    case 'ORANGE': return 'badge warning';
-    case 'JAUNE': return 'badge warning';
-    case 'BLEU': return 'badge info';
-    case 'GRIS': return 'badge neutral';
-    default: return 'badge primary';
-  }
-};
+// Badge de gravité événement (niveau de risque 4 niveaux)
+const getGraviteBadgeClass = (gravite: string) => getGraviteRisqueClasse(gravite);
 
 // ─── Helpers timeline + fichiers + PDF ──────────────────────────────────────
 
@@ -161,8 +150,9 @@ function construireTimelineFormation(f: any): TimelineStep[] {
 
 function extraireFichiersSurveillance(s: any): { nom: string; url: string }[] {
   const fichiers: { nom: string; url: string }[] = []
-  if (s.rapport_fichier_url) fichiers.push({ nom: s.rapport_fichier_nom || 'rapport.pdf', url: s.rapport_fichier_url })
-  if (s.rapport_sig_url) fichiers.push({ nom: 'rapport_signe.pdf', url: s.rapport_sig_url })
+  const rapportSigneUrl = s.rapport_pdf_url || s.rapport_fichier_url
+  if (rapportSigneUrl) fichiers.push({ nom: 'rapport_signe.pdf', url: rapportSigneUrl })
+  if (s.checklist_pdf_url) fichiers.push({ nom: 'checklist_signee.pdf', url: s.checklist_pdf_url })
   return fichiers
 }
 
@@ -223,13 +213,18 @@ function FichiersSection({ fichiers }: { fichiers: { nom: string; url: string }[
   )
 }
 
-function ExportPDFButton({ elementId, filename }: { elementId: string; filename: string }) {
+function ExportPDFButton({ onExport }: { onExport: () => Promise<void> }) {
   const [exporting, setExporting] = useState(false)
   return (
     <button className="btn btn-sm btn-secondary gap-1.5" onClick={async () => {
       setExporting(true)
-      await exportElementToPDF(elementId, filename)
-      setExporting(false)
+      try {
+        await onExport()
+      } catch (err) {
+        console.error('[Registres] Échec export PDF:', err)
+      } finally {
+        setExporting(false)
+      }
     }} disabled={exporting}>
       {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
       {exporting ? 'Export...' : 'Exporter PDF'}
@@ -309,39 +304,27 @@ function DashboardTab() {
       </Card>
       
       {/* Dernières entrées */}
-      <Card icon={<Clock className="w-4 h-4 text-role-primary" />} title="Dernières entrées">
-        <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr className="border-b border-border">
-                <th>Référence</th>
-                <th>Titre</th>
-                <th>Type</th>
-                <th>Date</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentEntries.map(entry => {
-                const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
-                return (
-                  <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
-                    <td>{entry.reference}</td>
-                    <td className="text-foreground">{entry.titre}</td>
-                    <td><span className={typeInfo.badgeClass}>{typeInfo.label}</span></td>
-                    <td className="text-muted-foreground">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
-                    <td className="text-right">
-                      <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedEntry(entry)}>
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable
+        data={recentEntries}
+        columns={[
+          { key: 'reference', header: 'Référence', render: (entry: RegistreEntry) => entry.reference },
+          { key: 'titre', header: 'Titre', render: (entry: RegistreEntry) => <span className="text-foreground">{entry.titre}</span> },
+          { key: 'type', header: 'Type', render: (entry: RegistreEntry) => {
+            const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
+            return <span className={typeInfo.badgeClass}>{typeInfo.label}</span>;
+          }},
+          { key: 'date', header: 'Date', render: (entry: RegistreEntry) => <span className="text-muted-foreground">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</span> },
+          { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (entry: RegistreEntry) => (
+            <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedEntry(entry)}>
+              <Eye className="w-4 h-4" />
+            </button>
+          )},
+        ]}
+        keyExtractor={(entry: RegistreEntry) => entry.id}
+        emptyState={{ icon: Clock, title: 'Aucune entrée', description: 'Aucune entrée récente' }}
+        headerClassName="bg-role-primary-soft/40"
+        cardProps={{ icon: <Clock className="w-4 h-4 text-role-primary" />, title: 'Dernières entrées' }}
+      />
     </div>
 
     {/* Modal détail entrée */}
@@ -500,80 +483,69 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                     title={`${aerodrome?.nom} (${aerodrome?.code_oaci})`}
                     badges={<span className="badge outline">{aerodromeCerts.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>N° Certificat</th>
-                            <th>Délivrance</th>
-                            <th>Expiration</th>
-                            <th>Statut</th>
-                            <th className="text-right">Jours restants</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aerodromeCerts.map((cert) => {
-                            const meta = cert.registreEntry?.metadata as CertificationMetadata | undefined
-                            const numCert = cert.registreEntry?.metadata?.numero_certificat || cert.numero_cert || '-'
-                            const dateDelivrance = cert.registreEntry?.metadata?.date_delivrance || cert.date_delivrance?.slice(0, 10) || '-'
-                            const statut = cert.registreEntry?.metadata?.statut_officiel || cert.statut_global || 'en_cours'
-                            const dateExpiration = cert.date_expiration?.slice(0, 10)
-                            const joursRestants = getJoursRestants(cert.date_expiration);
-                            return (
-                              <tr key={cert.id} className="border-b border-border hover:bg-role-primary-soft">
-                                <td className="font-mono text-xs">{numCert}</td>
-                                <td>{dateDelivrance.slice(0, 10)}</td>
-                                <td>{dateExpiration || '-'}</td>
-                                <td>
-                                  <span className={getStatutBadge(statut)}>
-                                    {statut === 'revoque' ? 'Révoqué' : statut === 'suspendu' ? 'Suspendu' : statut === 'annule' ? 'Annulé' : getStatutLabel(statut)}
-                                  </span>
-                                  {meta?.restriction && (
-                                    <span className="ml-1 badge warning" title={meta.restriction}>⚠</span>
-                                  )}
-                                </td>
-                                <td className="text-right">
-                                  {joursRestants !== null && (
-                                    <span className={`text-xs px-2 py-0.5 rounded-full border ${joursRestants < 0 ? 'badge danger' : joursRestants < 60 ? 'badge warning' : 'badge success'}`}>
-                                      {joursRestants < 0 ? 'Expiré' : `${joursRestants} j`}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedCert({ ...cert, aerodrome })}>
-                                      <Eye className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      className="action-button hover:scale-105 transition-all duration-200 text-role-primary"
-                                      title="Modifier"
-                                      onClick={() => onEdit?.(cert.registreEntry || cert)}
-                                    >
-                                      <PenSquare className="w-4 h-4" />
-                                    </button>
-                                    {confirmDeleteId === cert.id ? (
-                                      <div className="flex items-center gap-1">
-                                        <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteCert(cert.id)}>
-                                          <CheckCircle className="w-4 h-4" />
-                                        </button>
-                                        <button className="action-button text-muted-foreground" title="Annuler" onClick={() => setConfirmDeleteId(null)}>
-                                          <XCircle className="w-4 h-4" />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(cert.id)}>
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={aerodromeCerts}
+                      columns={[
+                        { key: 'numCert', header: 'N° Certificat', render: (c: any) => {
+                          const numCert = c.registreEntry?.metadata?.numero_certificat || c.numero_cert || '-';
+                          return <span className="font-mono text-xs">{numCert}</span>;
+                        }},
+                        { key: 'delivrance', header: 'Délivrance', render: (c: any) => {
+                          const dateDelivrance = c.registreEntry?.metadata?.date_delivrance || c.date_delivrance?.slice(0, 10) || '-';
+                          return dateDelivrance.slice(0, 10);
+                        }},
+                        { key: 'expiration', header: 'Expiration', render: (c: any) => c.date_expiration?.slice(0, 10) || '-' },
+                        { key: 'statut', header: 'Statut', render: (c: any) => {
+                          const meta = c.registreEntry?.metadata as CertificationMetadata | undefined;
+                          const statut = c.registreEntry?.metadata?.statut_officiel || c.statut_global || 'en_cours';
+                          return (
+                            <>
+                              <span className={getStatutBadge(statut)}>
+                                {statut === 'revoque' ? 'Révoqué' : statut === 'suspendu' ? 'Suspendu' : statut === 'annule' ? 'Annulé' : getStatutLabel(statut)}
+                              </span>
+                              {meta?.restriction && (
+                                <span className="ml-1 badge warning" title={meta.restriction}>⚠</span>
+                              )}
+                            </>
+                          );
+                        }},
+                        { key: 'joursRestants', header: 'Jours restants', headerClassName: 'text-right', className: 'text-right', render: (c: any) => {
+                          const joursRestants = getJoursRestants(c.date_expiration);
+                          return joursRestants !== null ? (
+                            <span className={`text-xs px-2 py-0.5 rounded-full border ${joursRestants < 0 ? 'badge danger' : joursRestants < 60 ? 'badge warning' : 'badge success'}`}>
+                              {joursRestants < 0 ? 'Expiré' : `${joursRestants} j`}
+                            </span>
+                          ) : null;
+                        }},
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (c: any) => (
+                          <div className="flex items-center justify-end gap-1">
+                            <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedCert({ ...c, aerodrome })}>
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(c.registreEntry || c)}>
+                              <PenSquare className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === c.id ? (
+                              <div className="flex items-center gap-1">
+                                <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteCert(c.id)}>
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                                <button className="action-button text-muted-foreground" title="Annuler" onClick={() => setConfirmDeleteId(null)}>
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(c.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )},
+                      ]}
+                      keyExtractor={(c: any) => c.id}
+                      emptyState={{ icon: Shield, title: 'Aucune certification', description: 'Aucune certification pour cet aérodrome' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -749,69 +721,63 @@ function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                     title={`${aerodrome?.nom} (${aerodrome?.code_oaci})`}
                     badges={<span className="badge outline">{aerodromeHomos.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>N° Décision</th>
-                            <th>Délivrance</th>
-                            <th>Expiration</th>
-                            <th>Statut</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aerodromeHomos.map(homo => {
-                            const meta = homo.registreEntry?.metadata as HomologationMetadata | undefined
-                            const numDecision = meta?.numero_decision || homo.numero_decision || '-'
-                            const dateDelivrance = meta?.date_delivrance || homo.date_delivrance?.slice(0, 10) || '-'
-                            const statut = meta?.statut_officiel || homo.statut_global || 'en_cours'
-                            return (
-                            <tr key={homo.id} className="border-b border-border hover:bg-role-primary-soft">
-                              <td className="font-mono text-xs">{numDecision}</td>
-                              <td>{dateDelivrance.slice(0, 10)}</td>
-                              <td>{homo.date_expiration?.slice(0, 10) || '-'}</td>
-                              <td>
-                                <span className={getStatutBadge(statut === 'revoque' || statut === 'annule' ? 'expire' : statut)}>
-                                  {statut === 'revoque' ? 'Révoqué' : statut === 'suspendu' ? 'Suspendu' : statut === 'annule' ? 'Annulé' : getStatutLabel(statut)}
-                                </span>
-                                {meta?.restriction && (
-                                  <span className="ml-1 badge warning" title={meta.restriction}>⚠</span>
-                                )}
-                              </td>
-                              <td className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedHomo({ ...homo, aerodrome })}>
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    className="action-button hover:scale-105 transition-all duration-200 text-role-primary"
-                                    title="Modifier"
-                                    onClick={() => onEdit?.(homo.registreEntry || homo)}
-                                  >
-                                    <PenSquare className="w-4 h-4" />
-                                  </button>
-                                  {confirmDeleteId === homo.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteHomo(homo.id)}>
-                                        <CheckCircle className="w-4 h-4" />
-                                      </button>
-                                      <button className="action-button text-muted-foreground" title="Annuler" onClick={() => setConfirmDeleteId(null)}>
-                                        <XCircle className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(homo.id)}>
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )})}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={aerodromeHomos}
+                      columns={[
+                        { key: 'numDecision', header: 'N° Décision', render: (h: any) => {
+                          const meta = h.registreEntry?.metadata as HomologationMetadata | undefined;
+                          const numDecision = meta?.numero_decision || h.numero_decision || '-';
+                          return <span className="font-mono text-xs">{numDecision}</span>;
+                        }},
+                        { key: 'delivrance', header: 'Délivrance', render: (h: any) => {
+                          const meta = h.registreEntry?.metadata as HomologationMetadata | undefined;
+                          const dateDelivrance = meta?.date_delivrance || h.date_delivrance?.slice(0, 10) || '-';
+                          return dateDelivrance.slice(0, 10);
+                        }},
+                        { key: 'expiration', header: 'Expiration', render: (h: any) => h.date_expiration?.slice(0, 10) || '-' },
+                        { key: 'statut', header: 'Statut', render: (h: any) => {
+                          const meta = h.registreEntry?.metadata as HomologationMetadata | undefined;
+                          const statut = meta?.statut_officiel || h.statut_global || 'en_cours';
+                          return (
+                            <>
+                              <span className={getStatutBadge(statut === 'revoque' || statut === 'annule' ? 'expire' : statut)}>
+                                {statut === 'revoque' ? 'Révoqué' : statut === 'suspendu' ? 'Suspendu' : statut === 'annule' ? 'Annulé' : getStatutLabel(statut)}
+                              </span>
+                              {meta?.restriction && (
+                                <span className="ml-1 badge warning" title={meta.restriction}>⚠</span>
+                              )}
+                            </>
+                          );
+                        }},
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (h: any) => (
+                          <div className="flex items-center justify-end gap-1">
+                            <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedHomo({ ...h, aerodrome })}>
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(h.registreEntry || h)}>
+                              <PenSquare className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === h.id ? (
+                              <div className="flex items-center gap-1">
+                                <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteHomo(h.id)}>
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                                <button className="action-button text-muted-foreground" title="Annuler" onClick={() => setConfirmDeleteId(null)}>
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(h.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )},
+                      ]}
+                      keyExtractor={(h: any) => h.id}
+                      emptyState={{ icon: Scale, title: 'Aucune homologation', description: 'Aucune homologation pour cet aérodrome' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -971,46 +937,36 @@ function SurveillancesTab() {
                     title={`${aerodrome?.nom} (${aerodrome?.code_oaci})`}
                     badges={<span className="badge outline">{aerodromeSurvs.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Référence</th>
-                            <th>Type</th>
-                            <th>Période</th>
-                            <th>Équipe</th>
-                            <th>Statut</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aerodromeSurvs.map(surv => (
-                            <tr key={surv.id} className="border-b border-border hover:bg-role-primary-soft">
-                              <td className="font-mono text-xs">{surv.id.slice(-6)}</td>
-                              <td>{getTypeLabel(surv.type)}</td>
-                              <td className="text-small">
-                                {surv.date_debut ? new Date(surv.date_debut).toLocaleDateString('fr-FR') : '-'} → {surv.date_fin ? new Date(surv.date_fin).toLocaleDateString('fr-FR') : '-'}
-                              </td>
-                              <td className="text-small">{surv.equipe_ids?.length || 0} inspecteur(s)</td>
-                              <td><span className={getStatutBadge(surv.statut)}>{surv.statut}</span></td>
-                              <td className="text-right">
-                                <div className="flex justify-end gap-2">
-                                  <button className="action-button hover:scale-105 transition-all duration-200" title="Voir checklist" onClick={() => { setSelectedSurv({ ...surv, aerodrome }); setModalMode('checklist'); }}>
-                                    <ClipboardList className="w-4 h-4" />
-                                  </button>
-                                  <button className="action-button hover:scale-105 transition-all duration-200" title="Voir rapport" onClick={() => { setSelectedSurv({ ...surv, aerodrome }); setModalMode('rapport'); }}>
-                                    <FileText className="w-4 h-4" />
-                                  </button>
-                                  <button className="action-button hover:scale-105 transition-all duration-200" title="Détails" onClick={() => { setSelectedSurv({ ...surv, aerodrome }); setModalMode('details'); }}>
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={aerodromeSurvs}
+                      columns={[
+                        { key: 'reference', header: 'Référence', render: (sv: any) => <span className="font-mono text-xs">{sv.id.slice(-6)}</span> },
+                        { key: 'type', header: 'Type', render: (sv: any) => getTypeLabel(sv.type) },
+                        { key: 'periode', header: 'Période', render: (sv: any) => (
+                          <span className="text-small">
+                            {sv.date_debut ? new Date(sv.date_debut).toLocaleDateString('fr-FR') : '-'} → {sv.date_fin ? new Date(sv.date_fin).toLocaleDateString('fr-FR') : '-'}
+                          </span>
+                        )},
+                        { key: 'equipe', header: 'Équipe', render: (sv: any) => <span className="text-small">{sv.equipe_ids?.length || 0} inspecteur(s)</span> },
+                        { key: 'statut', header: 'Statut', render: (sv: any) => <span className={getStatutBadge(sv.statut)}>{sv.statut}</span> },
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (sv: any) => (
+                          <div className="flex justify-end gap-2">
+                            <button className="action-button hover:scale-105 transition-all duration-200" title="Voir checklist" onClick={() => { setSelectedSurv({ ...sv, aerodrome }); setModalMode('checklist'); }}>
+                              <ClipboardList className="w-4 h-4" />
+                            </button>
+                            <button className="action-button hover:scale-105 transition-all duration-200" title="Voir rapport" onClick={() => { setSelectedSurv({ ...sv, aerodrome }); setModalMode('rapport'); }}>
+                              <FileText className="w-4 h-4" />
+                            </button>
+                            <button className="action-button hover:scale-105 transition-all duration-200" title="Détails" onClick={() => { setSelectedSurv({ ...sv, aerodrome }); setModalMode('details'); }}>
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )},
+                      ]}
+                      keyExtractor={(sv: any) => sv.id}
+                      emptyState={{ icon: Eye, title: 'Aucune surveillance', description: 'Aucune surveillance archivée pour cet aérodrome' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -1087,7 +1043,7 @@ function SurveillancesTab() {
           </div>
           <TimelineSection steps={construireTimelineSurveillance(selectedSurv)} />
           <FichiersSection fichiers={extraireFichiersSurveillance(selectedSurv)} />
-          <div className="flex justify-end"><ExportPDFButton elementId="registre-detail-surveillance" filename={`surveillance-${selectedSurv.id || selectedSurv.reference}.pdf`} /></div>
+          <div className="flex justify-end"><ExportPDFButton onExport={() => exporterRegistreSurveillancePDF(selectedSurv, construireTimelineSurveillance(selectedSurv), extraireFichiersSurveillance(selectedSurv))} /></div>
         </div>
       )}
       {selectedSurv && modalMode === 'rapport' && (
@@ -1095,11 +1051,11 @@ function SurveillancesTab() {
           {selectedSurv.rapport_html ? (
             <div className="border border-border rounded-xl p-4 bg-background prose prose-sm max-w-none max-h-[60vh] overflow-y-auto"
               dangerouslySetInnerHTML={{ __html: selectedSurv.rapport_html }} />
-          ) : selectedSurv.rapport_fichier_url ? (
+          ) : (selectedSurv.rapport_pdf_url || selectedSurv.rapport_fichier_url) ? (
             <div className="text-center py-8">
               <FileText className="w-12 h-12 mx-auto mb-3 text-role-primary opacity-60" />
               <p className="text-sm font-medium mb-3">Rapport disponible en fichier</p>
-              <a href={selectedSurv.rapport_fichier_url} target="_blank" rel="noreferrer" download>
+              <a href={selectedSurv.rapport_pdf_url || selectedSurv.rapport_fichier_url} target="_blank" rel="noreferrer" download>
                 <button className="btn btn-primary gap-2">
                   <Download className="w-4 h-4" />
                   Télécharger {selectedSurv.rapport_fichier_nom || 'le rapport'}
@@ -1216,42 +1172,28 @@ function EcartsTab() {
                     title={`${aerodrome?.nom} (${aerodrome?.code_oaci})`}
                     badges={<span className="badge outline">{aerodromeEcarts.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Référence</th>
-                            <th>Niveau</th>
-                            <th>Libellé</th>
-                            <th>Clôture</th>
-                            <th>Décision PAC</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aerodromeEcarts.map(ecart => (
-                            <tr key={ecart.id} className="border-b border-border hover:bg-role-primary-soft">
-                              <td className="font-mono text-xs">{ecart.reference}</td>
-                              <td><span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span></td>
-                              <td className="max-w-md truncate">{ecart.libelle}</td>
-                              <td className="text-small">{ecart.cloture_le?.slice(0, 10) || '-'}</td>
-                              <td>
-                                {ecart.evaluation_pac && (
-                                  <span className={getDecisionBadge(ecart.evaluation_pac.decision)}>
-                                    {ecart.evaluation_pac.decision === 'accepte' ? 'Accepté' : ecart.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}
-                                  </span>
-                                )}
-                              </td>
-                              <td className="text-right">
-                                <button className="action-button hover:scale-105 transition-all duration-200" title="Voir timeline" onClick={() => setSelectedEcart({ ...ecart, aerodrome })}>
-                                  <History className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={aerodromeEcarts}
+                      columns={[
+                        { key: 'reference', header: 'Référence', render: (e: any) => <span className="font-mono text-xs">{e.reference}</span> },
+                        { key: 'niveau', header: 'Niveau', render: (e: any) => <span className={getNiveauBadge(e.niveau_risque)}>{e.niveau_risque}</span> },
+                        { key: 'libelle', header: 'Libellé', render: (e: any) => <span className="max-w-md truncate">{e.libelle}</span> },
+                        { key: 'cloture', header: 'Clôture', render: (e: any) => <span className="text-small">{e.cloture_le?.slice(0, 10) || '-'}</span> },
+                        { key: 'decision', header: 'Décision PAC', render: (e: any) => e.evaluation_pac ? (
+                          <span className={getDecisionBadge(e.evaluation_pac.decision)}>
+                            {e.evaluation_pac.decision === 'accepte' ? 'Accepté' : e.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}
+                          </span>
+                        ) : null },
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (e: any) => (
+                          <button className="action-button hover:scale-105 transition-all duration-200" title="Voir timeline" onClick={() => setSelectedEcart({ ...e, aerodrome })}>
+                            <History className="w-4 h-4" />
+                          </button>
+                        )},
+                      ]}
+                      keyExtractor={(e: any) => e.id}
+                      emptyState={{ icon: AlertTriangle, title: 'Aucun écart', description: 'Aucun écart clôturé pour cet aérodrome' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -1354,7 +1296,7 @@ function EcartsTab() {
           )}
           <TimelineSection steps={construireTimelineEcart(selectedEcart)} />
           <FichiersSection fichiers={extraireFichiersEcart(selectedEcart)} />
-          <div className="flex justify-end"><ExportPDFButton elementId="registre-detail-ecart" filename={`ecart-${selectedEcart.reference || selectedEcart.id}.pdf`} /></div>
+          <div className="flex justify-end"><ExportPDFButton onExport={() => exporterRegistreEcartPDF(selectedEcart, construireTimelineEcart(selectedEcart), extraireFichiersEcart(selectedEcart))} /></div>
         </div>
       )}
     </FormShell>
@@ -1412,36 +1354,24 @@ function EvenementsTab() {
                     title={`${aerodrome?.nom} (${aerodrome?.code_oaci})`}
                     badges={<span className="badge outline">{aerodromeEvents.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Référence</th>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th>Gravité</th>
-                            <th>Statut</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aerodromeEvents.map(event => (
-                            <tr key={event.id} className="border-b border-border hover:bg-role-primary-soft">
-                              <td className="font-mono text-xs">{event.reference}</td>
-                              <td className="text-small">{event.date || '-'}</td>
-                              <td>{event.type}</td>
-                              <td><span className={getGraviteBadgeClass(event.gravite)}>{event.gravite}</span></td>
-                              <td><span className="badge success">Clôturé</span></td>
-                              <td className="text-right">
-                                <button className="action-button hover:scale-105 transition-all duration-200" title="Voir rapport" onClick={() => setSelectedEvent({ ...event, aerodrome })}>
-                                  <FileText className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={aerodromeEvents}
+                      columns={[
+                        { key: 'reference', header: 'Référence', render: (ev: any) => <span className="font-mono text-xs">{ev.reference}</span> },
+                        { key: 'date', header: 'Date', render: (ev: any) => <span className="text-small">{ev.date || '-'}</span> },
+                        { key: 'type', header: 'Type', render: (ev: any) => ev.type },
+                        { key: 'gravite', header: 'Gravité', render: (ev: any) => <span className={getGraviteBadgeClass(ev.gravite)}>{getGraviteRisqueLabel(ev.gravite)}</span> },
+                        { key: 'statut', header: 'Statut', render: () => <span className="badge success">Clôturé</span> },
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (ev: any) => (
+                          <button className="action-button hover:scale-105 transition-all duration-200" title="Voir rapport" onClick={() => setSelectedEvent({ ...ev, aerodrome })}>
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )},
+                      ]}
+                      keyExtractor={(ev: any) => ev.id}
+                      emptyState={{ icon: AlertCircle, title: 'Aucun événement', description: 'Aucun événement clôturé pour cet aérodrome' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -1470,7 +1400,7 @@ function EvenementsTab() {
       {selectedEvent && (
         <div id="registre-detail-evenement" className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={getGraviteBadgeClass(selectedEvent.gravite)}>{selectedEvent.gravite}</span>
+            <span className={getGraviteBadgeClass(selectedEvent.gravite)}>{getGraviteRisqueLabel(selectedEvent.gravite)}</span>
             <span className="badge success">Clôturé</span>
             <span className="text-sm text-muted-foreground flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5" />{selectedEvent.aerodrome?.nom || selectedEvent.aerodrome_id}
@@ -1525,7 +1455,7 @@ function EvenementsTab() {
           )}
           <TimelineSection steps={construireTimelineEvenement(selectedEvent)} />
           <FichiersSection fichiers={extraireFichiersEvenement(selectedEvent)} />
-          <div className="flex justify-end"><ExportPDFButton elementId="registre-detail-evenement" filename={`evenement-${selectedEvent.reference || selectedEvent.id}.pdf`} /></div>
+          <div className="flex justify-end"><ExportPDFButton onExport={() => exporterRegistreEvenementPDF(selectedEvent, construireTimelineEvenement(selectedEvent), extraireFichiersEvenement(selectedEvent))} /></div>
         </div>
       )}
     </FormShell>
@@ -1600,36 +1530,24 @@ function FormationsTab() {
                     title={inspectorName}
                     badges={<span className="badge outline">{inspectorFormations.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Formation</th>
-                            <th>Date</th>
-                            <th>Durée</th>
-                            <th>Note</th>
-                            <th>Documents</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {inspectorFormations.map(formation => (
-                            <tr key={formation.id} className="border-b border-border hover:bg-role-primary-soft">
-                              <td className="font-medium">{formation.titre}</td>
-                              <td className="text-small">{formation.date ? new Date(formation.date).toLocaleDateString('fr-FR') : '-'}</td>
-                              <td>{formation.duree_heures}h</td>
-                              <td>{getNoteMoyenne(formation.evaluation) ? `${getNoteMoyenne(formation.evaluation)}/5` : '-'}</td>
-                              <td>{getDocumentsCount(formation.documents)} fichier(s)</td>
-                              <td className="text-right">
-                                <button className="action-button hover:scale-105 transition-all duration-200" title="Voir attestation" onClick={() => setSelectedFormation(formation)}>
-                                  <FileText className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={inspectorFormations}
+                      columns={[
+                        { key: 'formation', header: 'Formation', render: (f: any) => <span className="font-medium">{f.titre}</span> },
+                        { key: 'date', header: 'Date', render: (f: any) => <span className="text-small">{f.date ? new Date(f.date).toLocaleDateString('fr-FR') : '-'}</span> },
+                        { key: 'duree', header: 'Durée', render: (f: any) => `${f.duree_heures}h` },
+                        { key: 'note', header: 'Note', render: (f: any) => getNoteMoyenne(f.evaluation) ? `${getNoteMoyenne(f.evaluation)}/5` : '-' },
+                        { key: 'documents', header: 'Documents', render: (f: any) => `${getDocumentsCount(f.documents)} fichier(s)` },
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (f: any) => (
+                          <button className="action-button hover:scale-105 transition-all duration-200" title="Voir attestation" onClick={() => setSelectedFormation(f)}>
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )},
+                      ]}
+                      keyExtractor={(f: any) => f.id}
+                      emptyState={{ icon: GraduationCap, title: 'Aucune formation', description: 'Aucune formation dans cette catégorie' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -1728,7 +1646,7 @@ function FormationsTab() {
             </div>
           )}
           <TimelineSection steps={construireTimelineFormation(selectedFormation)} />
-          <div className="flex justify-end"><ExportPDFButton elementId="registre-detail-formation" filename={`formation-${selectedFormation.id || selectedFormation.titre}.pdf`} /></div>
+          <div className="flex justify-end"><ExportPDFButton onExport={() => exporterRegistreFormationPDF(selectedFormation, construireTimelineFormation(selectedFormation))} /></div>
         </div>
       )}
     </FormShell>
@@ -1869,44 +1787,28 @@ function DocumentsTab({ viewMode, searchTerm, selectedYear, onViewDetails, filte
                     title={docType}
                     badges={<span className="badge outline">{typeEntries.length}</span>}
                   >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Référence</th>
-                            <th>Titre</th>
-                            <th>Date</th>
-                            <th>Fichiers</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {typeEntries.map(entry => {
-                            const typeInfo = ENTRY_TYPE_LABELS[entry.type] || ENTRY_TYPE_LABELS.document;
-                            return (
-                              <tr key={entry.id} className="border-b border-border hover:bg-role-primary-soft">
-                    <td className="text-xs">{entry.reference}</td>
-                    <td className="text-foreground">{entry.titre}</td>
-                                <td className="text-small">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</td>
-                                <td>
-                                  {entry.fichiers && entry.fichiers.length > 0 && (
-                                    <span className="flex items-center gap-1 text-xs text-primary">
-                                      <FileText className="w-3 h-3" />
-                                      {entry.fichiers.length}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="text-right">
-                                  <button className="action-button hover:scale-105 transition-all duration-200" onClick={() => onViewDetails(entry)}>
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={typeEntries}
+                      columns={[
+                        { key: 'reference', header: 'Référence', render: (entry: RegistreEntry) => <span className="text-xs">{entry.reference}</span> },
+                        { key: 'titre', header: 'Titre', render: (entry: RegistreEntry) => <span className="text-foreground">{entry.titre}</span> },
+                        { key: 'date', header: 'Date', render: (entry: RegistreEntry) => <span className="text-small">{new Date(entry.date_entree).toLocaleDateString('fr-FR')}</span> },
+                        { key: 'fichiers', header: 'Fichiers', render: (entry: RegistreEntry) => entry.fichiers && entry.fichiers.length > 0 ? (
+                          <span className="flex items-center gap-1 text-xs text-primary">
+                            <FileText className="w-3 h-3" />
+                            {entry.fichiers.length}
+                          </span>
+                        ) : null },
+                        { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (entry: RegistreEntry) => (
+                          <button className="action-button hover:scale-105 transition-all duration-200" onClick={() => onViewDetails(entry)}>
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )},
+                      ]}
+                      keyExtractor={(entry: RegistreEntry) => entry.id}
+                      emptyState={{ icon: FileText, title: 'Aucun document', description: 'Aucun document dans cette catégorie' }}
+                      headerClassName="bg-role-primary-soft/40"
+                    />
                   </AccordionSubItem>
                 );
               })}
@@ -1956,7 +1858,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
   useEffect(() => {
     if (!pendingRegistreSource) return
     const { type, id, aerodrome_id } = pendingRegistreSource
-    setActiveTab(type === 'certification' ? 'certifications' : 'homologations')
+    setActiveTab('cert-homo')
     const source = type === 'certification'
       ? certifications?.find(c => c.id === id)
       : homologations?.find(h => h.id === id)
@@ -2018,7 +1920,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
         addNotification({
           user_id: user?.id || '',
           type: 'success',
-          title: 'Commande IA exécutée',
+          title: 'Commande AERORISQ exécutée',
           message: result.message,
           canal: 'in_app',
         });
@@ -2050,7 +1952,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
       addNotification({
         user_id: user?.id || '',
         type: 'danger',
-        title: 'Erreur IA',
+        title: 'Erreur AERORISQ',
         message: error instanceof Error ? error.message : 'Analyse impossible',
         canal: 'in_app',
       });
@@ -2103,40 +2005,48 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
     switch (activeTab) {
       case 'dashboard':
         return <DashboardTab />;
-      case 'certifications':
-        return <CertificationsTab
-          onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
-        />;
-      case 'homologations':
-        return <HomologationsTab
-          onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
-        />;
-      case 'surveillances':
-        return <SurveillancesTab />;
-      case 'ecarts':
-        return <EcartsTab />;
-      case 'evenements':
-        return <EvenementsTab />;
-      case 'formations':
-        return <FormationsTab />;
-      case 'documents':
+      case 'cert-homo':
         return (
-          <DocumentsTab
-            viewMode={viewMode}
-            searchTerm={searchTerm}
-            selectedYear={selectedYear}
-            onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
-          />
+          <div className="space-y-8">
+            <CertificationsTab
+              onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
+            />
+            <HomologationsTab
+              onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
+            />
+          </div>
         );
-      case 'dossiers':
+      case 'surv-ecarts':
         return (
-          <DocumentsTab
-            viewMode={viewMode}
-            searchTerm={searchTerm}
-            selectedYear={selectedYear}
-            onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
-            filterType="dossier"
-          />
+          <div className="space-y-8">
+            <SurveillancesTab />
+            <EcartsTab />
+          </div>
+        );
+      case 'evenements-formations':
+        return (
+          <div className="space-y-8">
+            <EvenementsTab />
+            <FormationsTab />
+          </div>
+        );
+      case 'documents-dossiers':
+        return (
+          <div className="space-y-8">
+            <DocumentsTab
+              viewMode={viewMode}
+              searchTerm={searchTerm}
+              selectedYear={selectedYear}
+              onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
+            />
+            <DocumentsTab
+              viewMode={viewMode}
+              searchTerm={searchTerm}
+              selectedYear={selectedYear}
+              onViewDetails={(entry) => { setSelectedEntry(entry); setShowDetailModal(true); }}
+              filterType="dossier"
+            />
+          </div>
         );
       default:
         return null;
@@ -2144,8 +2054,8 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
   };
   
   const showFilters = activeTab !== 'dashboard';
-  const showYearFilter = activeTab !== 'dashboard' && activeTab !== 'certifications' && activeTab !== 'homologations';
-  const showAerodromeFilter = ['certifications', 'homologations', 'surveillances', 'ecarts', 'evenements', 'dossiers'].includes(activeTab);
+  const showYearFilter = activeTab !== 'dashboard' && activeTab !== 'cert-homo';
+  const showAerodromeFilter = ['cert-homo', 'surv-ecarts', 'evenements-formations', 'documents-dossiers'].includes(activeTab);
   
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="registre">
@@ -2255,7 +2165,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
         <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
           <div className="flex flex-wrap items-center gap-3">
             {/* Recherche */}
-            {activeTab === 'documents' && (
+            {activeTab === 'documents-dossiers' && (
               <div className="flex-1 min-w-[200px] relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -2295,7 +2205,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
             )}
             
             {/* Vue liste/grille */}
-            {activeTab === 'documents' && (
+            {activeTab === 'documents-dossiers' && (
               <div className="view-toggle">
                 <button className={viewMode === 'liste' ? 'active' : ''} onClick={() => setViewMode('liste')} title="Vue liste">
                   <List className="w-4 h-4" />
@@ -2314,22 +2224,18 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
         </Card>
       )}
 
-      {/* Sous-onglets — même design que CertificationModule */}
+      {/* Sous-onglets */}
       <div className="tabs-container border-b border-border">
-        <div className="tabs flex gap-1 overflow-x-auto">
+        <div className="tabs flex gap-1 flex-wrap">
           {TAB_CONFIG.map(tab => {
             const Icon = tab.icon;
             let count = 0;
             switch (tab.id) {
-              case 'dashboard':      count = stats.total;          break;
-              case 'certifications': count = stats.certifications;  break;
-              case 'homologations':  count = stats.homologations;   break;
-              case 'surveillances':  count = stats.surveillances;   break;
-              case 'ecarts':         count = stats.ecarts;          break;
-              case 'evenements':     count = stats.evenements;      break;
-              case 'formations':     count = stats.formations;      break;
-              case 'documents':      count = stats.documents;       break;
-              case 'dossiers':       count = stats.dossiers;        break;
+              case 'dashboard':             count = stats.total;               break;
+              case 'cert-homo':             count = stats.certifications + stats.homologations; break;
+              case 'surv-ecarts':           count = stats.surveillances + stats.ecarts; break;
+              case 'evenements-formations': count = stats.evenements + stats.formations; break;
+              case 'documents-dossiers':    count = stats.documents + stats.dossiers; break;
             }
             return (
               <button

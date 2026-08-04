@@ -143,28 +143,28 @@ export function AlertCard({ role, aerodromeId, onAction }: Props) {
   }, [surveillances, ecarts, profilsRisque, recalibrationAlerts, plannings, user, role, aerodromeId])
 
   if (alerts.length === 0) return (
-    <Card variant="level" levelColor="success" title="Alertes en temps réel" icon={<CheckCircle2 className="w-4 h-4 text-success" />} badge={<span className="badge success text-xs">Aucune</span>} headerGradient={false}>
-      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-success-soft">
+    <Card variant="glass" levelColor="success" title="Alertes en temps réel" icon={<CheckCircle2 className="w-4 h-4 text-success" />} badge={<span className="badge success text-xs">Aucune</span>} headerGradient={false}>
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-success-soft border border-success/20">
         <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-        <span className="text-sm">Aucune alerte — tout est à jour</span>
+        <span className="text-sm text-foreground/70">Aucune alerte — tout est à jour</span>
       </div>
     </Card>
   )
 
   return (
-    <Card variant="level" levelColor="danger" title="Alertes en temps réel" icon={<AlertTriangle className="w-4 h-4 text-danger" />} badge={<span className="badge danger text-xs">{alerts.length} active{alerts.length > 1 ? 's' : ''}</span>} headerGradient={false}>
+    <Card variant="glass" levelColor="danger" title="Alertes en temps réel" icon={<AlertTriangle className="w-4 h-4 text-danger" />} badge={<span className="badge danger text-xs">{alerts.length} active{alerts.length > 1 ? 's' : ''}</span>} headerGradient={false}>
       <div className="space-y-2">
         {alerts.map(alert => (
           <div key={alert.id}
             className={`flex items-center justify-between gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${
-              alert.type === 'danger' ? 'bg-danger-soft hover:bg-danger-soft/70' :
-              alert.type === 'warning' ? 'bg-warning-soft hover:bg-warning-soft/70' :
-              'bg-primary-soft hover:bg-primary-soft/70'
+              alert.type === 'danger' ? 'bg-danger-soft hover:bg-danger/15 border border-danger/20' :
+              alert.type === 'warning' ? 'bg-warning-soft hover:bg-warning/15 border border-warning/20' :
+              'bg-primary-soft hover:bg-primary/15 border border-primary/20'
             }`}
             onClick={() => alert.action && onAction?.(alert.action)}>
             <div className="flex items-center gap-2.5">
               <alert.icon className={`w-4 h-4 shrink-0 ${alert.type === 'danger' ? 'text-danger' : alert.type === 'warning' ? 'text-warning' : 'text-primary'}`} />
-              <span className="text-sm">{alert.message}</span>
+              <span className="text-sm text-foreground/70">{alert.message}</span>
             </div>
             {alert.actionLabel && (
               <span className={`text-xs font-medium shrink-0 ${alert.type === 'danger' ? 'text-danger' : alert.type === 'warning' ? 'text-warning' : 'text-primary'}`}>

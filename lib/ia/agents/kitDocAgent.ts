@@ -9,11 +9,12 @@
 'use client'
 
 import { useAppStore, KitDocument, ProfilRisque, Aerodrome, KitChecklistItemGenere } from '@/lib/store'
+import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { checklistMemory } from '@/lib/checklistMemory'
 import { aiClient } from '@/lib/ia/aiClient'
 import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
-import { getSourcesForDomaine } from '@/lib/kitDocMapping'
+import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
 
 // ============================================================
@@ -21,7 +22,7 @@ import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filt
 // ============================================================
 
 export type TypeEntite = 'aerodrome' | 'helistation' | 'mixte'
-export type TypeSurveillanceKit = 'periodique' | 'inopine' | 'maintien'
+export type TypeSurveillanceKit = 'periodique' | 'inopine' | 'maintien' | 'certification' | 'homologation' | 'suivi_ecarts' | 'mise_oeuvre_pac'
 export type ResultatKit = 'SA' | 'NS' | 'NA' | 'NV'
 export type TypeDocumentOACI =
   | 'RAS-14'
@@ -1254,21 +1255,25 @@ Génère le JSON au format :
 
     if (!aiResult.rows || aiResult.rows.length === 0) return []
 
-    return aiResult.rows.map(r => ({
-      numero: r.numero || '',
-      reference_reglementaire: r.reference || '',
-      point_verification: r.question || '',
-      directive_preuve: r.guide_etapes || '',
-      directive_sa: r.directive_sa || undefined,
-      directive_ns: r.directive_ns || undefined,
-      directive_nv: r.directive_nv || undefined,
-      directive_na: r.directive_na || undefined,
-      resultat: r.resultat === 'SO' ? 'NA'
-        : (r.resultat === 'SA' || r.resultat === 'NS' || r.resultat === 'NA')
-          ? r.resultat as 'SA' | 'NS' | 'NA'
-          : undefined,
-      domaine: doc.domaines[0] || 'AGA',
-    }))
+    return aiResult.rows.map(r => {
+      const { reference, question } = this.extraireReferenceQuestion(r.question)
+      const refBase = r.reference || ''
+      return {
+        numero: reference || r.numero || '',
+        reference_reglementaire: reference ? (refBase ? `${reference} — ${refBase}` : reference) : refBase,
+        point_verification: question || '',
+        directive_preuve: r.guide_etapes || '',
+        directive_sa: r.directive_sa || undefined,
+        directive_ns: r.directive_ns || undefined,
+        directive_nv: r.directive_nv || undefined,
+        directive_na: r.directive_na || undefined,
+        resultat: r.resultat === 'SO' ? 'NA'
+          : (r.resultat === 'SA' || r.resultat === 'NS' || r.resultat === 'NA')
+            ? r.resultat as 'SA' | 'NS' | 'NA'
+            : undefined,
+        domaine: doc.domaines[0] || 'AGA',
+      }
+    })
   }
 
   // ============================================================
@@ -1276,8 +1281,10 @@ Génère le JSON au format :
   // ============================================================
 
   /**
-   * Génère des questions de checklist standard (SA/NS/NV/NA) pour un sous-domaine.
-   * Structure identique à generateSGSQuestions mais adaptée à la checklist standard ANACIM.
+   * @deprecated La baseline des checklists provient des templates Word ANACIM importés
+   *             (checklist_templates). L'IA ne sert plus qu'à l'enrichissement
+   *             (prédiction SA/NS, suggestion contexte, détection évolution).
+   *             Conservé temporairement pour compatibilité — sera supprimé après migration.
    */
   async generateStandardChecklistByIA(params: {
     aerodromeType: 'international' | 'national'
@@ -1432,92 +1439,8 @@ Génère un JSON avec cette structure exacte (guide_etapes = tirets, PAS de num�
     guideEtapes: { etape: number; titre: string; actions: string[] }[]
     justification: string
   }> {
-    const { aerodromeType, maturiteInitiale, composanteId, elementId, elementLabel, existingQuestions, documentsActifs } = params
-
-    const composanteLabels: Record<number, string> = {
-      1: 'Politique & objectifs de sécurité',
-      2: 'Gestion des risques',
-      3: 'Assurance sécurité',
-      4: 'Promotion sécurité',
-      5: 'Gestion des interfaces',
-    }
-
-    const docsContext = documentsActifs && documentsActifs.length > 0
-      ? `Documents réglementaires actifs:\n${documentsActifs.map(d => `- ${d.nom} (${d.reference_base || d.type_document}) v${d.version}`).join('\n')}`
-      : 'Documents de référence: RAS 19 (Annexe 19 OACI), RAS 14 (Aérodromes), Doc 9859 (Manuel de gestion de la sécurité)'
-
-    const existingContext = existingQuestions && existingQuestions.length > 0
-      ? `Questions existantes (à conserver ou mettre à jour):\n${existingQuestions.map(q => `- ${q.ref}: ${q.texte}`).join('\n')}`
-      : 'Première génération — aucune question existante'
-
-    const maturiteContext = maturiteInitiale !== undefined
-      ? maturiteInitiale < 25
-        ? 'Aérodrome avec SGS naissant — privilégier les questions fondamentales (niveau Présent/Approprié)'
-        : maturiteInitiale < 50
-          ? 'Aérodrome avec SGS en développement — équilibrer questions fondamentales et avancées'
-          : maturiteInitiale < 75
-            ? 'Aérodrome avec SGS mature — inclure questions niveau Opérationnel/Efficace'
-            : 'Aérodrome avec SGS très mature — focus sur l\'efficacité et l\'amélioration continue'
-      : 'Niveau de maturité inconnu — générer un ensemble complet et progressif'
-
-    const systemPrompt = GENERER_SGS_QUESTIONS_PROMPT
-
-    const userMessage = `${docsContext}
-
-Composante ${composanteId}: ${composanteLabels[composanteId]}
-Élément: ${elementId} — ${elementLabel}
-Type d'aérodrome: ${aerodromeType}
-${maturiteContext}
-
-${existingContext}
-
-Génère un JSON avec cette structure exacte:
-{
-  "questions": [
-    {"ref": "SGS-X.X", "texte": "Question précise...", "sourceReglementaire": "RAS 19 §X.X.X"}
-  ],
-  "directives": {
-    "present": ["Critère objectif pour niveau Présent..."],
-    "approprie": ["Critère objectif pour niveau Approprié..."],
-    "operationnel": ["Critère objectif pour niveau Opérationnel..."],
-    "efficace": ["Critère objectif pour niveau Efficace..."]
-  },
-  "guideEtapes": [
-    {"etape": 1, "titre": "Vérifier la documentation", "actions": ["Action 1", "Action 2"]},
-    {"etape": 2, "titre": "Vérifier la mise en oeuvre", "actions": ["Action 1", "Action 2"]}
-  ],
-  "justification": "Pourquoi ces questions sont pertinentes pour cet élément..."
-}`
-
-    type SGSGenerationResult = {
-      questions: { ref: string; texte: string; sourceReglementaire: string }[]
-      directives: { present: string[]; approprie: string[]; operationnel: string[]; efficace: string[] }
-      guideEtapes: { etape: number; titre: string; actions: string[] }[]
-      justification: string
-    }
-
-    const result = await aiClient.callJSON<SGSGenerationResult>(
-      {
-        systemPrompt,
-        userMessage,
-        temperature: 0.2,
-        maxTokens: 1500,
-        responseFormat: 'json_object',
-      },
-      {
-        questions: [{ ref: `${elementId}.q1`, texte: `L'élément ${elementLabel} est-il documenté?`, sourceReglementaire: 'Doc 9859 (SGS OACI)' }],
-        directives: {
-          present: ['Documenté et accessible'],
-          approprie: ['Adapté au contexte'],
-          operationnel: ['Appliqué au quotidien'],
-          efficace: ['Résultats mesurables'],
-        },
-        guideEtapes: [{ etape: 1, titre: 'Vérifier', actions: ['Consulter la documentation'] }],
-        justification: 'Questions générées par IA',
-      }
-    )
-
-    return result
+    const { inspecteurVirtuel } = await import('@/lib/ia/agents/inspecteurVirtuelAgent')
+    return inspecteurVirtuel.generateSGSEvaluation(params)
   }
 
   /**
@@ -1714,11 +1637,27 @@ Génère un JSON avec cette structure exacte:
   }
 
   /**
-   * Génère les items de checklist pour un document à partir de son texte.
-   * Utilise l'IA pour analyser le texte réglementaire et produire des items structurés.
-   * Les items sont stockés sur le document (items_generes) pour éviter les régénérations.
+   * Extrait le code de référence en tête d'une question extraite.
+   * Ex : "IT1.1.1 — Vérifier que la piste…" → { reference: "IT1.1.1", question: "Vérifier que la piste…" }
+   * Pattern : 1-5 lettres suivies de 2 à 5 groupes de chiffres séparés par des points (IT1.1.1, SOP1.4.11.1…)
+   * Si aucun code n'est détecté, retourne la question inchangée.
    */
-  async genererItemsPourDocument(docId: string, domainesCibles?: string[], type_entite: 'aerodrome' | 'helistation' | 'mixte' | 'tous' = 'aerodrome'): Promise<KitChecklistItemGenere[]> {
+  private extraireReferenceQuestion(texte: string | undefined): { reference?: string; question: string } {
+    if (!texte || !texte.trim()) return { question: texte || '' }
+    const t = texte.trim()
+    const m = t.match(/^([A-Za-z]{1,5}\d+(?:\.\d+){1,4})(?:[\s.,:;)\-–—]+\s*(.*))$/)
+    if (m && m[1] && m[2] && m[2].trim()) {
+      return { reference: m[1], question: m[2].trim() }
+    }
+    return { question: t }
+  }
+
+  /**
+   * @deprecated La baseline des checklists provient des templates Word ANACIM importés.
+   *             Cette méthode génère encore des items via IA comme fallback.
+   *             Sera supprimée après migration vers checklist_templates.
+   */
+  async genererItemsPourDocument(docId: string, domainesCibles?: string[], type_entite: 'aerodrome' | 'helistation' | 'mixte' | 'tous' = 'aerodrome', aerodromeId?: string): Promise<KitChecklistItemGenere[]> {
     const store = useAppStore.getState()
     const doc = store.kitDocuments.find(d => d.id === docId)
     if (!doc) return []
@@ -1737,15 +1676,58 @@ Génère un JSON avec cette structure exacte:
       stored = []
     }
 
+    // Invalidation si items trop peu nombreux pour couvrir tous les chapitres
+    if (!versionChanged && stored.length > 0) {
+      const ITEMS_PER_CHAPTER = 3
+      const storedDomainCounts = new Map<string, number>()
+      stored.forEach(i => storedDomainCounts.set(i.domaine, (storedDomainCounts.get(i.domaine) || 0) + 1))
+      const domainesInsuffisants = [...storedDomainCounts.entries()]
+        .filter(([domaine, count]) => {
+          const mapping = getMappingForDomaine(domaine, 'aerodrome')
+          if (!mapping) return count < 4
+          const chapitresAttendus = new Set<string>()
+          mapping.sources.forEach(s => {
+            const chaps = Array.isArray(s.chapitre) ? s.chapitre : s.chapitre ? [s.chapitre] : []
+            chaps.forEach(c => chapitresAttendus.add(c))
+          })
+          if (chapitresAttendus.size === 0) return count < 4
+          const minAttendu = chapitresAttendus.size * ITEMS_PER_CHAPTER
+          console.log(`[KitDocAgent] ${domaine}: ${count} items pour ${chapitresAttendus.size} chapitres (min attendu: ${minAttendu})`)
+          return count < minAttendu
+        })
+        .map(([d]) => d)
+      if (domainesInsuffisants.length > 0) {
+        console.log(`[KitDocAgent] Items insuffisants pour ${docMaj.nom}: ${domainesInsuffisants.join(',')} — régénération forcée`)
+        stored = stored.filter(i => !domainesInsuffisants.includes(i.domaine))
+      }
+    }
+
     const storedDomaines = new Set(stored.map(i => i.domaine))
     const domainesAGenerer = domainesCibles
       ? domainesCibles.filter(d => !storedDomaines.has(d))
       : docMaj.domaines.filter(d => !storedDomaines.has(d))
 
-    console.log(`[genererItemsPourDocument] ${docMaj.nom}: domainesCibles=${domainesCibles?.join(',')} domainesAGenerer=${domainesAGenerer.join(',')} stored=${stored.length} items texte=${(docMaj.contenu_complet || '').length}chars`)
+    console.log(`[genererItemsPourDocument] ${docMaj.nom}: domainesCibles=${domainesCibles?.join(',')} domainesAGenerer=${domainesAGenerer.join(',')} stored=${stored.length} items texte=${(docMaj.contenu_complet || '').length}chars aerodromeId=${aerodromeId || 'none'}`)
 
     if (domainesAGenerer.length === 0) {
       return stored.filter(i => !domainesCibles || domainesCibles.includes(i.domaine))
+    }
+
+    // Si un contexte d'aérodrome est fourni, déléguer à AERORISQ pour la génération
+    if (aerodromeId) {
+      console.log(`[genererItemsPourDocument] Délégation à AERORISQ pour aérodrome ${aerodromeId}`)
+      if (!riskAgent.isReady()) await riskAgent.init({})
+      const tousItems: KitChecklistItemGenere[] = [...stored]
+      for (const domaine of domainesAGenerer) {
+        const itemsAerorisq = await riskAgent.generateChecklistItems({
+          docId: doc.id,
+          domaine,
+          type_entite,
+          aerodromeId,
+        })
+        tousItems.push(...itemsAerorisq)
+      }
+      return tousItems
     }
 
     const texte = docMaj.contenu_complet || ''
@@ -1805,7 +1787,7 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
   ]
 }`,
             temperature: 0.15,
-            maxTokens: 24000,
+            maxTokens: 32768,
             responseFormat: 'json_object',
           },
           { items: [] }
@@ -1814,11 +1796,13 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
         if (aiResult.items && aiResult.items.length > 0) {
           for (let i = 0; i < aiResult.items.length; i++) {
             const item = aiResult.items[i]
+            const { reference, question } = this.extraireReferenceQuestion(item.point_verification)
+            const refBase = item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`
             nouveauxItems.push({
               id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
-              numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
-              reference_reglementaire: item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`,
-              point_verification: item.point_verification || `Vérification ${domaine} — ${docMaj.nom}`,
+              numero: reference || item.numero || `${String(i + 1).padStart(2, '0')}`,
+              reference_reglementaire: reference ? `${reference} — ${refBase}` : refBase,
+              point_verification: question || `Vérification ${domaine} — ${docMaj.nom}`,
               directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
               directive_sa: item.directive_sa,
               directive_ns: item.directive_ns,
@@ -1867,7 +1851,7 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
   ]
 }`,
           temperature: 0.15,
-          maxTokens: 24000,
+          maxTokens: 32768,
           responseFormat: 'json_object',
         },
         { items: [] }
@@ -1876,11 +1860,13 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
       if (aiResult.items && aiResult.items.length > 0) {
         for (let i = 0; i < aiResult.items.length; i++) {
           const item = aiResult.items[i]
+          const { reference, question } = this.extraireReferenceQuestion(item.point_verification)
+          const refBase = item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`
           nouveauxItems.push({
             id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
-            numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
-            reference_reglementaire: item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`,
-            point_verification: item.point_verification || `Vérification ${domaine} — ${docMaj.nom}`,
+            numero: reference || item.numero || `${String(i + 1).padStart(2, '0')}`,
+            reference_reglementaire: reference ? `${reference} — ${refBase}` : refBase,
+            point_verification: question || `Vérification ${domaine} — ${docMaj.nom}`,
             directive_preuve: item.directive_preuve || item.guide_etapes || '',
             directive_sa: item.directive_sa,
             directive_ns: item.directive_ns,
@@ -1958,18 +1944,19 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
         if (force) {
           store.updateKitDocument(doc.id, { items_generes: [] })
         }
-        await this.genererItemsPourDocument(doc.id, [domaine], type_entite)
+        await this.genererItemsPourDocument(doc.id, [domaine], type_entite, entite_id)
       }
     }
   }
 
   /**
-   * Génère le template SGS (questions + directives + guide étapes) pour tous les éléments
-   * et le sauvegarde sur l'aérodrome.
+   * @deprecated Remplacé par l'import des templates SGS ANACIM (PAOE).
+   *             Conservé comme fallback pour les aérodromes sans template importé.
    */
   async genererSGSTemplate(params: {
     aerodromeType: 'international' | 'national'
     aerodromeId?: string
+    force?: boolean
   }): Promise<void> {
     const store = useAppStore.getState()
     const aerodromes = params.aerodromeId
@@ -1977,10 +1964,20 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
       : store.aerodromes
     if (aerodromes.length === 0) return
 
+    const MIN_QUESTIONS_PER_ELEMENT = 4
+
     for (const aerodrome of aerodromes) {
       const existing = aerodrome.sgs_checklist_template
       const versionChanged = aerodrome.sgs_checklist_template_version && aerodrome.sgs_checklist_template_version !== aerodrome.maturite_sgs.toString()
-      if (existing && Object.keys(existing).length > 0 && !versionChanged) continue
+      if (!params.force && existing && Object.keys(existing).length > 0) {
+        // Vérifier que chaque élément a assez de questions
+        const elementsInsuffisants = Object.entries(existing)
+          .filter(([, v]: [string, any]) => !v.questions || v.questions.length < MIN_QUESTIONS_PER_ELEMENT)
+        if (!versionChanged && elementsInsuffisants.length === 0) continue
+        if (elementsInsuffisants.length > 0) {
+          console.log(`[KitDocAgent] Template SGS insuffisant pour ${aerodrome.nom || aerodrome.id}: ${elementsInsuffisants.length} élément(s) < ${MIN_QUESTIONS_PER_ELEMENT} questions`)
+        }
+      }
 
       const result = await this.generateFullSGSChecklist({
         aerodromeType: params.aerodromeType,

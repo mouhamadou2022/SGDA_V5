@@ -7,7 +7,7 @@ import { SignaturePadWithColor } from '@/components/modules/signatures/Signature
 import {
   Shield, ChevronDown, ChevronRight, CheckCircle, AlertCircle, Info, FileText,
   Save, X, TrendingUp, Brain, Upload, Eye, PenLine, Calendar, MapPin, Users,
-  Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity,
+  Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { SGSLearningPanel } from './SGSLearningPanel';
@@ -113,6 +113,8 @@ function StylusCanvas({ value, onChange, height = 80 }: { value: string; onChang
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sigPadRef = useRef<SignaturePad | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -127,11 +129,20 @@ function StylusCanvas({ value, onChange, height = 80 }: { value: string; onChang
     if (ctx) ctx.scale(ratio, ratio);
     const sigPad = new SignaturePad(canvas, { penColor: 'rgb(0, 0, 0)', minWidth: 1, maxWidth: 2 });
     sigPadRef.current = sigPad;
-    sigPad.addEventListener('beginStroke', () => setIsDrawing(true));
-    sigPad.addEventListener('endStroke', () => { setIsDrawing(false); onChange(sigPad.toDataURL('image/png')); });
-    if (value) sigPad.fromDataURL(value);
-    return () => { sigPad.removeEventListener('beginStroke', () => {}); sigPad.removeEventListener('endStroke', () => {}); };
-  }, []);
+    const onBegin = () => setIsDrawing(true);
+    const onEnd = () => { setIsDrawing(false); onChange(sigPad.toDataURL('image/png')); };
+    sigPad.addEventListener('beginStroke', onBegin);
+    sigPad.addEventListener('endStroke', onEnd);
+    if (valueRef.current) sigPad.fromDataURL(valueRef.current);
+    return () => { sigPad.removeEventListener('beginStroke', onBegin); sigPad.removeEventListener('endStroke', onEnd); };
+  }, [height, onChange]);
+
+  useEffect(() => {
+    if (value && sigPadRef.current && !isDrawing) {
+      sigPadRef.current.clear();
+      sigPadRef.current.fromDataURL(value);
+    }
+  }, [value]);
 
   const handleClear = () => { sigPadRef.current?.clear(); onChange(''); };
 
@@ -276,11 +287,20 @@ interface ElementTableProps {
   modeSaisie: ModeSaisie;
   onModeSaisieChange: (mode: ModeSaisie) => void;
   onQuestionChange: (questionId: string, niveau: PAOELevel) => void;
-  onAddQuestion: (question: SGSQuestion) => void;
+  /** Ajoute une question (après afterQuestionId si fourni) */
+  onAddQuestion: (question: SGSQuestion, afterQuestionId?: string) => void;
   onRemoveQuestion: (questionId: string) => void;
   onAddPreuve: (questionId: string, preuve: { id: string; nom: string; url: string; dateUpload: string }) => void;
   onRemovePreuve: (questionId: string, preuveId: string) => void;
   onObservationChange: (questionId: string, observation: string, stylusData?: string) => void;
+  /** Met à jour un champ structurel d'une question (texte, ref, sourceReglementaire) */
+  onUpdateQuestion?: (questionId: string, patch: Partial<SGSQuestion>) => void;
+  /** Remonte les directives modifiées par l'inspecteur */
+  onDirectivesChange?: (directives: SGSDirectives) => void;
+  /** Remonte le guide modifié par l'inspecteur */
+  onGuideChange?: (guide: SGSGuideEtape[]) => void;
+  /** Valide une proposition IA (question mise en avant par le Chat) — retire la brillance */
+  onValidateProposal?: (itemId: string) => void;
   /** readOnly = verrouillage évaluation (niveau PAOE, preuves, observations) */
   readOnly: boolean;
   /** structureReadOnly = verrouillage structure (questions, IA, sourceRégl) */
@@ -291,6 +311,12 @@ interface ElementTableProps {
   onGenerateByIA?: () => void;
   isGeneratingIA?: boolean;
   hasGeneratedIA?: boolean;
+  /** Suggère par IA les directives d'évaluation */
+  onSuggestDirectives?: () => void;
+  isSuggestingDirectives?: boolean;
+  /** Suggère par IA le guide étape par étape */
+  onSuggestGuide?: () => void;
+  isSuggestingGuide?: boolean;
   // Notes inspecteur par colonne
   noteQuestions?: string;
   noteDirectives?: string;
@@ -299,14 +325,30 @@ interface ElementTableProps {
   surveillanceId?: string;
 }
 
-function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, onModeSaisieChange, onQuestionChange, onAddQuestion, onRemoveQuestion, onAddPreuve, onRemovePreuve, onObservationChange, readOnly, structureReadOnly = false, onGenerateByIA, isGeneratingIA, hasGeneratedIA, noteQuestions, noteDirectives, noteGuide, onNoteChange, surveillanceId }: ElementTableProps) {
-  // Utiliser les directives/guide du template IA si fournis, sinon les hardcodés
+function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, onModeSaisieChange, onQuestionChange, onAddQuestion, onRemoveQuestion, onAddPreuve, onRemovePreuve, onObservationChange, onUpdateQuestion, onDirectivesChange, onGuideChange, onValidateProposal, readOnly, structureReadOnly = false, onGenerateByIA, isGeneratingIA, hasGeneratedIA, onSuggestDirectives, isSuggestingDirectives, onSuggestGuide, isSuggestingGuide, noteQuestions, noteDirectives, noteGuide, onNoteChange, surveillanceId }: ElementTableProps) {
+  // Utiliser les directives/guide du template IA si fournis, sinon les hardcodés.
+  // useState() ne lit sa valeur initiale qu'au tout premier rendu : si ce composant
+  // se monte avant que iaDirectives/iaGuideEtapes ne soient disponibles (le temps que
+  // sgsTemplate se calcule côté page), l'état restait figé sur la valeur vide et ne se
+  // mettait jamais à jour ensuite. Les useEffect ci-dessous resynchronisent l'état local
+  // dès que les données IA arrivent, tout en laissant les modifications manuelles de
+  // l'inspecteur (setLocalDirectives/setLocalGuideEtapes) fonctionner normalement.
   const [localDirectives, setLocalDirectives] = useState<SGSDirectives>(
     ((elementDef as any).iaDirectives as SGSDirectives) || elementDef.directives
   );
   const [localGuideEtapes, setLocalGuideEtapes] = useState<SGSGuideEtape[]>(
     ((elementDef as any).iaGuideEtapes as SGSGuideEtape[]) || elementDef.guideEtapes
   );
+
+  useEffect(() => {
+    const incoming = (elementDef as any).iaDirectives as SGSDirectives | undefined;
+    if (incoming) setLocalDirectives(incoming);
+  }, [elementDef.id, (elementDef as any).iaDirectives]);
+
+  useEffect(() => {
+    const incoming = (elementDef as any).iaGuideEtapes as SGSGuideEtape[] | undefined;
+    if (incoming) setLocalGuideEtapes(incoming);
+  }, [elementDef.id, (elementDef as any).iaGuideEtapes]);
   const [preuveModalOpen, setPreuveModalOpen] = useState<string | null>(null);
   const [observationEdit, setObservationEdit] = useState<string | null>(null);
   const [observationTemp, setObservationTemp] = useState('');
@@ -337,7 +379,11 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
 
   const handleAddQuestion = () => {
     if (!newQuestionText.trim()) return;
-    const nextNum = questions.length + 1;
+    const existingNums = questions.map(q => {
+      const m = q.id.match(/q(\d+)$/);
+      return m ? parseInt(m[1], 10) : 0;
+    });
+    const nextNum = Math.max(0, ...existingNums) + 1;
     const ref = `${composantePrefixe}-${elementDef.id}.${nextNum}`;
     onAddQuestion({
       id: `${elementDef.id}.q${nextNum}`,
@@ -347,6 +393,22 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
     });
     setNewQuestionText('');
     setShowAddQuestion(false);
+  };
+
+  // Insère une question vierge juste après la question ciblée (bouton + par ligne)
+  const handleInsertAfter = (afterQuestionId: string) => {
+    const existingNums = questions.map(q => {
+      const m = q.id.match(/q(\d+)$/);
+      return m ? parseInt(m[1], 10) : 0;
+    });
+    const nextNum = Math.max(0, ...existingNums) + 1;
+    const ref = `${composantePrefixe}-${elementDef.id}.${nextNum}`;
+    onAddQuestion({
+      id: `${elementDef.id}.q${nextNum}`,
+      ref,
+      texte: 'Nouvelle question',
+      niveau: 'absent',
+    }, afterQuestionId);
   };
 
   const currentPreuveQuestion = preuveModalOpen ? questions.find(q => q.id === preuveModalOpen) : null;
@@ -359,7 +421,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
       <div className="flex items-center justify-between p-2 bg-blue-50 border-b border-blue-200">
         <div className="flex items-center gap-2">
           <Shield className="w-4 h-4 text-role-primary" />
-          <span className="text-sm font-medium text-gray-900">Élément {elementDef.id} — {elementDef.label}</span>
+          <span className="text-sm font-medium text-gray-900">{composantePrefixe}-{elementDef.id}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className={`${getPAOEBadgeClass(niveauGlobal)} text-[10px] font-semibold`}>
@@ -370,14 +432,15 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
               type="button"
               onClick={onGenerateByIA}
               disabled={isGeneratingIA}
-              className={`btn btn-sm px-2 py-1 ${isGeneratingIA ? 'btn-ghost opacity-50' : 'btn-ghost text-purple-600'}`}
-              title={hasGeneratedIA ? 'Questions IA générées — cliquer pour ajouter d\'autres' : 'Générer des questions par IA'}
+              className={`btn btn-sm px-2 py-1 inline-flex items-center gap-1 ${isGeneratingIA ? 'btn-ghost opacity-50' : 'btn-ghost text-purple-600'}`}
+              title={hasGeneratedIA ? 'Questions AERORISQ générées — cliquer pour en ajouter' : 'Générer des questions par AERORISQ'}
             >
               {isGeneratingIA ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
                 <Sparkles className="w-3 h-3" />
               )}
+              Suggérer par IA
             </button>
           )}
           {!structureReadOnly && (
@@ -421,9 +484,9 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
               </tr>
             </thead>
             <tbody>
-              {questions.map((q) => {
+              {questions.map((q, qi) => {
                 return (
-                  <tr key={q.id} className="border-b border-blue-100">
+                  <tr key={`${q.id}-${qi}`} className={`border-b border-blue-100 ${q.aiPropose ? 'ai-proposed-row' : ''}`}>
                     {/* ── Réf ── */}
                     <td className="p-2 border-r border-blue-100 bg-white min-w-[3.5rem] max-w-[3.5rem]">
                       {editingRef === q.id ? (
@@ -431,8 +494,8 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                           type="text"
                           value={editingRefTemp}
                           onChange={(e) => setEditingRefTemp(e.target.value)}
-                          onBlur={() => { setEditingRef(null); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { setEditingRef(null); } }}
+                          onBlur={() => { onUpdateQuestion?.(q.id, { ref: editingRefTemp }); setEditingRef(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { onUpdateQuestion?.(q.id, { ref: editingRefTemp }); setEditingRef(null); } }}
                           className="form-input w-full text-[11px] p-0.5 text-foreground border-blue-400"
                           autoFocus
                         />
@@ -448,8 +511,8 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                           type="text"
                           value={editingSourceRegTemp}
                           onChange={(e) => setEditingSourceRegTemp(e.target.value)}
-                          onBlur={() => { setEditingSourceReg(null); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { setEditingSourceReg(null); } }}
+                          onBlur={() => { onUpdateQuestion?.(q.id, { sourceReglementaire: editingSourceRegTemp }); setEditingSourceReg(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { onUpdateQuestion?.(q.id, { sourceReglementaire: editingSourceRegTemp }); setEditingSourceReg(null); } }}
                           className="form-input w-full text-[11px] p-0.5 text-foreground border-blue-400"
                           placeholder="RAS 14.x.x"
                           autoFocus
@@ -471,8 +534,8 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                         <textarea
                           value={editingQuestionTemp}
                           onChange={(e) => setEditingQuestionTemp(e.target.value)}
-                          onBlur={() => { setEditingQuestion(null); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) { setEditingQuestion(null); } }}
+                          onBlur={() => { onUpdateQuestion?.(q.id, { texte: editingQuestionTemp }); setEditingQuestion(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) { onUpdateQuestion?.(q.id, { texte: editingQuestionTemp }); setEditingQuestion(null); } }}
                           className="form-input w-full text-sm text-foreground p-1 border-blue-400"
                           rows={2}
                           autoFocus
@@ -490,7 +553,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                                     : 'bg-gray-100 text-gray-600 border-gray-200'
                               }`}>
                                 <Sparkles className="w-2.5 h-2.5" />
-                                {q.statutIA === 'nouvelle' ? 'IA' : q.statutIA === 'modifiee' ? 'IA*' : 'IA'}
+                                {q.statutIA === 'nouvelle' ? 'AERORISQ' : q.statutIA === 'modifiee' ? 'AERORISQ*' : 'AERORISQ'}
                               </span>
                             )}
                             {q.prefilled && !q.generatedByIA && (
@@ -498,6 +561,16 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                                 <Brain className="w-2.5 h-2.5" />
                                 Suggéré
                               </span>
+                            )}
+                            {q.aiPropose && (
+                              <button
+                                type="button"
+                                onClick={() => onValidateProposal?.(q.sourceItemId || q.id)}
+                                title="Valider la proposition AERORISQ — retirer la brillance"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-amber-200 bg-amber-100 text-amber-700 hover:bg-green-100 hover:text-green-700 hover:border-green-200 transition-colors"
+                              >
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Valider
+                              </button>
                             )}
                           </div>
                         </div>
@@ -627,9 +700,14 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                     </td>
                     {!structureReadOnly && (
                       <td className="p-2 text-center">
-                        <button type="button" onClick={() => onRemoveQuestion(q.id)} className="btn btn-sm px-1 py-1 btn-ghost text-red-600" title="Supprimer">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <button type="button" onClick={() => handleInsertAfter(q.id)} className="btn btn-sm px-1 py-1 btn-ghost text-blue-600" title="Ajouter une question après celle-ci">
+                            <Plus className="w-3 h-3" />
+                          </button>
+                          <button type="button" onClick={() => onRemoveQuestion(q.id)} className="btn btn-sm px-1 py-1 btn-ghost text-red-600" title="Supprimer">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -693,84 +771,27 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
         </div>
       )}
 
-      {/* Directives */}
-      <div className="p-3 bg-primary/5 border-t border-border">
-        <p className="text-sm font-bold text-black mb-2 flex items-center gap-1"><Info className="w-4 h-4" /> Directives d'évaluation {!readOnly && <span className="text-xs font-normal text-muted-foreground ml-2">(cliquer sur un item pour modifier)</span>}</p>
-        <div className="grid grid-cols-4 gap-2">
-          {(['present', 'approprie', 'operationnel', 'efficace'] as const).map((level) => (
-            <div key={level} className="p-2 bg-white rounded border">
-              <p className="text-sm font-bold text-black mb-1">{PAOE_LABELS[level]}</p>
-              <ul className="text-sm text-black space-y-0.5">
-                {(localDirectives as SGSDirectives)[level].map((d, i) => (
-                  <li key={i} className="flex items-start gap-1">
-                    <span className="mt-1">•</span>
-                    {editingDirective?.level === level && editingDirective?.index === i ? (
-                      <input
-                        type="text"
-                        value={editingDirectiveTemp}
-                        onChange={(e) => setEditingDirectiveTemp(e.target.value)}
-                        onBlur={() => {
-                          const updated = { ...localDirectives };
-                          (updated as any)[level] = [...(updated as any)[level]];
-                          (updated as any)[level][i] = editingDirectiveTemp;
-                          setLocalDirectives(updated);
-                          setEditingDirective(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const updated = { ...localDirectives };
-                            (updated as any)[level] = [...(updated as any)[level]];
-                            (updated as any)[level][i] = editingDirectiveTemp;
-                            setLocalDirectives(updated);
-                            setEditingDirective(null);
-                          }
-                        }}
-                        className="form-input w-full text-xs p-0.5 text-foreground border-blue-400"
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="flex-1 cursor-pointer hover:bg-blue-50 px-0.5 rounded" onClick={() => { setEditingDirective({ level, index: i }); setEditingDirectiveTemp(d); }}>{d}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Note inspecteur — Directives ── */}
-      <div className="px-3 pb-3 bg-primary/5">
-        {noteDirectivesOpen ? (
-          <div className="space-y-1.5 pt-2 border-t border-primary/20">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-role-primary flex items-center gap-1"><PenLine className="w-3 h-3" /> Note inspecteur — Directives</span>
-              <button type="button" onClick={() => setNoteDirectivesOpen(false)} className="text-muted-foreground hover:text-foreground text-[10px]">▲ Réduire</button>
-            </div>
-            <textarea
-              value={noteDirectives || ''}
-              onChange={(e) => onNoteChange?.('directives', e.target.value)}
-              placeholder="Ajouter une note sur les directives d'évaluation (écarts observés, difficultés d'application…)"
-              rows={2}
-              readOnly={readOnly}
-              className={`form-textarea w-full text-[12px] text-foreground bg-white border-primary/30 placeholder:text-muted-foreground/50 resize-none ${focusClass}`}
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setNoteDirectivesOpen(true)}
-            className="w-full pt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-role-primary transition-colors text-left border-t border-primary/20"
-          >
-            <PenLine className="w-3 h-3" />
-            {noteDirectives ? <span className="truncate max-w-[300px] italic">{noteDirectives}</span> : <span>Note inspecteur sur les directives…</span>}
-          </button>
-        )}
-      </div>
-
-      {/* Guide étape par étape */}
+      {/* Guide étape par étape — affiché AVANT les directives d'évaluation */}
       <div className="p-3 bg-blue-50 border-t border-blue-200">
-        <p className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-1"><TrendingUp className="w-4 h-4 text-blue-700" /> Guide d'évaluation — Étape par étape {!readOnly && <span className="text-xs font-normal text-muted-foreground ml-2">(cliquer sur une action pour modifier)</span>}</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-bold text-blue-900 flex items-center gap-1"><TrendingUp className="w-4 h-4 text-blue-700" /> Guide d'évaluation — Étape par étape {!readOnly && <span className="text-xs font-normal text-muted-foreground ml-2">(cliquer sur une action pour modifier)</span>}</p>
+          {onSuggestGuide && !structureReadOnly && (
+            <button
+              type="button"
+              onClick={onSuggestGuide}
+              disabled={isSuggestingGuide}
+              className={`btn btn-sm px-2 py-1 inline-flex items-center gap-1 ${isSuggestingGuide ? 'btn-ghost opacity-50' : 'btn-ghost text-purple-600'}`}
+              title="Générer le guide étape par étape par AERORISQ"
+            >
+              {isSuggestingGuide ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              Suggérer par IA
+            </button>
+          )}
+        </div>
         <div className="space-y-2">
           {(localGuideEtapes as SGSGuideEtape[]).map((etape, etapeIdx) => (
             <div key={etape.etape} className="flex gap-2">
@@ -791,6 +812,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                             updated[etapeIdx] = { ...updated[etapeIdx], actions: [...updated[etapeIdx].actions] };
                             updated[etapeIdx].actions[actionIdx] = editingGuideActionTemp;
                             setLocalGuideEtapes(updated);
+                            onGuideChange?.(updated);
                             setEditingGuideAction(null);
                           }}
                           onKeyDown={(e) => {
@@ -799,6 +821,7 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
                               updated[etapeIdx] = { ...updated[etapeIdx], actions: [...updated[etapeIdx].actions] };
                               updated[etapeIdx].actions[actionIdx] = editingGuideActionTemp;
                               setLocalGuideEtapes(updated);
+                              onGuideChange?.(updated);
                               setEditingGuideAction(null);
                             }
                           }}
@@ -842,6 +865,101 @@ function ElementTable({ elementDef, composantePrefixe, questions, modeSaisie, on
           >
             <PenLine className="w-3 h-3" />
             {noteGuide ? <span className="truncate max-w-[300px] italic">{noteGuide}</span> : <span>Note inspecteur sur le guide terrain…</span>}
+          </button>
+        )}
+      </div>
+
+      {/* Directives d'évaluation — affichées APRÈS le guide étape par étape */}
+      <div className="p-3 bg-primary/5 border-t border-border">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-bold text-black flex items-center gap-1"><Info className="w-4 h-4" /> Directives d'évaluation {!readOnly && <span className="text-xs font-normal text-muted-foreground ml-2">(cliquer sur un item pour modifier)</span>}</p>
+          {onSuggestDirectives && !structureReadOnly && (
+            <button
+              type="button"
+              onClick={onSuggestDirectives}
+              disabled={isSuggestingDirectives}
+              className={`btn btn-sm px-2 py-1 inline-flex items-center gap-1 ${isSuggestingDirectives ? 'btn-ghost opacity-50' : 'btn-ghost text-purple-600'}`}
+              title="Générer les directives d'évaluation par AERORISQ"
+            >
+              {isSuggestingDirectives ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              Suggérer par IA
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {(['present', 'approprie', 'operationnel', 'efficace'] as const).map((level) => (
+            <div key={level} className="p-2 bg-white rounded border">
+              <p className="text-sm font-bold text-black mb-1">{PAOE_LABELS[level]}</p>
+              <ul className="text-sm text-black space-y-0.5">
+                {(localDirectives as SGSDirectives)[level].map((d, i) => (
+                  <li key={i} className="flex items-start gap-1">
+                    <span className="mt-1">•</span>
+                    {editingDirective?.level === level && editingDirective?.index === i ? (
+                      <input
+                        type="text"
+                        value={editingDirectiveTemp}
+                        onChange={(e) => setEditingDirectiveTemp(e.target.value)}
+                        onBlur={() => {
+                          const updated = { ...localDirectives };
+                          (updated as any)[level] = [...(updated as any)[level]];
+                          (updated as any)[level][i] = editingDirectiveTemp;
+                          setLocalDirectives(updated);
+                          onDirectivesChange?.(updated);
+                          setEditingDirective(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const updated = { ...localDirectives };
+                            (updated as any)[level] = [...(updated as any)[level]];
+                            (updated as any)[level][i] = editingDirectiveTemp;
+                            setLocalDirectives(updated);
+                            onDirectivesChange?.(updated);
+                            setEditingDirective(null);
+                          }
+                        }}
+                        className="form-input w-full text-xs p-0.5 text-foreground border-blue-400"
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="flex-1 cursor-pointer hover:bg-blue-50 px-0.5 rounded" onClick={() => { setEditingDirective({ level, index: i }); setEditingDirectiveTemp(d); }}>{d}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Note inspecteur — Directives ── */}
+      <div className="px-3 pb-3 bg-primary/5">
+        {noteDirectivesOpen ? (
+          <div className="space-y-1.5 pt-2 border-t border-primary/20">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-role-primary flex items-center gap-1"><PenLine className="w-3 h-3" /> Note inspecteur — Directives</span>
+              <button type="button" onClick={() => setNoteDirectivesOpen(false)} className="text-muted-foreground hover:text-foreground text-[10px]">▲ Réduire</button>
+            </div>
+            <textarea
+              value={noteDirectives || ''}
+              onChange={(e) => onNoteChange?.('directives', e.target.value)}
+              placeholder="Ajouter une note sur les directives d'évaluation (écarts observés, difficultés d'application…)"
+              rows={2}
+              readOnly={readOnly}
+              className={`form-textarea w-full text-[12px] text-foreground bg-white border-primary/30 placeholder:text-muted-foreground/50 resize-none ${focusClass}`}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNoteDirectivesOpen(true)}
+            className="w-full pt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-role-primary transition-colors text-left border-t border-primary/20"
+          >
+            <PenLine className="w-3 h-3" />
+            {noteDirectives ? <span className="truncate max-w-[300px] italic">{noteDirectives}</span> : <span>Note inspecteur sur les directives…</span>}
           </button>
         )}
       </div>
@@ -902,6 +1020,11 @@ export function SGSEvaluationModal({
   const [elementNotes, setElementNotes] = useState<Record<string, SGSElementNotes>>({});
   const [iaGenerating, setIaGenerating] = useState<string | null>(null);
   const [iaGeneratedElements, setIaGeneratedElements] = useState<Set<string>>(new Set());
+  const [iaGeneratedDirectives, setIaGeneratedDirectives] = useState<Record<string, SGSDirectives>>({});
+  const [iaGeneratedGuideEtapes, setIaGeneratedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
+  // Directives / guide modifiés par l'inspecteur — remontés via onDirectivesChange/onGuideChange
+  const [editedDirectives, setEditedDirectives] = useState<Record<string, SGSDirectives>>({});
+  const [editedGuideEtapes, setEditedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
 
   // Données IA (directives + guide) extraites du template SGS si disponible
   const iaDataByElement = useMemo(() => {
@@ -923,30 +1046,53 @@ export function SGSEvaluationModal({
     setElementNotes(prev => ({ ...prev, [elementId]: { ...prev[elementId], [col]: val } }));
   }, []);
 
-  const handleGenerateByIA = useCallback(async (composanteId: number, elementId: string) => {
+  // Mise à jour d'un champ structurel d'une question (texte, ref, sourceReglementaire)
+  const handleUpdateQuestion = useCallback((elementId: string, questionId: string, patch: Partial<SGSQuestion>) => {
+    setQuestionsByElement(prev => {
+      const questions = prev[elementId];
+      if (!questions) return prev;
+      return { ...prev, [elementId]: questions.map(q => q.id === questionId ? { ...q, ...patch } : q) };
+    });
+  }, []);
+
+  const handleDirectivesChange = useCallback((elementId: string, directives: SGSDirectives) => {
+    setEditedDirectives(prev => ({ ...prev, [elementId]: directives }));
+  }, []);
+
+  const handleGuideChange = useCallback((elementId: string, guide: SGSGuideEtape[]) => {
+    setEditedGuideEtapes(prev => ({ ...prev, [elementId]: guide }));
+  }, []);
+
+  const handleGenerateByIA = useCallback(async (composanteId: number, elementId: string, target: 'questions' | 'directives' | 'guide' = 'questions') => {
     if (!onGenerateByIA || iaGenerating) return;
     const key = `${composanteId}-${elementId}`;
-    setIaGenerating(key);
+    setIaGenerating(target === 'questions' ? key : `${key}:${target}`);
     try {
       const result = await onGenerateByIA(composanteId, elementId);
       if (result) {
-        setQuestionsByElement(prev => {
-          const existing = prev[elementId] || [];
-          const existingRefs = new Set(existing.map(q => q.ref));
-          const newQuestions: SGSQuestion[] = result.questions
-            .filter(q => !existingRefs.has(q.ref))
-            .map(q => ({
-              id: `${elementId}.${q.ref}`,
-              ref: q.ref,
-              texte: q.texte,
-              niveau: 'absent' as PAOELevel,
-              sourceReglementaire: q.sourceReglementaire,
-              generatedByIA: true,
-              statutIA: 'nouvelle' as const,
-            }));
-          return { ...prev, [elementId]: [...existing, ...newQuestions] };
-        });
-        setIaGeneratedElements(prev => new Set(prev).add(elementId));
+        if (target === 'questions') {
+          setQuestionsByElement(prev => {
+            const existing = prev[elementId] || [];
+            const existingRefs = new Set(existing.map(q => q.ref));
+            const newQuestions: SGSQuestion[] = result.questions
+              .filter(q => !existingRefs.has(q.ref))
+              .map(q => ({
+                id: `${elementId}.${q.ref}`,
+                ref: q.ref,
+                texte: q.texte,
+                niveau: 'absent' as PAOELevel,
+                sourceReglementaire: q.sourceReglementaire,
+                generatedByIA: true,
+                statutIA: 'nouvelle' as const,
+              }));
+            return { ...prev, [elementId]: [...existing, ...newQuestions] };
+          });
+          setIaGeneratedElements(prev => new Set(prev).add(elementId));
+        } else if (target === 'directives' && result.directives) {
+          setIaGeneratedDirectives(prev => ({ ...prev, [elementId]: result.directives }));
+        } else if (target === 'guide' && result.guideEtapes) {
+          setIaGeneratedGuideEtapes(prev => ({ ...prev, [elementId]: result.guideEtapes }));
+        }
       }
     } catch (err) {
       console.error('[SGSEvaluation] Erreur génération IA:', err);
@@ -960,7 +1106,7 @@ export function SGSEvaluationModal({
       const byElem: { [elementId: string]: SGSQuestion[] } = {};
       existingEvaluation.composantes.forEach(comp => {
         comp.elements.forEach(elem => {
-          byElem[elem.elementId] = elem.questions;
+          byElem[elem.elementId] = elem.questions.map(q => ({ ...q }));
         });
       });
       setQuestionsByElement(byElem);
@@ -1001,6 +1147,30 @@ export function SGSEvaluationModal({
       setQuestionsByElement(byElem);
       setModeSaisieByElement(modes);
       setObservations('');
+    } else if (sgsTemplate) {
+      const initial: { [elementId: string]: SGSQuestion[] } = {};
+      const modes: { [elementId: string]: ModeSaisie } = {};
+      SGS_COMPOSANTES.forEach(comp => {
+        comp.elements.forEach(elem => {
+          const val = sgsTemplate[elem.id];
+          if (Array.isArray(val) && val.length > 0) {
+            initial[elem.id] = (val as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
+          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            const obj = val as Record<string, unknown>;
+            if (Array.isArray(obj.questions) && obj.questions.length > 0) {
+              initial[elem.id] = (obj.questions as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
+            } else {
+              initial[elem.id] = elem.questions.map(q => ({ ...q }));
+            }
+          } else {
+            initial[elem.id] = elem.questions.map(q => ({ ...q }));
+          }
+          modes[elem.id] = 'clavier';
+        });
+      });
+      setQuestionsByElement(initial);
+      setModeSaisieByElement(modes);
+      setObservations('');
     } else {
       const initial: { [elementId: string]: SGSQuestion[] } = {};
       const modes: { [elementId: string]: ModeSaisie } = {};
@@ -1014,16 +1184,23 @@ export function SGSEvaluationModal({
       setModeSaisieByElement(modes);
       setObservations('');
     }
-  }, [existingEvaluation, previousEvaluation, isOpen, riskTrend]);
+  }, [existingEvaluation, previousEvaluation, sgsTemplate, isOpen, riskTrend]);
 
   const handleQuestionChange = useCallback((elementId: string, questionId: string, niveau: PAOELevel) => {
+    if (!questionId) return;
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      let questions = prev[elementId];
+      if (!questions) {
+        for (const comp of SGS_COMPOSANTES) {
+          const elem = comp.elements.find(e => e.id === elementId);
+          if (elem) { questions = elem.questions.map(q => ({ ...q })); break; }
+        }
+        if (!questions) return prev;
+      }
       const oldQ = questions.find(q => q.id === questionId);
       if (oldQ && oldQ.niveau !== niveau && (oldQ.generatedByIA || oldQ.prefilled)) {
-        const composanteId = parseInt(elementId.split('.')[0], 10);
         import('@/lib/sgsMemory').then(m => m.recordSGSLevelCorrection(
-          aerodromeId, surveillanceId, composanteId, elementId, questionId,
+          aerodromeId, surveillanceId, parseInt(elementId.split('.')[0], 10), elementId, questionId,
           oldQ.ref, oldQ.texte, oldQ.niveau, niveau
         ));
       }
@@ -1032,23 +1209,31 @@ export function SGSEvaluationModal({
     });
   }, [aerodromeId, surveillanceId]);
 
-  const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion) => {
+  const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion, afterQuestionId?: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
-      return { ...prev, [elementId]: [...questions, question] };
+      const questions = prev[elementId];
+      if (!questions) return prev;
+      if (!afterQuestionId) return { ...prev, [elementId]: [...questions, question] };
+      const idx = questions.findIndex(q => q.id === afterQuestionId);
+      if (idx === -1) return { ...prev, [elementId]: [...questions, question] };
+      const next = [...questions];
+      next.splice(idx + 1, 0, question);
+      return { ...prev, [elementId]: next };
     });
   }, []);
 
   const handleRemoveQuestion = useCallback((elementId: string, questionId: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       return { ...prev, [elementId]: questions.filter(q => q.id !== questionId) };
     });
   }, []);
 
   const handleAddPreuve = useCallback((elementId: string, questionId: string, preuve: { id: string; nom: string; url: string; dateUpload: string }) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, preuves: [...(q.preuves || []), preuve] } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1056,7 +1241,8 @@ export function SGSEvaluationModal({
 
   const handleRemovePreuve = useCallback((elementId: string, questionId: string, preuveId: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, preuves: (q.preuves || []).filter(p => p.id !== preuveId) } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1064,7 +1250,8 @@ export function SGSEvaluationModal({
 
   const handleObservationChange = useCallback((elementId: string, questionId: string, observation: string, stylusData?: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, justification: observation, ...(stylusData ? { observation_stylus_data: stylusData } : {}) } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1226,22 +1413,29 @@ export function SGSEvaluationModal({
                             </div>
                             {isElementExpanded && (
                               <ElementTable
-                                elementDef={{ ...elemDef, iaDirectives: iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: iaDataByElement[elemDef.id]?.guideEtapes } as any}
+                                elementDef={{ ...elemDef, iaDirectives: editedDirectives[elemDef.id] || iaGeneratedDirectives[elemDef.id] || iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: editedGuideEtapes[elemDef.id] || iaGeneratedGuideEtapes[elemDef.id] || iaDataByElement[elemDef.id]?.guideEtapes } as any}
                                 composantePrefixe={compDef.prefixe}
                                 questions={questions}
                                 modeSaisie={modeSaisieByElement[elemDef.id] || 'clavier'}
                                 onModeSaisieChange={(mode) => handleModeSaisieChange(elemDef.id, mode)}
                                 onQuestionChange={(questionId, niveau) => handleQuestionChange(elemDef.id, questionId, niveau)}
-                                onAddQuestion={(question) => handleAddQuestion(elemDef.id, question)}
+                                onAddQuestion={(question, afterQuestionId) => handleAddQuestion(elemDef.id, question, afterQuestionId)}
                                 onRemoveQuestion={(questionId) => handleRemoveQuestion(elemDef.id, questionId)}
                                 onAddPreuve={(questionId, preuve) => handleAddPreuve(elemDef.id, questionId, preuve)}
                                 onRemovePreuve={(questionId, preuveId) => handleRemovePreuve(elemDef.id, questionId, preuveId)}
                                 onObservationChange={(questionId, obs, stylus) => handleObservationChange(elemDef.id, questionId, obs, stylus)}
+                                onUpdateQuestion={(questionId, patch) => handleUpdateQuestion(elemDef.id, questionId, patch)}
+                                onDirectivesChange={(directives) => handleDirectivesChange(elemDef.id, directives)}
+                                onGuideChange={(guide) => handleGuideChange(elemDef.id, guide)}
                                 readOnly={readOnly}
                                 structureReadOnly={structureReadOnly}
                                 onGenerateByIA={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id) : undefined}
                                 isGeneratingIA={iaGenerating === `${compDef.id}-${elemDef.id}`}
                                 hasGeneratedIA={iaGeneratedElements.has(elemDef.id)}
+                                onSuggestDirectives={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id, 'directives') : undefined}
+                                isSuggestingDirectives={iaGenerating === `${compDef.id}-${elemDef.id}:directives`}
+                                onSuggestGuide={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id, 'guide') : undefined}
+                                isSuggestingGuide={iaGenerating === `${compDef.id}-${elemDef.id}:guide`}
                                 noteQuestions={elementNotes[elemDef.id]?.questions}
                                 noteDirectives={elementNotes[elemDef.id]?.directives}
                                 noteGuide={elementNotes[elemDef.id]?.guide}
@@ -1306,6 +1500,8 @@ interface SGSEvaluationContentProps {
   previousEvaluation?: EvaluationSGS | null;
   readOnly?: boolean;
   structureReadOnly?: boolean;
+  /** Masque les boutons « Enregistrer » (header + footer) quand la sauvegarde est gérée par la page parente */
+  showSaveButton?: boolean;
   isSigned?: boolean;
   riskTrend?: 'stable' | 'improving' | 'degrading';
   onGenerateByIA?: (composanteId: number, elementId: string) => Promise<{
@@ -1313,23 +1509,37 @@ interface SGSEvaluationContentProps {
     directives: { present: string[]; approprie: string[]; operationnel: string[]; efficace: string[] }
     guideEtapes: { etape: number; titre: string; actions: string[] }[]
   } | null>;
+  /** Valide une proposition IA (item ajouté/modifié par le Chat) — retire la brillance */
+  onValidateProposal?: (itemId: string) => void;
+  /** Remonte les modifications de structure SGS (questions/directives/guide) vers la page parente
+   * pour qu'elles soient persistées (ex. éditeur Kit Inspecteur). */
+  onChange?: (template: Record<string, { questions?: SGSQuestion[]; directives?: SGSDirectives; guideEtapes?: SGSGuideEtape[] }>) => void;
   onBack?: () => void;
 }
 
 export function SGSEvaluationContent({
   aerodromeId, surveillanceId, aerodromeNom, surveillanceType, surveillanceDate, equipeCount,
-  inspecteurId, inspecteurNom, onSave, onComplete, onSigner, onSaveSGSTemplate, sgsTemplate, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, isSigned = false, riskTrend = 'stable',
-  onGenerateByIA, onBack,
+  inspecteurId, inspecteurNom, onSave, onComplete, onSigner, onSaveSGSTemplate, sgsTemplate, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, showSaveButton = true, isSigned = false, riskTrend = 'stable',
+  onGenerateByIA, onValidateProposal, onChange, onBack,
 }: SGSEvaluationContentProps) {
   const [questionsByElement, setQuestionsByElement] = useState<{ [elementId: string]: SGSQuestion[] }>({});
   const [modeSaisieByElement, setModeSaisieByElement] = useState<{ [elementId: string]: ModeSaisie }>({});
+  // Directives / guide modifiés par l'inspecteur dans le Kit — remontés via onDirectivesChange/onGuideChange
+  const [editedDirectives, setEditedDirectives] = useState<Record<string, SGSDirectives>>({});
+  const [editedGuideEtapes, setEditedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
   const [expandedComposantes, setExpandedComposantes] = useState<Set<number>>(new Set([1, 2, 3, 4, 5]));
   const [expandedElements, setExpandedElements] = useState<Set<string>>(new Set(SGS_COMPOSANTES.flatMap(c => c.elements.map(e => e.id))));
   const [observations, setObservations] = useState('');
   const [elementNotes, setElementNotes] = useState<Record<string, SGSElementNotes>>({});
   const [iaGenerating, setIaGenerating] = useState<string | null>(null);
   const [iaGeneratedElements, setIaGeneratedElements] = useState<Set<string>>(new Set());
+  const [iaGeneratedDirectives, setIaGeneratedDirectives] = useState<Record<string, SGSDirectives>>({});
+  const [iaGeneratedGuideEtapes, setIaGeneratedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
+
+  // Dernier template appliqué — évite de réinitialiser les edits de l'inspecteur
+  // quand sgsTemplate change d'identité (retour des modifications via onChange)
+  const templateInitializedRef = useRef<string | null>(null);
 
   // Données IA (directives + guide) extraites du template SGS si disponible
   const iaDataByElement = useMemo(() => {
@@ -1351,30 +1561,82 @@ export function SGSEvaluationContent({
     setElementNotes(prev => ({ ...prev, [elementId]: { ...prev[elementId], [col]: val } }));
   }, []);
 
-  const handleGenerateByIA = useCallback(async (composanteId: number, elementId: string) => {
+  // Mise à jour d'un champ structurel d'une question (texte, ref, sourceReglementaire)
+  const handleUpdateQuestion = useCallback((elementId: string, questionId: string, patch: Partial<SGSQuestion>) => {
+    userEditedRef.current = true;
+    setQuestionsByElement(prev => {
+      const questions = prev[elementId];
+      if (!questions) return prev;
+      return { ...prev, [elementId]: questions.map(q => q.id === questionId ? { ...q, ...patch } : q) };
+    });
+  }, []);
+
+  const handleDirectivesChange = useCallback((elementId: string, directives: SGSDirectives) => {
+    userEditedRef.current = true;
+    setEditedDirectives(prev => ({ ...prev, [elementId]: directives }));
+  }, []);
+
+  const handleGuideChange = useCallback((elementId: string, guide: SGSGuideEtape[]) => {
+    userEditedRef.current = true;
+    setEditedGuideEtapes(prev => ({ ...prev, [elementId]: guide }));
+  }, []);
+
+  // Ne remonter les modifications SGS qu'après une édition réelle de structure
+  // (question/directive/guide), pas au simple chargement initial.
+  const userEditedRef = useRef(false);
+
+  // Remonte les modifications de structure SGS vers la page parente (persistance Kit Inspecteur)
+  useEffect(() => {
+    if (!onChange) return;
+    if (!userEditedRef.current) return;
+    const payload: Record<string, { questions?: SGSQuestion[]; directives?: SGSDirectives; guideEtapes?: SGSGuideEtape[] }> = {};
+    SGS_COMPOSANTES.forEach(comp => {
+      comp.elements.forEach(elem => {
+        const entry: { questions?: SGSQuestion[]; directives?: SGSDirectives; guideEtapes?: SGSGuideEtape[] } = {};
+        const questions = questionsByElement[elem.id];
+        if (questions && questions.length > 0) entry.questions = questions;
+        const directives = editedDirectives[elem.id] || iaGeneratedDirectives[elem.id] || iaDataByElement[elem.id]?.directives;
+        if (directives) entry.directives = directives;
+        const guide = editedGuideEtapes[elem.id] || iaGeneratedGuideEtapes[elem.id] || iaDataByElement[elem.id]?.guideEtapes;
+        if (guide && guide.length > 0) entry.guideEtapes = guide;
+        if (Object.keys(entry).length > 0) payload[elem.id] = entry;
+      });
+    });
+    onChange(payload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChange, questionsByElement, editedDirectives, editedGuideEtapes, iaGeneratedDirectives, iaGeneratedGuideEtapes, iaDataByElement]);
+
+  const handleGenerateByIA = useCallback(async (composanteId: number, elementId: string, target: 'questions' | 'directives' | 'guide' = 'questions') => {
     if (!onGenerateByIA || iaGenerating) return;
     const key = `${composanteId}-${elementId}`;
-    setIaGenerating(key);
+    setIaGenerating(target === 'questions' ? key : `${key}:${target}`);
     try {
       const result = await onGenerateByIA(composanteId, elementId);
       if (result) {
-        setQuestionsByElement(prev => {
-          const existing = prev[elementId] || [];
-          const existingRefs = new Set(existing.map(q => q.ref));
-          const newQuestions: SGSQuestion[] = result.questions
-            .filter(q => !existingRefs.has(q.ref))
-            .map(q => ({
-              id: `${elementId}.${q.ref}`,
-              ref: q.ref,
-              texte: q.texte,
-              niveau: 'absent' as PAOELevel,
-              sourceReglementaire: q.sourceReglementaire,
-              generatedByIA: true,
-              statutIA: 'nouvelle' as const,
-            }));
-          return { ...prev, [elementId]: [...existing, ...newQuestions] };
-        });
-        setIaGeneratedElements(prev => new Set(prev).add(elementId));
+        userEditedRef.current = true;
+        if (target === 'questions') {
+          setQuestionsByElement(prev => {
+            const existing = prev[elementId] || [];
+            const existingRefs = new Set(existing.map(q => q.ref));
+            const newQuestions: SGSQuestion[] = result.questions
+              .filter(q => !existingRefs.has(q.ref))
+              .map(q => ({
+                id: `${elementId}.${q.ref}`,
+                ref: q.ref,
+                texte: q.texte,
+                niveau: 'absent' as PAOELevel,
+                sourceReglementaire: q.sourceReglementaire,
+                generatedByIA: true,
+                statutIA: 'nouvelle' as const,
+              }));
+            return { ...prev, [elementId]: [...existing, ...newQuestions] };
+          });
+          setIaGeneratedElements(prev => new Set(prev).add(elementId));
+        } else if (target === 'directives' && result.directives) {
+          setIaGeneratedDirectives(prev => ({ ...prev, [elementId]: result.directives }));
+        } else if (target === 'guide' && result.guideEtapes) {
+          setIaGeneratedGuideEtapes(prev => ({ ...prev, [elementId]: result.guideEtapes }));
+        }
       }
     } catch (err) {
       console.error('[SGSEvaluationContent] Erreur génération IA:', err);
@@ -1388,7 +1650,7 @@ export function SGSEvaluationContent({
       const byElem: { [elementId: string]: SGSQuestion[] } = {};
       existingEvaluation.composantes.forEach(comp => {
         comp.elements.forEach(elem => {
-          byElem[elem.elementId] = elem.questions;
+          byElem[elem.elementId] = elem.questions.map(q => ({ ...q }));
         });
       });
       setQuestionsByElement(byElem);
@@ -1429,18 +1691,19 @@ export function SGSEvaluationContent({
       setQuestionsByElement(byElem);
       setModeSaisieByElement(modes);
       setObservations('');
-    } else if (sgsTemplate) {
+    } else if (sgsTemplate && !templateInitializedRef.current) {
+      templateInitializedRef.current = '1';
       const initial: { [elementId: string]: SGSQuestion[] } = {};
       const modes: { [elementId: string]: ModeSaisie } = {};
       SGS_COMPOSANTES.forEach(comp => {
         comp.elements.forEach(elem => {
           const val = sgsTemplate[elem.id];
           if (Array.isArray(val) && val.length > 0) {
-            initial[elem.id] = (val as any[]).map(q => ({ ...q, niveau: 'absent' as PAOELevel }));
+            initial[elem.id] = (val as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
           } else if (val && typeof val === 'object' && !Array.isArray(val)) {
             const obj = val as Record<string, unknown>;
             if (Array.isArray(obj.questions) && obj.questions.length > 0) {
-              initial[elem.id] = (obj.questions as any[]).map(q => ({ ...q, niveau: 'absent' as PAOELevel }));
+              initial[elem.id] = (obj.questions as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
             } else {
               initial[elem.id] = elem.questions.map(q => ({ ...q }));
             }
@@ -1469,8 +1732,16 @@ export function SGSEvaluationContent({
   }, [existingEvaluation, previousEvaluation, sgsTemplate, riskTrend]);
 
   const handleQuestionChange = useCallback((elementId: string, questionId: string, niveau: PAOELevel) => {
+    if (!questionId) return;
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      let questions = prev[elementId];
+      if (!questions) {
+        for (const comp of SGS_COMPOSANTES) {
+          const elem = comp.elements.find(e => e.id === elementId);
+          if (elem) { questions = elem.questions.map(q => ({ ...q })); break; }
+        }
+        if (!questions) return prev;
+      }
       const oldQ = questions.find(q => q.id === questionId);
       if (oldQ && oldQ.niveau !== niveau && (oldQ.generatedByIA || oldQ.prefilled)) {
         const composanteId = parseInt(elementId.split('.')[0], 10);
@@ -1484,23 +1755,33 @@ export function SGSEvaluationContent({
     });
   }, [aerodromeId, surveillanceId]);
 
-  const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion) => {
+  const handleAddQuestion = useCallback((elementId: string, question: SGSQuestion, afterQuestionId?: string) => {
+    userEditedRef.current = true;
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
-      return { ...prev, [elementId]: [...questions, question] };
+      const questions = prev[elementId];
+      if (!questions) return prev;
+      if (!afterQuestionId) return { ...prev, [elementId]: [...questions, question] };
+      const idx = questions.findIndex(q => q.id === afterQuestionId);
+      if (idx === -1) return { ...prev, [elementId]: [...questions, question] };
+      const next = [...questions];
+      next.splice(idx + 1, 0, question);
+      return { ...prev, [elementId]: next };
     });
   }, []);
 
   const handleRemoveQuestion = useCallback((elementId: string, questionId: string) => {
+    userEditedRef.current = true;
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       return { ...prev, [elementId]: questions.filter(q => q.id !== questionId) };
     });
   }, []);
 
   const handleAddPreuve = useCallback((elementId: string, questionId: string, preuve: { id: string; nom: string; url: string; dateUpload: string }) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, preuves: [...(q.preuves || []), preuve] } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1508,7 +1789,8 @@ export function SGSEvaluationContent({
 
   const handleRemovePreuve = useCallback((elementId: string, questionId: string, preuveId: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, preuves: (q.preuves || []).filter(p => p.id !== preuveId) } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1516,7 +1798,8 @@ export function SGSEvaluationContent({
 
   const handleObservationChange = useCallback((elementId: string, questionId: string, observation: string, stylusData?: string) => {
     setQuestionsByElement(prev => {
-      const questions = prev[elementId] || [];
+      const questions = prev[elementId];
+      if (!questions) return prev;
       const updated = questions.map(q => q.id === questionId ? { ...q, justification: observation, ...(stylusData ? { observation_stylus_data: stylusData } : {}) } : q);
       return { ...prev, [elementId]: updated };
     });
@@ -1584,7 +1867,7 @@ export function SGSEvaluationContent({
                 </div>
               </div>
             </div>
-            {!readOnly && (
+            {!readOnly && showSaveButton && (
               <button className="btn btn-primary gap-2" onClick={() => onSave({ ...evaluation, observations, elementNotes })}>
                 <Save className="w-4 h-4" /> Enregistrer
               </button>
@@ -1720,22 +2003,30 @@ export function SGSEvaluationContent({
                         </div>
                         {isElementExpanded && (
                           <ElementTable
-                            elementDef={{ ...elemDef, iaDirectives: iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: iaDataByElement[elemDef.id]?.guideEtapes } as any}
+                            elementDef={{ ...elemDef, iaDirectives: editedDirectives[elemDef.id] || iaGeneratedDirectives[elemDef.id] || iaDataByElement[elemDef.id]?.directives, iaGuideEtapes: editedGuideEtapes[elemDef.id] || iaGeneratedGuideEtapes[elemDef.id] || iaDataByElement[elemDef.id]?.guideEtapes } as any}
                             composantePrefixe={compDef.prefixe}
                             questions={questions}
                             modeSaisie={modeSaisieByElement[elemDef.id] || 'clavier'}
                             onModeSaisieChange={(mode) => handleModeSaisieChange(elemDef.id, mode)}
                             onQuestionChange={(questionId, niveau) => handleQuestionChange(elemDef.id, questionId, niveau)}
-                            onAddQuestion={(question) => handleAddQuestion(elemDef.id, question)}
+                            onAddQuestion={(question, afterQuestionId) => handleAddQuestion(elemDef.id, question, afterQuestionId)}
                             onRemoveQuestion={(questionId) => handleRemoveQuestion(elemDef.id, questionId)}
                             onAddPreuve={(questionId, preuve) => handleAddPreuve(elemDef.id, questionId, preuve)}
                             onRemovePreuve={(questionId, preuveId) => handleRemovePreuve(elemDef.id, questionId, preuveId)}
                             onObservationChange={(questionId, obs, stylus) => handleObservationChange(elemDef.id, questionId, obs, stylus)}
+                            onUpdateQuestion={(questionId, patch) => handleUpdateQuestion(elemDef.id, questionId, patch)}
+                            onDirectivesChange={(directives) => handleDirectivesChange(elemDef.id, directives)}
+                            onGuideChange={(guide) => handleGuideChange(elemDef.id, guide)}
+                            onValidateProposal={onValidateProposal}
                             readOnly={readOnly}
                             structureReadOnly={structureReadOnly}
                             onGenerateByIA={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id) : undefined}
                             isGeneratingIA={iaGenerating === `${compDef.id}-${elemDef.id}`}
                             hasGeneratedIA={iaGeneratedElements.has(elemDef.id)}
+                            onSuggestDirectives={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id, 'directives') : undefined}
+                            isSuggestingDirectives={iaGenerating === `${compDef.id}-${elemDef.id}:directives`}
+                            onSuggestGuide={onGenerateByIA ? () => handleGenerateByIA(compDef.id, elemDef.id, 'guide') : undefined}
+                            isSuggestingGuide={iaGenerating === `${compDef.id}-${elemDef.id}:guide`}
                             noteQuestions={elementNotes[elemDef.id]?.questions}
                             noteDirectives={elementNotes[elemDef.id]?.directives}
                             noteGuide={elementNotes[elemDef.id]?.guide}
@@ -1772,7 +2063,7 @@ export function SGSEvaluationContent({
               <ArrowLeft className="w-4 h-4 mr-1" /> Retour
             </button>
           )}
-          {!readOnly && !isSigned && (
+          {!readOnly && !isSigned && showSaveButton && (
             <>
               <button className="btn btn-secondary" onClick={() => onSave({ ...evaluation, observations, elementNotes })}>
                 <Save className="w-4 h-4 mr-1" /> Enregistrer

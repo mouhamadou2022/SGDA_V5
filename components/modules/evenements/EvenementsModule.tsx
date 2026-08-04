@@ -9,7 +9,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection'
 import { FormShell } from '@/components/ui/FormShell'
 import { Role, GRAVITE_EVENEMENT, TYPES_EVENEMENT } from '@/lib/config'
-import { evenementUtils } from '@/lib/evenementUtils'
+import { evenementUtils, getGraviteRisque } from '@/lib/evenementUtils'
 import {
   AlertTriangle, AlertOctagon, AlertCircle, Info,
   Calendar, MapPin, Plane, Users, FileText,
@@ -134,7 +134,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
   // Statistiques
   const stats = {
     total: evenements.length,
-    critiques: evenements.filter(e => e.gravite === 'CRITIQUE' && e.statut !== 'cloture').length,
+    critiques: evenements.filter(e => e.gravite === 'critique' && e.statut !== 'cloture').length,
     enCours: evenements.filter(e => e.statut === 'en_cours' || e.statut === 'analyse').length,
     ceMois: evenements.filter(e => {
       const date = new Date(e.date)
@@ -144,24 +144,18 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
   }
 
   const getIconeGravite = (gravite: string) => {
-    switch(gravite) {
-      case 'CRITIQUE': return <Flame className="w-5 h-5 text-danger" />
-      case 'ORANGE': return <AlertOctagon className="w-5 h-5 text-warning" />
-      case 'JAUNE': return <AlertCircle className="w-5 h-5 text-warning" />
-      case 'GRIS': return <Info className="w-5 h-5 text-muted" />
-      default: return <Info className="w-5 h-5 text-primary" />
+    const niveau = getGraviteRisque(gravite)
+    switch(niveau.label) {
+      case 'Critique': return <Flame className="w-5 h-5 text-danger" />
+      case 'Élevé': return <AlertOctagon className="w-5 h-5 text-warning" />
+      case 'Moyen': return <AlertCircle className="w-5 h-5 text-primary" />
+      default: return <Info className="w-5 h-5 text-success" />
     }
   }
 
   const getBadgeGravite = (gravite: string) => {
-    const styles: Record<string, string> = {
-      CRITIQUE: 'badge danger',
-      ORANGE: 'badge warning',
-      JAUNE: 'badge warning',
-      GRIS: 'badge neutral',
-      BLEU: 'badge primary'
-    }
-    return styles[gravite] || 'badge neutral'
+    const niveau = getGraviteRisque(gravite)
+    return <span className={niveau.classe}>{niveau.label}</span>
   }
 
   const getBadgeStatut = (statut: string) => {
@@ -409,9 +403,10 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
             style={selectStyle}
           >
             <option value="tous">Toutes gravités</option>
-            <option value="CRITIQUE">Critique</option>
-            <option value="ORANGE">Orange</option>
-            <option value="JAUNE">Jaune</option>
+            <option value="critique">Critique</option>
+            <option value="eleve">Élevé</option>
+            <option value="moyen">Moyen</option>
+            <option value="faible">Faible</option>
           </select>
 
           <select 
@@ -439,8 +434,8 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
               badges={
                 <>
                   <span className="badge outline">{evts.length} événement{evts.length > 1 ? 's' : ''}</span>
-                  {evts.filter(e => e.gravite === 'CRITIQUE').length > 0 && (
-                    <span className="badge danger">{evts.filter(e => e.gravite === 'CRITIQUE').length} critique</span>
+                  {evts.filter(e => e.gravite === 'critique').length > 0 && (
+                    <span className="badge danger">{evts.filter(e => e.gravite === 'critique').length} critique</span>
                   )}
                 </>
               }
@@ -455,6 +450,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="code-oaci-badge text-sm">{evt.reference}</span>
+                              {getBadgeGravite(evt.gravite)}
                               <span className={badgeStatut.className}>{badgeStatut.label}</span>
                               <span className="badge outline">{evt.type}</span>
                             </div>

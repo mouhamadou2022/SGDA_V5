@@ -5,9 +5,10 @@
 
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Plane, ShieldCheck, ShieldOff, MapPin, Phone, Mail, UserPlus, Globe, Building2, Users } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 interface GuestDashboardModuleProps {
   user: any
@@ -33,6 +34,43 @@ export function GuestDashboardModule({ user }: GuestDashboardModuleProps) {
   }, [aerodromesPublics])
 
   const now = new Date()
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+  const paginatedAerodromes = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return aerodromesPublics.slice(start, start + PAGE_SIZE)
+  }, [aerodromesPublics, currentPage])
+  useEffect(() => setCurrentPage(1), [aerodromesPublics])
+
+  const aerodromeColumns: Column<any>[] = [
+    { key: 'code', header: 'Code OACI', render: (item) => <span className="code-oaci-badge">{item.code_oaci}</span> },
+    { key: 'nom', header: 'Nom', render: (item) => (
+      <div className="flex items-center gap-2">
+        <MapPin className="h-3.5 w-3.5 text-muted" />
+        <span className="text-small text-foreground">{item.nom}</span>
+      </div>
+    )},
+    { key: 'type', header: 'Type', render: (item) => (
+      <span className={`badge ${item.type === 'international' ? 'primary' : 'neutral'}`}>
+        {item.type === 'international' ? 'International' : 'National'}
+      </span>
+    )},
+    { key: 'region', header: 'Région', render: (item) => <span className="text-small text-foreground">{item.region}</span> },
+    { key: 'certification', header: 'Certification', render: (item) =>
+      item.estCertifie ? (
+        <div className="flex items-center gap-1.5 text-success">
+          <ShieldCheck className="h-4 w-4" />
+          <span className="text-xs font-semibold">Certifié</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-muted">
+          <ShieldOff className="h-4 w-4" />
+          <span className="text-xs">Non certifié</span>
+        </div>
+      )
+    },
+  ]
 
   return (
     <div className="space-y-6 animate-fade-in" data-module="guest-dashboard">
@@ -103,71 +141,30 @@ export function GuestDashboardModule({ user }: GuestDashboardModuleProps) {
       </div>
 
       {/* ==================== LISTE DES AÉRODROMES ==================== */}
-      <div className="card animate-fade-up" style={{ animationDelay: '0.25s' }}>
-        <div className="card-header">
-          <h3 className="card-title flex items-center gap-2">
-            <Plane className="h-5 w-5 text-role-primary" />
-            Aérodromes du Sénégal
-            <span className="badge outline ml-2">
-              {aerodromesPublics.length} aérodromes
-            </span>
-          </h3>
-        </div>
-        <div className="card-content p-0">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Code OACI</th>
-                  <th>Nom</th>
-                  <th>Type</th>
-                  <th>Région</th>
-                  <th>Certification</th>
-                </tr>
-              </thead>
-              <tbody>
-                {aerodromesPublics.map((aero, idx) => (
-                  <tr key={aero.id} className="hover:bg-role-primary-soft transition-colors animate-fade-up" style={{ animationDelay: `${0.25 + idx * 0.02}s` }}>
-                    <td><span className="code-oaci-badge">{aero.code_oaci}</span></td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-3.5 w-3.5 text-muted" />
-                        <span className="text-small text-foreground">{aero.nom}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${aero.type === 'international' ? 'primary' : 'neutral'}`}>
-                        {aero.type === 'international' ? 'International' : 'National'}
-                      </span>
-                    </td>
-                    <td className="text-small text-foreground">{aero.region}</td>
-                    <td>
-                      {aero.estCertifie ? (
-                        <div className="flex items-center gap-1.5 text-success">
-                          <ShieldCheck className="h-4 w-4" />
-                          <span className="text-xs font-semibold">Certifié</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 text-muted">
-                          <ShieldOff className="h-4 w-4" />
-                          <span className="text-xs">Non certifié</span>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {aerodromesPublics.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-muted text-sm">
-                      Aucun aérodrome disponible
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <DataTable
+        data={paginatedAerodromes}
+        columns={aerodromeColumns}
+        keyExtractor={(item) => item.id}
+        cardProps={{
+          icon: <Plane className="h-5 w-5 text-role-primary" />,
+          title: 'Aérodromes du Sénégal',
+          badge: <span className="badge outline ml-2">{aerodromesPublics.length} aérodromes</span>,
+          className: 'animate-fade-up',
+          style: { animationDelay: '0.25s' },
+          contentClassName: '!p-0',
+        }}
+        emptyState={{
+          icon: Plane,
+          title: 'Aucun aérodrome disponible',
+        }}
+        pagination={{
+          total: aerodromesPublics.length,
+          current: currentPage,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage,
+        }}
+        headerClassName="bg-role-primary-soft/40"
+      />
 
       {/* ==================== CONTACT ANACIM ==================== */}
       <div className="card animate-fade-up" style={{ animationDelay: '0.3s' }}>

@@ -1,12 +1,21 @@
 'use client'
 
 import { ProfilRisque, Ecart, EvenementSecurite } from '@/lib/store'
+import { useAppStore } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
+import { useState, useMemo, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
-import { AlertTriangle, Shield, Activity, Zap, BarChart3 } from 'lucide-react'
+import { AlertTriangle, Shield, Activity, Zap, BarChart3, Sparkles, Loader2 } from 'lucide-react'
+import { expliquerCriteresEnClair, type ExplicationCritere } from '@/lib/ia/critereExplicationIA'
+import { expliquerCygneNoirEnClair, type CygneNoirExplication } from '@/lib/ia/cygneNoirIA'
 import BowTieAnalyzer from './BowTieAnalyzer'
 import { OACIMatrixSection } from './OACIMatrixSection'
 import { CorrelationSection } from './CorrelationSection'
+import { AmdecModule } from '@/components/modules/amdec/AmdecModule'
+import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
+import { recommanderParmi, getModelesDisponibles, type ModeleAnalyse, type ModeleAnalyseInput } from '@/lib/ia/modelSelector'
+import { ModeleMLAnalysis } from './ModeleMLAnalysis'
+import type { Role } from '@/lib/config'
 
 type Niveau = 'critique' | 'eleve' | 'moyen' | 'faible'
 
@@ -76,11 +85,90 @@ interface DiagnosticTabProps {
   ecarts: Ecart[]
   evenementsCount: number
   evenements?: EvenementSecurite[]
+  userRole?: string
 }
 
-export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements }: DiagnosticTabProps) {
+export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements, userRole }: DiagnosticTabProps) {
   const niveauGlobal = getNiveau(profil.score_global)
   const scenarioCatastrophe = profil.scenarios?.[3]
+  const amdecAnalyses = useAppStore((s) => s.amdecAnalyses)
+  const ftaAnalyses = useAppStore((s) => s.ftaAnalyses)
+  const rfModelInfo = useAppStore((s) => s.rfModelInfo)
+  const predictRisk = useAppStore((s) => s.predictRisk)
+
+  // Input de recommandation construit depuis les données réelles du store
+  const inputModele = useMemo<ModeleAnalyseInput>(() => ({
+    profil,
+    evenement: null,
+    evenements,
+    ecarts,
+    surveillances,
+    amdecAnalyses,
+    ftaAnalyses,
+    rfModelInfo,
+  }), [profil, evenements, ecarts, surveillances, amdecAnalyses, ftaAnalyses, rfModelInfo])
+
+  const modelesDispo = useMemo(() => getModelesDisponibles(inputModele), [inputModele])
+
+  const predictionRF = useMemo(() => (rfModelInfo ? predictRisk(profil) : null), [rfModelInfo, predictRisk, profil])
+
+  const [modeleActif, setModeleActif] = useState<ModeleAnalyse>(() => {
+    const rec = recommanderParmi(inputModele, modelesDispo)
+    return modelesDispo.includes(rec.recommande) ? rec.recommande : (modelesDispo[0] ?? 'bowtie')
+  })
+
+  // Explication IA des critères C1-C5 en langage clair (fallback déterministe sinon)
+  const [explications, setExplications] = useState<ExplicationCritere>(() => ({
+    c1: CRITERES[0].desc,
+    c2: CRITERES[1].desc,
+    c3: CRITERES[2].desc,
+    c4: CRITERES[3].desc,
+    c5: CRITERES[4].desc,
+  }))
+  const [explicationIAEnCours, setExplicationIAEnCours] = useState(true)
+  const [explicationIAActif, setExplicationIAActif] = useState(false)
+
+  useEffect(() => {
+    let actif = true
+    setExplicationIAEnCours(true)
+    expliquerCriteresEnClair({
+      profil,
+      ecarts,
+      evenementsCount,
+    }).then((res) => {
+      if (!actif) return
+      setExplications(res.explications)
+      setExplicationIAActif(!res.fallbackIA)
+      setExplicationIAEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setExplicationIAEnCours(false)
+    })
+    return () => { actif = false }
+  }, [profil, ecarts, evenementsCount])
+
+  // Explication IA de l'alerte cygne noir (fallback déterministe data-driven sinon)
+  const [cygneNoir, setCygneNoir] = useState<CygneNoirExplication | null>(null)
+  const [cygneNoirEnCours, setCygneNoirEnCours] = useState(true)
+
+  useEffect(() => {
+    if (!profil.bayesian_black_swan) return
+    let actif = true
+    setCygneNoirEnCours(true)
+    expliquerCygneNoirEnClair({
+      profil,
+      ecarts,
+      evenementsCount,
+    }).then((res) => {
+      if (!actif) return
+      setCygneNoir(res)
+      setCygneNoirEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setCygneNoirEnCours(false)
+    })
+    return () => { actif = false }
+  }, [profil, ecarts, evenementsCount])
 
   return (
     <div className="space-y-10">
@@ -103,6 +191,18 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         variant="role"
         heading="Détail par critère"
         icon={<BarChart3 className="w-5 h-5" />}
+        badge={
+          explicationIAEnCours ? (
+            <span className="inline-flex items-center gap-2 text-xs text-primary">
+              <Loader2 className="w-4 h-4 animate-spin" /> Analyse IA en cours…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">
+              <Sparkles className="w-3.5 h-3.5" />
+              {explicationIAActif ? 'Langage clair AERORISQ' : 'Analyse déterministe'}
+            </span>
+          )
+        }
       >
         <div className="space-y-5">
           {CRITERES.map(c => {
@@ -134,7 +234,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-foreground">{c.desc}</p>
+                  <p className="text-sm text-foreground">{explications[c.key]}</p>
                   <span className="text-[10px] text-muted-foreground font-mono ml-2 shrink-0">{c.weight}%</span>
                 </div>
               </div>
@@ -227,57 +327,60 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
           alertBg="danger"
           heading="Alerte Cygne Noir"
           icon={<AlertTriangle className="w-5 h-5 text-danger animate-pulse" />}
-          badge={<span className="badge danger">CRITIQUE</span>}
+          badge={
+            cygneNoirEnCours ? (
+              <span className="inline-flex items-center gap-2 text-xs text-danger">
+                <Loader2 className="w-4 h-4 animate-spin" /> Analyse IA en cours…
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-danger bg-danger/10 px-2 py-1 rounded-full">
+                <Sparkles className="w-3.5 h-3.5" />
+                Langage clair IA
+              </span>
+            )
+          }
           headerGradient={false}
         >
-          <p className="text-sm text-danger leading-relaxed">
-            Le modèle bayésien détecte un risque de type « cygne noir » — un événement rare mais à impact catastrophique pourrait survenir. Renforcement urgent de la surveillance recommandé.
-          </p>
-        </Card>
-      )}
-
-      {/* ── Analyse bayésienne ── */}
-      {(profil.bayesian_posterior != null || profil.bayesian_prior != null) && (
-        <Card
-          variant="role"
-          heading="Analyse bayésienne"
-          icon={<BarChart3 className="w-5 h-5" />}
-        >
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {profil.bayesian_prior != null && (
-                <div className="p-4 rounded-lg border border-border bg-muted/10">
-                  <span className="text-sm text-muted-foreground">Probabilité a priori</span>
+                <div className="p-3 rounded-lg border border-danger/20 bg-danger/5">
+                  <span className="text-xs text-foreground/70">Probabilité a priori (historique)</span>
                   <p className={`text-lg font-bold mt-1 ${getTextColor(getNiveau(profil.bayesian_prior))}`}>
                     {profil.bayesian_prior} %
                   </p>
-                  <span className={`${getBadgeClass(getNiveau(profil.bayesian_prior))} mt-1`}>
-                    {getNiveauLabel(getNiveau(profil.bayesian_prior))}
-                  </span>
-                  <p className="text-sm text-foreground mt-2">Estimation initiale basée sur le profil type</p>
                 </div>
               )}
               {profil.bayesian_posterior != null && (
-                <div className="p-4 rounded-lg border border-border bg-muted/10">
-                  <span className="text-sm text-muted-foreground">Probabilité a posteriori</span>
+                <div className="p-3 rounded-lg border border-danger/20 bg-danger/5">
+                  <span className="text-xs text-foreground/70">Probabilité a posteriori (actuelle)</span>
                   <p className={`text-lg font-bold mt-1 ${getTextColor(getNiveau(profil.bayesian_posterior))}`}>
                     {profil.bayesian_posterior} %
                   </p>
-                  <span className={`${getBadgeClass(getNiveau(profil.bayesian_posterior))} mt-1`}>
-                    {getNiveauLabel(getNiveau(profil.bayesian_posterior))}
-                  </span>
-                  <p className="text-sm text-foreground mt-2">Mise à jour avec les données observées</p>
                 </div>
               )}
             </div>
-            {profil.bayesian_prior != null && profil.bayesian_posterior != null && (
-              <p className="text-sm text-foreground leading-relaxed">
-                {profil.bayesian_posterior > profil.bayesian_prior
-                  ? `La probabilité a posteriori (${profil.bayesian_posterior} %) est supérieure à l'a priori (${profil.bayesian_prior} %) : les observations récentes indiquent une dégradation.`
-                  : profil.bayesian_posterior < profil.bayesian_prior
-                    ? `La probabilité a posteriori (${profil.bayesian_posterior} %) est inférieure à l'a priori (${profil.bayesian_prior} %) : les observations récentes sont rassurantes.`
-                    : `La probabilité est stable entre l'a priori et l'a posteriori (${profil.bayesian_posterior} %).`}
-              </p>
+            {cygneNoirEnCours ? (
+              <p className="text-sm text-danger leading-relaxed">Analyse du signal en cours…</p>
+            ) : cygneNoir ? (
+              <>
+                <p className="text-sm text-danger leading-relaxed">{cygneNoir.explication}</p>
+                {cygneNoir.actions.length > 0 && (
+                  <div>
+                    <span className="text-sm font-semibold text-foreground">Actions à engager :</span>
+                    <ul className="mt-2 space-y-1">
+                      {cygneNoir.actions.map((a, i) => (
+                        <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                          <span className="text-danger mt-1.5 shrink-0">•</span>
+                          <span>{a}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-danger leading-relaxed">Analyse du signal en cours…</p>
             )}
           </div>
         </Card>
@@ -363,8 +466,28 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         </Card>
       )}
 
-      {/* Bow-Tie — Analyse complète data-driven */}
-      <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
+      {/* Sélecteur de modèle d'analyse — recommandation IA (au-dessus des analyses) */}
+      <ModeleAnalyseSelector
+        input={inputModele}
+        selected={modeleActif}
+        onSelect={setModeleActif}
+        modelesDisponibles={modelesDispo}
+      />
+
+      {/* Bow-Tie — Analyse complète data-driven (affichée si BowTie sélectionné) */}
+      {modeleActif === 'bowtie' && (
+        <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
+      )}
+
+      {/* AMDEC — Analyse bottom-up des modes de défaillance (pilote le malus C3) */}
+      {modeleActif === 'amdec' && (
+        <AmdecModule aerodromeId={profil.aerodrome_id} userRole={userRole as Role | undefined} embedded />
+      )}
+
+      {/* Modèles ML avancés — analyse rendue depuis les métriques persistées (HMM, survie, EVT, copulas, TS, bayésien, RF) */}
+      {modeleActif !== 'bowtie' && modeleActif !== 'fta' && modeleActif !== 'amdec' && (
+        <ModeleMLAnalysis modele={modeleActif} profil={profil} rfModelInfo={rfModelInfo} predictionRF={predictionRF} evenements={evenements} ecarts={ecarts} />
+      )}
 
       {/* Matrice OACI 5×5 */}
       <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />

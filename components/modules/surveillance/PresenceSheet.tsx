@@ -65,10 +65,20 @@ export function PresenceSheet({
     }
   }, [externalEntries, surveillanceId]);
 
+  const currentSurveillance = useOptimizedStore(s => s.surveillances.find(sv => sv.id === surveillanceId));
+
   const getIaSuggestion = async () => {
     setIsIaLoading(true);
     try {
-      const result = await assistantAgent.chat({ message: 'Suggère une liste type de participants pour une surveillance sur un aérodrome', contexte: { module: 'presence' }, userRole });
+      const result = await assistantAgent.chat({
+        message: 'Suggère une liste type de participants pour une surveillance sur un aérodrome',
+        contexte: {
+          module: 'presence',
+          aerodromeId: currentSurveillance?.aerodrome_id,
+          surveillanceId,
+        },
+        userRole,
+      });
       setIaSuggestion(result.message);
       setTimeout(() => setIaSuggestion(null), 8000);
     } catch { /* silent */ } finally { setIsIaLoading(false); }
@@ -137,7 +147,7 @@ export function PresenceSheet({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={getIaSuggestion} disabled={isIaLoading} className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Suggestion IA">
+          <button onClick={getIaSuggestion} disabled={isIaLoading} className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" title="Suggestion AERORISQ">
             {isIaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
           </button>
           {!readOnly && <button onClick={handleAddRow} className="btn btn-secondary btn-sm gap-2"><UserPlus className="w-4 h-4" /> Ajouter</button>}

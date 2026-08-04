@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useAppStore, ProfilRisque, ScoreHistoryPoint, Ecart, Aerodrome } from '@/lib/store'
+import { useAppStore, ProfilRisque, ScoreHistoryPoint, Ecart, Aerodrome, KitDocument, KitChecklistItemGenere } from '@/lib/store'
 import {
   computeVelocityMetrics,
   computeHawkesContagion,
@@ -17,7 +17,11 @@ import {
 } from '@/lib/risque'
 import { detectBlackSwan } from '@/lib/risque/bayesian'
 import { aiClient } from '@/lib/ia/aiClient'
-import { RISK_SYSTEM_PROMPT } from '@/lib/ia/prompts'
+import { RISK_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT } from '@/lib/ia/prompts'
+import { kitAerorisqBridge } from '@/lib/ia/bridge/kitAerorisqBridge'
+import { modelOrchestrator } from '@/lib/ia/engines/modelOrchestrator'
+import { decouperChapitres, filtrerChapitresParMapping, filtrerChapitresParDomaine } from '@/lib/services/pdfExtractor'
+import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 
 export interface RiskAnalysisRequest {
   aerodromeId: string
@@ -596,6 +600,185 @@ ${JSON.stringify(contextData, null, 2)}`,
       confidence,
       justification: aiResult.ok ? aiResult.content.trim() : `${prediction === 'SA' ? 'Conforme' : 'Non-conforme'} sur ${saCount + nsCount}/3 dernières inspections.`,
     }
+  }
+
+  // ============================================================
+  // GÉNÉRATION D'ITEMS CHECKLIST AVEC CONTEXTE AERORISQ
+  // ============================================================
+
+  async generateChecklistItems(params: {
+    docId: string
+    domaine: string
+    type_entite: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+    aerodromeId?: string
+    force?: boolean
+  }): Promise<KitChecklistItemGenere[]> {
+    const store = useAppStore.getState()
+    const doc = store.kitDocuments.find(d => d.id === params.docId)
+    if (!doc) return []
+
+    const aerodrome = params.aerodromeId
+      ? store.aerodromes.find(a => a.id === params.aerodromeId) ?? null
+      : null
+    const profil = params.aerodromeId
+      ? store.profilsRisque[params.aerodromeId] ?? null
+      : null
+
+    let analysisResult: any = null
+    if (params.aerodromeId && profil) {
+      try {
+        const previousResult = this.lastAnalysisCache.get(`${params.aerodromeId}_true_true`)
+        if (previousResult) {
+          analysisResult = previousResult
+        } else {
+          analysisResult = await this.analyzeRisk({
+            aerodromeId: params.aerodromeId,
+            includePredictions: true,
+            includeBlackSwan: true,
+          })
+        }
+      } catch { /* analyse non disponible */ }
+    }
+
+    let stored = doc.items_generes || []
+    const versionChanged = doc.items_generes_version && doc.items_generes_version !== doc.version
+    if (versionChanged || params.force) stored = []
+
+    // Chapitre-aware check : invalider si items insuffisants pour couvrir les chapitres attendus
+    if (!versionChanged && !params.force) {
+      const ITEMS_PER_CHAPTER = 3
+      const mapping = getMappingForDomaine(params.domaine, 'aerodrome')
+      if (mapping) {
+        const chapitresAttendus = new Set<string>()
+        mapping.sources.forEach(s => {
+          const chaps = Array.isArray(s.chapitre) ? s.chapitre : s.chapitre ? [s.chapitre] : []
+          chaps.forEach(c => chapitresAttendus.add(c))
+        })
+        const storedDomaine = stored.filter(i => i.domaine === params.domaine)
+        if (chapitresAttendus.size > 0 && storedDomaine.length < chapitresAttendus.size * ITEMS_PER_CHAPTER) {
+          console.log(`[RiskAgent] Items insuffisants pour ${params.domaine}: ${storedDomaine.length} < ${chapitresAttendus.size * ITEMS_PER_CHAPTER} (${chapitresAttendus.size} chapitres)`)
+          stored = stored.filter(i => i.domaine !== params.domaine)
+        }
+      }
+    }
+
+    const storedDomaines = new Set(stored.map(i => i.domaine))
+    if (storedDomaines.has(params.domaine)) {
+      return stored.filter(i => i.domaine === params.domaine)
+    }
+
+    let texte = doc.contenu_complet || ''
+    if (!texte || params.force) {
+      try {
+        const { extractTextFromPDF } = await import('@/lib/services/pdfExtractor')
+        if (doc.fichier_url) {
+          const result = await extractTextFromPDF(doc.fichier_url)
+          texte = result.texte_complet
+          store.updateKitDocument(doc.id, {
+            contenu_complet: texte,
+            texte_extrait_le: new Date().toISOString(),
+            texte_extrait_version: doc.version,
+          })
+        }
+      } catch { /* extraction impossible */ }
+    }
+
+    if (texte.length < 50) return stored
+
+    const chapitres = decouperChapitres(texte)
+    const mapping = filtrerChapitresParMapping(chapitres, params.domaine, params.type_entite)
+    const chapitresKeywords = filtrerChapitresParDomaine(chapitres, params.domaine, params.type_entite)
+    const seen = new Set(mapping.textes)
+    const chapitresPertinents = [...mapping.textes, ...chapitresKeywords.filter(c => !seen.has(c))]
+
+    const aerorisqContext = profil ? kitAerorisqBridge.buildPromptContext(profil, analysisResult, params.domaine) : ''
+
+    let sourcesInfo = ''
+    if (mapping.textes.length > 0) {
+      sourcesInfo = `Chapitres ${mapping.numerosTrouves.join(', ')} du document ${doc.reference_base || doc.nom}`
+    }
+
+    const contexteTexte = chapitresPertinents.length > 0
+      ? chapitresPertinents.join('\n\n').substring(0, 35000)
+      : texte.substring(0, 8000)
+
+    const aerodromeType = aerodrome?.type_entite === 'helistation' ? 'helistation' : 'aerodrome'
+    const modelSelection = profil
+      ? modelOrchestrator.selectModel({ profil, entityType: aerodromeType, historicalLength: chapitresPertinents.length })
+      : null
+
+    const userMessage = `Document: "${doc.nom}" (${doc.reference_base || ''})
+Domaine cible: ${params.domaine}
+${sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''}
+${aerorisqContext ? `\n${aerorisqContext}` : ''}
+${modelSelection ? `\nModèle sélectionné: ${modelSelection.selected} (confiance ${modelSelection.confidence}%)` : ''}
+
+Texte réglementaire :
+${contexteTexte}
+
+Génère les items de checklist standard pour le domaine ${params.domaine}.
+Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
+
+Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
+{
+  "items": [
+    {
+      "numero": "01",
+      "reference_reglementaire": "réf. précise",
+      "sous_domaine": "Pistes",
+      "point_verification": "question claire ?",
+      "directive_preuve": "guide détaillé étape par étape",
+      "directive_sa": "critère objectif satisfaisant",
+      "directive_ns": "critère objectif non satisfaisant",
+      "directive_nv": "quand impossible",
+      "directive_na": "quand non applicable",
+      "type_entite_cible": "aerodrome|helistation|tous"
+    }
+  ]
+}`
+
+    const aiResult = await aiClient.callJSON<{ items: any[] }>(
+      {
+        systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
+        userMessage,
+        temperature: 0.15,
+        maxTokens: 32768,
+        responseFormat: 'json_object',
+      },
+      { items: [] }
+    )
+
+    const nouveauxItems: KitChecklistItemGenere[] = []
+    if (aiResult.items && aiResult.items.length > 0) {
+      for (let i = 0; i < aiResult.items.length; i++) {
+        const item = aiResult.items[i]
+        const itemGenere: KitChecklistItemGenere = {
+          id: `${doc.id}_${params.domaine}_${String(i + 1).padStart(2, '0')}`,
+          numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
+          reference_reglementaire: item.reference_reglementaire || `${doc.reference_base || 'RAS 14 I'}`,
+          point_verification: item.point_verification || `Vérification ${params.domaine} — ${doc.nom}`,
+          directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
+          directive_sa: item.directive_sa,
+          directive_ns: item.directive_ns,
+          directive_nv: item.directive_nv,
+          directive_na: item.directive_na,
+          domaine: params.domaine,
+          sous_domaine: item.sous_domaine,
+          type_entite_cible: item.type_entite_cible || 'tous',
+          source_document_id: doc.id,
+        }
+        nouveauxItems.push(itemGenere)
+      }
+    }
+
+    const tousItems = [...stored, ...nouveauxItems]
+    store.updateKitDocument(doc.id, {
+      items_generes: tousItems,
+      items_generes_le: new Date().toISOString(),
+      items_generes_version: doc.version,
+    })
+
+    return nouveauxItems
   }
 
   // ============================================================

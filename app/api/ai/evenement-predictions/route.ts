@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       const key = `${ed.getFullYear()}-${String(ed.getMonth()).padStart(2, '0')}`
       if (parMois[key]) {
         parMois[key].total++
-        if (e.gravite === 'CRITIQUE') parMois[key].critiques++
+        if (e.gravite === 'critique') parMois[key].critiques++
         const t = e.type || 'autre'
         parMois[key].types[t] = (parMois[key].types[t] || 0) + 1
       }
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       return `${mois}: ${data.total} evts (${data.critiques} critiques)${topTypes ? ' — ' + topTypes : ''}`
     })
 
-    const totalCritiques = evts.filter(e => e.gravite === 'CRITIQUE').length
+    const totalCritiques = evts.filter(e => e.gravite === 'critique').length
     const resumeStat = `Total: ${evts.length} evenements (${totalCritiques} critiques) sur ${aerodrome_code || 'aerodrome'}.
 Moyenne mensuelle: ${(evts.length / 12).toFixed(1)} evts, ${(totalCritiques / 12).toFixed(1)} critiques.
 Types observes: ${[...new Set(evts.map(e => e.type))].slice(0, 8).join(', ') || 'aucun'}`

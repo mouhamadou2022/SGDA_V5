@@ -186,11 +186,12 @@ export const registreUtils = {
    */
   toRegistreEntryFromSurveillance(surveillance: any, aerodrome?: any): Omit<RegistreEntry, 'id' | 'created_at'> {
     const fichiers: { nom: string; url: string }[] = []
-    if (surveillance.rapport_sig_url) {
-      fichiers.push({ nom: `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_sig_url })
+    const rapportSigneUrl = surveillance.rapport_pdf_url || surveillance.rapport_fichier_url
+    if (rapportSigneUrl) {
+      fichiers.push({ nom: `rapport_signe_${surveillance.id}.pdf`, url: rapportSigneUrl })
     }
-    if (surveillance.rapport_fichier_url) {
-      fichiers.push({ nom: surveillance.rapport_fichier_nom || `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_fichier_url })
+    if (surveillance.checklist_pdf_url) {
+      fichiers.push({ nom: `checklist_signee_${surveillance.id}.pdf`, url: surveillance.checklist_pdf_url })
     }
     if (surveillance.lettre_signee_url) {
       fichiers.push({ nom: `lettre_${surveillance.id}.pdf`, url: surveillance.lettre_signee_url })
@@ -292,7 +293,9 @@ export const registreUtils = {
       timeline.push({
         id: crypto.randomUUID(), etape: 'Rapport signé',
         date: surveillance.rapport_signe_le, acteur: surveillance.rapport_signe_par || 'Inspecteur', acteur_role: 'inspecteur',
-        fichiers: surveillance.rapport_sig_url ? [{ nom: `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_sig_url }] : [],
+        fichiers: (surveillance.rapport_pdf_url || surveillance.rapport_fichier_url)
+          ? [{ nom: `rapport_${surveillance.id}.pdf`, url: surveillance.rapport_pdf_url || surveillance.rapport_fichier_url }]
+          : [],
         details: 'Rapport de surveillance signé',
       })
     }

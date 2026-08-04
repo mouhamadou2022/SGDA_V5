@@ -1,8 +1,8 @@
 ﻿// components/modules/aerodromes/LocationPicker.tsx
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Loader2, MapPin, Search, Navigation } from 'lucide-react';
@@ -34,6 +34,17 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+// Contrôleur de carte : flyTo quand les coordonnées changent via props
+function MapController({ latitude, longitude }: { latitude: number; longitude: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!isNaN(latitude) && !isNaN(longitude)) {
+      map.flyTo([latitude, longitude], map.getZoom());
+    }
+  }, [latitude, longitude, map]);
+  return null;
+}
+
 // Composant pour gérer les clics sur la carte
 function LocationMarker({ 
   position, 
@@ -63,16 +74,9 @@ export default function LocationPicker({
   longitude, 
   onPositionChange 
 }: LocationPickerProps) {
-  const mapRef = useRef<L.Map>(null);
   const [searchAddress, setSearchAddress] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
-
-  useEffect(() => {
-    if (mapRef.current && latitude && longitude) {
-      mapRef.current.flyTo([latitude, longitude], mapRef.current.getZoom());
-    }
-  }, [latitude, longitude]);
 
   // Recherche par nom d'adresse
   const searchByName = async () => {
@@ -89,9 +93,6 @@ export default function LocationPicker({
         const lat = parseFloat(data[0].lat);
         const lon = parseFloat(data[0].lon);
         onPositionChange(lat, lon);
-        if (mapRef.current) {
-          mapRef.current.flyTo([lat, lon], 12);
-        }
       } else {
         console.warn('Aucun résultat trouvé');
       }
@@ -114,9 +115,6 @@ export default function LocationPicker({
       (position) => {
         const { latitude, longitude } = position.coords;
         onPositionChange(latitude, longitude);
-        if (mapRef.current) {
-          mapRef.current.flyTo([latitude, longitude], 13);
-        }
         setIsLocating(false);
       },
       (error) => {
@@ -175,7 +173,6 @@ export default function LocationPicker({
 
       {/* Carte Leaflet */}
       <MapContainer
-        ref={mapRef}
         center={[latitude, longitude]}
         zoom={10}
         style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
@@ -185,6 +182,7 @@ export default function LocationPicker({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapController latitude={latitude} longitude={longitude} />
         <LocationMarker 
           position={[latitude, longitude]} 
           onPositionChange={onPositionChange}

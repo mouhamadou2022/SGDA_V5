@@ -83,6 +83,8 @@ export function CompactStylusInput({ value, onChange, height = 80 }: {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sigPadRef = useRef<SignaturePad | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -98,11 +100,20 @@ export function CompactStylusInput({ value, onChange, height = 80 }: {
     if (ctx) ctx.scale(ratio, ratio);
     const sigPad = new SignaturePad(canvas, { penColor: 'rgb(0, 0, 0)', minWidth: 1, maxWidth: 2 });
     sigPadRef.current = sigPad;
-    sigPad.addEventListener('beginStroke', () => setIsDrawing(true));
-    sigPad.addEventListener('endStroke', () => { setIsDrawing(false); onChange(sigPad.toDataURL('image/png')); });
-    if (value) sigPad.fromDataURL(value);
-    return () => { sigPad.removeEventListener('beginStroke', () => {}); sigPad.removeEventListener('endStroke', () => {}); };
-  }, []);
+    const onBegin = () => setIsDrawing(true);
+    const onEnd = () => { setIsDrawing(false); onChange(sigPad.toDataURL('image/png')); };
+    sigPad.addEventListener('beginStroke', onBegin);
+    sigPad.addEventListener('endStroke', onEnd);
+    if (valueRef.current) sigPad.fromDataURL(valueRef.current);
+    return () => { sigPad.removeEventListener('beginStroke', onBegin); sigPad.removeEventListener('endStroke', onEnd); };
+  }, [height, onChange]);
+
+  useEffect(() => {
+    if (value && sigPadRef.current && !isDrawing) {
+      sigPadRef.current.clear();
+      sigPadRef.current.fromDataURL(value);
+    }
+  }, [value]);
 
   const handleClear = () => { sigPadRef.current?.clear(); onChange(''); };
   return (

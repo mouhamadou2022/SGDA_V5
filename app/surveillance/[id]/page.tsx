@@ -10,9 +10,10 @@ import { useAppStore } from '@/lib/store';
 import { SurveillanceStepper } from '@/components/modules/surveillance/SurveillanceStepper';
 import { ChefDashboard } from '@/components/modules/surveillance/ChefDashboard';
 import { InspecteurDelegationPanel } from '@/components/modules/surveillance/InspecteurDelegationPanel';
+import { DelegationZone, type InspecteurDisponible, type DomaineDisponible } from '@/components/modules/surveillance/DelegationZone';
 import {
   ArrowLeft, MapPin, Calendar, Users, Eye, AlertTriangle,
-  FileText, ClipboardList, ChevronRight, Shield, Mail, X, Send, Wrench, CheckCircle2
+  FileText, ClipboardList, ChevronRight, Shield, Mail, X, Send, Wrench, CheckCircle2, Download
 } from 'lucide-react';
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -63,6 +64,9 @@ export default function SurveillanceDetailPage() {
   const [isRepairing, setIsRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState<{ repaired: number; message: string } | null>(null);
   const [showSgsChoice, setShowSgsChoice] = useState<'checklist' | 'ecarts' | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
+  const [showDelegationZone, setShowDelegationZone] = useState(false);
 
   // ── data-role sur body pour les variables CSS de rôle (btn-primary, bg-role-gradient…) ──
   useEffect(() => {
@@ -113,7 +117,7 @@ export default function SurveillanceDetailPage() {
   };
 
   // Navigation checklist avec logique SGS
-  const navigateToChecklist = (type: 'standard' | 'sgs') => {
+  const navigateToChecklist = (type: 'standard' | 'sgs' | 'suivi' | 'pac' | 'mixte') => {
     router.push(`/surveillance/${surveillanceId}/checklist?type=${type}`);
   };
 
@@ -122,6 +126,12 @@ export default function SurveillanceDetailPage() {
       setShowSgsChoice('checklist');
     } else if (isSgsOnly) {
       navigateToChecklist('sgs');
+    } else if (surveillance?.type === 'suivi_ecarts') {
+      navigateToChecklist('suivi');
+    } else if (surveillance?.type === 'mise_oeuvre_pac') {
+      navigateToChecklist('pac');
+    } else if (surveillance?.type === 'maintien') {
+      navigateToChecklist('mixte');
     } else {
       navigateToChecklist('standard');
     }
@@ -192,6 +202,39 @@ export default function SurveillanceDetailPage() {
     }
     router.push(route);
   };
+
+  const handleExportChecklistPDF = async () => {
+    if (!surveillance?.checklist_hierarchy?.length) return
+    setExportingPdf(true)
+    try {
+      const oaci = aerodrome?.code_oaci || ''
+      const { exportChecklistPDF } = await import('@/lib/services/exportChecklist')
+      await exportChecklistPDF(surveillance.checklist_hierarchy as any[], {
+        titre: `Checklist - ${oaci}`,
+        code: surveillanceId?.slice(0, 12) || 'checklist',
+        portee: (surveillance.portee || []),
+      })
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
+  const handleExportChecklistDOCX = async () => {
+    if (!surveillance?.checklist_hierarchy?.length) return
+    setExportingDocx(true)
+    try {
+      const oaci = aerodrome?.code_oaci || ''
+      const { exportChecklistDOCX } = await import('@/lib/services/documentTemplater')
+      await exportChecklistDOCX(surveillance.checklist_hierarchy as any[], {
+        titre: `Checklist - ${oaci}`,
+        code: surveillanceId?.slice(0, 12) || 'checklist',
+        portee: (surveillance.portee || []),
+        aerodrome: aerodrome?.nom || '',
+      })
+    } finally {
+      setExportingDocx(false)
+    }
+  }
 
   const getStatutBadge = (statut: string) => {
     const map: Record<string, string> = {
@@ -383,6 +426,18 @@ export default function SurveillanceDetailPage() {
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Rédiger les écarts</span>
                       </button>
+                      <div className="flex gap-2">
+                        <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+                          PDF
+                        </button>
+                        <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />}
+                          Word
+                        </button>
+                      </div>
                       <button
                         onClick={handleChecklistAction}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -403,6 +458,16 @@ export default function SurveillanceDetailPage() {
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Rédiger le rapport</span>
                       </button>
+                      <div className="flex gap-2">
+                        <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
+                        </button>
+                        <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
+                        </button>
+                      </div>
                       <button
                         onClick={handleEcartClick}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -419,6 +484,8 @@ export default function SurveillanceDetailPage() {
                       </button>
                     </>
                   )}
+
+                  {/* ── écarts_signes avec rapport (écarts_signes déjà traité plus haut) ── */}
 
                   {/* ── rapport_signe ── */}
                   {surveillance.statut === 'rapport_signe' && (
@@ -444,6 +511,16 @@ export default function SurveillanceDetailPage() {
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
+                      <div className="flex gap-2">
+                        <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
+                        </button>
+                        <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
+                        </button>
+                      </div>
                       <button
                         onClick={handleChecklistAction}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -485,6 +562,16 @@ export default function SurveillanceDetailPage() {
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
+                      <div className="flex gap-2">
+                        <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
+                        </button>
+                        <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
+                        </button>
+                      </div>
                       <button
                         onClick={handleChecklistAction}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -551,7 +638,7 @@ export default function SurveillanceDetailPage() {
                     </>
                   )}
 
-                  <div className="border-t border-border pt-3 mt-1">
+                  <div className="border-t border-border pt-3 mt-1 space-y-2">
                     <button
                       onClick={() => router.push(`/surveillance/${surveillanceId}/presence`)}
                       className="btn btn-secondary btn-sm gap-2 w-full justify-start"
@@ -559,6 +646,15 @@ export default function SurveillanceDetailPage() {
                       <Users className="w-4 h-4" />
                       Feuille de présence
                     </button>
+                    {user?.id === surveillance?.chef_id && (
+                      <button
+                        onClick={() => setShowDelegationZone(!showDelegationZone)}
+                        className="btn btn-secondary btn-sm gap-2 w-full justify-start"
+                      >
+                        <Users className="w-4 h-4" />
+                        {showDelegationZone ? 'Masquer' : 'Gérer'} les délégations
+                      </button>
+                    )}
                   </div>
 
                 </div>
@@ -578,6 +674,23 @@ export default function SurveillanceDetailPage() {
               <InspecteurDelegationPanel
                 surveillanceId={surveillanceId}
                 portee={surveillance.portee}
+              />
+            )}
+
+            {/* ── Zone de délégation avancée (chef) ── */}
+            {showDelegationZone && user?.id === surveillance?.chef_id && surveillance && (
+              <DelegationZone
+                surveillanceId={surveillanceId}
+                typeSurveillance={(surveillance.type === 'periodique' || surveillance.type === 'inopine' || surveillance.type === 'inopinee' || surveillance.type === 'maintien' ? surveillance.type : 'periodique') as any}
+                domaines={(surveillance.checklist_hierarchy || []).map(d => ({
+                  id: (d.nom || d.id || '').toUpperCase(),
+                  nom: d.nom || d.id || '',
+                  itemsCount: (d.items || []).length + (d.sousDomaines?.reduce((a, sd) => a + (sd.items?.length || 0), 0) || 0),
+                  itemsIds: (d.items || []).map(i => i.id),
+                  priorite: 'moyenne' as const,
+                }))}
+                inspecteurs={[]}
+                readOnly={false}
               />
             )}
 

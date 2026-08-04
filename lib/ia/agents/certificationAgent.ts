@@ -16,6 +16,7 @@ import { useAppStore, Certification, Homologation, Aerodrome, ProfilRisque, Util
 import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { CERT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
+import { construireContexteReglementaire, recupererExtraitsReglementaires, type ExtraitCite } from '@/lib/ia/rag/reglementaireRag'
 
 // ============================================================
 // TYPES
@@ -601,7 +602,15 @@ ${JSON.stringify(aiContext, null, 2)}`,
 
     const aerodrome = store.aerodromes.find(a => a.id === process.aerodrome_id)
     const profil = store.profilsRisque[process.aerodrome_id]
-    
+
+    // Contexte réglementaire RAG (Kit Inspecteur) — références fiables pour l'évaluation
+    const extraitsReg = recupererExtraitsReglementaires({
+      type_entite: aerodrome?.type_entite,
+      requete: request.documentName,
+      maxChars: 3000,
+    })
+    const referencesApplicables = extraitsReg.map(e => e.reference).filter((r, i, a) => a.indexOf(r) === i)
+
     // Détermine les critères d'évaluation
     let criteres: Array<{ nom: string; description: string }> = []
     
@@ -661,6 +670,9 @@ ${JSON.stringify(aiContext, null, 2)}`,
     if (!conforme) {
       recommandations.push('Revoir le document pour corriger les non-conformités')
       recommandations.push('Ajouter les informations manquantes')
+      if (referencesApplicables.length > 0) {
+        recommandations.push(`Mettre le document en conformité avec : ${referencesApplicables.join(', ')}`)
+      }
     } else if (scoreMoyen >= 80) {
       recommandations.push('Document conforme - peut être validé')
     } else {
@@ -679,7 +691,8 @@ ${JSON.stringify(aiContext, null, 2)}`,
       aerodrome,
       profil,
       evaluations,
-      recommandations
+      recommandations,
+      extraitsReg
     )
 
     const result: DocumentEvaluationResult = {
@@ -706,7 +719,8 @@ ${JSON.stringify(aiContext, null, 2)}`,
     aerodrome?: Aerodrome,
     profil?: ProfilRisque,
     evaluations?: Array<{ nom: string; satisfait: boolean; commentaire: string }>,
-    recommandations?: string[]
+    recommandations?: string[],
+    references?: ExtraitCite[]
   ): string {
     const now = new Date().toLocaleString('fr-FR')
     
@@ -739,6 +753,14 @@ ${JSON.stringify(aiContext, null, 2)}`,
 - **Niveau:** ${profil.niveau}
 - **Tendance:** ${profil.tendance === 'hausse' ? '📈 Hausse' : profil.tendance === 'baisse' ? '📉 Baisse' : '➡️ Stable'}
 `
+    }
+
+    if (references && references.length > 0) {
+      rapport += `\n## Références réglementaires applicables (Kit Inspecteur)
+`
+      for (const ref of references.slice(0, 10)) {
+        rapport += `- **${ref.reference}** — ${ref.titre} (${ref.reference_base || ref.document_nom}, v${ref.version}, ${ref.statut})\n`
+      }
     }
 
     rapport += `\n---
@@ -890,12 +912,21 @@ ${JSON.stringify(aiContext, null, 2)}`,
       profil_score: profil?.score_global,
     }
 
+    const contexteReg = construireContexteReglementaire({
+      type_entite: aerodrome?.type_entite,
+      requete: `lettre ${request.typeLettre} ${request.type} ${aerodrome?.code_oaci ?? ''}`,
+      maxChars: 2500,
+    })
+
     const aiResult = await aiClient.call({
       systemPrompt: CERT_SYSTEM_PROMPT,
       userMessage: `Rédige le corps complet de cette lettre officielle ANACIM pour :
 ${JSON.stringify(lettreContext, null, 2)}
 
+${contexteReg}
+
 Format : lettre administrative française, avec objet, corps structuré en paragraphes, formule de politesse.
+Appuie toute mention réglementaire sur les références fournies ci-dessus.
 Ne pas inclure l'en-tête (logo ANACIM) — juste le corps de la lettre à partir de l'objet.`,
       temperature: 0.3,
       maxTokens: 1200,

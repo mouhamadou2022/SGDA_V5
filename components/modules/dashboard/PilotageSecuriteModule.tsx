@@ -223,7 +223,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
                 const aero = aerodromes?.find(a => a.id === e.aerodrome_id);
                 return (
                   <div key={e.id} className="flex items-start gap-2 py-2 px-3 bg-muted/5 rounded-lg text-sm">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${e.gravite === 'CRITIQUE' ? 'bg-danger' : e.gravite === 'ORANGE' ? 'bg-warning' : 'bg-primary'}`} />
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${e.gravite === 'critique' ? 'bg-danger' : e.gravite === 'eleve' ? 'bg-warning' : 'bg-primary'}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium">{e.type} — {aero?.code_oaci || e.aerodrome_id}</p>
                       <p className="text-xs text-muted-foreground truncate">{e.description || '—'}</p>

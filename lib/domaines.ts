@@ -168,7 +168,7 @@ export interface SuggestionMaintien {
 // Générer des suggestions pour le maintien de la sécurité
 export function genererSuggestionsMaintien(params: {
   ecartsActifs?: Array<{ domaine: string; niveau_risque: string; pac?: any }>;
-  evenementsSecurite?: Array<{ domaine: string; type: string; gravite: string }>;
+  evenementsSecurite?: Array<{ domaine?: string; type: string; gravite: string }>;
   profilRisque?: { c1: number; c3: number; c4: number; c5: number };
   domainesDerniereInspection?: Record<string, string>; // domaine -> date
   alertesLanceurs?: Array<{ domaine: string; description: string }>;
@@ -198,7 +198,7 @@ typesChecklist: ['suivi_ecarts', ...(params.ecartsActifs.some(e => e.pac) ? ['pa
   if (params.evenementsSecurite && params.evenementsSecurite.length > 0) {
     const domainesEvents = new Set<DomaineCode>();
     params.evenementsSecurite.forEach(e => {
-      if (getDomaineInfo(e.domaine)) {
+      if (e.domaine && getDomaineInfo(e.domaine)) {
         domainesEvents.add(e.domaine as DomaineCode);
       }
     });

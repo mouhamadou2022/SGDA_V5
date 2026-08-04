@@ -6,7 +6,7 @@ import {
   Plane, MapPin, Ruler, FileText, History, AlertTriangle, CheckCircle, XCircle,
   Download, Eye, Edit3, X, Globe, Phone, Mail, User, Shield, Gauge, TrendingUp, TrendingDown, Minus,
   Sparkles, AlertOctagon, Clock, Target, Zap,
-  Radio, Fuel, Weight, Waves, Navigation, CalendarDays, Flame, Building2, Compass, Brain,
+  Radio, Fuel, Weight, Waves, Navigation, CalendarDays, Flame, Compass, Brain,
 } from 'lucide-react';
 import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
@@ -14,14 +14,16 @@ import dynamic from 'next/dynamic';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
-  useAppStore, useProfilRisque, useSurveillancesByAerodrome,
+  useAppStore,
   Aerodrome, Certification, Homologation, ScoreHistoryPoint
 } from '@/lib/store';
 import { riskAgent } from '@/lib/ia/agents/riskAgent';
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import AerorisqAnalyse from '@/components/ia/AerorisqAnalyse';
 import AerorisqDashboard from '@/components/ia/AerorisqDashboard';
+import AdminInspecteurDashboard from './AdminInspecteurDashboard';
 
 const MiniMap = dynamic(() => import('./LocationPicker'), {
   ssr: false,
@@ -38,6 +40,10 @@ interface AerodromeDetailProps {
   onEdit: () => void;
   userRole: string;
 }
+
+const ADMIN_INSPECTEUR_ROLES = ['admin', 'inspector', 'inspecteur']
+
+const isAdminOrInspector = (role: string) => ADMIN_INSPECTEUR_ROLES.includes(role)
 
 const getStatutBadge = (statut: string) => {
   const variants: Record<string, { class: string; icon: React.ComponentType<{ className?: string }>; label: string }> = {
@@ -115,7 +121,8 @@ const getSgsNiveau = (score: number): number => {
   return 5;
 };
 
-export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }: AerodromeDetailProps) {
+export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: userRoleProp }: AerodromeDetailProps) {
+  const user = useAppStore(s => s.user)
   const ecarts = useAppStore(s => s.ecarts)
   const surveillances = useAppStore(s => s.surveillances)
   const certifications = useAppStore(s => s.certifications)
@@ -126,6 +133,14 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
   const getHistoricalScoresForAerodrome = useAppStore(s => s.getHistoricalScoresForAerodrome);
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const codesAcces = useAppStore(s => s.codesAcces)
+  const setCurrentAerodrome = useAppStore(s => s.setCurrentAerodrome)
+  const userRole = user?.role || userRoleProp
+
+  // Informer le store du contexte aérodrome actuel (utilisé par l'assistant IA)
+  useEffect(() => {
+    setCurrentAerodrome(aerodrome)
+    return () => setCurrentAerodrome(null)
+  }, [aerodrome, setCurrentAerodrome])
   
   const profilRisque = getProfilRisque(aerodrome.id);
   const surveillancesAerodrome = surveillances.filter(s => s.aerodrome_id === aerodrome.id);
@@ -144,7 +159,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
   const [iaAnalysis, setIaAnalysis] = useState<RiskAnalysisResult | null>(null);
   const [isLoadingIA, setIsLoadingIA] = useState(false);
 
-  // Charger l'analyse IA
+  // Charger l'analyse IA (quantitative d'abord, narrative ensuite)
   useEffect(() => {
     let cancelled = false
     const loadIAnalysis = async () => {
@@ -156,10 +171,22 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
           includeBlackSwan: true,
           includeSuggestions: true
         }, {});
-        if (!cancelled) setIaAnalysis(analysis);
+        if (!cancelled) {
+          setIaAnalysis(analysis)
+          setIsLoadingIA(false)
+        }
+
+        // Charger l'analyse narrative séparément (peut être lent — Ollama timeout 10s)
+        try {
+          const narrative = await riskAgent.getAIAnalysis(aerodrome.id, analysis)
+          if (narrative && !cancelled) {
+            setIaAnalysis(prev => prev ? { ...prev, aiAnalysis: narrative } : { ...analysis, aiAnalysis: narrative })
+          }
+        } catch {
+          // Narrative non disponible — l'analyse quantitative reste affichée
+        }
       } catch (error) {
         if (!cancelled) console.error('[AerodromeDetail] Erreur chargement IA:', error);
-      } finally {
         if (!cancelled) setIsLoadingIA(false);
       }
     };
@@ -200,6 +227,18 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
     return docs;
   }, [aerodrome.id, certifications, homologations, surveillancesAerodrome]);
 
+  const [survPage, setSurvPage] = useState(1)
+  const [docPage, setDocPage] = useState(1)
+  const TABLE_PAGE_SIZE = 10
+  const paginatedSurv = useMemo(() => {
+    const start = (survPage - 1) * TABLE_PAGE_SIZE
+    return surveillancesAerodrome.slice(start, start + TABLE_PAGE_SIZE)
+  }, [surveillancesAerodrome, survPage])
+  const paginatedDocs = useMemo(() => {
+    const start = (docPage - 1) * TABLE_PAGE_SIZE
+    return realDocuments.slice(start, start + TABLE_PAGE_SIZE)
+  }, [realDocuments, docPage])
+
   const realHistorique = useMemo(() => {
     const events: Array<{ id: string; date: string; action: string; utilisateur: string; details: string }> = [];
     surveillancesAerodrome.forEach(s => {
@@ -226,41 +265,41 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
   return (
     <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary" data-role={userRole}>
       {/* En-tête */}
-      <div className="modal-header border-b border-border bg-role-primary-soft">
-        <div className="flex items-center gap-4 flex-1">
-          <div className="detail-header-icon">
-            {/* Icône dynamique selon la nature de l'infrastructure */}
-            {aerodrome.type_entite === 'helistation'
-              ? <span style={{ fontSize: '2rem', lineHeight: 1 }}>🚁</span>
-              : aerodrome.type_entite === 'mixte'
-                ? <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>✈🚁</span>
-                : <Plane className="h-8 w-8 text-role-primary" />
-            }
-          </div>
+      <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent">
+        <div className="modal-title">
+          {aerodrome.type_entite === 'helistation'
+            ? <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>🚁</span>
+            : aerodrome.type_entite === 'mixte'
+              ? <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>✈🚁</span>
+              : <Plane className="w-5 h-5 text-role-primary" />
+          }
           <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="heading-2 text-foreground">{aerodrome.nom}</h2>
-              <span className="code-oaci-badge">{aerodrome.code_oaci}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              {getTypeBadge(aerodrome.type)}
-              {getTypeEntiteBadge(aerodrome.type_entite)}
-              {getStatutBadge(aerodrome.statut)}
-              {profilRisque && getNiveauRisqueBadge(profilRisque.niveau, profilRisque.score_global)}
-            </div>
+            <span>{aerodrome.nom}</span>
+            <span className="modal-subtitle">{aerodrome.code_oaci}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onClose} className="btn btn-secondary gap-2">
-            <X className="h-4 w-4" />Fermer
-          </button>
-          <button onClick={onEdit} className="btn btn-primary gap-2">
-            <Edit3 className="h-4 w-4" />Modifier
-          </button>
-        </div>
+        <button className="modal-close" onClick={onClose} aria-label="Fermer"><X className="w-4 h-4" /></button>
       </div>
 
-      {/* Onglets */}
+      {/* Badges */}
+      <div className="px-6 py-3 bg-background border-b border-border flex items-center gap-2 flex-wrap">
+        {getTypeBadge(aerodrome.type)}
+        {getTypeEntiteBadge(aerodrome.type_entite)}
+        {getStatutBadge(aerodrome.statut)}
+        {profilRisque && getNiveauRisqueBadge(profilRisque.niveau, profilRisque.score_global)}
+      </div>
+
+      {/* Vue unifiée Admin/Inspecteur — pas d'onglets */}
+      {isAdminOrInspector(userRole) ? (
+        <div className="modal-body bg-background px-6 py-5">
+          <AdminInspecteurDashboard
+            aerodrome={aerodrome}
+            iaAnalysis={iaAnalysis}
+            isLoadingIA={isLoadingIA}
+          />
+        </div>
+      ) : (<>
+      {/* Onglets pour les autres rôles */}
       <div className="tabs border-b border-border px-6 pt-4 bg-background">
         {[
           { id: 'info', label: 'Infos', icon: Plane },
@@ -484,7 +523,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
             {isLoadingIA && (
               <div className="text-center py-8">
                 <div className="spinner mx-auto mb-4" />
-                <p className="text-muted-foreground">Analyse IA en cours...</p>
+                <p className="text-muted-foreground">Analyse AERORISQ en cours...</p>
               </div>
             )}
 
@@ -529,7 +568,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
                       )}
                   </Card>
 
-                  <Card variant="role" className="col-span-3" icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="Prédictions IA">
+                  <Card variant="role" className="col-span-3" icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="Prédictions AERORISQ">
                       <div className="grid grid-cols-3 gap-4">
                         <div className="text-center p-3 bg-role-primary-soft rounded-xl border border-role-primary-light">
                           <p className="text-small text-muted-foreground">Dans 3 mois</p>
@@ -1028,97 +1067,53 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
         {/* ==================== ONGLET SURVEILLANCES ==================== */}
         {activeTab === 'surveillances' && (
           <div className="animate-fade-in">
-            <Card variant="role" title="Historique des surveillances">
-                {surveillancesAerodrome.length > 0 ? (
-                  <div className="table-container">
-                    <table className="table">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-muted-foreground">Date</th>
-                          <th className="text-muted-foreground">Type</th>
-                          <th className="text-muted-foreground">Score</th>
-                          <th className="text-muted-foreground">Statut</th>
-                          <th className="text-muted-foreground">Écarts</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {surveillancesAerodrome.map((surv) => (
-                          <tr key={surv.id} className="border-b border-border">
-                            <td className="text-foreground">{format(new Date(surv.date_debut), 'dd/MM/yyyy')}</td>
-                            <td className="text-foreground">{surv.type}</td>
-                            <td>
-                              {surv.score_global ? (
-                                <div className="flex items-center gap-2">
-                                  <div className="progress w-16 h-2">
-                                    <div className="progress-bar" style={{ width: `${surv.score_global}%` }} />
-                                  </div>
-                                  <span>{surv.score_global}%</span>
-                                </div>
-                              ) : 'N/A'}
-                            </td>
-                            <td>
-                              <span className={`badge ${
-                                surv.statut === 'transmise' ? 'success' :
-                                surv.statut === 'en_cours' ? 'warning' : 'neutral'
-                              }`}>{surv.statut}</span>
-                            </td>
-                            <td>
-                              <span className="badge danger">
-                                {ecarts.filter(e => e.surveillance_id === surv.id && e.statut !== 'cloture').length}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+            <DataTable
+              data={paginatedSurv}
+              columns={[
+                { key: 'date', header: 'Date', render: (s: any) => <span>{format(new Date(s.date_debut), 'dd/MM/yyyy')}</span> },
+                { key: 'type', header: 'Type', render: (s: any) => <span>{s.type}</span> },
+                { key: 'score', header: 'Score', render: (s: any) => s.score_global ? (
+                  <div className="flex items-center gap-2">
+                    <div className="progress w-16 h-2"><div className="progress-bar" style={{ width: `${s.score_global}%` }} /></div>
+                    <span>{s.score_global}%</span>
                   </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <Eye className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-muted-foreground">Aucune surveillance enregistrée</p>
-                  </div>
-                )}
-            </Card>
+                ) : <span>N/A</span> },
+                { key: 'statut', header: 'Statut', render: (s: any) => (
+                  <span className={`badge ${s.statut === 'transmise' ? 'success' : s.statut === 'en_cours' ? 'warning' : 'neutral'}`}>{s.statut}</span>
+                ) },
+                { key: 'ecarts', header: 'Écarts', render: (s: any) => (
+                  <span className="badge danger">{ecarts.filter((e: any) => e.surveillance_id === s.id && e.statut !== 'cloture').length}</span>
+                ) },
+              ]}
+              keyExtractor={(s: any) => s.id}
+              emptyState={{ icon: Eye, title: 'Aucune surveillance enregistrée' }}
+              pagination={{ total: surveillancesAerodrome.length, current: survPage, pageSize: TABLE_PAGE_SIZE, onPageChange: setSurvPage }}
+              cardProps={{ title: 'Historique des surveillances' }}
+              headerClassName="bg-role-primary-soft/40"
+            />
           </div>
         )}
 
         {/* ==================== ONGLET DOCUMENTS ==================== */}
         {activeTab === 'documents' && (
           <div className="animate-fade-in">
-            <Card variant="role" title="Documents">
-                {realDocuments.length > 0 ? (
-                  <div className="table-container">
-                    <table className="table">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-muted-foreground">Titre</th>
-                          <th className="text-muted-foreground">Type</th>
-                          <th className="text-muted-foreground">Date</th>
-                          <th className="text-muted-foreground">Uploadé par</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {realDocuments.map((doc) => (
-                          <tr key={doc.id} className="border-b border-border">
-                            <td className="font-medium text-foreground">{doc.titre}</td>
-                            <td><span className="badge neutral">{doc.type}</span></td>
-                            <td className="text-foreground">{format(new Date(doc.date), 'dd/MM/yyyy')}</td>
-                            <td className="text-foreground">{doc.uploader}</td>
-                            <td>
-                              <button className="action-button">
-                                <Download className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground text-center py-4">Aucun document disponible</p>
-                )}
-            </Card>
+            <DataTable
+              data={paginatedDocs}
+              columns={[
+                { key: 'titre', header: 'Titre', render: (d: any) => <span className="font-medium">{d.titre}</span> },
+                { key: 'type', header: 'Type', render: (d: any) => <span className="badge neutral">{d.type}</span> },
+                { key: 'date', header: 'Date', render: (d: any) => <span>{format(new Date(d.date), 'dd/MM/yyyy')}</span> },
+                { key: 'uploader', header: 'Uploadé par', render: (d: any) => <span>{d.uploader}</span> },
+                { key: 'actions', header: '', render: () => (
+                  <button className="action-button"><Download className="h-4 w-4" /></button>
+                ) },
+              ]}
+              keyExtractor={(d: any) => d.id}
+              emptyState={{ icon: FileText, title: 'Aucun document disponible' }}
+              pagination={{ total: realDocuments.length, current: docPage, pageSize: TABLE_PAGE_SIZE, onPageChange: setDocPage }}
+              cardProps={{ title: 'Documents' }}
+              headerClassName="bg-role-primary-soft/40"
+            />
           </div>
         )}
 
@@ -1152,6 +1147,16 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole }
             <AerorisqDashboard aerodromeId={aerodrome.id} />
           </div>
         )}
+      </div>
+    </>)}
+      {/* Pied avec actions */}
+      <div className="modal-footer border-t border-border p-4 flex justify-end gap-2">
+        <button onClick={onClose} className="btn btn-secondary gap-2">
+          <X className="h-4 w-4" />Fermer
+        </button>
+        <button onClick={onEdit} className="btn btn-primary gap-2">
+          <Edit3 className="h-4 w-4" />Modifier
+        </button>
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useAppStore, type Dossier } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { dossierUtils } from '@/lib/dossierUtils';
@@ -98,6 +99,9 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
   const [viewMode, setViewMode] = useState<'liste' | 'grille'>('liste');
   const [mounted, setMounted] = useState(false);
 
+  const [currentPage, setCurrentPage] = useState<Record<string, number>>({})
+  const PAGE_SIZE = 20
+
   // Par défaut, l'inspecteur ne voit que ses dossiers
   useEffect(() => {
     if (!mounted || !user) return;
@@ -110,6 +114,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     setMounted(true);
     return () => setMounted(false);
   }, []);
+  useEffect(() => { setCurrentPage({}) }, [filters, searchTerm])
 
   // Archivage automatique des dossiers terminés
   useEffect(() => {
@@ -184,6 +189,17 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     
     return grouped;
   }, [filteredDossiers]);
+
+  const paginatedEntries = useMemo(() => {
+    const result: Record<string, Dossier[]> = {}
+    CATEGORIES_DOSSIERS.forEach(cat => {
+      const entries = dossiersParCategorie[cat.id] || []
+      const page = currentPage[cat.id] || 1
+      const start = (page - 1) * PAGE_SIZE
+      result[cat.id] = entries.slice(start, start + PAGE_SIZE)
+    })
+    return result
+  }, [dossiersParCategorie, currentPage])
 
   // Statistiques
   const stats = useMemo(() => {
@@ -550,122 +566,65 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
                         )}
                       </div>
                     }
-                    defaultOpen={true}
-                  >
-                      <div className="table-container">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Référence</th>
-                              <th>Titre</th>
-                              <th>Aérodrome</th>
-                              <th>Inspecteur</th>
-                              <th>Progression</th>
-                              <th>Échéance</th>
-                              <th>Statut</th>
-                              <th className="text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {entries.map(dossier => {
-                              const aerodrome = aerodromes.find(a => a.id === dossier.aerodrome_id);
-                              const delai = getDelaiIndicator(dossier.date_limite);
-                              const DelaiIcon = delai.icon;
-
-                              return (
-                                <tr key={dossier.id} className="hover:bg-role-primary-soft">
-                                  <td className="font-mono text-sm font-semibold">
-                                    {dossier.reference}
-                                  </td>
-                                  <td>
-                                    <div className="flex items-center gap-2">
-                                      {getIconeCategorie(dossier.categorie, "w-4 h-4 text-role-primary")}
-                                      <span>{dossier.titre}</span>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    {aerodrome ? (
-                                      <span className="badge outline">{aerodrome.code_oaci}</span>
-                                    ) : (
-                                      <span className="text-muted">-</span>
-                                    )}
-                                  </td>
-                                  <td>
-                                    <div className="flex items-center gap-1">
-                                      <User className="w-3 h-3 text-muted" />
-                                      <span className="text-small">{dossier.assignments?.map((a: any) => a.inspecteur_nom).join(', ') || '—'}</span>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <div className="flex items-center gap-2 w-32">
-                                      <div className="progress flex-1 h-2">
-                                        <div 
-                                          className="progress-bar" 
-                                          style={{ width: `${dossier.progression}%` }}
-                                        />
-                                      </div>
-                                      <span className="text-xs">{dossier.progression}%</span>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <span className={`${delai.className} flex items-center gap-1`}>
-                                      <DelaiIcon className="w-3 h-3" />
-                                      {delai.label}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <span className={getCouleurStatut(dossier.statut)}>
-                                      {getLibelleStatut(dossier.statut)}
-                                    </span>
-                                  </td>
-                                   <td className="text-right">
-                                    <div className="flex justify-end gap-1">
-                                      <button 
-                                        className="action-button"
-                                        onClick={() => {
-                                          setSelectedDossierId(dossier.id);
-                                          setShowDetails(true);
-                                        }}
-                                        title="Voir détails"
-                                      >
-                                        <Eye className="w-4 h-4" />
-                                      </button>
-                                      {canManage && dossier.statut !== 'termine' && (
-                                        <button 
-                                          className="action-button text-success"
-                                          onClick={() => handleMarquerTermine(dossier.id)}
-                                          title="Marquer comme terminé"
-                                        >
-                                          <CheckCircle2 className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      {canManage && (
-                                        <button 
-                                          className="action-button"
-                                          onClick={() => handleEditDossier(dossier)}
-                                          title="Modifier"
-                                        >
-                                          <PenSquare className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      {canManage && (
-                                        <button 
-                                          className="action-button text-danger"
-                                          onClick={() => handleDeleteDossier(dossier)}
-                                          title="Supprimer"
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                  </AccordionSection>
+                      defaultOpen={true}
+                    >
+                      <DataTable
+                        data={paginatedEntries[cat.id] || []}
+                        columns={[
+                          { key: 'reference', header: 'Référence', render: (d: any) => <span className="font-mono text-sm font-semibold">{d.reference}</span> },
+                          { key: 'titre', header: 'Titre', render: (d: any) => (
+                            <div className="flex items-center gap-2">
+                              {getIconeCategorie(d.categorie, "w-4 h-4 text-role-primary")}
+                              <span>{d.titre}</span>
+                            </div>
+                          ) },
+                          { key: 'aerodrome', header: 'Aérodrome', render: (d: any) => {
+                            const aerodrome = aerodromes.find((a: any) => a.id === d.aerodrome_id);
+                            return aerodrome ? <span className="badge outline">{aerodrome.code_oaci}</span> : <span className="text-muted">-</span>;
+                          }},
+                          { key: 'inspecteur', header: 'Inspecteur', render: (d: any) => (
+                            <div className="flex items-center gap-1">
+                              <User className="w-3 h-3 text-muted" />
+                              <span className="text-small">{d.assignments?.map((a: any) => a.inspecteur_nom).join(', ') || '—'}</span>
+                            </div>
+                          ) },
+                          { key: 'progression', header: 'Progression', render: (d: any) => (
+                            <div className="flex items-center gap-2 w-32">
+                              <div className="progress flex-1 h-2">
+                                <div className="progress-bar" style={{ width: `${d.progression}%` }} />
+                              </div>
+                              <span className="text-xs">{d.progression}%</span>
+                            </div>
+                          ) },
+                          { key: 'echeance', header: 'Échéance', render: (d: any) => {
+                            const delai = getDelaiIndicator(d.date_limite);
+                            const DelaiIcon = delai.icon;
+                            return <span className={`${delai.className} flex items-center gap-1`}><DelaiIcon className="w-3 h-3" />{delai.label}</span>;
+                          }},
+                          { key: 'statut', header: 'Statut', render: (d: any) => (
+                            <span className={getCouleurStatut(d.statut)}>{getLibelleStatut(d.statut)}</span>
+                          ) },
+                          { key: 'actions', header: '', className: 'text-right', render: (d: any) => (
+                            <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                              <button className="action-button" onClick={() => { setSelectedDossierId(d.id); setShowDetails(true); }} title="Voir détails"><Eye className="w-4 h-4" /></button>
+                              {canManage && d.statut !== 'termine' && (
+                                <button className="action-button text-success" onClick={() => handleMarquerTermine(d.id)} title="Marquer comme terminé"><CheckCircle2 className="w-4 h-4" /></button>
+                              )}
+                              {canManage && (
+                                <button className="action-button" onClick={() => handleEditDossier(d)} title="Modifier"><PenSquare className="w-4 h-4" /></button>
+                              )}
+                              {canManage && (
+                                <button className="action-button text-danger" onClick={() => handleDeleteDossier(d)} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                              )}
+                            </div>
+                          ) },
+                        ]}
+                        keyExtractor={(d: any) => d.id}
+                        emptyState={{ icon: FileText, title: 'Aucun dossier' }}
+                        pagination={{ total: entries.length, current: currentPage[cat.id] || 1, pageSize: PAGE_SIZE, onPageChange: (page) => setCurrentPage(prev => ({ ...prev, [cat.id]: page })) }}
+                        headerClassName="bg-role-primary-soft/40"
+                      />
+                    </AccordionSection>
                 );
               })}
             </AccordionGroup>

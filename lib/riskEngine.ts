@@ -5,7 +5,7 @@
 
 import type { ProfilRisque, Ecart, SuggestionFeedback } from './store';
 import { RISK_LEVELS, getRiskLevel, computeVelocityMetrics } from './risque';
-import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes } from './domaines';
+import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes, getDomaineInfo } from './domaines';
 import { suggestionMLAgent, type SurveillanceType, type EnsemblePrediction } from '@/lib/ia/agents/suggestionMLAgent';
 import { anomalyDetector } from '@/lib/ia/models/randomForest';
 
@@ -173,16 +173,48 @@ export interface DecisionSurveillanceContinue {
   suggestionsMaintien?: SuggestionMaintien[];
 }
 
+/**
+ * Chaîne de preuves pédagogique ajoutée à la raison d'une décision :
+ * profil (critères C1-C5 les plus faibles) → écarts → signaux des modèles ML.
+ * Rend la justification traçable pour l'inspecteur (« pourquoi cette surveillance ? »).
+ */
+function batirEvidence(
+  profil: ProfilRisque,
+  degradations: DomainDegradation[],
+  ecartsActifs?: Ecart[],
+  hmmState?: string
+): string {
+  const parts: string[] = []
+  const nbCritiques = (ecartsActifs || []).filter((e) => e.niveau_risque === 'critique').length
+  const nbOuverts = (ecartsActifs || []).filter((e) => e.statut !== 'cloture').length
+  const faibles = ([
+    ['c1', 'C1 SGS'], ['c2', 'C2 PAC'], ['c3', 'C3 technique'], ['c4', 'C4 charge'], ['c5', 'C5 résilience'],
+  ] as const)
+    .map(([k, label]) => ({ label, valeur: ((profil as unknown as Record<string, number>)[k] ?? 50) }))
+    .filter((f) => f.valeur < 60)
+    .sort((a, b) => a.valeur - b.valeur)
+    .slice(0, 2)
+  if (faibles.length > 0) parts.push(`profil ${faibles.map((f) => `${f.label}=${f.valeur}`).join(', ')}`)
+  if (nbCritiques > 0) parts.push(`${nbCritiques} écart(s) critique(s)`)
+  else if (nbOuverts > 0) parts.push(`${nbOuverts} écart(s) ouvert(s)`)
+  if (hmmState === 'critical') parts.push('HMM: état critique')
+  else if (hmmState === 'degrading') parts.push('HMM: transition détectée')
+  if (degradations.length > 0) parts.push(`dégradation ${degradations[0].domaine} (-${degradations[0].degradation} pts)`)
+  if (profil.bayesian_black_swan) parts.push('cygne noir bayésien')
+  return parts.length > 0 ? ` — ${parts.join(' · ')}` : ''
+}
+
 export function determineTypeSurveillanceContinue(
   profil: ProfilRisque,
   urgents: EcartUrgent[],
   degradations: DomainDegradation[],
   ecartsActifs?: Ecart[],
-  evenementsSecurite?: Array<{ domaine: string; type: string; gravite: string }>,
+  evenementsSecurite?: Array<{ domaine?: string; type: string; gravite: string; date?: string; statut?: string }>,
   domainesDerniereInspection?: Record<string, string>,
   alertesLanceurs?: Array<{ domaine: string; description: string }>,
   statut_sgs?: 'complet' | 'simplifie' | 'non_applicable',
   hmmState?: string,  // 'stable' | 'degrading' | 'critical' — override la priorité si dégradé
+  maturite_sgs?: number,
 ): DecisionSurveillanceContinue {
   const infra = profil.infrastructure
   const isHelistation = infra?.type_entite === 'helistation'
@@ -190,32 +222,65 @@ export function determineTypeSurveillanceContinue(
   const aDesUrgents = urgents.some(u => u.joursRestants <= 3);
   const aDesCritiques = urgents.some(u => u.niveau === 'critique');
   const degradationsSeveres = degradations.filter(d => d.degradation > 15);
+  const sgsApplicable = statut_sgs !== 'non_applicable' && !isHelistation
 
-  // Ajustement des domaines cibles selon type d'entité et infrastructure
+  // Chaîne de preuves (profil → écarts → ML) ajoutée aux raisons ci-dessous
+  const evidence = batirEvidence(profil, degradations, ecartsActifs, hmmState)
+  const evidenceSansHmm = batirEvidence(profil, degradations, ecartsActifs, undefined)
+
+  // ── Signaux contextuels : événements, récurrences, SGS, lanceurs ──
+  const now = Date.now()
+  const estRecent = (dateStr?: string, seuilJours = 30): boolean => {
+    if (!dateStr) return true
+    const ecartJours = (now - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)
+    return ecartJours >= 0 && ecartJours <= seuilJours
+  }
+  // Événement de sécurité significatif récent (< 30 j, CRITIQUE/ORANGE, non clôturé)
+  const evenementsSignificatifs = (evenementsSecurite || []).filter(e =>
+    ['critique', 'eleve'].includes(e.gravite) && e.statut !== 'cloture' && estRecent(e.date)
+  )
+  const domainesEvenements = [...new Set(evenementsSignificatifs.map(e => e.domaine).filter((d): d is string => !!d))]
+
+  // Problème récurrent : ≥2 écarts actifs sur le même domaine
+  const ecartsParDomaine = new Map<string, number>()
+  ;(ecartsActifs || []).forEach(e => {
+    if (!getDomaineInfo(e.domaine || '')) return
+    ecartsParDomaine.set(e.domaine!, (ecartsParDomaine.get(e.domaine!) || 0) + 1)
+  })
+  const domainesRecurrents = [...ecartsParDomaine.entries()].filter(([, n]) => n >= 2).map(([d]) => d as DomaineCode)
+
+  // Récurrence d'événements : ≥2 événements du même type
+  const compteurTypesEvenements = new Map<string, number>()
+  ;(evenementsSecurite || []).forEach(e => {
+    compteurTypesEvenements.set(e.type, (compteurTypesEvenements.get(e.type) || 0) + 1)
+  })
+  const aEvenementsRecurrents = [...compteurTypesEvenements.values()].some(n => n >= 2)
+
+  // SGS critique / absent / simplifié insuffisant / jamais évalué
+  const sgsEvalue = maturite_sgs != null || (domainesDerniereInspection?.SGS != null)
+  const sgsCritique = sgsApplicable && (
+    profil.c1 < 30 ||
+    (maturite_sgs != null && maturite_sgs < 30) ||
+    (statut_sgs === 'simplifie' && (maturite_sgs == null || maturite_sgs < 50)) ||
+    (!sgsEvalue && profil.c1 < 50)
+  )
+
+  // ── Helpers infrastructure ──
   const domainesApplicables = (): DomaineCode[] => {
-    const tous = getDomainesIndividuelsCodes()
-    if (isHelistation) {
-      // Hélistation : retirer les domaines purement aérodrome
-      return tous.filter(d => d !== 'MFP') // pas de marquage piste
-    }
-    if (isJourOnly) {
-      // Jour seulement : ELEC et MFP partiellement applicables
-      return tous // garder tous les domaines mais avec items filtrés
-    }
+    let tous = getDomainesIndividuelsCodes()
+    if (isHelistation) tous = tous.filter(d => d !== 'MFP')
+    if (!sgsApplicable) tous = tous.filter(d => d !== 'SGS')
     return tous
   }
 
-  // Ajustement du délai recommandé selon l'infrastructure
   const ajusterDelai = (base: number): number => {
     if (isHelistation) return Math.max(14, base - 15) // hélistation → délai réduit (moins de domaines)
     if (isJourOnly && base > 30) return base - 10 // jour → léger bonus
     return base
   }
 
-  // Ajustement des types de checklist selon l'infrastructure
   const ajusterChecklists = (types: TypeChecklist[]): TypeChecklist[] => {
     if (isHelistation && types.includes('standard') && types.length === 1) {
-      // Hélistation : checklist standard suffit (moins d'items)
       return types
     }
     return types
@@ -225,7 +290,7 @@ export function determineTypeSurveillanceContinue(
   if (profil.score_global < 30) {
     return {
       type: 'maintien',
-      raison: `Score critique (${profil.score_global}/100) — vérification complète requise`,
+      raison: `Score critique (${profil.score_global}/100) — vérification complète requise` + evidence,
       priorite: 'critique',
       delaiRecommandation: ajusterDelai(7),
       domainesCibles: domainesApplicables(),
@@ -243,9 +308,9 @@ export function determineTypeSurveillanceContinue(
 
     return {
       type: 'maintien',
-      raison: aDesUrgents
+      raison: (aDesUrgents
         ? `${urgents.filter(u => u.joursRestants <= 3).length} écart(s) urgent(s) à traiter`
-        : `${urgents.length} écart(s) critique(s) actif(s)`,
+        : `${urgents.length} écart(s) critique(s) actif(s)`) + evidence,
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(14),
       domainesCibles: [...new Set(domainesEcarts)],
@@ -254,18 +319,32 @@ export function determineTypeSurveillanceContinue(
     };
   }
 
-  // Cas 3 : Dégradations sévères → maintien sur domaines dégradés
+  // Cas 3 : Événement de sécurité significatif récent → inspection inopinée
+  if (evenementsSignificatifs.length > 0) {
+    const detail = evenementsSignificatifs.map(e => `${e.type} (${e.gravite})`).join(', ')
+    return {
+      type: 'inopine',
+      raison: `Événement(s) de sécurité significatif(s) récent(s) : ${detail}` + evidence,
+      priorite: 'critique',
+      delaiRecommandation: ajusterDelai(7),
+      domainesCibles: domainesEvenements.length > 0 ? (domainesEvenements as DomaineCode[]) : domainesApplicables(),
+      typesChecklist: ajusterChecklists(['standard']),
+      suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
+    };
+  }
+
+  // Cas 4 : Dégradations sévères → maintien sur domaines dégradés
   if (degradationsSeveres.length > 0) {
     const domainesDeg: DomaineCode[] = [];
     degradationsSeveres.forEach(d => {
-      if (d.domaine === 'SGS' && statut_sgs !== 'non_applicable') domainesDeg.push('SGS');
+      if (d.domaine === 'SGS' && sgsApplicable) domainesDeg.push('SGS');
       if (d.domaine === 'Conformité technique') domainesDeg.push('PHY', 'OLS', 'ELEC', 'MFP');
       if (d.domaine === 'Résilience') domainesDeg.push('SLI', 'RA');
     });
 
     return {
       type: 'maintien',
-      raison: `Dégradation sévère détectée sur ${degradationsSeveres.map(d => d.domaine).join(', ')}`,
+      raison: `Dégradation sévère détectée sur ${degradationsSeveres.map(d => d.domaine).join(', ')}` + evidence,
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(30),
       domainesCibles: [...new Set(domainesDeg)],
@@ -274,11 +353,11 @@ export function determineTypeSurveillanceContinue(
     };
   }
 
-  // Cas 4 : SGS faible ou absent → maintien renforcé tous domaines
-  if (profil.c1 < 30) {
+  // Cas 5 : SGS critique / absent / simplifié insuffisant → maintien renforcé
+  if (sgsCritique) {
     return {
       type: 'maintien',
-      raison: `SGS critique (C1=${profil.c1}/100) — surveillance renforcée tous domaines`,
+      raison: `SGS critique ou absent (C1=${profil.c1}/100, maturité=${maturite_sgs ?? 'non évaluée'}, statut=${statut_sgs ?? 'inconnu'})` + evidence,
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(30),
       domainesCibles: domainesApplicables(),
@@ -287,11 +366,27 @@ export function determineTypeSurveillanceContinue(
     };
   }
 
-  // Cas 5 : Score faible + tendance baisse → périodique renforcé
+  // Cas 6 : Problème récurrent (≥2 écarts même domaine ou événements similaires) → inopinée ciblée
+  if (domainesRecurrents.length > 0 || aEvenementsRecurrents) {
+    const raison = (domainesRecurrents.length > 0
+      ? `Problème récurrent détecté sur ${domainesRecurrents.join(', ')} (≥2 écarts actifs)`
+      : 'Événements de sécurité récurrents du même type détectés') + evidence
+    return {
+      type: 'inopine',
+      raison,
+      priorite: 'haute',
+      delaiRecommandation: ajusterDelai(30),
+      domainesCibles: domainesRecurrents.length > 0 ? domainesRecurrents : domainesApplicables(),
+      typesChecklist: ajusterChecklists(['standard', 'suivi_ecarts']),
+      suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
+    };
+  }
+
+  // Cas 7 : Score faible + tendance baisse → périodique renforcé
   if (profil.score_global < 50 && profil.tendance === 'baisse') {
     return {
       type: 'periodique',
-      raison: `Score faible (${profil.score_global}/100) avec tendance baissière`,
+      raison: `Score faible (${profil.score_global}/100) avec tendance baissière` + evidence,
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(45),
       domainesCibles: domainesApplicables(),
@@ -300,23 +395,34 @@ export function determineTypeSurveillanceContinue(
     };
   }
 
-  // Cas 6 : Charge critique élevée → inopiné recommandé
+  // Cas 8 : Charge critique élevée → inopinée recommandée
   if (profil.c4 < 40) {
     return {
       type: 'inopine',
-      raison: `Charge critique élevée (C4=${profil.c4}/100) — inspection inopinée recommandée`,
+      raison: `Charge critique élevée (C4=${profil.c4}/100) — inspection inopinée recommandée` + evidence,
       priorite: 'moyenne',
       delaiRecommandation: ajusterDelai(60),
-      domainesCibles: statut_sgs === 'non_applicable'
-        ? (isHelistation ? ['OPS'] as DomaineCode[] : ['OPS'])
-        : (isHelistation ? ['SGS', 'OPS'] as DomaineCode[] : ['SGS', 'OPS']),
+      domainesCibles: domainesApplicables().filter(d => d !== 'SGS' || sgsApplicable).slice(0, 3),
       typesChecklist: ajusterChecklists(['standard']),
       suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
     };
   }
 
-  // Cas par défaut : périodique de routine
-  // Default case — application de l'override HMM
+  // Cas 9 : Alertes de lanceurs d'alerte → inopinée ciblée
+  if (alertesLanceurs && alertesLanceurs.length > 0) {
+    const domainesAlertes = [...new Set(alertesLanceurs.map(a => a.domaine).filter(d => getDomaineInfo(d)))] as DomaineCode[]
+    return {
+      type: 'inopine',
+      raison: `${alertesLanceurs.length} alerte(s) de lanceur(s) d'alerte à investiguer` + evidence,
+      priorite: 'moyenne',
+      delaiRecommandation: ajusterDelai(30),
+      domainesCibles: domainesAlertes.length > 0 ? domainesAlertes : domainesApplicables(),
+      typesChecklist: ajusterChecklists(['standard']),
+      suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
+    };
+  }
+
+  // Cas par défaut : périodique de routine — application de l'override HMM
   let finalPriorite = 'moyenne' as 'basse' | 'moyenne' | 'haute' | 'critique'
   let finalDelai = ajusterDelai(90)
   let finalRaison = 'Surveillance périodique de routine'
@@ -333,7 +439,7 @@ export function determineTypeSurveillanceContinue(
 
   return {
     type: 'periodique',
-    raison: finalRaison,
+    raison: finalRaison + (hmmState === 'critical' || hmmState === 'degrading' ? evidenceSansHmm : evidence),
     priorite: finalPriorite,
     delaiRecommandation: finalDelai,
     domainesCibles: domainesApplicables(),
@@ -350,13 +456,38 @@ export function determineChecklistType(
   typePlanning: string
 ): DecisionChecklist {
   const decision = determineTypeSurveillanceContinue(profil, urgents, degradations);
+
+  // Le type de mission explicite (s'il est spécifique) écrase la recommandation du profil
+  let typesChecklist: TypeChecklist[] = decision.typesChecklist;
+  if (typePlanning === 'certification' || typePlanning === 'homologation') {
+    typesChecklist = ['standard'];
+  } else if (typePlanning === 'suivi_ecarts') {
+    typesChecklist = ['suivi_ecarts'];
+  } else if (typePlanning === 'mise_oeuvre_pac') {
+    typesChecklist = ['pac'];
+  } else if (typePlanning === 'maintien' || typePlanning === 'audit_complet') {
+    typesChecklist = ['standard', 'suivi_ecarts', 'pac'];
+  }
+
+  const hasStandard = typesChecklist.includes('standard');
+  const hasSuivi = typesChecklist.includes('suivi_ecarts');
+  const hasPac = typesChecklist.includes('pac');
+  const type: DecisionChecklist['type'] =
+    (hasStandard && (hasSuivi || hasPac)) || (hasSuivi && hasPac)
+      ? 'mixte'
+      : hasSuivi
+        ? 'suivi_ecarts'
+        : hasPac
+          ? 'pac'
+          : 'standard';
+
   return {
-    type: decision.type === 'periodique' ? 'standard' : decision.type === 'inopine' ? 'standard' : 'mixte',
+    type,
     raison: decision.raison,
     priorite: decision.priorite,
     delaiRecommandation: decision.delaiRecommandation,
     domainesCibles: decision.domainesCibles,
-    typesChecklist: decision.typesChecklist,
+    typesChecklist,
   };
 }
 

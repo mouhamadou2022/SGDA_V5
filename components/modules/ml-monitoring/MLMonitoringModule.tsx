@@ -1,6 +1,11 @@
 // components/modules/ml-monitoring/MLMonitoringModule.tsx
-// 2 onglets : Performances (tous) | Modèles (admin only)
-// Monitoring clair des modèles ML
+// Monitoring ML — 6 grandes cartes :
+// 1. Modèles ML (RF / XGBoost / LightGBM / CatBoost / MLP) : benchmark, maturité, calibrage, sélection du modèle actif
+// 2. Modèles de risques : précision, maturité, évolution, calibrage, simulation
+// 3. Modèles mathématiques : calibrage + simulation
+// 4. Agents IA : précision, maturité
+// 5. AERORISQ : simulation, entraînement, A/B testing
+// 6. Synthèse : données + langage clair
 
 'use client'
 
@@ -8,31 +13,52 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import type { MLRiskCorrelationData } from '@/lib/store/advancedModelsSlice'
 import type { AuthUser } from '@/lib/auth'
-import type { RecalibrationAlertRecord, ModelCalibrationRecord } from '@/lib/store'
-import type { RandomForestModelStored, ModelPerformanceMetrics, ModelTrainingConfig, TrainingHistoryEntry, TrainingStats } from '@/lib/store/models'
-import type { RiskGraphStored } from '@/lib/store/models'
+import type { RecalibrationAlertRecord, ProfilRisque, Ecart, Surveillance, AmdecAnalyse, ArbreFTA, EvenementSecurite } from '@/lib/store'
+import type { ModelTrainingConfig, TrainingHistoryEntry, TrainingStats } from '@/lib/store/models'
 import { Card } from '@/components/ui/card'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
-import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { getABStats, clearABHistory } from '@/lib/ab_testing'
 import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engineFeedback'
+import { inspecteurMonitoring, type CapaciteInspecteur, CAPACITES_INSPECTEUR, type InspecteurMonitoringStats } from '@/lib/ia/engines/inspecteurMonitoring'
 import { thresholdController } from '@/lib/ia/thresholdController'
+import { synthetiserModeles, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
+import { recommanderModeleAnalyse } from '@/lib/ia/modelSelector'
+import { lancerDiagnosticOrchestrateur, lireDernierDiagnostic, historiqueOrchestrateur } from '@/lib/ia/orchestrateur'
+import type { ResultatOrchestrateur } from '@/lib/ia/orchestrateur'
+import DigitalTwinCard from './DigitalTwinCard'
+import ShapExplainerCard from './ShapExplainerCard'
+import OaciGraphCard from './OaciGraphCard'
+import type { ModeleBenchmarkId } from '@/lib/ia/benchmark'
+import { MODELE_LABELS, DEFAULT_BENCHMARK_CONFIG, MODEL_HYPERPARAMS, configEstPersonnalisee } from '@/lib/ia/benchmark'
+import type { BenchmarkConfig } from '@/lib/ia/benchmark'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
 } from 'recharts'
 import {
-  Brain, Target, TrendingUp, Activity, AlertTriangle, CheckCircle2, RefreshCw,
-  Settings, Database, BarChart3, Layers, Download, Upload, RotateCcw, Clock,
-  BookOpen, FlaskConical, GitCompare, Network, Users, Shield,
+  Brain, Target, TrendingUp, AlertTriangle, CheckCircle2, RefreshCw,
+  Database, Download, Upload, RotateCcw,
+  BookOpen, FlaskConical, Network, Users, Cpu, Calculator,
+  Play, Trophy, Sparkles, Settings, SlidersHorizontal, Workflow, History,
 } from 'lucide-react'
-import { getConfianceLabel, getConfianceDot } from '@/lib/risque/bayesianNetwork'
 
 interface Props { user: AuthUser }
 
+const CAPACITE_LABELS: Record<CapaciteInspecteur, string> = {
+  checklist: 'Checklist',
+  ecart: 'Écarts',
+  rapport: 'Rapports',
+  certification: 'Certification / Homologation',
+  evenement: 'Événements',
+}
+
 export default function MLMonitoringModule({ user }: Props) {
-  const aerodromes = useAppStore(s => s.aerodromes)
   const profilsRisque = useAppStore(s => s.profilsRisque)
+  const ecarts = useAppStore(s => s.ecarts)
+  const surveillances = useAppStore(s => s.surveillances)
+  const amdecAnalyses = useAppStore(s => s.amdecAnalyses)
+  const ftaAnalyses = useAppStore(s => s.ftaAnalyses)
+  const evenementsSecurite = useAppStore(s => s.evenements)
   const learningFeedbacks = useAppStore(s => s.learningFeedbacks)
   const currentModel = useAppStore(s => s.currentModel)
   const recalibrationAlerts = useAppStore(s => s.recalibrationAlerts)
@@ -57,20 +83,35 @@ export default function MLMonitoringModule({ user }: Props) {
   const getTrainingHistory = useAppStore(s => s.getTrainingHistory)
   const getTrainingStats = useAppStore(s => s.getTrainingStats)
   const exportTrainingHistoryCSV = useAppStore(s => s.exportTrainingHistoryCSV)
+  const isBenchmarking = useAppStore(s => s.isBenchmarking)
+  const benchmarkOutcome = useAppStore(s => s.benchmarkOutcome)
+  const activeModelId = useAppStore(s => s.activeModelId)
+  const activeModelName = useAppStore(s => s.activeModelName)
+  const activeModelTrainedAt = useAppStore(s => s.activeModelTrainedAt)
+  const runBenchmarkModels = useAppStore(s => s.runBenchmarkModels)
+  const selectActiveModel = useAppStore(s => s.selectActiveModel)
+  const loadBenchmarkState = useAppStore(s => s.loadBenchmarkState)
+  const benchmarkConfig = useAppStore(s => s.benchmarkConfig)
+  const setBenchmarkConfig = useAppStore(s => s.setBenchmarkConfig)
 
-  const [activeTab, setActiveTab] = useState<'performances' | 'modeles'>('performances')
   const [showHelp, setShowHelp] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
-  const [engineStats, setEngineStats] = useState<EngineLearningStats | null>(null)
+  const [engineStats] = useState<EngineLearningStats | null>(() => engineFeedback.getStats())
+  const [inspecteurStats] = useState<InspecteurMonitoringStats | null>(() => inspecteurMonitoring.getStats())
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
 
-  useEffect(() => { setEngineStats(engineFeedback.getStats()) }, [])
+  useEffect(() => { loadBenchmarkState() }, [loadBenchmarkState])
 
   const isAdmin = user?.role === 'admin'
   const stats = learningFeedbacks.length > 0 ? calculatePerformance() : null
   const detailedStats = learningFeedbacks.length > 0 ? getDetailedLearningStats() : null
   const pacStats = getLearningStatsPAC()
   const pendingAlerts = recalibrationAlerts?.filter(a => !a.traitee) || []
-  const mlRiskCorrelation: MLRiskCorrelationData = useMemo(() => getMLRiskCorrelation(), [rfModelInfo, graphModelInfo, rfSamplesCount])
+  const mlRiskCorrelation: MLRiskCorrelationData = useMemo(() => getMLRiskCorrelation(), [getMLRiskCorrelation])
+  const premierProfil = useMemo(() => {
+    const arr = profilsRisque ? Object.values(profilsRisque) : []
+    return arr[0] || null
+  }, [profilsRisque])
 
   const handleRecalibrate = () => recalibrateModel('manuel', user?.prenom && user?.nom ? `${user.prenom} ${user.nom}` : 'admin')
   const handleExport = () => {
@@ -92,334 +133,819 @@ export default function MLMonitoringModule({ user }: Props) {
   }
   const handleTrainRF = () => trainRandomForestModel(10, 4)
 
+  const handleRunBenchmark = async () => {
+    setBenchmarkError(null)
+    const outcome = await runBenchmarkModels()
+    if (!outcome) setBenchmarkError("Benchmark impossible — il faut au moins 10 échantillons d'entraînement (collectés via les profils et le decisionTracker).")
+  }
+
   const barColor = 'var(--role-primary)'
-
-  const sourceInfo = (persistent: boolean, label: string) => (
-    <span className={`text-[10px] ${persistent ? 'text-success' : 'text-warning'} ml-1`} title={persistent ? 'Données persistées Supabase' : 'Stockage temporaire (session) — perdu à la fermeture'}>
-      {persistent ? '🟢' : '🟡'} {label}
-    </span>
-  )
-
-  const kpis = [
-    { label: 'Feedbacks', value: detailedStats?.total_feedbacks || 0, icon: <Brain className="h-5 w-5" />, tooltip: "Retours inspecteurs intégrés au modèle d'apprentissage.", trend: 'collectés', trendUp: true, source: sourceInfo(false, 'session') },
-    { label: 'Précision', value: `${stats?.precision_globale ?? 0}%`, icon: <Activity className="h-5 w-5" />, tooltip: "Taux de prédictions correctes. Seuil acceptable ≥ 70 %.", trend: `v${currentModel?.version || 1}`, trendUp: (stats?.precision_globale ?? 0) >= 70, source: sourceInfo(false, 'session') },
-    { label: 'Alertes', value: pendingAlerts.length, icon: <AlertTriangle className="h-5 w-5" />, tooltip: "Alertes de recalibration en attente.", trend: 'en attente', trendUp: false, warning: pendingAlerts.length > 0, source: sourceInfo(false, 'session') },
-    { label: 'Échantillons RF', value: rfSamplesCount > 0 ? rfSamplesCount : 'modèle non alimenté', icon: <Database className="h-5 w-5" />, tooltip: rfSamplesCount > 0 ? "Échantillons pour Random Forest." : "Aucun échantillon réel — modèle jamais entraîné. Les prédictions RF utilisent des valeurs par défaut.", trend: rfModelInfo ? `${(rfModelInfo.accuracy * 100).toFixed(0)}%` : 'non entraîné', trendUp: rfModelInfo ? rfModelInfo.accuracy >= 0.7 : false, source: sourceInfo(false, 'session') },
-    { label: 'Convergence ML', value: `${mlRiskCorrelation.convergenceScore}%`, icon: <Target className="h-5 w-5" />, tooltip: "Cohérence entre prédictions ML et profil de risque. ≥ 60 % = bonne convergence.", trend: `${mlRiskCorrelation.aerodromeCount} aérodromes`, trendUp: mlRiskCorrelation.convergenceScore >= 60, source: sourceInfo(false, 'session') },
-  ]
-
-  const domainChartData = useMemo(() => {
-    if (!detailedStats?.precision_par_domaine) return []
-    return Object.entries(detailedStats.precision_par_domaine).map(([d, p]) => ({ name: d, Précision: p as number }))
-  }, [detailedStats])
 
   return (
     <div className="space-y-6 animate-fade-in" data-module="ml-monitoring" data-role={user?.role}>
-      <ModuleHeader icon={<Brain className="h-8 w-8 text-role-primary" />} title="Monitoring ML" description="Performance et entraînement des modèles d'apprentissage"
+      <ModuleHeader icon={<Brain className="h-8 w-8 text-role-primary" />} title="Monitoring ML" description="Performance, entraînement et calibration des modèles d'intelligence artificielle"
         actions={<div className="flex items-center gap-2">
           <button onClick={() => setShowHelp(true)} className="btn btn-sm btn-secondary gap-1.5"><BookOpen className="w-3.5 h-3.5" />Aide</button>
           <button onClick={handleExport} className="btn btn-sm btn-secondary gap-1.5"><Download className="h-4 w-4" />Exporter</button>
           <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>
         </div>} />
 
-      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Performances des modèles d'apprentissage" sections={HELP_SECTIONS} />
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Dix cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI" sections={HELP_SECTIONS} />
 
       {importError && <div className="alert alert-danger animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{importError}</div></div>}
+      {benchmarkError && <div className="alert alert-warning animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{benchmarkError}</div></div>}
 
-      {/* KPIs — 5 cartes, tooltips 1 phrase */}
-      <div className="kpi-grid">
-        {kpis.map((kpi, idx) => (
-          <div key={kpi.label} className="kpi-card animate-fade-up" style={{ animationDelay: `${idx * 0.05}s` }}>
-            <div className="kpi-icon">{kpi.icon}</div>
-              <div className="kpi-content">
-                <div className="kpi-label">{kpi.label}<InfoTooltip content={kpi.tooltip} /></div>
-              <div className={`kpi-value ${kpi.warning ? 'text-warning' : ''} ${typeof kpi.value === 'string' && kpi.value.includes('non alimenté') ? 'text-muted-foreground italic' : ''}`}>{kpi.value}</div>
-              <div className={`kpi-trend ${kpi.trendUp ? 'up' : 'down'}`}>{kpi.trend}</div>
-              {kpi.source}
-            </div>
-          </div>
-        ))}
+      {/* ══════════════════ CARTE 1 : MODÈLES ML ══════════════════ */}
+      <MLModelsCard
+        benchmarkOutcome={benchmarkOutcome}
+        isBenchmarking={isBenchmarking}
+        activeModelId={activeModelId}
+        activeModelName={activeModelName}
+        activeModelTrainedAt={activeModelTrainedAt}
+        rfModelInfo={rfModelInfo}
+        rfSamplesCount={rfSamplesCount}
+        modelMetrics={modelMetrics}
+        pendingAlerts={pendingAlerts}
+        onRunBenchmark={handleRunBenchmark}
+        onSelectModel={selectActiveModel}
+        onTrainRF={handleTrainRF}
+        benchmarkConfig={benchmarkConfig}
+        onSetConfig={setBenchmarkConfig}
+      />
+
+      {/* ══════════════════ CARTE 2 : MODÈLES DE RISQUES ══════════════════ */}
+      <RiskModelsCard
+        profilsRisque={profilsRisque}
+        ecarts={ecarts}
+        surveillances={surveillances}
+        amdecAnalyses={amdecAnalyses}
+        ftaAnalyses={ftaAnalyses}
+        evenementsSecurite={evenementsSecurite}
+        rfModelInfo={rfModelInfo}
+        graphModelInfo={graphModelInfo}
+        mlRiskCorrelation={mlRiskCorrelation}
+        modelTrainingConfig={modelTrainingConfig}
+        onTrainRF={handleTrainRF}
+        rfSamplesCount={rfSamplesCount}
+        barColor={barColor}
+      />
+
+      {/* ══════════════════ CARTE 3 : MODÈLES MATHÉMATIQUES ══════════════════ */}
+      <MathModelsCard profilsRisque={profilsRisque} />
+
+      {/* ══════════════════ CARTE 4 : AGENTS IA ══════════════════ */}
+      <AgentsCard engineStats={engineStats} inspecteurStats={inspecteurStats} />
+
+      {/* ══════════════════ CARTE 5 : AERORISQ ══════════════════ */}
+      <AerorisqCard
+        isAdmin={isAdmin}
+        pacStats={pacStats}
+        detailedStats={detailedStats}
+        stats={stats}
+        currentModel={currentModel}
+        modelTrainingConfig={modelTrainingConfig}
+        onRecalibrate={handleRecalibrate}
+        onReset={resetLearningData}
+        onExport={handleExport}
+        onImport={handleImport}
+        onSetAutoTrain={setAutoTrainEnabled}
+        onSetInterval={setTrainInterval}
+        onRefresh={refreshModelInfo}
+        onResetModels={resetAdvancedModels}
+        getTrainingHistory={getTrainingHistory}
+        getTrainingStats={getTrainingStats}
+        exportTrainingHistoryCSV={exportTrainingHistoryCSV}
+        barColor={barColor}
+      />
+
+      {/* ══════════════════ CARTE 6 : SYNTHÈSE ══════════════════ */}
+      <SynthesisCard
+        premierProfil={premierProfil}
+        stats={stats}
+        inspecteurStats={inspecteurStats}
+        benchmarkOutcome={benchmarkOutcome}
+        activeModelName={activeModelName}
+        rfModelInfo={rfModelInfo}
+        mlRiskCorrelation={mlRiskCorrelation}
+        engineStats={engineStats}
+      />
+
+      {/* ══════════════════ CARTE 7 : DIAGNOSTIC MULTI-AGENTS ══════════════════ */}
+      <DiagnosticAgentsCard
+        premierProfil={premierProfil}
+        ecarts={ecarts}
+        surveillances={surveillances}
+        rfModelInfo={rfModelInfo}
+        benchmarkOutcome={benchmarkOutcome}
+        activeModelName={activeModelName}
+      />
+
+      {/* ══════════════════ CARTE 8 : JUMEAU NUMÉRIQUE INTERACTIF ══════════════════ */}
+      <DigitalTwinCard
+        key={premierProfil?.aerodrome_id ?? 'none'}
+        profil={premierProfil}
+        ecarts={ecarts}
+        surveillances={surveillances}
+      />
+
+      {/* ══════════════════ CARTE 9 : EXPLICABILITÉ SHAP-LIKE ══════════════════ */}
+      <ShapExplainerCard profil={premierProfil} />
+
+      {/* ══════════════════ CARTE 10 : GRAPHE UNIFIÉ OACI ══════════════════ */}
+      <OaciGraphCard
+        profil={premierProfil}
+        ecarts={ecarts}
+        surveillances={surveillances}
+        evenements={evenementsSecurite}
+      />
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 1 — MODÈLES ML : benchmark 5 algorithmes + sélection active
+// ═══════════════════════════════════════════════════════════════
+
+function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeModelName, activeModelTrainedAt, rfModelInfo, rfSamplesCount, modelMetrics, pendingAlerts, onRunBenchmark, onSelectModel, onTrainRF, benchmarkConfig, onSetConfig }: {
+  benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
+  isBenchmarking: boolean
+  activeModelId: ModeleBenchmarkId | null
+  activeModelName: string | null
+  activeModelTrainedAt: string | null
+  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
+  rfSamplesCount: number
+  modelMetrics: ReturnType<typeof useAppStore.getState>['modelMetrics']
+  pendingAlerts: RecalibrationAlertRecord[]
+  onRunBenchmark: () => void
+  onSelectModel: (id: ModeleBenchmarkId) => void
+  onTrainRF: () => void
+  benchmarkConfig: BenchmarkConfig
+  onSetConfig: (config: BenchmarkConfig) => void
+}) {
+  const ordered: ModeleBenchmarkId[] = ['random_forest', 'xgboost', 'lightgbm', 'catboost', 'mlp']
+  const [showSettings, setShowSettings] = useState(false)
+  const customParams = configEstPersonnalisee(benchmarkConfig)
+
+  const updateParam = (id: ModeleBenchmarkId, key: string, value: number) => {
+    onSetConfig({ ...benchmarkConfig, [id]: { ...benchmarkConfig[id], [key]: value } })
+  }
+
+  return (
+    <Card icon={<Cpu className="h-4 w-4 text-role-primary" />} title="1. Modèles Machine Learning — comparaison & sélection" badge={
+      <div className="flex items-center gap-2">
+        {activeModelName && <span className="badge badge-primary text-xs">{activeModelName} <CheckCircle2 className="w-3 h-3 inline ml-1" /></span>}
+        {customParams && <span className="badge warning text-xs">Paramètres personnalisés</span>}
+        <button onClick={() => setShowSettings(s => !s)} className="btn btn-sm btn-secondary gap-1.5">
+          <Settings className="h-4 w-4" />Paramètres
+        </button>
+        <button onClick={onRunBenchmark} disabled={isBenchmarking || rfSamplesCount < 10} className="btn btn-primary btn-sm gap-1.5">
+          <RefreshCw className={`h-4 w-4 ${isBenchmarking ? 'animate-spin' : ''}`} />
+          {isBenchmarking ? 'Benchmark en cours…' : 'Lancer le benchmark'}
+        </button>
       </div>
-
-      {/* Onglets */}
-      <div className="tabs-container border-b border-border">
-        <div className="tabs flex gap-1">
-          <button onClick={() => setActiveTab('performances')} className={`tab px-4 py-2 font-medium transition-all ${activeTab === 'performances' ? 'active border-b-2 border-role-primary text-role-primary' : 'text-muted-foreground hover:text-foreground'}`}><BarChart3 className="w-4 h-4 inline mr-1.5" />Performances</button>
-          {isAdmin && (
-            <button onClick={() => setActiveTab('modeles')} className={`tab px-4 py-2 font-medium transition-all ${activeTab === 'modeles' ? 'active border-b-2 border-role-primary text-role-primary' : 'text-muted-foreground hover:text-foreground'}`}><Settings className="w-4 h-4 inline mr-1.5" />Modèles</button>
-          )}
-        </div>
-      </div>
-
-      {/* Performances */}
-      {activeTab === 'performances' && (
-        <div className="space-y-6">
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card icon={<BarChart3 className="h-4 w-4 text-role-primary" />} title="Précision par domaine">
-              {domainChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={domainChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
-                    <Tooltip contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', borderRadius: 'var(--border-radius-lg)', color: 'var(--foreground)' }} />
-                    <Bar dataKey="Précision" fill={barColor} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : <div className="text-center py-8 text-muted"><p>Aucune donnée de précision par domaine</p></div>}
-            </Card>
-            <Card icon={<Activity className="h-4 w-4 text-role-primary" />} title="Métriques de performance">
-              <div className="grid grid-cols-2 gap-4">
-                <MetricCard label="Précision globale" value={`${stats?.precision_globale ?? 0}%`} color="text-success" />
-                <MetricCard label="Faux positifs" value={`${stats?.taux_faux_positifs ?? 0}%`} color={(stats?.taux_faux_positifs ?? 0) > 15 ? 'text-danger' : 'text-warning'} />
-                <MetricCard label="Faux négatifs" value={`${stats?.taux_faux_negatifs ?? 0}%`} color={(stats?.taux_faux_negatifs ?? 0) > 10 ? 'text-danger' : 'text-warning'} />
-                <MetricCard label="Feedbacks récents" value={`${stats?.feedbacks_recents ?? 0}`} color="text-role-primary" />
-              </div>
-            </Card>
+    }>
+      {showSettings && (
+        <div className="mb-5 rounded-lg border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm flex items-center gap-1.5"><SlidersHorizontal className="w-3.5 h-3.5 text-role-primary" />Hyperparamètres par modèle</h4>
+            <button onClick={() => onSetConfig(DEFAULT_BENCHMARK_CONFIG)} className="btn btn-sm btn-secondary gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" />Réinitialiser
+            </button>
           </div>
-
-          {/* Corrélation ML ↔ Profil de Risque */}
-          <Card icon={<Target className="h-4 w-4 text-role-primary" />} title="Corrélation ML ↔ Profil de Risque">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-                <p className="text-xs text-muted-foreground">Score Risque Moyen</p><p className="text-xl font-bold">{mlRiskCorrelation.avgRiskScore}/100</p><p className="text-xs text-muted-foreground">{mlRiskCorrelation.aerodromeCount} aérodromes</p>
-              </div>
-              <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-                <p className="text-xs text-muted-foreground">Convergence ML</p><p className="text-xl font-bold">{mlRiskCorrelation.convergenceScore}%</p>
-              </div>
-              <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-                <p className="text-xs text-muted-foreground">Alignement</p><p className={`text-xl font-bold ${mlRiskCorrelation.alignmentScore >= 60 ? 'text-success' : 'text-warning'}`}>{mlRiskCorrelation.alignmentScore}%</p>
-              </div>
-              <div className="bg-role-primary-soft rounded-lg p-3">
-                <p className="text-xs text-muted-foreground mb-1">Distribution</p>
-                <div className="flex flex-wrap gap-1">
-                  {Object.entries(mlRiskCorrelation.riskLevelDistribution).map(([level, count]) => (
-                    <span key={level} className={`badge text-xs ${level === 'critique' ? 'danger' : level === 'eleve' ? 'warning' : level === 'moyen' ? 'primary' : 'success'}`}>{count}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* AERORISQ Engines */}
-          <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="AERORISQ — Engines décisionnels" className="h-full">
-            {engineStats ? (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-muted-foreground">Feedback total</span>
-                  <span className="font-bold text-foreground">{engineStats.totalFeedbacks}</span>
-                </div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-muted-foreground">Taux de pertinence global</span>
-                  <span className={`font-bold ${engineStats.pertinenceRate >= 60 ? 'text-success' : engineStats.pertinenceRate >= 40 ? 'text-warning' : 'text-danger'}`}>{engineStats.pertinenceRate}%</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
-                  {(Object.entries(engineStats.parEngine) as [string, { total: number; pertinents: number; taux: number }][]).map(([engine, data]) => (
-                    <div key={engine} className="bg-role-primary-soft rounded-lg p-2.5">
-                      <p className="text-xs text-muted-foreground capitalize mb-1">{engine === 'riskProfile' ? 'Profil risque' : engine === 'compliance' ? 'Conformité' : engine === 'certificate' ? 'Certificat' : engine === 'team' ? 'Équipe' : 'Recommandations'}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold">{data.taux}%</span>
-                        <span className="text-[10px] text-muted-foreground">{data.total} votes</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {engineStats.dernieresSuggestions.length > 0 && (
-                  <details className="text-xs pt-2 border-t border-border">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Derniers feedbacks ({engineStats.dernieresSuggestions.length})</summary>
-                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                      {engineStats.dernieresSuggestions.slice(0, 5).map(f => (
-                        <div key={f.id} className="flex items-center justify-between p-1.5 rounded bg-role-primary-soft/50">
-                          <span className="text-muted-foreground">{f.engineType} — {f.decision.type}</span>
-                          <span className={`font-medium ${f.vote === 'pertinent' ? 'text-success' : f.vote === 'non_pertinent' ? 'text-danger' : 'text-warning'}`}>{f.vote}</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {ordered.map(id => (
+              <div key={id} className="rounded-lg bg-muted/20 p-3">
+                <p className="text-sm font-medium mb-3">{MODELE_LABELS[id]}</p>
+                <div className="space-y-3">
+                  {MODEL_HYPERPARAMS[id].map(def => {
+                    const value = benchmarkConfig[id][def.key]
+                    return (
+                      <div key={def.key}>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs text-muted-foreground">{def.label}</label>
+                          <input
+                            type="number"
+                            className="form-input w-20 text-xs py-1 text-right"
+                            min={def.min}
+                            max={def.max}
+                            step={def.step}
+                            value={value}
+                            onChange={e => updateParam(id, def.key, parseFloat(e.target.value) || 0)}
+                          />
                         </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-                {/* Seuils auto-ajustés */}
-                {(() => {
-                  const histo = thresholdController.getHistorique()
-                  return histo.length > 0 && (
-                    <details className="text-xs pt-2 border-t border-border">
-                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">Ajustements auto ({histo.length})</summary>
-                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                        {histo.slice(-10).reverse().map((h, i) => (
-                          <div key={i} className="p-1.5 rounded bg-role-primary-soft/50">
-                            <span className="text-muted-foreground">{h.parametre}: {h.ancienneValeur}→{h.nouvelleValeur}</span>
-                            <p className="text-muted mt-0.5">{h.raison}</p>
-                          </div>
-                        ))}
+                        <input
+                          type="range"
+                          className="w-full"
+                          min={def.min}
+                          max={def.max}
+                          step={def.step}
+                          value={value}
+                          onChange={e => updateParam(id, def.key, parseFloat(e.target.value))}
+                        />
                       </div>
-                    </details>
-                  )
-                })()}
+                    )
+                  })}
+                </div>
               </div>
-            ) : <p className="text-sm text-muted text-center py-4">Aucun feedback AERORISQ enregistré</p>}
-          </Card>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            Les paramètres sont appliqués au prochain benchmark et à l&apos;entraînement du modèle actif. Re-lancez le benchmark pour comparer les modèles avec ces valeurs.
+          </p>
+        </div>
+      )}
+      {rfSamplesCount < 10 ? (
+        <div className="text-center py-8 text-muted">
+          <Database className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-medium">Benchmark ML indisponible</p>
+          <p className="text-sm">Ajoutez au moins 10 échantillons d&apos;entraînement ({rfSamplesCount} disponibles). Les échantillons sont collectés via les profils de risque et le decisionTracker.</p>
+        </div>
+      ) : benchmarkOutcome && benchmarkOutcome.ranked.length > 0 ? (
+        <div className="space-y-5">
+          {/* Tableau comparatif */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-muted-foreground text-xs uppercase">
+                  <th className="py-2 pr-3">Modèle</th>
+                  <th className="py-2 pr-3 text-right">Accuracy</th>
+                  <th className="py-2 pr-3 text-right">Precision</th>
+                  <th className="py-2 pr-3 text-right">Recall</th>
+                  <th className="py-2 pr-3 text-right">F1</th>
+                  <th className="py-2 pr-3 text-right">ROC-AUC</th>
+                  <th className="py-2 pr-3 text-right">Train</th>
+                  <th className="py-2 pr-3 text-right">Prédict</th>
+                  <th className="py-2 pr-3 text-center">Maturité</th>
+                  <th className="py-2 text-center">Actif</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordered.map(id => {
+                  const r = benchmarkOutcome.ranked.find(x => x.modelId === id)
+                  if (!r) return null
+                  const isBest = benchmarkOutcome.bestModelId === id
+                  const isActive = activeModelId === id
+                  return (
+                    <tr key={id} className={`border-b border-border/50 hover:bg-muted/10 ${isActive ? 'bg-role-primary-soft/40' : ''}`}>
+                      <td className="py-2 pr-3 font-medium">
+                        <span className="flex items-center gap-1.5">
+                          {r.nom}
+                          {isBest && <span title="Meilleur score"><Trophy className="w-3.5 h-3.5 text-warning" /></span>}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-right font-semibold">{(r.accuracy * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right">{(r.precision * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right">{(r.recall * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right">{(r.f1Score * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right font-medium text-role-primary">{(r.rocAuc * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right text-muted-foreground">{r.trainTimeMs}ms</td>
+                      <td className="py-2 pr-3 text-right text-muted-foreground">{r.predictTimeMs}ms</td>
+                      <td className="py-2 pr-3 text-center"><span className="badge text-xs">{r.maturiteLabel}</span></td>
+                      <td className="py-2 text-center">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="active-model" checked={isActive} onChange={() => onSelectModel(id)} className="accent-role-primary" />
+                          <span className="text-xs text-muted-foreground">{isActive ? 'Utilisé' : 'Choisir'}</span>
+                        </label>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Benchmark sur {benchmarkOutcome.datasetSize} échantillons (split train/test 75/25, seed fixe). Le modèle sélectionné pilote réellement les prédictions de risque — dernier entraînement actif : {activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : 'jamais'}.
+          </p>
 
-          {/* Réseau bayésien causal */}
-          <Card icon={<Shield className="h-4 w-4 text-role-primary" />} title="Réseau bayésien causal — Confiance">
-            <div className="space-y-3">
-              {(() => {
-                const totalBowTies = Object.values(profilsRisque).reduce((sum: number, p: any) => sum + (p.bowtie_metrics?.length || 0), 0)
-                return (
-                  <>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-foreground">Modèles Bow-Tie configurés</span>
-                      <span className="text-lg font-bold">{totalBowTies}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-foreground">Lissage Dirichlet</span>
-                      <span className="text-xs text-success flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Actif (α=1.0)</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-foreground">Inférence</span>
-                      <span className="text-xs text-foreground">Élimination de variables</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-foreground">Nœuds organisationnels COP</span>
-                      <span className="text-xs text-foreground">3 (charge, formation, supervision)</span>
-                    </div>
-                    <div className="pt-3 border-t border-border text-xs text-foreground flex items-center gap-1">
-                      <Database className="w-3 h-3" />
-                      Persistance : Supabase (prévue)
-                    </div>
-                  </>
-                )
-              })()}
-            </div>
-          </Card>
-
-          {/* Alertes + Actions */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card icon={<AlertTriangle className="h-4 w-4 text-warning" />} title={`Alertes (${pendingAlerts.length})`} levelColor="warning">
-              {pendingAlerts.length === 0 ? <p className="text-sm text-muted">Aucune alerte</p> : (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {pendingAlerts.slice(0, 5).map((a: RecalibrationAlertRecord) => (
-                    <div key={a.id} className={`p-2.5 rounded-lg text-sm ${a.niveau === 'critical' ? 'bg-danger-soft border border-red-500/20' : a.niveau === 'warning' ? 'bg-warning-soft border border-amber-500/20' : 'bg-primary-soft border border-blue-500/20'}`}>
-                      <p className={`font-medium ${a.niveau === 'critical' ? 'text-danger' : a.niveau === 'warning' ? 'text-warning' : 'text-primary'}`}>{a.message}</p>
-                      <p className="text-xs text-muted mt-1">{new Date(a.date).toLocaleDateString('fr-FR')}</p>
+          {/* Calibrage + évolution */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-border">
+            <div>
+              <h4 className="text-sm mb-2 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" />Calibrage & alertes</h4>
+              {pendingAlerts.length === 0 ? (
+                <p className="text-xs text-muted">Aucune alerte de recalibration en attente.</p>
+              ) : (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {pendingAlerts.slice(0, 5).map(a => (
+                    <div key={a.id} className={`p-2 rounded-lg text-xs ${a.niveau === 'critical' ? 'bg-danger-soft' : a.niveau === 'warning' ? 'bg-warning-soft' : 'bg-primary-soft'}`}>
+                      <p className="font-medium">{a.message}</p>
+                      <p className="text-muted-foreground mt-0.5">{new Date(a.date).toLocaleDateString('fr-FR')}</p>
                     </div>
                   ))}
                 </div>
               )}
-            </Card>
-            <Card icon={<Activity className="h-4 w-4 text-role-primary" />} title={`Modèle v${currentModel?.version || 1}`}>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted">Dernière calibration</span><span>{currentModel?.date_calibration ? new Date(currentModel.date_calibration).toLocaleDateString('fr-FR') : 'N/A'}</span></div>
-                <div className="flex justify-between"><span className="text-muted">Items améliorés</span><span>{detailedStats?.items_ameliores || 0}</span></div>
-                <div className="flex justify-between"><span className="text-muted">Items dégradés</span><span>{detailedStats?.items_degrades || 0}</span></div>
-                <div className="flex justify-between"><span className="text-muted">Confiance moyenne</span><span>{detailedStats?.confiance_moyenne || 0}%</span></div>
-              </div>
-              <div className="flex gap-2 mt-5 pt-4 border-t border-border">
-                <button onClick={handleRecalibrate} className="btn btn-primary btn-sm flex-1 gap-1.5"><RefreshCw className="h-4 w-4" />Recalibrer</button>
-                <button onClick={resetLearningData} className="btn btn-sm btn-secondary gap-1.5"><RotateCcw className="h-4 w-4" />Réinitialiser</button>
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* Modèles — admin only */}
-      {activeTab === 'modeles' && isAdmin && (
-        <div className="space-y-6">
-          {/* Random Forest */}
-          <Card heading="Random Forest" icon={<TrendingUp className="h-4 w-4 text-role-primary" />} badge={
-            <span title={rfSamplesCount < 10 ? "En attente de données d'entraînement réelles — voir decisionTracker" : 'Lancer l\'entraînement du Random Forest'}>
-              <button onClick={rfSamplesCount >= 10 ? handleTrainRF : undefined} disabled={rfSamplesCount < 10} className="btn btn-primary btn-sm gap-1.5"><RefreshCw className="h-4 w-4" />Entraîner</button>
-            </span>
-          }>
-            {!rfModelInfo ? (
-              <div className="text-center py-8 text-muted">
-                <Database className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>Modèle non entraîné</p>
-                <p className="text-sm">Ajoutez au moins 10 échantillons ({rfSamplesCount} disponibles)</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <MetricCard label="Précision" value={`${(rfModelInfo.accuracy * 100).toFixed(1)}%`} color="text-success" />
-                  <MetricCard label="Échantillons" value={`${rfModelInfo.training_samples}`} color="text-role-primary" />
-                  <MetricCard label="Version" value={`v${rfModelInfo.version}`} color="text-warning" />
-                  <MetricCard label="Entraîné le" value={new Date(rfModelInfo.trained_at).toLocaleDateString('fr-FR')} color="text-info" />
+              {modelMetrics?.random_forest && (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Accuracy RF</p><p className="text-sm font-bold">{(modelMetrics.random_forest.accuracy * 100).toFixed(1)}%</p></div>
+                  <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Échantillons</p><p className="text-sm font-bold">{rfSamplesCount}</p></div>
                 </div>
-                {rfModelInfo.feature_importance && (
-                  <div>
-                    <h4 className="text-sm mb-2">Importance des caractéristiques</h4>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={Object.entries(rfModelInfo.feature_importance).sort(([, a], [, b]) => (b as number) - (a as number)).map(([k, v]) => ({ name: k.replace(/_/g, ' '), Importance: v as number }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} layout="vertical">
-                        <XAxis type="number" domain={[0, 1]} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} />
-                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} width={130} />
-                        <Tooltip contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', borderRadius: 'var(--border-radius-lg)', color: 'var(--foreground)' }} />
-                        <Bar dataKey="Importance" fill={barColor} radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-                {modelMetrics?.random_forest?.confusion_matrix && (
-                  <div className="pt-3 border-t border-border">
-                    <p className="text-xs text-muted mb-2">Matrice de confusion</p>
-                    <div className="grid grid-cols-2 gap-1 text-center text-xs font-mono max-w-xs">
-                      <div className="p-1.5 rounded bg-success-soft"><span className="text-success">VN: {(modelMetrics.random_forest.confusion_matrix as any).true_negatives ?? 0}</span></div>
-                      <div className="p-1.5 rounded bg-danger-soft"><span className="text-danger">FP: {(modelMetrics.random_forest.confusion_matrix as any).false_positives ?? 0}</span></div>
-                      <div className="p-1.5 rounded bg-danger-soft"><span className="text-danger">FN: {(modelMetrics.random_forest.confusion_matrix as any).false_negatives ?? 0}</span></div>
-                      <div className="p-1.5 rounded bg-success-soft"><span className="text-success">VP: {(modelMetrics.random_forest.confusion_matrix as any).true_positives ?? 0}</span></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          {/* PAC Learning */}
-          <Card icon={<Target className="h-4 w-4 text-role-primary" />} title="PAC Learning">
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <MetricCard label="Feedbacks PAC" value={`${pacStats?.total_feedbacks || 0}`} color="text-role-primary" />
-              <MetricCard label="Taux concordance" value={`${pacStats?.taux_concordance || 0}%`} color="text-success" />
-              <MetricCard label="Taux d'utilité" value={`${pacStats?.taux_utilite || 0}%`} color="text-warning" />
+              )}
             </div>
-            {pacStats?.ponderations_priorisation && (
-              <div>
-                <h4 className="text-sm mb-2">Priorisation des critères</h4>
-                <div className="space-y-2">
-                  {Object.entries(pacStats.ponderations_priorisation).map(([k, v]) => (
-                    <div key={k}><div className="flex justify-between text-xs mb-1"><span className="text-muted capitalize">{k.replace(/_/g, ' ')}</span><span className="font-mono">{v as number}</span></div>
-                    <div className="progress h-1.5"><div className="progress-bar" style={{ width: `${Math.min(100, ((v as number) / 30) * 100)}%` }} /></div></div>
-                  ))}
+            <div>
+              <h4 className="text-sm mb-2 flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Évolution de la précision (historique)</h4>
+              {rfModelInfo ? (
+                <div className="flex items-center gap-4">
+                  <div className="text-center flex-1 p-3 rounded-lg bg-role-primary-soft">
+                    <p className="text-xs text-muted-foreground">Précision</p>
+                    <p className="text-2xl font-bold text-success">{(rfModelInfo.accuracy * 100).toFixed(0)}%</p>
+                    <p className="text-[10px] text-muted-foreground">v{rfModelInfo.version} · {new Date(rfModelInfo.trained_at).toLocaleDateString('fr-FR')}</p>
+                  </div>
+                  <div className="flex-1">
+                    <button onClick={onTrainRF} className="btn btn-sm btn-secondary w-full gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </Card>
-
-          {/* Historique */}
-          <HistorySection getTrainingHistory={getTrainingHistory} getTrainingStats={getTrainingStats} exportTrainingHistoryCSV={exportTrainingHistoryCSV} barColor={barColor} />
-
-            {/* A/B Testing + Settings */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* A/B Testing */}
-            <ABTestingSection />
-
-            {/* Settings */}
-            <Card icon={<Settings className="h-4 w-4 text-role-primary" />} title="Configuration">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-sm font-medium">Entraînement auto</p><p className="text-xs text-muted">Lancer périodiquement</p></div>
-                  <label className="form-toggle"><input type="checkbox" checked={modelTrainingConfig?.auto_train_enabled || false} onChange={e => setAutoTrainEnabled(e.target.checked)} /><span className="form-toggle-slider" /></label>
-                </div>
-                <select value={modelTrainingConfig?.train_interval_hours || 24} onChange={e => setTrainInterval(parseInt(e.target.value))} className="form-select text-sm">
-                  <option value={6}>6 heures</option><option value={24}>24 heures</option><option value={168}>1 semaine</option>
-                </select>
-                <div className="space-y-2">
-                  <button onClick={refreshModelInfo} className="btn btn-sm btn-secondary w-full gap-2"><RefreshCw className="h-4 w-4" />Rafraîchir</button>
-                  <button onClick={resetAdvancedModels} className="btn btn-sm btn-danger w-full gap-2"><RotateCcw className="h-4 w-4" />Réinitialiser</button>
-                </div>
-              </div>
-            </Card>
+              ) : (
+                <p className="text-xs text-muted">Random Forest non entraîné.</p>
+              )}
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="text-center py-8 text-muted">
+          <Cpu className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p>Aucun benchmark effectué</p>
+          <p className="text-sm">Lancez le benchmark pour comparer les 5 algorithmes (RF, XGBoost, LightGBM, CatBoost, MLP) sur {rfSamplesCount} échantillons.</p>
+        </div>
       )}
-    </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 2 — MODÈLES DE RISQUES : précision, maturité, évolution, calibrage, simulation
+// ═══════════════════════════════════════════════════════════════
+
+function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, ftaAnalyses, evenementsSecurite, rfModelInfo, graphModelInfo, mlRiskCorrelation, modelTrainingConfig, onTrainRF, rfSamplesCount, barColor }: {
+  profilsRisque: Record<string, ProfilRisque> | null
+  ecarts: Ecart[]
+  surveillances: Surveillance[]
+  amdecAnalyses: AmdecAnalyse[]
+  ftaAnalyses: ArbreFTA[]
+  evenementsSecurite: EvenementSecurite[]
+  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
+  graphModelInfo: ReturnType<typeof useAppStore.getState>['graphModelInfo']
+  mlRiskCorrelation: MLRiskCorrelationData
+  modelTrainingConfig: ModelTrainingConfig
+  onTrainRF: () => void
+  rfSamplesCount: number
+  barColor: string
+}) {
+  const premierProfil = profilsRisque ? Object.values(profilsRisque)[0] : null
+  const recommandation = useMemo(() => recommanderModeleAnalyse({
+    profil: premierProfil,
+    ecarts,
+    surveillances,
+    amdecAnalyses,
+    ftaAnalyses,
+    evenements: evenementsSecurite,
+    rfModelInfo,
+  }), [premierProfil, ecarts, surveillances, amdecAnalyses, ftaAnalyses, evenementsSecurite, rfModelInfo])
+
+  const totalBowTies = useMemo(() => {
+    const ps = profilsRisque ? Object.values(profilsRisque) : []
+    return ps.reduce((sum, p) => sum + (p.bowtie_metrics?.length || 0), 0)
+  }, [profilsRisque])
+
+  return (
+    <Card icon={<Target className="h-4 w-4 text-role-primary" />} title="2. Modèles de risques — précision, maturité, simulation" badge={
+      <span className="badge text-xs">{recommandation.recommande}</span>
+    }>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Précision / maturité */}
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Convergence ML ↔ Risque</p>
+              <p className={`text-xl font-bold ${mlRiskCorrelation.convergenceScore >= 60 ? 'text-success' : 'text-warning'}`}>{mlRiskCorrelation.convergenceScore}%</p>
+            </div>
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Score risque moyen</p>
+              <p className="text-xl font-bold">{mlRiskCorrelation.avgRiskScore}/100</p>
+              <p className="text-xs text-muted-foreground">{mlRiskCorrelation.aerodromeCount} aérodromes</p>
+            </div>
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Alignement C1-C5</p>
+              <p className={`text-xl font-bold ${mlRiskCorrelation.alignmentScore >= 60 ? 'text-success' : 'text-warning'}`}>{mlRiskCorrelation.alignmentScore}%</p>
+            </div>
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Modèles Bow-Tie</p>
+              <p className="text-xl font-bold">{totalBowTies}</p>
+            </div>
+          </div>
+
+          {/* Distribution des niveaux */}
+          <div>
+            <h4 className="text-sm mb-2">Distribution des niveaux de risque</h4>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(mlRiskCorrelation.riskLevelDistribution).map(([level, count]) => (
+                <span key={level} className={`badge text-xs ${level === 'critique' ? 'danger' : level === 'eleve' ? 'warning' : level === 'moyen' ? 'primary' : 'success'}`}>
+                  {level} : {count}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Features importantes */}
+          {mlRiskCorrelation.topFeatures.length > 0 && (
+            <div>
+              <h4 className="text-sm mb-2">Features les plus influentes</h4>
+              <div className="space-y-1.5">
+                {mlRiskCorrelation.topFeatures.slice(0, 6).map(f => (
+                  <div key={f.name} className="flex items-center gap-2">
+                    <span className="text-xs w-36 truncate text-muted-foreground">{f.name.replace(/_/g, ' ')}</span>
+                    <div className="progress h-1.5 flex-1"><div className="progress-bar" style={{ width: `${f.importance}%`, backgroundColor: barColor }} /></div>
+                    <span className="text-xs font-mono">{Math.round(f.importance)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Simulation / recommandation */}
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border p-3">
+            <h4 className="text-sm mb-1 flex items-center gap-1.5"><Play className="w-3.5 h-3.5" />Simulation — modèle recommandé</h4>
+            <p className="text-sm font-medium text-role-primary">{recommandation.justification}</p>
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              {recommandation.scores.slice(0, 6).map(s => (
+                <div key={s.modele} className="p-2 rounded bg-muted/20">
+                  <p className="text-[10px] text-muted-foreground capitalize">{s.modele}</p>
+                  <p className="text-sm font-bold">{s.score}/100</p>
+                  <p className="text-[10px] text-muted-foreground">conf {s.confiance}%</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {graphModelInfo && (
+            <div className="rounded-lg border border-border p-3">
+              <h4 className="text-sm mb-2 flex items-center gap-1.5"><Network className="w-3.5 h-3.5" />Graph Network</h4>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-lg font-bold">{graphModelInfo.nodes_count}</p><p className="text-[10px] text-muted-foreground">nœuds</p></div>
+                <div><p className="text-lg font-bold">{graphModelInfo.edges_count}</p><p className="text-[10px] text-muted-foreground">arêtes</p></div>
+                <div><p className="text-lg font-bold">{graphModelInfo.critical_paths_count}</p><p className="text-[10px] text-muted-foreground">chemins critiques</p></div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <div className="text-xs text-muted-foreground">
+              Auto-entraînement : {modelTrainingConfig?.auto_train_enabled ? 'activé' : 'désactivé'} (toutes les {modelTrainingConfig?.train_interval_hours ?? 24}h)
+            </div>
+            <button onClick={onTrainRF} disabled={rfSamplesCount < 10} className="btn btn-sm btn-secondary gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 3 — MODÈLES MATHÉMATIQUES : calibrage + simulation
+// ═══════════════════════════════════════════════════════════════
+
+function MathModelsCard({ profilsRisque }: { profilsRisque: Record<string, ProfilRisque> | null }) {
+  const premierProfil = profilsRisque ? Object.values(profilsRisque)[0] : null
+  const historiqueSeuils = thresholdController.getHistorique()
+  const dernierSeuil = historiqueSeuils[historiqueSeuils.length - 1] || null
+
+  const modules: Array<{ nom: string; valeur: string; detail?: string; niveau: 'success' | 'warning' | 'danger' | 'primary' }> = []
+  if (premierProfil) {
+    if (premierProfil.hmm_state) modules.push({ nom: 'HMM (Markov caché)', valeur: premierProfil.hmm_state.isTransitioning ? 'Transition détectée' : 'Stable', detail: `risque transition ${Math.round(premierProfil.hmm_state.transitionRisk ?? 0)}%`, niveau: premierProfil.hmm_state.isTransitioning ? 'warning' : 'success' })
+    if (premierProfil.survival_metrics) modules.push({ nom: 'Survie (Cox)', valeur: premierProfil.survival_metrics.medianDays ? `${premierProfil.survival_metrics.medianDays} j` : '—', detail: `hazard 90j ${Math.round((premierProfil.survival_metrics.hazard90d ?? 0) * 100)}%`, niveau: (premierProfil.survival_metrics.hazard90d ?? 0) > 0.5 ? 'danger' : 'primary' })
+    if (premierProfil.extreme_risk) modules.push({ nom: 'EVT (valeurs extrêmes)', valeur: premierProfil.extreme_risk.isHeavyTailed ? 'Queue lourde' : 'Queue légère', detail: `max 12m ${premierProfil.extreme_risk.maxExpected12m ?? 0}`, niveau: premierProfil.extreme_risk.isHeavyTailed ? 'warning' : 'success' })
+    if (premierProfil.copula_metrics) modules.push({ nom: 'Copules', valeur: `tail ${Math.round((premierProfil.copula_metrics.maxTailDependence ?? 0) * 100)}%`, detail: premierProfil.copula_metrics.worstCaseDescription ? 'scénario pire cas modélisé' : undefined, niveau: (premierProfil.copula_metrics.maxTailDependence ?? 0) > 0.6 ? 'warning' : 'primary' })
+    if (premierProfil.ts_metrics) modules.push({ nom: 'Thompson Sampling', valeur: premierProfil.ts_metrics.recommendedAction || '—', detail: `confiance ${Math.round(premierProfil.ts_metrics.bestProbability ?? 0)}%`, niveau: (premierProfil.ts_metrics.bestProbability ?? 0) > 60 ? 'success' : 'primary' })
+    if (premierProfil.bayesian_posterior != null) modules.push({ nom: 'Bayésien', valeur: `post ${Math.round(premierProfil.bayesian_posterior * 100)}%`, detail: premierProfil.bayesian_black_swan ? 'cygne noir !' : undefined, niveau: premierProfil.bayesian_black_swan ? 'danger' : 'primary' })
+  }
+
+  return (
+    <Card icon={<Calculator className="h-4 w-4 text-role-primary" />} title="3. Modèles mathématiques — calibrage & simulation">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <h4 className="text-sm mb-2">Statut des modèles probabilistes</h4>
+          {modules.length === 0 ? (
+            <p className="text-sm text-muted text-center py-6">Aucun modèle mathématique calculé pour le moment. Complétez un profil de risque pour activer HMM, survie, EVT, copules, Thompson et bayésien.</p>
+          ) : modules.map(m => (
+            <div key={m.nom} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/20">
+              <div>
+                <p className="text-sm font-medium">{m.nom}</p>
+                {m.detail && <p className="text-xs text-muted-foreground">{m.detail}</p>}
+              </div>
+              <span className={`badge text-xs ${m.niveau === 'danger' ? 'danger' : m.niveau === 'warning' ? 'warning' : m.niveau === 'success' ? 'success' : 'primary'}`}>{m.valeur}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border p-3">
+            <h4 className="text-sm mb-2 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" />Calibrage des seuils (auto-ajustés)</h4>
+            {historiqueSeuils.length === 0 ? (
+              <p className="text-xs text-muted">Aucun seuil ajusté automatiquement.</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {historiqueSeuils.slice(-8).reverse().map((h, i) => (
+                  <div key={i} className="p-2 rounded bg-role-primary-soft/50 text-xs">
+                    <span className="font-medium">{h.parametre}: {h.ancienneValeur} → {h.nouvelleValeur}</span>
+                    <p className="text-muted-foreground mt-0.5">{h.raison}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border p-3">
+            <h4 className="text-sm mb-2 flex items-center gap-1.5"><Play className="w-3.5 h-3.5" />Simulation de scénario</h4>
+            {premierProfil ? (
+              <p className="text-xs text-muted-foreground">
+                Score global actuel : <span className="font-bold text-foreground">{premierProfil.score_global}/100</span> · Niveau : <span className="font-medium">{premierProfil.niveau}</span> · Tendance : <span className="font-medium">{premierProfil.tendance}</span>.
+                Un scénario de dégradation sur le critère le plus faible (min {Math.min(premierProfil.c1, premierProfil.c2, premierProfil.c3, premierProfil.c4, premierProfil.c5)}/100) ferait basculer la surveillance vers un type plus strict.
+              </p>
+            ) : <p className="text-xs text-muted">Aucun profil pour la simulation.</p>}
+          </div>
+
+          {dernierSeuil && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border">
+              <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+              Dernier ajustement : {dernierSeuil.parametre} → {dernierSeuil.nouvelleValeur}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 4 — AGENTS IA : précision & maturité
+// ═══════════════════════════════════════════════════════════════
+
+function AgentsCard({ engineStats, inspecteurStats }: {
+  engineStats: EngineLearningStats | null
+  inspecteurStats: InspecteurMonitoringStats | null
+}) {
+  return (
+    <Card icon={<Users className="h-4 w-4 text-role-primary" />} title="4. Agents IA — précision & maturité">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Agents décisionnels AERORISQ */}
+        <div>
+          <h4 className="text-sm mb-2">Agents décisionnels (pertinence)</h4>
+          {engineStats && engineStats.totalFeedbacks > 0 ? (
+            <div className="space-y-2">
+              {(Object.entries(engineStats.parEngine) as [string, { total: number; pertinents: number; taux: number }][]).map(([engine, data]) => (
+                <div key={engine} className="p-2.5 rounded-lg bg-muted/20">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium capitalize">{engine === 'riskProfile' ? 'Profil risque' : engine === 'compliance' ? 'Conformité' : engine === 'certificate' ? 'Certificat' : engine === 'team' ? 'Équipe' : 'Recommandations'}</span>
+                    <span className={`text-sm font-bold ${data.taux >= 60 ? 'text-success' : data.taux >= 40 ? 'text-warning' : 'text-danger'}`}>{data.taux}%</span>
+                  </div>
+                  <div className="progress h-1.5"><div className="progress-bar" style={{ width: `${data.taux}%`, backgroundColor: data.taux >= 60 ? 'var(--success)' : data.taux >= 40 ? 'var(--warning)' : 'var(--danger)' }} /></div>
+                  <p className="text-[10px] text-muted-foreground mt-1">{data.total} votes · pertinents {data.pertinents}</p>
+                </div>
+              ))}
+              <div className="flex justify-between items-center pt-2 border-t border-border">
+                <span className="text-xs text-muted-foreground">Taux de pertinence global</span>
+                <span className={`font-bold ${engineStats.pertinenceRate >= 60 ? 'text-success' : 'text-warning'}`}>{engineStats.pertinenceRate}%</span>
+              </div>
+            </div>
+          ) : <p className="text-sm text-muted text-center py-6">Aucun feedback d&apos;agent décisionnel enregistré.</p>}
+        </div>
+
+        {/* Inspecteur virtuel — maturité par capacité */}
+        <div>
+          <h4 className="text-sm mb-2">Inspecteur virtuel — maturité par capacité</h4>
+          {inspecteurStats && inspecteurStats.totalFeedbacks > 0 ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                <div className="bg-role-primary-soft rounded-lg p-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground">Maturité globale</p>
+                  <p className="text-lg font-bold">{inspecteurStats.maturiteGlobale}/100</p>
+                  <p className="text-[10px] font-semibold text-role-primary">{inspecteurStats.maturiteGlobaleLabel}</p>
+                </div>
+                <div className="bg-role-primary-soft rounded-lg p-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground">Retours</p>
+                  <p className="text-lg font-bold">{inspecteurStats.totalFeedbacks}</p>
+                </div>
+                <div className="bg-role-primary-soft rounded-lg p-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground">Capacités</p>
+                  <p className="text-lg font-bold">{CAPACITES_INSPECTEUR.filter(c => inspecteurStats.parCapacite[c].total > 0).length}/{CAPACITES_INSPECTEUR.length}</p>
+                </div>
+                <div className="bg-role-primary-soft rounded-lg p-2.5 text-center">
+                  <p className="text-[10px] text-muted-foreground">Acceptation</p>
+                  <p className={`text-lg font-bold ${inspecteurStats.maturiteGlobale >= 60 ? 'text-success' : 'text-warning'}`}>{inspecteurStats.maturiteGlobale}%</p>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {CAPACITES_INSPECTEUR.map(c => {
+                  const s = inspecteurStats.parCapacite[c]
+                  if (s.total === 0) return null
+                  return (
+                    <div key={c} className="p-2 rounded-lg bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">{CAPACITE_LABELS[c]}</span>
+                        <div className="flex gap-2 text-[10px]">
+                          <span className="text-success">{s.tauxAcceptation}% ok</span>
+                          <span className="text-warning">{s.tauxCorrection}% corr</span>
+                          <span className="text-danger">{s.tauxRejet}% rej</span>
+                        </div>
+                      </div>
+                      <div className="progress h-1.5 mt-1"><div className="progress-bar" style={{ width: `${s.maturite}%` }} /></div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : <p className="text-sm text-muted text-center py-6">Aucun retour inspecteur virtuel. Acceptez, corrigez ou ignorez les suggestions dans les checklists et la rédaction d&apos;écarts.</p>}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 5 — AERORISQ : simulation, entraînement, A/B testing
+// ═══════════════════════════════════════════════════════════════
+
+function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, modelTrainingConfig, onRecalibrate, onReset, onExport, onImport, onSetAutoTrain, onSetInterval, onRefresh, onResetModels, getTrainingHistory, getTrainingStats, exportTrainingHistoryCSV, barColor }: {
+  isAdmin: boolean
+  pacStats: ReturnType<ReturnType<typeof useAppStore.getState>['getLearningStatsPAC']> | null
+  detailedStats: ReturnType<ReturnType<typeof useAppStore.getState>['getDetailedLearningStats']> | null
+  stats: ReturnType<ReturnType<typeof useAppStore.getState>['calculatePerformance']> | null
+  currentModel: ReturnType<typeof useAppStore.getState>['currentModel']
+  modelTrainingConfig: ModelTrainingConfig
+  onRecalibrate: () => void
+  onReset: () => void
+  onExport: () => void
+  onImport: () => void
+  onSetAutoTrain: (enabled: boolean) => void
+  onSetInterval: (hours: number) => void
+  onRefresh: () => void
+  onResetModels: () => void
+  getTrainingHistory: () => Promise<TrainingHistoryEntry[]>
+  getTrainingStats: () => Promise<TrainingStats>
+  exportTrainingHistoryCSV: () => Promise<string>
+  barColor: string
+}) {
+  return (
+    <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="5. AERORISQ — simulation, entraînement & expérimentation">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Entraînement / modèle courant */}
+        <div className="space-y-3">
+          <h4 className="text-sm">Modèle courant</h4>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Version</p><p className="text-sm font-bold">v{currentModel?.version || 1}</p></div>
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Précision</p><p className="text-sm font-bold">{stats?.precision_globale ?? 0}%</p></div>
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Faux positifs</p><p className="text-sm font-bold">{stats?.taux_faux_positifs ?? 0}%</p></div>
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Faux négatifs</p><p className="text-sm font-bold">{stats?.taux_faux_negatifs ?? 0}%</p></div>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t border-border">
+            <p>Dernière calibration : {currentModel?.date_calibration ? new Date(currentModel.date_calibration).toLocaleDateString('fr-FR') : 'N/A'}</p>
+            <p>Items améliorés : {detailedStats?.items_ameliores ?? 0} · dégradés : {detailedStats?.items_degrades ?? 0}</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onRecalibrate} className="btn btn-primary btn-sm flex-1 gap-1.5"><RefreshCw className="h-4 w-4" />Recalibrer</button>
+            <button onClick={onReset} className="btn btn-sm btn-secondary gap-1.5"><RotateCcw className="h-4 w-4" />Réinit.</button>
+          </div>
+        </div>
+
+        {/* A/B Testing + PAC */}
+        <div className="space-y-3">
+          <h4 className="text-sm">A/B testing & PAC Learning</h4>
+          <ABTestingSection />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Feedbacks PAC</p><p className="text-sm font-bold">{pacStats?.total_feedbacks ?? 0}</p></div>
+            <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Concordance PAC</p><p className="text-sm font-bold text-success">{pacStats?.taux_concordance ?? 0}%</p></div>
+          </div>
+        </div>
+
+        {/* Configuration (admin) */}
+        {isAdmin && (
+          <div className="space-y-3">
+            <h4 className="text-sm">Configuration entraînement</h4>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium">Entraînement auto</p>
+              <label className="form-toggle"><input type="checkbox" checked={modelTrainingConfig?.auto_train_enabled ?? false} onChange={e => onSetAutoTrain(e.target.checked)} /><span className="form-toggle-slider" /></label>
+            </div>
+            <select value={modelTrainingConfig?.train_interval_hours ?? 24} onChange={e => onSetInterval(parseInt(e.target.value))} className="form-select text-sm w-full">
+              <option value={6}>6 heures</option><option value={24}>24 heures</option><option value={168}>1 semaine</option>
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={onRefresh} className="btn btn-sm btn-secondary gap-1.5"><RefreshCw className="h-4 w-4" />Rafraîchir</button>
+              <button onClick={onResetModels} className="btn btn-sm btn-danger gap-1.5"><RotateCcw className="h-4 w-4" />Réinitialiser</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={onExport} className="btn btn-sm btn-secondary gap-1.5"><Download className="h-3.5 w-3.5" />Exporter</button>
+              <button onClick={onImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-3.5 w-3.5" />Importer</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Historique des entraînements */}
+      <div className="mt-5 pt-4 border-t border-border">
+        <HistorySection getTrainingHistory={getTrainingHistory} getTrainingStats={getTrainingStats} exportTrainingHistoryCSV={exportTrainingHistoryCSV} barColor={barColor} />
+      </div>
+    </Card>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 6 — SYNTHÈSE : données + langage clair
+// ═══════════════════════════════════════════════════════════════
+
+function SynthesisCard({ premierProfil, stats, inspecteurStats, benchmarkOutcome, activeModelName, rfModelInfo, mlRiskCorrelation, engineStats }: {
+  premierProfil: ProfilRisque | null
+  stats: ReturnType<ReturnType<typeof useAppStore.getState>['calculatePerformance']> | null
+  inspecteurStats: InspecteurMonitoringStats | null
+  benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
+  activeModelName: string | null
+  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
+  mlRiskCorrelation: MLRiskCorrelationData
+  engineStats: EngineLearningStats | null
+}) {
+  const diagnostic = premierProfil ? synthetiserModeles(premierProfil) : null
+
+  return (
+    <Card icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="6. Synthèse — état des modèles en langage clair">
+      <div className="space-y-5">
+        {/* KPIs synthèse */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+            <p className="text-xs text-muted-foreground">Précision apprentissage</p>
+            <p className={`text-xl font-bold ${(stats?.precision_globale ?? 0) >= 70 ? 'text-success' : 'text-warning'}`}>{stats?.precision_globale ?? 0}%</p>
+          </div>
+          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+            <p className="text-xs text-muted-foreground">Modèle ML actif</p>
+            <p className="text-lg font-bold truncate">{activeModelName ?? 'RF (défaut)'}</p>
+            <p className="text-[10px] text-muted-foreground">{rfModelInfo ? `${(rfModelInfo.accuracy * 100).toFixed(0)}% acc.` : 'non entraîné'}</p>
+          </div>
+          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+            <p className="text-xs text-muted-foreground">Maturité inspecteur</p>
+            <p className="text-xl font-bold">{inspecteurStats?.maturiteGlobale ?? 0}/100</p>
+            <p className="text-[10px] text-role-primary">{inspecteurStats?.maturiteGlobaleLabel ?? 'N1 Absent'}</p>
+          </div>
+          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+            <p className="text-xs text-muted-foreground">Pertinence AERORISQ</p>
+            <p className={`text-xl font-bold ${(engineStats?.pertinenceRate ?? 0) >= 60 ? 'text-success' : 'text-warning'}`}>{engineStats?.pertinenceRate ?? 0}%</p>
+            <p className="text-[10px] text-muted-foreground">{engineStats?.totalFeedbacks ?? 0} feedbacks</p>
+          </div>
+        </div>
+
+        {/* Diagnostic en langage clair */}
+        {diagnostic ? (
+          <div className="rounded-lg border border-border p-4">
+            <div className="flex items-start justify-between mb-2">
+              <h4 className="text-sm flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-role-primary" />Diagnostic AERORISQ (synthèse de {NOMBRE_MAX_VOTES} modèles)</h4>
+              <span className="badge text-xs">{diagnostic.tendance.replace(/_/g, ' ')}</span>
+            </div>
+            <p className="text-sm font-medium text-foreground mb-3">{diagnostic.interpretation}</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {diagnostic.elementsClefs.map((el, i) => (
+                <span key={i} className="badge badge-secondary text-xs">{el}</span>
+              ))}
+            </div>
+            <div className="rounded-lg bg-role-primary-soft/40 p-3 text-sm">
+              <p className="font-medium mb-1">Recommandation :</p>
+              <p className="text-muted-foreground">{diagnostic.recommandation}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted text-center py-4">Aucun profil de risque disponible pour la synthèse.</p>
+        )}
+
+        {/* Benchmark mini-résumé */}
+        {benchmarkOutcome && benchmarkOutcome.ranked.length > 0 && (
+          <div className="pt-3 border-t border-border">
+            <h4 className="text-xs uppercase text-muted-foreground mb-2">Benchmark ML — {benchmarkOutcome.datasetSize} échantillons</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-muted-foreground border-b border-border text-left"><th className="py-1.5 pr-3">Modèle</th><th className="py-1.5 pr-3">Acc.</th><th className="py-1.5 pr-3">F1</th><th className="py-1.5 pr-3">AUC</th><th className="py-1.5 pr-3">Score</th></tr></thead>
+                <tbody>
+                  {benchmarkOutcome.ranked.map(r => (
+                    <tr key={r.modelId} className="border-b border-border/40">
+                      <td className="py-1.5 pr-3 font-medium">{r.nom}{r.modelId === benchmarkOutcome.bestModelId && <Trophy className="w-3 h-3 inline ml-1 text-warning" />}</td>
+                      <td className="py-1.5 pr-3">{(r.accuracy * 100).toFixed(0)}%</td>
+                      <td className="py-1.5 pr-3">{(r.f1Score * 100).toFixed(0)}%</td>
+                      <td className="py-1.5 pr-3">{(r.rocAuc * 100).toFixed(0)}%</td>
+                      <td className="py-1.5 font-bold">{r.score}/100</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Aperçu distribution risques */}
+        <div className="pt-3 border-t border-border">
+          <h4 className="text-xs uppercase text-muted-foreground mb-2">Distribution des risques — {mlRiskCorrelation.aerodromeCount} aérodromes</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(mlRiskCorrelation.riskLevelDistribution).map(([level, count]) => (
+              <span key={level} className={`badge text-xs ${level === 'critique' ? 'danger' : level === 'eleve' ? 'warning' : level === 'moyen' ? 'primary' : 'success'}`}>{level} · {count}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Card>
   )
 }
 
@@ -436,7 +962,7 @@ function HistorySection({ getTrainingHistory, getTrainingStats, exportTrainingHi
   const [history, setHistory] = useState<TrainingHistoryEntry[]>([])
   const [stats, setStats] = useState<TrainingStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const load = useCallback(async () => { setLoading(true); const [h, s] = await Promise.all([getTrainingHistory(), getTrainingStats()]); setHistory(h); setStats(s); setLoading(false) }, [getTrainingHistory, getTrainingStats])
+  const load = useCallback(() => { Promise.all([getTrainingHistory(), getTrainingStats()]).then(([h, s]) => { setHistory(h); setStats(s); setLoading(false) }) }, [getTrainingHistory, getTrainingStats])
   useEffect(() => { load() }, [load])
   const handleExport = async () => {
     const csv = await exportTrainingHistoryCSV(); const blob = new Blob([csv], { type: 'text/csv' })
@@ -444,16 +970,14 @@ function HistorySection({ getTrainingHistory, getTrainingStats, exportTrainingHi
   }
   if (loading) return <div className="text-center py-8 text-muted"><RefreshCw className="w-8 h-8 mx-auto mb-2 opacity-30 animate-spin" /><p>Chargement...</p></div>
   return (
-    <Card
-      heading="Historique des entraînements"
-      icon={<Clock className="h-4 w-4 text-role-primary" />}
-      badge={
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm">Historique des entraînements</h4>
         <div className="flex gap-2">
           <button onClick={load} className="btn btn-sm btn-secondary gap-1"><RefreshCw className="h-4 w-4" /></button>
           <button onClick={handleExport} className="btn btn-sm btn-primary gap-1"><Download className="h-4 w-4" />CSV</button>
         </div>
-      }
-    >
+      </div>
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <MetricCard label="Entraînements" value={`${stats.total_trainings}`} color="text-role-primary" />
@@ -485,30 +1009,170 @@ function HistorySection({ getTrainingHistory, getTrainingStats, exportTrainingHi
           </ResponsiveContainer>
         </div>
       )}
-    </Card>
+    </div>
   )
 }
 
 function ABTestingSection() {
   const [abStats, setAbStats] = useState(getABStats())
-  useEffect(() => { setAbStats(getABStats()) }, [])
   return (
-    <Card icon={<GitCompare className="h-4 w-4 text-role-primary" />} title="A/B Testing">
+    <div className="rounded-lg border border-border p-3">
       {abStats ? (
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between"><span>Tests</span><span className="font-bold">{abStats.total}</span></div>
+          <div className="flex justify-between"><span className="text-muted">Tests A/B</span><span className="font-bold">{abStats.total}</span></div>
           <div className="flex justify-between"><span className="text-green-600">Neural Net</span><span>{abStats.neuralWins} ({Math.round(abStats.neuralWinRate * 100)}%)</span></div>
           <div className="flex justify-between"><span className="text-orange-600">Formules</span><span>{abStats.formulasWins} ({Math.round(abStats.formulasWinRate * 100)}%)</span></div>
-          <div className="flex justify-between"><span>Égalités</span><span>{abStats.ties}</span></div>
-          <button onClick={() => { clearABHistory(); setAbStats(getABStats()) }} className="btn btn-sm btn-secondary w-full mt-2 gap-1"><RotateCcw className="h-3.5 w-3.5" />Réinitialiser</button>
+          <button onClick={() => { clearABHistory(); setAbStats(getABStats()) }} className="btn btn-sm btn-secondary w-full mt-1 gap-1"><RotateCcw className="h-3.5 w-3.5" />Réinitialiser</button>
         </div>
       ) : <p className="text-sm text-muted">Aucun test A/B. Créés automatiquement à chaque prédiction.</p>}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARTE 7 — DIAGNOSTIC MULTI-AGENTS (orchestrateur)
+// ═══════════════════════════════════════════════════════════════
+
+const NIVEAU_BADGE: Record<string, string> = {
+  critique: 'danger',
+  eleve: 'warning',
+  moyen: 'primary',
+  faible: 'success',
+}
+
+function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInfo, benchmarkOutcome, activeModelName }: {
+  premierProfil: ProfilRisque | null
+  ecarts: Ecart[]
+  surveillances: Surveillance[]
+  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
+  benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
+  activeModelName: string | null
+}) {
+  const aerodromeId = premierProfil?.aerodrome_id ?? null
+  const [resultat, setResultat] = useState<ResultatOrchestrateur | null>(() =>
+    premierProfil ? lireDernierDiagnostic(premierProfil.aerodrome_id) : null,
+  )
+  const resultatActif = resultat && resultat.aerodromeId === aerodromeId ? resultat : null
+  const historique = aerodromeId ? historiqueOrchestrateur(aerodromeId) : []
+
+  const lancer = () => {
+    if (!premierProfil) return
+    const res = lancerDiagnosticOrchestrateur({
+      aerodromeId: premierProfil.aerodrome_id,
+      profil: premierProfil,
+      ecarts,
+      surveillances,
+      contexteML: {
+        rfAccuracy: rfModelInfo?.accuracy ?? 0,
+        benchmarkMeilleurScore: benchmarkOutcome?.ranked?.[0]?.score ?? 0,
+        modeleActifNom: activeModelName ?? undefined,
+      },
+    })
+    setResultat(res)
+  }
+
+  return (
+    <Card icon={<Workflow className="h-4 w-4 text-role-primary" />} title="7. Diagnostic multi-agents — orchestrateur AERORISQ" badge={
+      resultatActif ? <span className={`badge text-xs ${NIVEAU_BADGE[resultatActif.niveau] ?? 'primary'}`}>{resultatActif.niveau}</span> : undefined
+    }>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-muted-foreground">
+          Exécute une chaîne de {5} agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence), fusionne les votes pondérés par la confiance et journalise le raisonnement.
+        </p>
+        <button onClick={lancer} disabled={!premierProfil} className="btn btn-primary btn-sm gap-1.5 whitespace-nowrap">
+          <Play className="h-4 w-4" />Lancer le diagnostic multi-agents
+        </button>
+      </div>
+
+      {!premierProfil ? (
+        <p className="text-sm text-muted text-center py-6">Complétez un profil de risque pour lancer le diagnostic.</p>
+      ) : !resultatActif ? (
+        <p className="text-sm text-muted text-center py-6">Aucun diagnostic pour {aerodromeId}. Cliquez sur « Lancer le diagnostic ».</p>
+      ) : (
+        <div className="space-y-5">
+          {/* Verdict global */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Indice de dégradation</p>
+              <p className={`text-2xl font-bold ${resultatActif.indiceGlobal >= 65 ? 'text-danger' : resultatActif.indiceGlobal >= 40 ? 'text-warning' : resultatActif.indiceGlobal >= 15 ? 'text-role-primary' : 'text-success'}`}>{resultatActif.indiceGlobal}/100</p>
+            </div>
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Niveau</p>
+              <p className="text-2xl font-bold capitalize">{resultatActif.niveau}</p>
+            </div>
+            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
+              <p className="text-xs text-muted-foreground">Confiance globale</p>
+              <p className="text-2xl font-bold">{resultatActif.confianceGlobale}%</p>
+            </div>
+          </div>
+
+          <p className="text-sm font-medium text-foreground">{resultatActif.interpretation}</p>
+
+          {/* Recommandation */}
+          <div className="rounded-lg bg-role-primary-soft/40 p-3 text-sm">
+            <p className="font-medium mb-1">Recommandation de l&apos;orchestrateur :</p>
+            <p className="text-muted-foreground">{resultatActif.recommandation}</p>
+          </div>
+
+          {/* Votes par agent */}
+          <div>
+            <h4 className="text-sm mb-2 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-role-primary" />Votes des agents (fusionnés, pondérés par confiance)</h4>
+            <div className="space-y-2">
+              {resultatActif.votes.map(v => (
+                <div key={v.agent} className="p-3 rounded-lg border border-border/60">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium">{v.label}</span>
+                    {v.statut === 'erreur'
+                      ? <span className="badge badge-secondary text-xs">Non applicable</span>
+                      : <span className="text-sm font-bold">{v.degradation}/100</span>}
+                  </div>
+                  <div className="progress h-1.5"><div className="progress-bar" style={{ width: `${v.degradation}%`, backgroundColor: v.statut === 'erreur' ? 'var(--muted)' : 'var(--role-primary)' }} /></div>
+                  <p className="text-xs text-foreground mt-1.5">{v.interpretation}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-muted-foreground">confiance {v.confiance}%</span>
+                    <span className="text-[10px] text-muted-foreground">· données {v.dataSupport}%</span>
+                    {v.statut === 'erreur' && <span className="text-[10px] text-muted-foreground">· exclu de la fusion</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Journal de raisonnement */}
+          <div>
+            <h4 className="text-sm mb-2 flex items-center gap-1.5"><History className="w-3.5 h-3.5 text-role-primary" />Journal du raisonnement</h4>
+            <div className="space-y-2">
+              {resultatActif.journal.map((etp, i) => (
+                <div key={i} className="flex gap-3 p-2.5 rounded-lg bg-muted/20 text-xs">
+                  <span className="font-mono text-muted-foreground w-12 shrink-0">{etp.dureeMs}ms</span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{etp.etape}</p>
+                    <p className="text-muted-foreground truncate">{etp.sortie}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Historique */}
+          <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
+            <span className="text-muted-foreground">{historique.length} diagnostic(s) enregistré(s) pour {aerodromeId} – {new Date(resultatActif.horodatage).toLocaleString('fr-FR')}</span>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
 
 const HELP_SECTIONS: HelpSection[] = [
-  { id: 'performances', title: 'Performances', content: 'Précision globale, faux positifs/négatifs, corrélation entre prédictions ML et profil de risque.' },
-  { id: 'modeles', title: 'Modèles (admin)', content: 'Random Forest, PAC Learning, Graph Network, A/B Testing, configuration. Onglet visible uniquement pour les administrateurs.' },
-  { id: 'rf', title: 'Random Forest', content: 'Algorithme supervisé entraîné sur les échantillons d\'inspection. Prédit le résultat probable d\'une vérification.' },
+  { id: 'ml', title: '1. Modèles ML', content: 'Compare les 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur accuracy, precision, recall, F1, ROC-AUC et temps. Sélectionnez le modèle actif qui pilote les prédictions de risque. Via le bouton « Paramètres », ajustez les hyperparamètres de chaque modèle (arbres, profondeur, taux d\'apprentissage, époques...) puis relancez le benchmark pour comparer les performances avec ces valeurs.' },
+  { id: 'risques', title: '2. Modèles de risques', content: 'Précision, maturité, convergence ML et simulation du modèle de risque recommandé (Bow-Tie, FTA, AMDEC, HMM, survie, EVT, copules...).' },
+  { id: 'math', title: '3. Modèles mathématiques', content: 'Calibrage des seuils auto-ajustés et simulation de scénarios sur les modèles probabilistes (HMM, Cox, EVT, copules, Thompson, bayésien).' },
+  { id: 'agents', title: '4. Agents IA', content: 'Pertinence des agents décisionnels AERORISQ et maturité par capacité de l\'inspecteur virtuel.' },
+  { id: 'aerorisq', title: '5. AERORISQ', content: 'Simulation, entraînement, A/B testing (neural vs formules), PAC Learning et configuration.' },
+  { id: 'synthese', title: '6. Synthèse', content: 'État global des modèles en langage clair : diagnostic AERORISQ, KPIs et classement du benchmark.' },
+  { id: 'orchestrateur', title: '7. Diagnostic multi-agents', content: 'Exécute une chaîne de 5 agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence décisionnelle), fusionne les votes pondérés par la confiance et journalise chaque étape. Le verdict est enregistré localement pour l\'aérodrome courant.' },
+  { id: 'jumeau', title: '8. Jumeau numérique interactif', content: 'Miroir interactif du système de risque : ajustez les critères C1-C5, l\'horizon, les facteurs aggravants, le cygne noir et les actions correctives. Le score projeté, les 4 scénarios, la trajectoire et la propagation des écarts dans le graphe se recalculent en temps réel. Lecture seule — aucune donnée n\'est modifiée.' },
+  { id: 'shap', title: '9. Explicabilité SHAP-like', content: 'Attribution additive exacte du score : chaque critère C1-C5 reçoit une contribution φ = poids × (valeur − référence)/100, et baseline + Σφ = score (exactitude vérifiée). Trois références possibles : neutre (50), moyenne historique ou mois précédent. Aucune approximation.' },
+  { id: 'oaci', title: '10. Graphe unifié OACI → risques → écarts', content: 'Chaîne causale Critère OACI (C1-C5) → Barrière Bow-Tie → Domaine → Écart. Sélectionnez un critère pour tracer la propagation de son impact (décroissante le long du graphe), et consultez par domaine l\'efficacité des barrières et les écarts rattachés.' },
 ]

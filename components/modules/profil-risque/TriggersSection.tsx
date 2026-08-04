@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { ProfilRisque } from '@/lib/store'
 import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { AlertTriangle, Bell, Clock, CloudRain, RefreshCw, UserPlus, Activity } from 'lucide-react'
+import { AlertTriangle, Bell, Clock, CloudRain, RefreshCw, UserPlus, Activity, Sparkles, Loader2 } from 'lucide-react'
 import { detectAllTriggers, computeTriggersImpact } from '@/lib/risque/triggers'
+import { expliquerTriggersEnClair, LEAD_LAG_INSIGHTS } from '@/lib/ia/facteursExplicationIA'
 
 interface Props {
   profil: ProfilRisque
@@ -19,15 +20,6 @@ const TRIGGER_CONFIG: Record<string, { icon: React.ElementType; label: string }>
   changement_exploitant: { icon: UserPlus, label: 'Changement exploitant' },
   saison_pluies: { icon: CloudRain, label: 'Saison des pluies' },
   post_inspection: { icon: RefreshCw, label: 'Post-inspection' },
-}
-
-const LEAD_LAG_INSIGHTS: Record<string, string> = {
-  ecart_critique: 'Les écarts critiques non résolus dégradent le score C4 et, en cascade, le score global dans les 30 à 60 jours.',
-  delai_expire: 'Les délais expirés sur les PAC indiquent une perte de réactivité — C2 est généralement le premier impacté.',
-  incident: 'Les incidents récents sont un indicateur avancé fiable : une hausse des incidents précède une baisse du score global de 15-30 jours.',
-  changement_exploitant: 'Un changement d\'exploitant introduit une période de vulnérabilité de 6 mois — C1 (maturité SGS) en pâtit le premier.',
-  saison_pluies: 'Facteur exogène majeur au Sénégal : juillet-septembre voit une hausse des FOD, birdstrikes et infiltrations.',
-  post_inspection: 'Période post-inspection : les écarts identifiés sont en cours de traitement, le score peut temporairement baisser avant de s\'améliorer.',
 }
 
 function TriggerIcon({ type, active }: { type: string; active: boolean }) {
@@ -61,6 +53,26 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
     return { triggers: t, impact: i }
   }, [nbEcartsCritiques, ecartsAerodrome])
 
+  // Explication IA des triggers actifs en langage clair (fallback déterministe sinon)
+  const [insights, setInsights] = useState<Record<string, string>>({})
+  const [iaEnCours, setIaEnCours] = useState(true)
+  const [iaActif, setIaActif] = useState(false)
+
+  useEffect(() => {
+    let actif = true
+    setIaEnCours(true)
+    expliquerTriggersEnClair(triggers, profil).then((res) => {
+      if (!actif) return
+      setInsights(res.insights)
+      setIaActif(!res.fallbackIA)
+      setIaEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setIaEnCours(false)
+    })
+    return () => { actif = false }
+  }, [triggers, profil])
+
   const actifs = triggers.filter(t => t.actif)
   const inactifs = triggers.filter(t => !t.actif)
 
@@ -74,8 +86,22 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
       alertBg={impactLevel === 'critique' ? 'danger' : impactLevel === 'eleve' ? 'warning' : undefined}
       title="Indicateurs avancés"
       icon={<Bell className="w-4 h-4" />}
-      badge={actifs.length > 0 ? <span className={`badge ${impactLevel === 'critique' ? 'danger' : impactLevel === 'eleve' ? 'warning' : 'primary'} text-[10px]`}>Impact {impact.toFixed(2)}×</span> : undefined}
+      badge={
+        actifs.length > 0 ? (
+          <span className={`badge ${impactLevel === 'critique' ? 'danger' : impactLevel === 'eleve' ? 'warning' : 'primary'} text-[10px]`}>Impact {impact.toFixed(2)}×</span>
+        ) : undefined
+      }
     >
+      {iaEnCours && actifs.length > 0 && (
+        <p className="flex items-center gap-2 text-xs text-primary mb-3">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Explication IA en cours…
+        </p>
+      )}
+      {!iaEnCours && iaActif && actifs.length > 0 && (
+        <p className="flex items-center gap-1.5 text-[11px] text-primary mb-3">
+          <Sparkles className="w-3.5 h-3.5" /> Langage clair IA
+        </p>
+      )}
       <div className="space-y-3">
         {/* Baromètre impact */}
         <div className="flex items-center gap-3">
@@ -108,7 +134,7 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
                   </div>
                   <p className="text-[10px] text-foreground mt-0.5">{t.description}</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5 italic leading-relaxed">
-                    {LEAD_LAG_INSIGHTS[t.type] || ''}
+                    {insights[t.type] || LEAD_LAG_INSIGHTS[t.type] || ''}
                   </p>
                 </div>
               </div>

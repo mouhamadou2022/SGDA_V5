@@ -148,8 +148,8 @@ export const chargeUtils = {
     const estEnRetard = evenement.statut !== 'cloture' && dateEcheance < maintenant;
 
     let priorite: 'basse' | 'moyenne' | 'haute' | 'critique' = 'moyenne';
-    if (evenement.gravite === 'CRITIQUE') priorite = 'critique';
-    else if (evenement.gravite === 'ORANGE') priorite = 'haute';
+    if (evenement.gravite === 'critique') priorite = 'critique';
+    else if (evenement.gravite === 'eleve') priorite = 'haute';
 
     let progression = 0;
     if (evenement.statut === 'cloture') progression = 100;
@@ -169,7 +169,7 @@ export const chargeUtils = {
               evenement.statut === 'cloture' ? 'termine' : 'en_cours',
       date_echeance: dateEcheance.toISOString(),
       date_debut: evenement.date,
-      temps_estime: evenement.gravite === 'CRITIQUE' ? 8 : 4,
+      temps_estime: evenement.gravite === 'critique' ? 8 : 4,
       temps_passe: 0,
       progression,
       aerodrome_id: evenement.aerodrome_id,

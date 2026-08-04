@@ -25,6 +25,7 @@ const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
 const MISTRAL_URL = 'https://api.mistral.ai/v1/chat/completions'
 const HF_URL = 'https://api-inference.huggingface.co/v1/chat/completions'
 const OLLAMA_URL = 'http://localhost:11434/v1/chat/completions'
+const AERORISQ_URL = process.env.AERORISQ_API_URL // IA maison — serveur d'inférence propre
 
 const GROQ_PRIMARY = 'llama-3.3-70b-versatile'
 const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
@@ -40,6 +41,7 @@ const HF_PRIMARY = 'mistralai/Mistral-7B-Instruct-v0.3'
 const HF_FALLBACK = 'HuggingFaceH4/zephyr-7b-beta'
 const OLLAMA_PRIMARY = 'mistral'
 const OLLAMA_FALLBACK = 'llama3.2'
+const AERORISQ_PRIMARY = 'aerorisq-sgda' // modèle de l'IA maison AERORISQ
 
 interface KeyEntry {
   key_value: string
@@ -94,6 +96,12 @@ async function callOllama(_apiKey: string, model: string, body: LLMRequest, sign
   return apiFetch(OLLAMA_URL, null, body, model, signal)
 }
 
+// AERORISQ — IA maison (OpenAI-compatible). Prioritaire quand AERORISQ_API_URL est configuré.
+async function callAerorisq(apiKey: string, model: string, body: LLMRequest, signal?: AbortSignal): Promise<Response> {
+  if (!AERORISQ_URL) throw new Error('AERORISQ_API_URL non configuré')
+  return apiFetch(AERORISQ_URL, apiKey || null, body, model, signal)
+}
+
 // Charge les clés depuis Supabase (service role) avec fallback .env
 async function getServiceKeys(service: string): Promise<KeyEntry[]> {
   const keys: KeyEntry[] = []
@@ -106,6 +114,7 @@ async function getServiceKeys(service: string): Promise<KeyEntry[]> {
     cloudflare: process.env.CLOUDFLARE_AI_KEY,
     mistral: process.env.MISTRAL_API_KEY,
     huggingface: process.env.HF_API_KEY,
+    aerorisq: process.env.AERORISQ_API_KEY,
     resend: process.env.RESEND_API_KEY,
     twilio_account_sid: process.env.TWILIO_ACCOUNT_SID,
     twilio_auth_token: process.env.TWILIO_AUTH_TOKEN,
@@ -133,6 +142,7 @@ function estimateInputTokens(messages: Array<{ role: string; content: string }>)
 }
 
 function getProviderMaxInput(providerName: string): number {
+  if (providerName.startsWith('aerorisq')) return 60000
   if (providerName.startsWith('groq_fallback')) return 7000
   if (providerName.startsWith('groq')) return 60000
   if (providerName.startsWith('cloudflare')) return 20000
@@ -148,6 +158,16 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
   const groqKeys = await getServiceKeys('groq')
   const openrouterKeys = await getServiceKeys('openrouter')
   const allProviders: { name: string; key: string; call: ProviderCall; model: string }[] = []
+
+  // AERORISQ (IA maison) en PREMIER : prioritaire dès que son serveur est configuré,
+  // les fournisseurs cloud restent en secours tant que l'IA maison n'est pas prête.
+  if (AERORISQ_URL) {
+    const aerorisqKeys = await getServiceKeys('aerorisq')
+    for (const k of aerorisqKeys.length > 0 ? aerorisqKeys : [{ key_value: '', fallback_order: 0, is_active: true }]) {
+      if (!k.is_active) continue
+      allProviders.push({ name: `aerorisq_${k.fallback_order}`, key: k.key_value, call: callAerorisq, model: AERORISQ_PRIMARY })
+    }
+  }
 
   for (const k of groqKeys) {
     if (!k.is_active) continue
@@ -189,10 +209,10 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
     allProviders.push({ name: `cloudflare_${k.fallback_order}`, key: k.key_value, call: callCloudflare, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' })
   }
 
-  // Ollama (local) toujours en premier — zéro clé API, pas de dépendance réseau.
-  // Si Ollama n'est pas disponible (ex: Vercel), le fallback essaiera les providers externes.
-  allProviders.unshift({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
-  allProviders.unshift({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
+  // Ollama (local) en DERNIER recours : zéro clé API mais lent (inférence locale).
+  // Les providers cloud (Groq, OpenRouter, Google…) sont priorisés pour la rapidité.
+  allProviders.push({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
+  allProviders.push({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
 
   // Context-aware routing : sauter les providers dont la fenêtre de contexte est trop petite
   const inputTokens = estimateInputTokens(request.messages)
@@ -240,11 +260,12 @@ export interface LLMResult {
 }
 
 export function isLLMConfigured(): boolean {
-  return !!process.env.GROQ_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GOOGLE_AI_API_KEY || !!process.env.DEEPSEEK_API_KEY || !!process.env.MISTRAL_API_KEY || !!process.env.HF_API_KEY || !!process.env.CLOUDFLARE_AI_KEY
+  return !!AERORISQ_URL || !!process.env.GROQ_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GOOGLE_AI_API_KEY || !!process.env.DEEPSEEK_API_KEY || !!process.env.MISTRAL_API_KEY || !!process.env.HF_API_KEY || !!process.env.CLOUDFLARE_AI_KEY
 }
 
 export function getAvailableProviders(): string[] {
   const list: string[] = []
+  if (AERORISQ_URL) list.push(`aerorisq (IA maison)`)
   if (process.env.GROQ_API_KEY) list.push(`groq (env)`)
   if (process.env.OPENROUTER_API_KEY) list.push(`openrouter (env)`)
   if (process.env.GOOGLE_AI_API_KEY) list.push(`google_ai (env)`)

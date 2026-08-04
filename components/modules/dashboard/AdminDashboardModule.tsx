@@ -1,12 +1,9 @@
-// components/modules/dashboard/AdminDashboardModule.tsx
-// Tableau de bord administrateur — vue système globale
-// Design system premium - classes harmonisées
-
 'use client';
 
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCard } from './AlertCard';
+import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import {
   Users,
   Plane,
@@ -22,10 +19,11 @@ import {
   Plus,
   PenSquare,
   Trash2,
-  Flame,
+  Sparkles,
+  Compass,
 } from 'lucide-react';
 import { useAppStore, type ApiKey } from '@/lib/store';
-import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -62,6 +60,13 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
   return (
     <div className="space-y-6 animate-fade-in" data-module="admin-dashboard">
 
+      {/* Header */}
+      <ModuleHeader
+        icon={<Compass className="w-5 h-5" />}
+        title="Tableau de bord"
+        description={`Vue administrateur — ${stats.totalAerodromes} aérodromes, ${stats.totalUsers} utilisateurs, ${stats.ecartsOuverts} écarts ouverts`}
+      />
+
       {/* ==================== ALERTES ==================== */}
       <AlertCard
         role={user?.role || 'admin'}
@@ -69,89 +74,73 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
       />
 
       {/* ==================== KPIs ==================== */}
-      <div className="kpi-grid">
-        <div className="kpi-card cursor-pointer animate-fade-up" style={{ animationDelay: '0.05s' }} onClick={() => setActiveModule('utilisateurs')}>
-          <div className="kpi-icon"><Users className="h-5 w-5" /></div>
-          <div className="kpi-content">
-            <div className="kpi-value">{stats.totalUsers}</div>
-            <div className="kpi-label">Utilisateurs</div>
-            <div className="text-xs text-success mt-1">{stats.activeUsers} actifs</div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {([
+          { value: stats.totalUsers, label: 'Utilisateurs', sub: `${stats.activeUsers} actifs`, icon: Users, delay: '0.05s', module: 'utilisateurs' },
+          { value: stats.totalAerodromes, label: 'Aérodromes', sub: 'actifs', icon: Plane, delay: '0.1s', module: 'aerodromes' },
+          { value: stats.ecartsOuverts, label: 'Écarts ouverts', sub: stats.ecartsCritiques > 0 ? `${stats.ecartsCritiques} critiques` : '', icon: AlertCircle, delay: '0.15s', module: 'plans-actions' },
+          { value: stats.surveillancesCeMois, label: 'Surveillances', sub: 'ce mois', icon: Eye, delay: '0.2s', module: 'surveillance' },
+          { value: stats.codesActifs, label: 'Codes actifs', sub: '', icon: Key, delay: '0.25s', module: 'codes' },
+        ] as const).map((kpi, i) => (
+          <div key={i}
+            className="kpi-card cursor-pointer animate-fade-up"
+            style={{ animationDelay: kpi.delay }}
+            onClick={() => setActiveModule(kpi.module)}
+          >
+            <div className="kpi-icon"><kpi.icon className="h-5 w-5" /></div>
+            <div className="kpi-content">
+              <div className="kpi-value">{kpi.value}</div>
+              <div className="kpi-label">{kpi.label}</div>
+              {kpi.sub && <div className="text-xs text-danger mt-1 flex items-center gap-1">{kpi.sub}</div>}
+            </div>
           </div>
-        </div>
-
-        <div className="kpi-card cursor-pointer animate-fade-up" style={{ animationDelay: '0.1s' }} onClick={() => setActiveModule('aerodromes')}>
-          <div className="kpi-icon"><Plane className="h-5 w-5" /></div>
-          <div className="kpi-content">
-            <div className="kpi-value">{stats.totalAerodromes}</div>
-            <div className="kpi-label">Aérodromes</div>
-            <div className="text-xs text-primary mt-1">actifs</div>
-          </div>
-        </div>
-
-        <div className="kpi-card cursor-pointer animate-fade-up" style={{ animationDelay: '0.15s' }} onClick={() => setActiveModule('plans-actions')}>
-          <div className="kpi-icon"><AlertCircle className="h-5 w-5" /></div>
-          <div className="kpi-content">
-            <div className="kpi-value">{stats.ecartsOuverts}</div>
-            <div className="kpi-label">Écarts ouverts</div>
-            {stats.ecartsCritiques > 0 && (
-              <div className="text-xs text-danger mt-1 flex items-center gap-1">
-                <Flame className="w-3 h-3" />{stats.ecartsCritiques} critiques
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="kpi-card cursor-pointer animate-fade-up" style={{ animationDelay: '0.2s' }} onClick={() => setActiveModule('surveillance')}>
-          <div className="kpi-icon"><Eye className="h-5 w-5" /></div>
-          <div className="kpi-content">
-            <div className="kpi-value">{stats.surveillancesCeMois}</div>
-            <div className="kpi-label">Surveillances</div>
-            <div className="text-xs text-muted mt-1">ce mois</div>
-          </div>
-        </div>
-
-        <div className="kpi-card cursor-pointer animate-fade-up" style={{ animationDelay: '0.25s' }} onClick={() => setActiveModule('codes')}>
-          <div className="kpi-icon"><Key className="h-5 w-5" /></div>
-          <div className="kpi-content">
-            <div className="kpi-value">{stats.codesActifs}</div>
-            <div className="kpi-label">Codes actifs</div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* ==================== ACTIONS RAPIDES ==================== */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-fade-up" style={{ animationDelay: '0.27s' }}>
-        {([
-          { id: 'utilisateurs', label: 'Gérer les utilisateurs', desc: 'Comptes et permissions', icon: Users },
-          { id: 'codes', label: "Codes d'accès", desc: 'Génération et révocation', icon: Key },
-          { id: 'audit', label: "Journal d'audit", desc: 'Traçabilité des actions', icon: FileSearch },
-          { id: 'planning', label: 'Planning général', desc: 'Vue d\'ensemble', icon: BarChart3 },
-          { id: 'certification', label: 'Certifications', desc: 'Suivi des dossiers', icon: CheckCircle2 },
-          { id: 'homologation', label: 'Homologations', desc: 'Gestion des phases', icon: Shield },
-          { id: 'formation', label: 'Formation', desc: 'Planification', icon: TrendingUp },
-          { id: 'charge', label: 'Charge de travail', desc: 'Répartition des missions', icon: Gauge },
-        ] as const).map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              className="flex items-center gap-3 p-4 rounded-xl border bg-card hover:bg-role-primary-soft transition-colors text-left group"
-              onClick={() => setActiveModule(item.id)}
-            >
-              <div className="p-2 rounded-lg bg-role-primary-soft group-hover:scale-110 transition-transform">
-                <Icon className="h-5 w-5 text-role-primary" />
-              </div>
-              <div>
-                <div className="text-sm font-medium">{item.label}</div>
-                <div className="text-xs text-muted-foreground">{item.desc}</div>
-              </div>
-            </button>
-          );
-        })}
+      <div className="animate-fade-up" style={{ animationDelay: '0.27s' }}>
+        <h3 className="text-sm font-semibold text-foreground/60 mb-3 tracking-wide">Modules</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {([
+            { id: 'utilisateurs', label: 'Gérer les utilisateurs', desc: 'Comptes et permissions', icon: Users },
+            { id: 'codes', label: "Codes d'accès", desc: 'Génération et révocation', icon: Key },
+            { id: 'audit', label: "Journal d'audit", desc: 'Traçabilité des actions', icon: FileSearch },
+            { id: 'planning', label: 'Planning général', desc: "Vue d'ensemble", icon: BarChart3 },
+            { id: 'certification', label: 'Certifications', desc: 'Suivi des dossiers', icon: CheckCircle2 },
+            { id: 'homologation', label: 'Homologations', desc: 'Gestion des phases', icon: Shield },
+            { id: 'formation', label: 'Formation', desc: 'Planification', icon: TrendingUp },
+            { id: 'charge', label: 'Charge de travail', desc: 'Répartition des missions', icon: Gauge },
+          ] as const).map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                className="flex items-center gap-3 p-4 rounded-xl border bg-card hover:bg-role-primary-soft transition-colors text-left group"
+                onClick={() => setActiveModule(item.id)}
+              >
+                <div className="p-2 rounded-lg bg-role-primary-soft group-hover:scale-110 transition-transform">
+                  <Icon className="h-5 w-5 text-role-primary" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium">{item.label}</div>
+                  <div className="text-xs text-muted-foreground">{item.desc}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ==================== CLÉS API ==================== */}
       <ApiKeysManager />
+
+      {/* Footer AERORISQ */}
+      <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground/40 pt-4">
+        <Sparkles className="w-3 h-3" />
+        <span>SGDA · AERORISQ</span>
+        <span className="w-1 h-1 rounded-full bg-muted-foreground/20" />
+        <span className="text-role-primary/40">Administrateur</span>
+      </div>
     </div>
   );
 }
@@ -198,49 +187,45 @@ function ApiKeysManager() {
 
   const getServiceLabel = (s: string) => services.find(x => x.value === s)?.label || s;
 
+  const columns: Column<ApiKey>[] = [
+    {
+      key: 'service',
+      header: 'Service',
+      render: (k) => <span className="text-xs font-medium">{getServiceLabel(k.service)}</span>,
+    },
+    {
+      key: 'key_value',
+      header: 'Clé',
+      render: (k) => <code className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{k.key_value.substring(0, 12)}...</code>,
+    },
+    {
+      key: 'statut',
+      header: 'Statut',
+      render: (k) => <span className={`badge ${k.is_active ? 'success' : 'neutral'}`}>{k.is_active ? 'Actif' : 'Inactif'}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      headerClassName: 'text-right',
+      render: (k) => (
+        <div className="flex gap-1">
+          <button className="action-button" title="Modifier" onClick={() => openEdit(k)}><PenSquare className="w-3.5 h-3.5" /></button>
+          <button className="action-button text-danger" title="Supprimer" onClick={() => handleDelete(k.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <Card
-      variant="role"
-      title="Clés API"
-      icon={<Key className="h-5 w-5 text-role-primary" />}
-      badge={
-        <button className="btn btn-primary btn-sm gap-1" onClick={openAdd}>
-          <Plus className="w-3.5 h-3.5" />Ajouter
-        </button>
-      }
-      className="animate-fade-up"
-      style={{ animationDelay: '0.35s' } as any}
-    >
-        {apiKeys.length === 0 ? (
-          <div className="text-center py-8">
-            <Key className="h-10 w-10 text-muted mx-auto mb-3 opacity-30" />
-            <p className="text-muted text-sm">Aucune clé API enregistrée</p>
-            <p className="text-xs text-muted-foreground mt-1">Les clés dans .env.local sont utilisées par défaut</p>
-          </div>
-        ) : (
-          <div className="table-container">
-            <table className="table table-compact">
-              <thead>
-                <tr><th>Service</th><th>Clé</th><th>Statut</th><th>Actions</th></tr>
-              </thead>
-              <tbody>
-                {apiKeys.map(k => (
-                  <tr key={k.id}>
-                    <td><span className="text-xs font-medium">{getServiceLabel(k.service)}</span></td>
-                    <td><code className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{k.key_value.substring(0, 12)}...</code></td>
-                    <td><span className={`badge ${k.is_active ? 'success' : 'neutral'}`}>{k.is_active ? 'Actif' : 'Inactif'}</span></td>
-                    <td>
-                      <div className="flex gap-1">
-                        <button className="action-button" title="Modifier" onClick={() => openEdit(k)}><PenSquare className="w-3.5 h-3.5" /></button>
-                        <button className="action-button text-danger" title="Supprimer" onClick={() => handleDelete(k.id)}><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+    <>
+      <DataTable
+        data={apiKeys}
+        columns={columns}
+        keyExtractor={(k) => k.id}
+        emptyState={{ icon: Key, title: 'Aucune clé API enregistrée', description: 'Les clés dans .env.local sont utilisées par défaut' }}
+        cardProps={{ title: 'Clés API', icon: <Key className="h-5 w-5 text-role-primary" />, badge: <button className="btn btn-primary btn-sm gap-1" onClick={openAdd}><Plus className="w-3.5 h-3.5" />Ajouter</button> }}
+      />
       {showModal && createPortal(
         <FormShell open={showModal} onClose={() => setShowModal(false)}
           title={editKey ? 'Modifier la clé API' : 'Ajouter une clé API'}
@@ -275,6 +260,6 @@ function ApiKeysManager() {
           </div>
         </FormShell>, document.body
       )}
-    </Card>
+    </>
   );
 }

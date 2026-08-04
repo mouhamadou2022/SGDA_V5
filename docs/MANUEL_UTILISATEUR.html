@@ -47,7 +47,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><a href="#aerodrome">Gestion des Aérodromes</a></li>
   <li><a href="#ml">ML Monitoring</a></li>
   <li><a href="#evenements">Événements de Sécurité</a></li>
-  <li><a href="#ia">Modèles Mathématiques, Agents IA et Architecture</a></li>
+  <li><a href="#ia">Modèles Mathématiques, Agents IA et Architecture AERORISQ</a></li>
   <li><a href="#certification">Certification et Homologation</a></li>
   <li><a href="#dossiers">Dossiers</a></li>
   <li><a href="#registre">Registre</a></li>
@@ -205,7 +205,12 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </ul>
 
 <h4>Exclusion SGS non applicable</h4>
-<p>Si le statut SGS de l'aérodrome est « non applicable », le domaine SGS est <b>absent</b> du menu déroulant et de la vue globale. Le sélecteur n'affiche que les domaines disponibles pour l'aérodrome sélectionné.</p>
+<p>Si le statut SGS de l'aérodrome est « non applicable » :</p>
+<ul>
+  <li>C1 est fixé à <b>0</b> et <b>exclu du calcul du score global</b> (le poids C1 est redistribué proportionnellement sur C2-C5)</li>
+  <li>Le domaine SGS est <b>absent</b> du menu déroulant et de la vue globale</li>
+  <li>La maturité affichée est « N1 Absent »</li>
+</ul>
 
 <h3>2.6 Calcul du niveau de maturité SGS</h3>
 <p>Le niveau de maturité du Système de Gestion de la Sécurité (SGS) est évalué selon la méthode <b>PAOE</b> inspirée de l'Annexe 19 OACI :</p>
@@ -261,12 +266,13 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 <table>
   <tr><th>Critère</th><th>Poids</th><th>Description</th></tr>
   <tr><td>C1 — Maturité SGS</td><td>20 %</td><td>Mesure la maturité du système de gestion de la sécurité</td></tr>
-  <tr><td>C2 — Efficacité PAC</td><td>20 %</td><td>Mesure la capacité à clôturer les écarts dans les délais</td></tr>
+  <tr><td>C2 — Efficacité PAC</td><td>25 %</td><td>Mesure la capacité à clôturer les écarts dans les délais</td></tr>
   <tr><td>C3 — Conformité</td><td>20 %</td><td>Scores des dernières surveillances (la plus récente pèse 2×)</td></tr>
-  <tr><td>C4 — Charge d'écarts latents</td><td>15 %</td><td>Pondération des écarts actifs par niveau de criticité</td></tr>
-  <tr><td>C5 — Résilience</td><td>25 %</td><td>Historique des événements de sécurité</td></tr>
+  <tr><td>C4 — Charge d'écarts latents</td><td>20 %</td><td>Pondération des écarts actifs par niveau de criticité</td></tr>
+  <tr><td>C5 — Résilience</td><td>15 %</td><td>Historique des événements de sécurité</td></tr>
 </table>
-<p><code>score_global = arrondi(C1 × 0,20 + C2 × 0,20 + C3 × 0,20 + C4 × 0,15 + C5 × 0,25)</code></p>
+<p><code>score_global = arrondi(C1 × 0,20 + C2 × 0,25 + C3 × 0,20 + C4 × 0,20 + C5 × 0,15)</code></p>
+<div class="info">Les poids peuvent être ajustés automatiquement par l'IA (WeightController). Le cron « recalculate-risk » charge les poids appris depuis <code>ia_thresholds</code> avant le calcul. Sans surcharge, les poids par défaut sont utilisés. <b>Cas particulier :</b> quand SGS est non applicable, C1 est exclu du calcul et son poids est redistribué proportionnellement sur C2-C5.</div>
 
 <h4>C1 — Maturité SGS</h4>
 <p>Si la maturité est saisie sur une échelle de 1 à 5 : <code>C1 = (maturité — 1) × 25</code></p>
@@ -399,16 +405,33 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li>Vue liste ou grille</li>
 </ul>
 
-<h3>4.2 Analyse IA</h3>
-<p>Après l'import d'un document réglementaire, l'IA (<code>kitDocAgent</code>) analyse automatiquement le contenu et extrait les items de checklist pertinents.</p>
+<h3>4.2 Analyse IA (Inspecteur Virtuel AERORISQ)</h3>
+<p>L'analyse des documents et la génération d'items de checklist sont assurées par l'<b>Inspecteur Virtuel AERORISQ</b> (<code>inspecteurVirtuelAgent</code>), point d'entrée unique qui remplace les appels directs aux agents IA. Il combine :</p>
+<ul>
+  <li>Les prédictions du profil de risque (C1-C5) pour pondérer les items</li>
+  <li>Le modèle bayésien causal pour l'efficacité des barrières</li>
+  <li>Le <code>modelOrchestrator</code> pour sélectionner le meilleur modèle LLM</li>
+</ul>
 
 <h3>4.3 Génération de checklist</h3>
-<p>Bouton <b>Générer la checklist</b> : crée une checklist structurée à partir des documents analysés, avec domaines, items, références réglementaires et prédictions IA.</p>
+<p>Bouton <b>Générer la checklist</b> : crée une checklist structurée via le bridge <code>kitAerorisqBridge</code>. En présence d'un <code>aerodromeId</code>, les items sont enrichis par le profil de risque AERORISQ (prédiction SA/NS/NV).</p>
 
-<h3>4.4 Entraînement IA</h3>
-<p>Sous-onglet Entraînement : permet de visualiser les checklists maîtres générées et les records de mémoire d'apprentissage par domaine.</p>
+<h3>4.4 Checklists (onglet Checklists)</h3>
+<p>Remplace l'ancien onglet « Checklists de surveillance ». Affiche les templates IA (<code>masterChecklists</code>) regroupés par type de référentiel en 6 accordéons :</p>
+<ul>
+  <li><b>SGS</b> — Évaluation PAOE Annexe 19</li>
+  <li><b>Certification</b> — Référentiel certification aérodromes</li>
+  <li><b>Surveillance continue</b> — Items RAS-14 par domaine</li>
+  <li><b>Homologation</b> — Référentiel homologation nationale</li>
+  <li><b>Validation de site</b> — Vérifications infrastructure</li>
+  <li><b>Hélistation</b> — Référentiel spécifique hélistations</li>
+</ul>
+<p>Chaque template affiche la date de création, les domaines couverts (badges) et le nombre d'items. Boutons Modifier → <code>/kit-checklist/[id]</code> et Supprimer.</p>
 
-<h3>4.5 Partage</h3>
+<h3>4.5 Entraînement IA</h3>
+<p>Sous-onglet Entraînement : visualisation des checklists maîtres générées et des records de mémoire d'apprentissage par domaine.</p>
+
+<h3>4.6 Partage</h3>
 <p>Partagez des documents avec les exploitants d'aérodromes spécifiques. Les documents partagés apparaissent dans leur portail.</p>
 
 <div class="page-break"></div>
@@ -464,16 +487,29 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </ul>
 <div class="alert">L'exploitant reçoit des rappels automatiques à J-30, J-15 et J-7 avant la date de surveillance.</div>
 
-<h3>5.6 Feuille de présence et signature</h3>
+<h3>5.6 Évaluation SGS (PAOE) par l'Inspecteur Virtuel</h3>
+<p>L'onglet « Évaluation SGS » de la checklist utilise désormais <code>inspecteurVirtuel.generateSGSEvaluation()</code> : l'IA génère dynamiquement les questions d'évaluation PAOE (Annexe 19 OACI) adaptées au profil de risque de l'aérodrome, couvrant l'intégralité des 19 chapitres RAS.</p>
+
+<h3>5.7 Feuille de présence et signature</h3>
 <p>Pendant l'inspection, la feuille de présence permet :</p>
 <ul>
-  <li><b>Signature électronique</b> : pad de signature tactile (SignaturePadWithColor)</li>
+  <li><b>Signature électronique</b> : pad de signature tactile (StylusCanvas) — saisie au stylet, clavier ou mode mixte</li>
   <li><b>Enregistrement</b> : date, heure, nom du signataire, rôle</li>
   <li><b>Validation</b> : le chef d'équipe valide la feuille signée</li>
   <li><b>Archivage</b> : la checklist signée est automatiquement archivée dans le registre</li>
 </ul>
 
-<h3>5.7 Rapports de surveillance</h3>
+<h3>5.8 Boucle de feedback AERORISQ</h3>
+<p>À la signature d'une surveillance (passage à l'état <code>checklist_signee</code>) :</p>
+<ol>
+  <li><b>ChecklistFeedbackEngine</b> : <code>ingestSurveillanceResults()</code> analyse les résultats (SA/NS/NV) et les compare aux prédictions AERORISQ</li>
+  <li><b>Recalibrage des poids C1-C5</b> : le WeightController ajuste les poids des critères selon les écarts constatés</li>
+  <li><b>Recalcul du profil risque</b> : le cron <code>recalculate-risk</code> ou le store client déclenche <code>recalculerProfilRisque</code></li>
+  <li><b>Fire-and-forget</b> : le feedback est asynchrone (setTimeout + dynamic import) pour ne pas bloquer la transition d'état</li>
+</ol>
+<div class="info">Ce mécanisme permet à AERORISQ d'apprendre de chaque inspection et d'affiner ses prédictions pour les surveillances futures.</div>
+
+<h3>5.9 Rapports de surveillance</h3>
 <p>Après la complétion de la checklist et la signature :</p>
 <ul>
   <li><b>Rapport automatique</b> : généré avec tous les items, résultats (SA/NS/NV), écarts détectés</li>
@@ -487,15 +523,13 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 <h2 id="aerodrome">6. Gestion des Aérodromes</h2>
 
 <h3>6.1 Fiche détaillée</h3>
-<p>Cliquer sur un aérodrome dans la liste ou la grille ouvre la fiche détaillée avec :</p>
+<p>Cliquer sur un aérodrome dans la liste ou la grille ouvre la fiche détaillée dans une modale :</p>
 <ul>
-  <li>Informations générales (code OACI, nom, région, type, catégorie SSLIA)</li>
-  <li>Profil de risque complet (score, C1-C5, tendance, prédictions, scénarios)</li>
-  <li>Surveillances récentes</li>
-  <li>Écarts actifs</li>
-  <li>Certifications et homologations</li>
-  <li>Modèles avancés (HMM, Survival, EVT, Bayésien)</li>
-  <li>Analyse IA narrative</li>
+  <li><b>En-tête standard</b> : titre avec icône + nom + code OACI, bouton de fermeture (X), badges (type, statut, niveau risque) — conforme au design système commun</li>
+  <li><b>Pied avec actions</b> : boutons Fermer et Modifier dans le footer en bas</li>
+  <li><b>Vue Admin/Inspecteur</b> : dashboard unifié sans onglets (KPIs, graphiques, alertes, actions prioritaires)</li>
+  <li><b>Vue autres rôles</b> : onglets Infos, Profil Risque, Technique, Certification, Surveillances, Documents, Historique, AERORISQ</li>
+  <li><b>Contexte IA</b> : l'aérodrome sélectionné (<code>currentAerodrome</code>) est automatiquement transmis à l'assistant IA pour contextualiser les réponses</li>
 </ul>
 
 <h3>6.2 Création</h3>
@@ -512,7 +546,8 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Graphique</b> : précision par domaine</li>
   <li><b>Métriques</b> : précision globale, faux positifs/négatifs, feedbacks récents</li>
   <li><b>Corrélation ML ↔ Profil de Risque</b> : convergence, alignement, distribution des niveaux</li>
-  <li><b>Panneau confiance réseau bayésien</b> : état des nœuds bayésiens (lissage Dirichlet, inférence VE), nœuds COP avec scores de confiance</li>
+  <li><b>Panneau confiance réseau bayésien</b> : état des nœuds bayésiens (lissage Dirichlet α=1.0, inférence VE), nœuds COP avec scores de confiance, badges de convergence sur chaque barrière bow-tie</li>
+  <li><b>État des CPT bayésiennes</b> : dernière synchronisation Supabase, nombre de nœuds par bow-tie, indicateur de convergence</li>
   <li><b>Alertes</b> : recalibration en attente</li>
   <li><b>Actions</b> : Recalibrer, Réinitialiser</li>
 </ul>
@@ -551,7 +586,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="ia">9. Modèles Mathématiques, Agents IA et Architecture</h2>
+<h2 id="ia">9. Modèles Mathématiques, Agents IA et Architecture AERORISQ</h2>
 
 <h3>9.1 Vue d'ensemble du pipeline IA</h3>
 <p>Tous les modèles mathématiques et agents IA du système convergent vers une source unique : le <b>ProfilRisque</b>. Le pipeline est le suivant :</p>
@@ -609,50 +644,82 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </table>
 <div class="info"><b>Évolution automatique</b> : Plus le système collecte de données (25 aérodromes × 2 recalculs/mois = 600 profils/an), plus les modèles IA s'activent automatiquement. Aujourd'hui : régression classique. Dans 1 an : XGBoost actif. Dans 2 ans : LSTM + Ensemble complet.</div>
 
-<h3>9.5 Les 8 agents IA</h3>
+<h3>9.5 Architecture AERORISQ — Un système d'IA unifié</h3>
+<p>AERORISQ est le système d'intelligence unique qui centralise toutes les décisions IA. L'<b>Inspecteur Virtuel</b> (<code>inspecteurVirtuelAgent</code>) en est la façade :</p>
+<ul>
+  <li><b>Point d'entrée unique</b> : remplace les appels directs à <code>aiClient</code> depuis <code>kitDocAgent</code></li>
+  <li><b>Bridge Kit↔AERORISQ</b> : <code>kitAerorisqBridge.ts</code> assure la traduction domaine → C-score et le feedback des résultats</li>
+  <li><b>ModelOrchestrator</b> : <code>selectModel()</code> avec boost asymétrique (×3 / ×0.5 / 0) pour piloter la recommandation selon le modèle choisi</li>
+  <li><b>Feedback boucle</b> : <code>checklistFeedbackEngine.ingestSurveillanceResults()</code> → recalibrage poids C1-C5 → recalcul profil risque</li>
+</ul>
+
+<h3>9.6 Les 8 agents IA</h3>
 <table>
   <tr><th>Agent</th><th>Rôle</th><th>Modules consommateurs</th></tr>
   <tr><td><b>riskAgent</b></td><td>Analyse complète du risque : prédictions, modèles avancés, Black Swans, suggestions structurées, analyse narrative IA</td><td>Profil de risque, AerodromeDetail, Événements, Dashboard</td></tr>
-  <tr><td><b>assistantAgent</b></td><td>Assistant conversationnel IA : répond aux questions des utilisateurs sur le risque, les recommandations</td><td>Planning, AIAssistant, CommandPalette, SmartAssignment</td></tr>
-  <tr><td><b>kitDocAgent</b></td><td>Analyse de documents réglementaires : extraction d'items de checklist, génération de structures par domaine</td><td>Kit Inspecteur, Checklist</td></tr>
+  <tr><td><b>assistantAgent</b></td><td>Assistant conversationnel IA : répond aux questions des utilisateurs, injecte les critères métier par module (PAC, planning, risk, SGS, registres, certification)</td><td>Planning, AIAssistant, CommandPalette, SmartAssignment</td></tr>
+  <tr><td><b>kitDocAgent</b></td><td>Analyse de documents réglementaires. Délègue à <code>inspecteurVirtuel</code> quand un <code>aerodromeId</code> est fourni</td><td>Kit Inspecteur, Checklist</td></tr>
   <tr><td><b>certificationAgent</b></td><td>Évaluation des dossiers de certification : recommandations Phase 1/2/3</td><td>Certification, Homologation</td></tr>
   <tr><td><b>ecartAgent</b></td><td>Analyse des écarts : suggestions de PAC, évaluation de l'efficacité des mesures</td><td>Surveillance, Écarts, Plans d'actions</td></tr>
   <tr><td><b>suggestionMLAgent</b></td><td>Suggestion de type/fréquence de surveillance basée sur le profil de risque et les déclencheurs</td><td>Planning (Suggestions IA)</td></tr>
   <tr><td><b>checklistAgent</b></td><td>Prédiction du résultat probable des items de checklist (SA/NS/NV)</td><td>Checklist (via orchestrateur)</td></tr>
   <tr><td><b>learningAgent</b></td><td>Apprentissage continu : calibration des modèles, métriques F1, ajustement des seuils</td><td>ML Monitoring (interne)</td></tr>
+  <tr><td><b>inspecteurVirtuelAgent</b></td><td>Façade AERORISQ : génération checklist, évaluation SGS PAOE, prédiction items, enrichissement profil risque</td><td>Kit Inspecteur, Surveillance, Checklist Standard</td></tr>
+  <tr><td><b>checklistFeedbackEngine</b></td><td>Boucle feedback : ingère les résultats de surveillance, recalibre les poids C1-C5, déclenche recalcul risque</td><td>Surveillance (post-signature), WeightController</td></tr>
 </table>
+<div class="info">L'Inspecteur Virtuel AERORISQ est le point d'entrée unique pour toute interaction IA liée aux checklists et à l'évaluation SGS. Son rôle est d'unifier les prédictions, le feedback et le recalibrage en un seul flux.</div>
 
-<h3>9.6 Architecture du pipeline</h3>
+<h3>9.7 Architecture du pipeline</h3>
 <pre><code>Écarts + Surveillances + Événements + Aérodromes
                     │
                     ▼
          recalculerProfilRisque()
-         ┌──────────────────────────────────────┐
-         │ Phase 1 : 13 modèles classiques      │
-         │ Phase 2 : Métriques avancées         │
-         │ Phase 3 : ModelCache (HMM, Survival, │
-         │           EVT, NB, Copulas, TS)      │
-   │ Phase 4 : Ensemble IA                │
-   │           (BayesianDynamic, XGBoost, │
-   │            LSTM) avec fallback       │
-   │ Bow-Tie + Réseau Bayésien Causal    │
-   └──────────────┬───────────────────────┘
+         ┌─────────────────────────────────────────┐
+         │ Phase 1 : 13 modèles classiques         │
+         │ Phase 2 : Métriques avancées            │
+         │ Phase 3 : ModelCache (HMM, Survival,    │
+         │           EVT, NB, Copulas, TS)         │
+         │ Phase 4 : Ensemble IA                   │
+         │           (BayesianDynamic, XGBoost,    │
+         │            LSTM) avec fallback          │
+         │ Bow-Tie + Réseau Bayésien Causal        │
+         │ (lissage Dirichlet α=1.0, VE inference) │
+         └──────────────┬──────────────────────────┘
                         │
                 ProfilRisque (30+ champs)
                         │
-         ┌──────────────┼──────────────────┐
-         ▼              ▼                  ▼
-    RisqueModule   planningGenerator   riskEngine
-    (4 onglets)    (N+1 propositions)  (décisions)
+         ┌──────────────┼──────────────────┬──────────────┐
+         ▼              ▼                  ▼              ▼
+    RisqueModule   planningGenerator   riskEngine    AERORISQ
+    (4 onglets)    (N+1 propositions)  (décisions)   KitBridge
+                                                     Feedback
 </code></pre>
 
 <div class="info"><b>ModelCache</b> : Cache partagé (TTL 5 minutes) entre riskAgent, planningGenerator et recalculerProfilRisque. Garantit qu'aucun modèle n'est calculé deux fois. Les résultats sont persistés dans le ProfilRisque en base de données.</div>
+
+<h3>9.8 Boucle de feedback AERORISQ (flux complet)</h3>
+<pre><code>Checklist signée
+       │
+       ▼
+passerEtapeSuivante (store.ts)
+       │
+       ▼
+setTimeout → dynamic import
+       │
+       ▼
+checklistFeedbackEngine.ingestSurveillanceResults()
+       │
+       ├──→ Comparaison résultats vs prédictions AERORISQ
+       ├──→ Recalibrage poids C1-C5 (WeightController)
+       ├──→ Écriture CPT bayésiennes → Supabase
+       └──→ Déclenchement recalcul profil risque
+</code></pre>
 
 <div class="page-break"></div>
 
 <h2 id="certification">10. Certification et Homologation</h2>
 
-<h3>9.1 Certification</h3>
+<h3>10.1 Certification</h3>
 <p>Gestion du cycle de vie complet des certifications d'aérodrome :</p>
 <ul>
   <li><b>Demande initiale</b> : soumission du dossier par l'exploitant</li>
@@ -663,7 +730,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </ul>
 <p>Chaque phase génère des recommandations IA via le <code>certificationAgent</code>.</p>
 
-<h3>9.2 Homologation</h3>
+<h3>10.2 Homologation</h3>
 <p>Processus simplifié pour les aérodromes nationaux et hélistations :</p>
 <ul>
   <li>Dossier d'homologation avec pièces justificatives</li>
@@ -671,14 +738,14 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li>Émission du certificat d'homologation</li>
 </ul>
 
-<h3>9.3 Impact sur le profil de risque</h3>
+<h3>10.3 Impact sur le profil de risque</h3>
 <div class="info">Chaque mise à jour de certification ou d'homologation déclenche un recalcul automatique du profil de risque de l'aérodrome concerné.</div>
 
 <div class="page-break"></div>
 
-<h2 id="dossiers">10. Dossiers</h2>
+<h2 id="dossiers">11. Dossiers</h2>
 
-<h3>10.1 Gestion des dossiers d'extension</h3>
+<h3>11.1 Gestion des dossiers d'extension</h3>
 <p>Module de suivi des demandes d'extension de validité pour les certifications :</p>
 <ul>
   <li><b>Types d'extension</b> : 3 jours, 7 jours, 10 jours</li>
@@ -686,7 +753,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Workflow</b> : demande → examen → approbation/refus</li>
 </ul>
 
-<h3>10.2 Suivi documentaire</h3>
+<h3>11.2 Suivi documentaire</h3>
 <p>Centralise tous les documents liés aux dossiers :</p>
 <ul>
   <li>Pièces justificatives</li>
@@ -697,38 +764,43 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="registre">11. Registre</h2>
+<h2 id="registre">12. Registre</h2>
 
-<h3>11.1 Registre des surveillances</h3>
-<p>Historique complet de toutes les activités de surveillance :</p>
-<ul>
-  <li>Timeline chronologique des inspections</li>
-  <li>Fichiers attachés (rapports, photos, checklists signées)</li>
-  <li>Export PDF dans tous les onglets (Surveillance, Écarts, Événements, Formations)</li>
-  <li>Archivage automatique des événements clôturés</li>
-</ul>
+<h3>12.1 Organisation en 5 onglets thématiques</h3>
+<p>Le module Registre regroupe les données historiques en 5 onglets (fusion des 9 sous-onglets précédents) pour éliminer le scroll horizontal :</p>
+<table>
+  <tr><th>Onglet</th><th>Contenu</th></tr>
+  <tr><td>Tableau de bord</td><td>Vue d'ensemble : KPIs, statistiques globales, graphiques de synthèse</td></tr>
+  <tr><td>Certifications & Homologations</td><td>Certifications OACI et homologations nationales archivées</td></tr>
+  <tr><td>Surveillance & Écarts</td><td>Rapports de surveillance signés et non-conformités clôturées avec leurs PAC</td></tr>
+  <tr><td>Événements & Formations</td><td>Incidents et accidents de sécurité, formations des inspecteurs</td></tr>
+  <tr><td>Documents & Dossiers</td><td>Décrets, notes officielles, lettres, dossiers techniques archivés</td></tr>
+</table>
 
-<h3>11.2 Consultation</h3>
-<p>Filtres par : période, aérodrome, type de surveillance, statut. Recherche plein texte.</p>
+<h3>12.2 Consultation</h3>
+<p>Filtres par : période, aérodrome, type. Recherche plein texte dans l'onglet Documents & Dossiers (vues liste/grille). Export PDF disponible.</p>
+
+<h3>12.3 Archivage automatique</h3>
+<p>Les événements clôturés, les surveillances signées et les écarts résolus sont automatiquement archivés dans le registre avec leurs fichiers attachés (rapports, photos, checklists signées).</p>
 
 <div class="page-break"></div>
 
-<h2 id="workflow">12. Workflows</h2>
+<h2 id="workflow">13. Workflows</h2>
 
-<h3>12.1 Workflow Événement</h3>
+<h3>13.1 Workflow Événement</h3>
 <table>
   <tr><th>Type d'événement</th><th>Workflow déclenché</th></tr>
   <tr><td>Accident / Incident grave</td><td>Notification immédiate → Investigation obligatoire → Enquête → Rapport → Recommandations → Suivi</td></tr>
   <tr><td>Incident simple</td><td>Analyse → Recommandations → Suivi</td></tr>
 </table>
 
-<h3>12.2 Workflow Certification</h3>
+<h3>13.2 Workflow Certification</h3>
 <ol>
   <li>Demande → Phase 1 (documentaire) → Phase 2 (inspection) → Phase 3 (décision)</li>
   <li>Renouvellement : Phase 1 sautée (dossier existant), début direct à la Phase 2</li>
 </ol>
 
-<h3>12.3 Workflow Écart → PAC</h3>
+<h3>13.3 Workflow Écart → PAC</h3>
 <ol>
   <li>Détection d'un écart (checklist NS/NV)</li>
   <li>Ouverture de l'écart avec niveau de risque</li>
@@ -738,7 +810,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 </ol>
 <div class="info">L'IA (<code>riskAgent</code>) assiste chaque étape : prédiction du résultat, suggestions de mesures, évaluation de l'efficacité.</div>
 
-<h3>12.4 Workflow Formation</h3>
+<h3>13.4 Workflow Formation</h3>
 <ol>
   <li>Détection de lacunes de compétences (via CompetenceMatrix)</li>
   <li>Suggestions de formation (via FormationSuggestions piloté par l'IA/profil de risque)</li>
@@ -748,9 +820,9 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="portails">13. Portails</h2>
+<h2 id="portails">14. Portails</h2>
 
-<h3>13.1 Portail DG ANACIM</h3>
+<h3>14.1 Portail DG ANACIM</h3>
 <p>Vue d'ensemble pour la direction générale :</p>
 <ul>
   <li><b>Dashboard</b> : KPIs nationaux (score moyen, aérodromes critiques, tendances)</li>
@@ -759,7 +831,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Événements</b> : suivi des incidents de sécurité</li>
 </ul>
 
-<h3>13.2 Portail Exploitant (DG Exploitant / Point Focal)</h3>
+<h3>14.2 Portail Exploitant (DG Exploitant / Point Focal)</h3>
 <p>Vue limitée à l'aérodrome de l'exploitant :</p>
 <ul>
   <li><b>Profil de risque</b> : vue décisionnelle (score, tendance, alertes, actions)</li>
@@ -770,12 +842,12 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
   <li><b>Notifications</b> : rappels avant surveillance (J-30, J-15, J-7), certificats arrivant à expiration</li>
 </ul>
 
-<h3>13.3 Staff Operator</h3>
+<h3>14.3 Staff Operator</h3>
 <p>Consultation seule : documents partagés, planning, messagerie. Pas de modification.</p>
 
 <div class="page-break"></div>
 
-<h2 id="roles">14. Rôles et Permissions</h2>
+<h2 id="roles">15. Rôles et Permissions</h2>
 
 <table>
   <tr><th>Rôle</th><th>Permissions</th></tr>
@@ -789,7 +861,7 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 10p
 
 <div class="page-break"></div>
 
-<h2 id="faq">10. FAQ et Dépannage</h2>
+<h2 id="faq">16. FAQ et Dépannage</h2>
 
 <h3>Connexion</h3>
 <p><b>Q : « Identifiant ou mot de passe incorrect »</b><br>

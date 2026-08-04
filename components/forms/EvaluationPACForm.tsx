@@ -451,7 +451,7 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
             <div className="mt-2 p-3 rounded bg-blue-50 border border-blue-200 space-y-2">
               <div className="flex items-center gap-2">
                 <Star className="w-4 h-4 text-blue-600" />
-                <span className="text-[11px] font-semibold text-blue-800">Analyse IA de l'évaluation</span>
+                <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation</span>
               </div>
               <div className="space-y-1.5 text-[11px] text-blue-900">
                 <p>• {tousNotes ? `Score pondéré : ${scorePondere.toFixed(1)}/4 (${scorePourcentage}%)` : 'Évaluez tous les critères pour obtenir une analyse'}</p>
@@ -469,7 +469,7 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
                 )}
               </div>
               <details>
-                <summary className="text-[10px] text-blue-600 cursor-pointer font-medium">Pondérations apprises par l'IA</summary>
+                <summary className="text-[10px] text-blue-600 cursor-pointer font-medium">Pondérations apprises par AERORISQ</summary>
                 <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
                   {Object.entries(learningStats.ponderations_criteres).map(([k, v]) => (
                     <span key={k} className="px-1 py-0.5 rounded bg-blue-100/50">

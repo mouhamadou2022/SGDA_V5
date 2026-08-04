@@ -11,6 +11,7 @@ import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 import { SURVEILLANCE_TYPES, SURVEILLANCE_DOMAINS } from '@/lib/config'
 import { getRiskLevel, suggestMissionType } from '@/lib/risque'
 import { useFormProgress } from '@/hooks/useFormProgress'
+import { FormProgressContext } from '@/components/ui/FormShell'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -356,6 +357,10 @@ export const SurveillanceForm = memo(function SurveillanceForm({
    onProgressRef.current = onProgressChange
    // Only run when progress actually changes
    useEffect(() => { onProgressRef.current?.(progress) }, [progress])
+
+   const setProgress = React.useContext(FormProgressContext)
+   // Mettre à jour la barre de progression dans FormShell
+   useEffect(() => { setProgress(progress) }, [progress, setProgress])
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="form-container animate-fade-up" data-role={userRole} data-module="surveillance-form">

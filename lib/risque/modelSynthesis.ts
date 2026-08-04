@@ -17,6 +17,8 @@ export interface ModeleVote {
   indiceDegradation: number  // 0 (stable) → 100 (dégradation critique)
   confiance: number          // 0–100
   interpretation: string     // une phrase lisible
+  /** Quantité de données (0-100) derrière ce vote — pondère le consensus. */
+  dataSupport?: number
 }
 
 export interface DiagnosticUnifie {
@@ -36,6 +38,28 @@ export interface DiagnosticUnifie {
   recommandation: string
   /** Éléments clés justifiant le diagnostic */
   elementsClefs: string[]
+}
+
+/**
+ * Nombre maximal de votes que le moteur synthetiserModeles peut émettre
+ * (1 score global C1-C5 + 11 modèles conditionnels). Sert d'affichage
+ * « X modèles actifs / max » dans la carte « Statut des modèles ».
+ */
+export const NOMBRE_MAX_VOTES = 12
+
+/**
+ * Quantité de données (0-1) derrière chaque modèle. Les modèles prédictifs
+ * (HMM, survie, EVT, copule) dépendent de l'historique de score : leur poids
+ * croît avec le nombre de relevés. Les autres modèles sont considérés fiables
+ * dès qu'ils sont calculés (données suffisantes).
+ */
+export function dataSupportFor(nom: string, profil: ProfilRisque): number {
+  const history = profil.historical_scores || []
+  if (nom === 'HMM (Markov)' || nom === 'Analyse de survie' || nom === 'Risque extrême (EVT)' || nom === 'Copule (dépendance)') {
+    if (history.length < 3) return 0.4
+    return Math.min(1, 0.45 + history.length * 0.055)
+  }
+  return 1
 }
 
 // ────────────────────────────────────────────
@@ -108,24 +132,45 @@ export function synthetiserModeles(profil: ProfilRisque): DiagnosticUnifie {
     votes.push(voterPredictionIncidents(profil))
   }
 
-  // ── Agrégation pondérée par confiance ──
-  const poidsTotal = votes.reduce((s, v) => s + v.confiance, 0) || 1
-  const indiceGlobal = votes.reduce((s, v) => s + v.indiceDegradation * v.confiance, 0) / poidsTotal
+  // ── Agrégation « consciente des données » ──
+  // Chaque vote est pondéré par sa confiance ET par la quantité de données qui
+  // le sous-tend. Les modèles prédictifs peu alimentés pèsent moins ; s'ils
+  // divergent fortement du consensus avec peu de données, leur poids est réduit
+  // (les modèles se complètent selon les données au lieu de se contredire).
+  const supports = votes.map((v) => dataSupportFor(v.nom, profil))
+  const poidsEffectif = (i: number) => votes[i].confiance * supports[i]
 
-  // Confiance globale : moyenne des confiances, pénalisée si les votes divergent
+  let poidsTotal = votes.reduce((s, _, i) => s + poidsEffectif(i), 0) || 1
+  let indiceGlobal = votes.reduce((s, _, i) => s + votes[i].indiceDegradation * poidsEffectif(i), 0) / poidsTotal
+
+  const faiblesDivergents = votes
+    .map((v, i) => ({ v, i, support: supports[i] }))
+    .filter(({ v, support }) => Math.abs(v.indiceDegradation - indiceGlobal) > 30 && support < 0.8)
+  for (const fd of faiblesDivergents) supports[fd.i] *= 0.5
+  if (faiblesDivergents.length > 0) {
+    poidsTotal = votes.reduce((s, _, i) => s + poidsEffectif(i), 0) || 1
+    indiceGlobal = votes.reduce((s, _, i) => s + votes[i].indiceDegradation * poidsEffectif(i), 0) / poidsTotal
+  }
+
+  const votesAvecSupport = votes.map((v, i) => ({ ...v, dataSupport: Math.round(supports[i] * 100) }))
+
+  // Confiance globale : moyenne des confiances, pondérée par le support de
+  // données, pénalisée si les votes divergent ou si peu de modèles tournent.
   const confianceMoyenne = votes.reduce((s, v) => s + v.confiance, 0) / votes.length
+  const supportMoyen = supports.reduce((s, x) => s + x, 0) / supports.length
   const ecartIndices = Math.sqrt(votes.reduce((s, v) => s + (v.indiceDegradation - indiceGlobal) ** 2, 0) / votes.length)
   const penalties = Math.min(30, ecartIndices * 0.6) // écart-type de 50 pts → -30% confiance
-  const confianceGlobale = Math.round(Math.max(20, confianceMoyenne - penalties))
+  const penurieModeles = votes.length < 4 ? (4 - votes.length) * 3 : 0
+  const confianceGlobale = Math.round(Math.max(20, confianceMoyenne * (0.55 + 0.45 * supportMoyen) - penalties - penurieModeles))
 
-  // Tendances contradictoires
+  // Tendances contradictoires — les votes à faible support sont signalés
   const signauxContradictoires: string[] = []
   if (votes.length >= 2 && ecartIndices > 25) {
-    const extremes = [...votes].sort((a, b) => a.indiceDegradation - b.indiceDegradation)
+    const extremes = [...votesAvecSupport].sort((a, b) => a.indiceDegradation - b.indiceDegradation)
     const [plusStable, plusDegrade] = [extremes[0], extremes[extremes.length - 1]]
     if (plusDegrade.indiceDegradation - plusStable.indiceDegradation > 40) {
       signauxContradictoires.push(
-        `${plusStable.nom} (indice ${plusStable.indiceDegradation}) et ${plusDegrade.nom} (indice ${plusDegrade.indiceDegradation}) divergent — vérifier les données sous-jacentes`
+        `${plusStable.nom} (indice ${plusStable.indiceDegradation}, données ${plusStable.dataSupport}%) et ${plusDegrade.nom} (indice ${plusDegrade.indiceDegradation}, données ${plusDegrade.dataSupport}%) divergent — vérifier les données sous-jacentes`
       )
     }
   }
@@ -154,7 +199,7 @@ export function synthetiserModeles(profil: ProfilRisque): DiagnosticUnifie {
     interpretation,
     confianceGlobale,
     tendance,
-    votes,
+    votes: votesAvecSupport,
     signauxContradictoires,
     recommandation,
     elementsClefs,

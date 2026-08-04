@@ -1442,6 +1442,34 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
   const [iaAnalysis, setIaAnalysis] = useState<CertificationAnalysisResult | null>(null);
   const [showIaAnalysis, setShowIaAnalysis] = useState(false);
 
+  const [exportLoading, setExportLoading] = useState(false);
+  const handleExport = async () => {
+    if (exportLoading) return;
+    setExportLoading(true);
+    try {
+      const { genererRapportCertification } = await import('@/lib/services/exportCertification');
+      await genererRapportCertification();
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Rapport PDF généré',
+        message: 'Le rapport national de certification a été exporté au format PDF.',
+        canal: 'in_app',
+      });
+    } catch (error) {
+      console.error('Erreur export certification:', error);
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Erreur',
+        message: "Impossible d'exporter le rapport PDF. Veuillez réessayer.",
+        canal: 'in_app',
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const allCertifications = certifications || [];
   const internationalAerodromes = useMemo(() => {
     return aerodromes.filter(a => a.type === 'international');
@@ -1744,9 +1772,9 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
         icon={<ShieldCheck className="h-6 w-6" />}
         title="Certification"
         description="Gestion des certifications des aérodromes internationaux"
-        actions={<button className="btn btn-secondary gap-2 flex items-center">
-          <Download className="w-4 h-4" />
-          Exporter
+        actions={<button className="btn btn-secondary gap-2 flex items-center" onClick={handleExport} disabled={exportLoading}>
+          {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {exportLoading ? 'Export en cours…' : 'Exporter'}
         </button>}
       />
 

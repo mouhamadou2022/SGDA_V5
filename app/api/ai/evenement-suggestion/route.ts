@@ -10,7 +10,7 @@ const SYSTEM_PROMPT = `Tu es un expert en securite aeroportuaire pour l'ANACIM. 
 
 Analyse la description fournie et genere une suggestion structuree avec :
 1. **type** : le type d'evenement le plus pertinent parmi la liste officielle ANACIM
-2. **gravite** : la gravite preliminaire ('CRITIQUE', 'ORANGE', 'JAUNE', 'GRIS', 'BLEU')
+2. **gravite** : la gravite preliminaire ('critique', 'eleve', 'moyen', 'faible')
 3. **classification** : accident, incident, ou incident_grave
 4. **actions_immediates** : 2-4 actions immediates concretes à mener
 5. **services_alertes** : liste des services à alerter
@@ -25,10 +25,10 @@ Types disponibles :
 - Evenement de surete, Autre
 
 Regles de gravite :
-- CRITIQUE : incursion piste, surete impact securite, travaux proximite piste
-- ORANGE : perils, contamination, marchandises dangereuses, non mise en oeuvre procedures, avitaillement
-- JAUNE : facteurs humains, FOD, travaux, infrastructures, souffle, stationnement
-- BLEU : autre
+- critique : incursion piste, surete impact securite, travaux proximite piste
+- eleve : perils, contamination, marchandises dangereuses, non mise en oeuvre procedures, avitaillement
+- moyen : facteurs humains, FOD, travaux, infrastructures, souffle, stationnement
+- faible : autre
 
 Classification :
 - accident : blesses graves/mortels ou dommages importants
@@ -41,7 +41,7 @@ Reponds UNIQUEMENT un objet JSON avec la structure :
 {
   "suggestion": {
     "type": "..." ,
-    "gravite": "CRITIQUE|ORANGE|JAUNE|GRIS|BLEU",
+    "gravite": "critique|eleve|moyen|faible",
     "classification": "accident|incident|incident_grave",
     "actions_immediates": "...",
     "services_alertes": ["Pompiers", "ANACIM", ...]
@@ -71,6 +71,15 @@ export async function POST(req: NextRequest) {
 
     const parsed = JSON.parse(raw)
     const suggestion = parsed?.suggestion || null
+
+    // Normalise la gravité renvoyée par le LLM vers les 4 niveaux de risque
+    if (suggestion?.gravite) {
+      const legacy: Record<string, string> = { CRITIQUE: 'critique', ORANGE: 'eleve', JAUNE: 'moyen', GRIS: 'faible', BLEU: 'faible' }
+      const g = String(suggestion.gravite).trim().toLowerCase()
+      suggestion.gravite = (g === 'critique' || g === 'eleve' || g === 'moyen' || g === 'faible')
+        ? g
+        : legacy[String(suggestion.gravite).trim()] || 'moyen'
+    }
 
     return NextResponse.json({
       suggestion,

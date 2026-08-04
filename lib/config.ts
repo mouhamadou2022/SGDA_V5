@@ -238,27 +238,27 @@ export const TYPES_EVENEMENT = [
 ] as const
 
 export const GRAVITE_EVENEMENT = {
-  LASERS: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  FACTEURS_HUMAINS: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  NON_MISE_EN_OEUVRE_PROCEDURES: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  TRAVAUX_AIRE_MOUVEMENT: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  TRAVAUX_MAINTENANCE: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 360, sms: false },
-  MARCHANDISES_DANGEREUSES: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 48, sms: true },
-  AVITAILLEMENT_CARBURANT: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  FOD: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  UTILISATION_MATERIELS_PISTE: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  PLACEMENT_STATIONNEMENT: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  MISE_EN_ROUTE_ROULAGE_NON_CONFORME: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  PRESENCE_INDESIRABLE: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  INFRASTRUCTURES_INADAPTEES: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  DEFAILLANCE_INTERFACES_SOL_BORD: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  CONTAMINATION_PISTE: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: false },
-  INCURSION_PISTE: { niveau: 'CRITIQUE', couleur: 'danger', delai_notification: 24, sms: true },
-  SOUFFLE_AERONEF: { niveau: 'JAUNE', couleur: 'primary', delai_notification: 168, sms: false },
-  TRAVAUX_PROXIMITE_PISTE: { niveau: 'CRITIQUE', couleur: 'danger', delai_notification: 24, sms: true },
-  PERIL_ANIMALIER: { niveau: 'ORANGE', couleur: 'warning', delai_notification: 72, sms: true },
-  SURETE_IMPACT_SECURITE: { niveau: 'CRITIQUE', couleur: 'danger', delai_notification: 24, sms: true },
-  AUTRE: { niveau: 'BLEU', couleur: 'info', delai_notification: 720, sms: false }
+  LASERS: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  FACTEURS_HUMAINS: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  NON_MISE_EN_OEUVRE_PROCEDURES: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  TRAVAUX_AIRE_MOUVEMENT: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  TRAVAUX_MAINTENANCE: { niveau: 'moyen', couleur: 'primary', delai_notification: 360, sms: false },
+  MARCHANDISES_DANGEREUSES: { niveau: 'eleve', couleur: 'warning', delai_notification: 48, sms: true },
+  AVITAILLEMENT_CARBURANT: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  FOD: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  UTILISATION_MATERIELS_PISTE: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  PLACEMENT_STATIONNEMENT: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  MISE_EN_ROUTE_ROULAGE_NON_CONFORME: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  PRESENCE_INDESIRABLE: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  INFRASTRUCTURES_INADAPTEES: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  DEFAILLANCE_INTERFACES_SOL_BORD: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  CONTAMINATION_PISTE: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: false },
+  INCURSION_PISTE: { niveau: 'critique', couleur: 'danger', delai_notification: 24, sms: true },
+  SOUFFLE_AERONEF: { niveau: 'moyen', couleur: 'primary', delai_notification: 168, sms: false },
+  TRAVAUX_PROXIMITE_PISTE: { niveau: 'critique', couleur: 'danger', delai_notification: 24, sms: true },
+  PERIL_ANIMALIER: { niveau: 'eleve', couleur: 'warning', delai_notification: 72, sms: true },
+  SURETE_IMPACT_SECURITE: { niveau: 'critique', couleur: 'danger', delai_notification: 24, sms: true },
+  AUTRE: { niveau: 'faible', couleur: 'info', delai_notification: 720, sms: false }
 } as const
 
 export const TYPES_ENQUETE = [

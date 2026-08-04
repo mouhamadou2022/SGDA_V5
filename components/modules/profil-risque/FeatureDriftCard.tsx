@@ -4,10 +4,25 @@ import { useMemo } from 'react'
 import { ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { AlertTriangle, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react'
-import { analyzeDrift, type FeatureDrift } from '@/lib/risque/drift'
+import { analyzeDrift, type FeatureDrift, type DriftAnalysis } from '@/lib/risque/drift'
 
 interface Props {
   profil: ProfilRisque
+  /** Analyse pré-calculée (optionnelle) — permet à l'appelant d'anticiper le rendu. */
+  analysis?: DriftAnalysis
+}
+
+/** Analyse des dérives d'un profil, réutilisable pour le layout et le rendu. */
+export function buildDriftAnalysis(profil: ProfilRisque): DriftAnalysis {
+  const history = profil.historical_scores || []
+  return analyzeDrift(history, {
+    score: profil.score_global,
+    c1: profil.c1,
+    c2: profil.c2,
+    c3: profil.c3,
+    c4: profil.c4,
+    c5: profil.c5,
+  })
 }
 
 function getSeverityColor(severity: string): string {
@@ -70,18 +85,8 @@ function DriftRow({ drift }: { drift: FeatureDrift }) {
   )
 }
 
-export function FeatureDriftCard({ profil }: Props) {
-  const analysis = useMemo(() => {
-    const history = profil.historical_scores || []
-    return analyzeDrift(history, {
-      score: profil.score_global,
-      c1: profil.c1,
-      c2: profil.c2,
-      c3: profil.c3,
-      c4: profil.c4,
-      c5: profil.c5,
-    })
-  }, [profil])
+export function FeatureDriftCard({ profil, analysis: providedAnalysis }: Props) {
+  const analysis = useMemo(() => providedAnalysis ?? buildDriftAnalysis(profil), [profil, providedAnalysis])
 
   const anomalies = analysis.drifts.filter(d => d.severity === 'critique' || d.severity === 'eleve')
   const normals = analysis.drifts.filter(d => d.severity === 'normal')

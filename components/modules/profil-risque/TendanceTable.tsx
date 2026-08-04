@@ -3,7 +3,8 @@
 
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2, BarChart3 } from 'lucide-react'
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
@@ -43,6 +44,9 @@ export function TendanceTable({ profil }: Props) {
     return { ...c, score: s, tendance: t, pred3m: computePrediction(s, t, 3), pred6m: computePrediction(s, t, 6) }
   }), [profil])
 
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+
   const stats = useMemo(() => {
     const s = [profil.c1, profil.c2, profil.c3, profil.c4, profil.c5]
     const avg = s.reduce((a, b) => a + b, 0) / s.length; const min = Math.min(...s); const max = Math.max(...s)
@@ -71,24 +75,26 @@ export function TendanceTable({ profil }: Props) {
       </Card>
 
       {/* Tableau principal */}
-      <div className="table-container">
-        <table className="table">
-          <thead><tr><th>Critère</th><th className="text-center">Poids</th><th>Score actuel</th><th className="text-center">Tendance</th><th className="text-center">Prédiction 3m</th><th className="text-center">Prédiction 6m</th><th className="text-center">Statut</th></tr></thead>
-          <tbody>
-            {data.map(row => (
-              <tr key={row.key} className="hover:bg-role-primary-soft transition-colors">
-                <td className="py-3"><div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg ${getScoreBg(row.score)} flex items-center justify-center font-bold text-sm ${getScoreColor(row.score)}`}>{row.court}</div><div><p className="font-medium text-sm text-foreground">{row.label}</p><p className="text-xs text-foreground">{row.desc}</p></div></div></td>
-                <td className="text-center"><span className="badge neutral text-xs">{row.poids}%</span></td>
-                <td><div className="space-y-1"><div className="flex items-center gap-2"><span className={`text-base font-bold ${getScoreColor(row.score)}`}>{row.score}</span><span className="text-xs text-foreground">/100</span></div><div className="progress h-2"><div className={`progress-bar ${getProgressCls(row.score)}`} style={{ width: `${row.score}%` }} /></div></div></td>
-                <td className="text-center"><TendanceIcon t={row.tendance} s="md" /></td>
-                <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div></td>
-                <td className="text-center"><div><span className={`text-sm font-semibold ${getScoreColor(row.pred6m.valeur)}`}>{row.pred6m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred6m.intervalle[0]}–{row.pred6m.intervalle[1]}]</div></div></td>
-                <td className="text-center"><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span>{row.key === 'c1' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(row.score)})</span></>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {(() => {
+        const columns: Column<typeof data[number]>[] = [
+          { key: 'critere', header: 'Critère', render: (row) => <div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg ${getScoreBg(row.score)} flex items-center justify-center font-bold text-sm ${getScoreColor(row.score)}`}>{row.court}</div><div><p className="font-medium text-sm text-foreground">{row.label}</p><p className="text-xs text-foreground">{row.desc}</p></div></div> },
+          { key: 'poids', header: 'Poids', className: 'text-center', render: (row) => <span className="badge neutral text-xs">{row.poids}%</span> },
+          { key: 'score', header: 'Score actuel', render: (row) => <div className="space-y-1"><div className="flex items-center gap-2"><span className={`text-base font-bold ${getScoreColor(row.score)}`}>{row.score}</span><span className="text-xs text-foreground">/100</span></div><div className="progress h-2"><div className={`progress-bar ${getProgressCls(row.score)}`} style={{ width: `${row.score}%` }} /></div></div> },
+          { key: 'tendance', header: 'Tendance', className: 'text-center', render: (row) => <TendanceIcon t={row.tendance} s="md" /> },
+          { key: 'pred3m', header: 'Prédiction 3m', className: 'text-center', render: (row) => <div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div> },
+          { key: 'pred6m', header: 'Prédiction 6m', className: 'text-center', render: (row) => <div><span className={`text-sm font-semibold ${getScoreColor(row.pred6m.valeur)}`}>{row.pred6m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred6m.intervalle[0]}–{row.pred6m.intervalle[1]}]</div></div> },
+          { key: 'statut', header: 'Statut', className: 'text-center', render: (row) => <><span className={`badge text-xs ${getBadgeCls(row.score)}`}>{getLabel(row.score)}</span>{row.key === 'c1' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(row.score)})</span></>}</> },
+        ]
+        const paginatedData = data.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+        return (
+          <DataTable
+            data={paginatedData}
+            columns={columns}
+            keyExtractor={(row) => row.key}
+            pagination={{ total: data.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+          />
+        )
+      })()}
 
       {/* Interprétation + Intervalles + Recommandations */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

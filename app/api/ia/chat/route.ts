@@ -84,6 +84,84 @@ function buildContextMessage(contexte: ChatAPIRequest['contexte']): string {
 
   if (contexte.module) {
     parts.push(`MODULE ACTIF : ${contexte.module}`)
+    // Injecter les référentiels métier propres à chaque module
+    if (contexte.module === 'plans-actions') {
+      parts.push(
+        `RÉFÉRENTIEL PAC — Critères d'évaluation des Plans d'Actions Correctives :
+- Pertinence : les actions répondent-elles exactement à l'écart constaté ?
+- Exhaustivité : toutes les composantes de l'écart sont-elles traitées ?
+- Précision : les actions sont-elles suffisamment détaillées ?
+- Spécificité : les formulations sont-elles concrètes (pas vagues) ?
+- Réalisme : les délais et ressources sont-ils réalistes ?
+- Cohérence : le plan est-il logiquement structuré ?
+Seuils décision : ≥70 = accepté, <70 = refusé (améliorations requises)
+Réponds en français avec un feedback constructif et précis.`
+      )
+    } else if (contexte.module === 'planning') {
+      parts.push(
+        `RÉFÉRENTIEL PLANNING :
+La fréquence de surveillance est déterminée par le niveau de risque :
+- CRITIQUE (0-29) : surveillance mensuelle obligatoire
+- ÉLEVÉ (30-49) : surveillance trimestrielle renforcée
+- MOYEN (50-69) : surveillance semestrielle standard
+- FAIBLE (70-100) : surveillance annuelle
+Les missions peuvent être programmées, inopinées, spéciales, ou de maintien.
+Une équipe d'inspection comprend un chef de mission et des inspecteurs.
+Conseille sur la planification en fonction des profils de risque et des disponibilités.`
+      )
+    } else if (contexte.module === 'ecarts-redaction') {
+      parts.push(
+        `RÉFÉRENTIEL RÉDACTION D'ÉCARTS :
+Les libellés d'écarts doivent :
+- Citer précisément la référence réglementaire violée (RAS 14, Annexe 14, Doc OACI, procédure ANACIM)
+- Décrire l'écart constaté de façon factuelle et objective
+- Être rédigés au présent de l'indicatif
+- Être compréhensibles par l'exploitant de l'aérodrome
+- Suivre le format : "Non-conformité constatée en regard de [référence] : [description factuelle]"
+N'utilise pas de matrice de risque OACI (probabilité × gravité) pour les écarts SGS — utilise le modèle PAOE.`
+      )
+    } else if (contexte.module === 'certification') {
+      parts.push(
+        `RÉFÉRENTIEL CERTIFICATION :
+Le processus de certification comprend 5 phases :
+1. Expression d'Intérêt (15 jours)
+2. Demande Formelle (30 jours)
+3. Vérification sur Site (45 jours)
+4. Délivrance du Certificat (20 jours)
+5. Publication du Statut (10 jours)
+Conseille sur les blocages, les lettres officielles et les étapes à suivre.`
+      )
+    } else if (contexte.module === 'risk' || contexte.module === 'profil-risque') {
+      parts.push(
+        `RÉFÉRENTIEL PROFIL DE RISQUE :
+Le profil de risque est calculé sur 5 critères (C1-C5) :
+- C1 : Maturité du Système de Gestion de la Sécurité (SGS)
+- C2 : Efficacité du traitement des Plans d'Actions Correctives (PAC)
+- C3 : Conformité technique et opérationnelle (résultats des checklists)
+- C4 : Charge critique (nombre et gravité des écarts actifs)
+- C5 : Résilience opérationnelle (capacité de réponse SLI, formation)
+Seuils : 0-29 CRITIQUE, 30-49 ÉLEVÉ, 50-69 MOYEN, 70-100 FAIBLE
+Cite les références réglementaires exactes (Annexe 14, Doc 9859 SGS, RAS 14).`
+      )
+    } else if (contexte.module === 'sgs') {
+      parts.push(
+        `RÉFÉRENTIEL SGS — Évaluation PAOE :
+Le modèle PAOE mesure la maturité SGS sur 4 niveaux :
+- Absent (—) : l'élément SGS n'existe pas ou n'est pas documenté
+- Présent (P) : l'élément existe mais n'est pas adapté au contexte opérationnel
+- Approprié (A) : l'élément est en place et adapté, mais pas encore pleinement opérationnel
+- Opérationnel (O) : l'élément fonctionne efficacement au quotidien
+- Efficace (E) : l'élément démontre une amélioration continue mesurable
+N'utilise jamais de matrice de risque OACI (probabilité × gravité) pour le SGS.`
+      )
+    } else if (contexte.module === 'registres') {
+      parts.push(
+        `RÉFÉRENTIEL REGISTRE :
+Tu maîtrises RAS 14 (aérodromes), Annexe 14 OACI, Doc 9859 SGS, Doc 9157 AGA,
+les circulaires et bulletins ANACIM, l'historique réglementaire du secteur.
+Analyse l'impact des documents réglementaires et réponds aux questions.`
+      )
+    }
   }
 
   return parts.length > 0 ? `[CONTEXTE SGDA]\n${parts.join('\n')}\n[FIN CONTEXTE]\n\n` : ''

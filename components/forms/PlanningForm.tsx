@@ -29,12 +29,15 @@ import {
   Sparkles,
   Brain,
   CheckCircle2,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { useAppStore, type Planning, type ProfilRisque } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { getRiskLevel, suggestMissionType, computeFinalFrequency } from '@/lib/risque';
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
 import { useFormProgress } from '@/hooks/useFormProgress';
+import { FormProgressContext } from '@/components/ui/FormShell';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -220,6 +223,23 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const [suggestedDomains, setSuggestedDomains] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [suggestionsApplied, setSuggestionsApplied] = useState(false);
+  const [porteeDropdown, setPorteeDropdown] = useState(false);
+  const [equipeDropdown, setEquipeDropdown] = useState(false);
+  const porteeDropdownRef = useRef<HTMLDivElement>(null);
+  const equipeDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (porteeDropdownRef.current && !porteeDropdownRef.current.contains(e.target as Node)) {
+        setPorteeDropdown(false)
+      }
+      if (equipeDropdownRef.current && !equipeDropdownRef.current.contains(e.target as Node)) {
+        setEquipeDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Inspecteurs réels depuis le store
   const inspecteursReels = useMemo(() => {
@@ -554,6 +574,10 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
    // Only run when progress actually changes
    useEffect(() => { onProgressRef.current?.(progress) }, [progress])
 
+   const setProgress = React.useContext(FormProgressContext)
+   // Mettre à jour la barre de progression dans FormShell
+   useEffect(() => { setProgress(progress) }, [progress, setProgress])
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="form-container animate-fade-up">
       {error && (
@@ -625,7 +649,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
                 type="button"
                 onClick={handleAppliquerSuggestions}
                 className="btn btn-primary gap-2 animate-pulse relative"
-                title="Appliquer toutes les suggestions IA basées sur le profil"
+                title="Appliquer toutes les suggestions AERORISQ basées sur le profil"
               >
                 <Sparkles className="w-4 h-4" />
                 Suggestion IA &amp; Profil
@@ -777,36 +801,79 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
             <Target className="w-4 h-4" />
             Domaines concernés *
           </label>
-          <select
-            multiple
-            size={6}
-            value={watchPortee}
-            onChange={(e) => {
-              const selected = Array.from(e.target.selectedOptions, option => option.value);
-              setValue('portee', selected);
-            }}
-            className={`form-select ${focusClass}${errors.portee ? ' border-danger' : ''}`}
-            style={selectStyle}
-          >
-             {DOMAINES_SURVEILLANCE.map(d => {
-              const isSuggested = suggestedDomains.includes(d.code);
-              return (
-                <option 
-                  key={d.code} 
-                  value={d.code}
-                  style={isSuggested ? { backgroundColor: '#dbeafe', fontWeight: 'bold' } : {}}
-                >
-                  {d.label} {isSuggested && '⭐ (prioritaire)'}
-                </option>
-              );
-            })}
-          </select>
+          <div ref={porteeDropdownRef} className="relative">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setPorteeDropdown(o => !o)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPorteeDropdown(o => !o) } }}
+              className={`w-full min-h-10 flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-background text-foreground cursor-pointer transition-all ${focusClass} ${errors.portee ? 'border-danger' : ''} ${porteeDropdown ? 'ring-2 ring-role-primary border-transparent' : ''}`}
+            >
+              {watchPortee.length === 0 ? (
+                <span className="text-muted-foreground text-sm">-- Sélectionner des domaines --</span>
+              ) : (
+                watchPortee.map(code => {
+                  const d = DOMAINES_SURVEILLANCE.find(x => x.code === code);
+                  return (
+                    <span key={code}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-role-primary-soft/60 text-role-primary"
+                      title={d?.label || code}>
+                      {code}
+                      {suggestedDomains.includes(code) && ' ⭐'}
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setValue('portee', watchPortee.filter(id => id !== code)); }}
+                        className="hover:text-danger transition-colors"
+                        title={`Retirer ${code}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })
+              )}
+              <ChevronDown className={`w-4 h-4 ml-auto shrink-0 text-muted-foreground transition-transform ${porteeDropdown ? 'rotate-180' : ''}`} />
+            </div>
+
+            {porteeDropdown && (
+              <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
+                <div className="max-h-60 overflow-y-auto">
+                  {DOMAINES_SURVEILLANCE.map(d => {
+                    const selected = watchPortee.includes(d.code)
+                    const isSuggested = suggestedDomains.includes(d.code)
+                    return (
+                      <button
+                        key={d.code}
+                        type="button"
+                        onClick={() => {
+                          if (d.code === 'AGA') {
+                            setValue('portee', selected ? [] : ['AGA']);
+                          } else {
+                            const next = selected
+                              ? watchPortee.filter(code => code !== d.code && code !== 'AGA')
+                              : [...watchPortee.filter(code => code !== 'AGA'), d.code]
+                            setValue('portee', next);
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${selected ? 'bg-role-primary-soft text-role-primary font-medium' : 'text-foreground hover:bg-role-primary-soft'}`}
+                      >
+                        <span className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors ${selected ? 'bg-role-primary border-role-primary text-white' : 'border-border text-transparent'}`}>
+                          <Check className="w-3 h-3" />
+                        </span>
+                        <span className="truncate">{d.label}</span>
+                        {isSuggested && <span className="ml-auto shrink-0 text-xs">⭐ (prioritaire)</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
           {suggestedDomains.length > 0 && (
             <p className="field-description text-info">
               ⭐ Domaines prioritaires suggérés: {suggestedDomains.join(', ')} (basés sur le profil de risque)
             </p>
           )}
-          <p className="field-description">Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs domaines</p>
+          <p className="field-description">Cliquez pour ouvrir, cochez les domaines — les sélections s'affichent en étiquettes</p>
           {errors.portee && <p className="field-error">{errors.portee.message}</p>}
         </div>
 
@@ -815,46 +882,87 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
           <label className={labelClass}>
             <Users className="w-4 h-4" />Équipe d'inspecteurs *
           </label>
-          <select
-            multiple
-            size={5}
-            value={watchEquipe}
-            onChange={(e) => {
-              const selected = Array.from(e.target.selectedOptions, option => option.value);
-              setValue('equipe_ids', selected);
-              if (watchChef && !selected.includes(watchChef)) {
-                setValue('chef_id', '');
-              }
-            }}
-            className={`form-select ${focusClass}${errors.equipe_ids ? ' border-danger' : ''}`}
-            style={selectStyle}
-          >
-            {inspecteursReels.map(insp => {
-              const linkedInsp = (insp as any)._insp
-              // Afficher les spécialités métier depuis source de vérité unique
-              const specialitesLabels = (insp.specialites || [])
-                .map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s)
-                .join(', ');
-              const fallbackLabel = linkedInsp
-                ? `${linkedInsp.type?.replace(/_/g, ' ')} · ${linkedInsp.domaine_principal?.toUpperCase()}`
-                : undefined;
-              const specialites = specialitesLabels
-                || (insp.competences && insp.competences.length > 0
-                  ? insp.competences
-                      .slice(0, 3)
-                      .map((c: { domaine: string; niveau: string }) =>
-                        `${c.domaine}${c.niveau === 'expert' ? ' ★' : c.niveau === 'confirme' ? ' ✓' : ''}`
-                      )
-                      .join(' · ')
-                  : fallbackLabel || insp.service || 'Non spécialisé');
-              return (
-                <option key={insp.id} value={insp.id}>
-                  {insp.prenom} {insp.nom} — {specialites}
-                </option>
-              );
-            })}
-          </select>
-          <p className="field-description">Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs inspecteurs</p>
+          <div ref={equipeDropdownRef} className="relative">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setEquipeDropdown(o => !o)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEquipeDropdown(o => !o) } }}
+              className={`w-full min-h-10 flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-background text-foreground cursor-pointer transition-all ${focusClass} ${errors.equipe_ids ? 'border-danger' : ''} ${equipeDropdown ? 'ring-2 ring-role-primary border-transparent' : ''}`}
+            >
+              {watchEquipe.length === 0 ? (
+                <span className="text-muted-foreground text-sm">-- Sélectionner des inspecteurs --</span>
+              ) : (
+                watchEquipe.map(id => {
+                  const insp = inspecteursReels.find(i => i.id === id);
+                  return (
+                    <span key={id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-role-primary-soft/60 text-role-primary"
+                      title={insp ? `${insp.prenom} ${insp.nom}` : id}>
+                      {insp ? `${insp.prenom} ${insp.nom}` : id}
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); const next = watchEquipe.filter(x => x !== id); setValue('equipe_ids', next); if (watchChef === id) setValue('chef_id', ''); }}
+                        className="hover:text-danger transition-colors"
+                        title={`Retirer ${insp?.prenom ?? ''} ${insp?.nom ?? ''}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })
+              )}
+              <ChevronDown className={`w-4 h-4 ml-auto shrink-0 text-muted-foreground transition-transform ${equipeDropdown ? 'rotate-180' : ''}`} />
+            </div>
+
+            {equipeDropdown && (
+              <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
+                <div className="max-h-60 overflow-y-auto">
+                  {inspecteursReels.map(insp => {
+                    const selected = watchEquipe.includes(insp.id)
+                    const linkedInsp = (insp as any)._insp
+                    const specialitesLabels = (insp.specialites || [])
+                      .map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s)
+                      .join(', ');
+                    const fallbackLabel = linkedInsp
+                      ? `${linkedInsp.type?.replace(/_/g, ' ')} · ${linkedInsp.domaine_principal?.toUpperCase()}`
+                      : undefined;
+                    const specialites = specialitesLabels
+                      || (insp.competences && insp.competences.length > 0
+                        ? insp.competences
+                            .slice(0, 3)
+                            .map((c: { domaine: string; niveau: string }) =>
+                              `${c.domaine}${c.niveau === 'expert' ? ' ★' : c.niveau === 'confirme' ? ' ✓' : ''}`
+                            )
+                            .join(' · ')
+                        : fallbackLabel || insp.service || 'Non spécialisé');
+                    return (
+                      <button
+                        key={insp.id}
+                        type="button"
+                        onClick={() => {
+                          const next = selected
+                            ? watchEquipe.filter(id => id !== insp.id)
+                            : [...watchEquipe, insp.id];
+                          setValue('equipe_ids', next);
+                          if (selected && watchChef === insp.id) setValue('chef_id', '');
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${selected ? 'bg-role-primary-soft text-role-primary font-medium' : 'text-foreground hover:bg-role-primary-soft'}`}
+                      >
+                        <span className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors ${selected ? 'bg-role-primary border-role-primary text-white' : 'border-border text-transparent'}`}>
+                          <Check className="w-3 h-3" />
+                        </span>
+                        <span className="truncate">
+                          <span className="font-medium">{insp.prenom} {insp.nom}</span>
+                          <span className="block text-xs opacity-70 truncate">{specialites}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="field-description">Cliquez pour ouvrir, cochez les inspecteurs — prénoms et noms complets s'affichent en étiquettes</p>
           {errors.equipe_ids && <p className="field-error">{errors.equipe_ids.message}</p>}
         </div>
 

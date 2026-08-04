@@ -30,6 +30,13 @@
 - `components/ui/card.tsx` — composant carte unique.
 - `lib/ia/index.ts` — logique des agents IA (ne pas inverser les conditions).
 
+### TypeInspection (`lib/checklistMemory.ts`)
+- Type union pour `type_inspection` : `periodique`, `inopine`, `maintien`, `certification`, `homologation`, `suivi_ecarts`, `mise_oeuvre_pac`, `programmee`, `inopinee`, `speciale`, `surveillance`, `evenement`, `audit_complet`, `urgence`, `ecart`.
+- Utilisé dans `ItemHistoryRecord`, `upsertItemHistory`, `getPredictionForItem`, `recordCorrection`, `recordTextModification`, `getSuggestionsDetaillees`.
+- Toujours passer le type réel de la surveillance — ne jamais hardcoder `'programmee'`.
+- Les 4 hardcodes `'programmee'` ont été corrigés : `checklistAgent.ts` (3) et `learningEngine.ts` (1).
+- `TypeSurveillanceKit` (`kitDocAgent.ts`) aligné avec `TypeInspection` (inclut certification, homologation).
+
 ## Build
 - `npm run typecheck` doit passer sans erreur avant tout commit.
 

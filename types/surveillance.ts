@@ -50,31 +50,6 @@ export type { ResultatChecklist }
 export type { SignatureInfo, Surveillance } from '@/lib/store'
 
 // ============================================================
-// Types pour les checklists
-// ============================================================
-
-export interface ChecklistItem {
-  id: string;
-  surveillance_id: string;
-  type_checklist: 'standard' | 'suivi_ecarts' | 'pac';
-  categorie: string;
-  reference_ras14: string;
-  description: string;
-  directive_preuve: string;
-  domaine: DomaineSurveillance;
-  ordre: number;
-  resultat?: ResultatChecklist;
-  observation?: string;
-  fichiers?: {
-    nom: string;
-    url: string;
-    dateUpload: string;
-  }[];
-  last_modified: string;
-  modified_by: string;
-}
-
-// ============================================================
 // Types pour le suivi des écarts (checklist spécifique)
 // ============================================================
 

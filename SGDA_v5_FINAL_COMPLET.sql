@@ -1,5 +1,5 @@
 -- SGDA v5 — SCHÉMA PRODUCTION
--- Généré le 2026-05-17 | Mis à jour le 2026-06-22
+-- Généré le 2026-05-17 | Mis à jour le 2026-07-29
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
@@ -554,6 +554,8 @@ ALTER TABLE kit_documents
   ADD COLUMN IF NOT EXISTS texte_extrait_le         timestamptz,
   ADD COLUMN IF NOT EXISTS items_generes            jsonb,
   ADD COLUMN IF NOT EXISTS items_generes_le         timestamptz,
+  ADD COLUMN IF NOT EXISTS items_generes_version    text,
+  ADD COLUMN IF NOT EXISTS texte_extrait_version    text,
   ADD COLUMN IF NOT EXISTS created_by               uuid;
 
 DROP POLICY IF EXISTS "kit_docs_select" ON kit_documents;
@@ -1718,6 +1720,8 @@ DO $$ BEGIN
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_signe_par      text;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_signe_le       timestamptz;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_sig_url        text;
+  ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_pdf_url        text;
+  ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS checklist_pdf_url      text;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS lettre_html            text;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS lettre_signee_url      text;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS signatures_checklist   jsonb DEFAULT '[]'::jsonb;
@@ -2392,4 +2396,232 @@ COMMENT ON COLUMN exemptions.date_decision           IS 'Date de la décision fi
 -- Les KPIs sont désormais intégrés directement dans
 -- CertificationModule.tsx et HomologationModule.tsx.
 -- ✅ Aucune modification DB — documentation uniquement
+-- ============================================================
+
+-- ============================================================
+-- SECTION 18 — CHECKLIST TEMPLATES (2026-07-29)
+-- Templates maîtres importés depuis les modèles Word ANACIM
+-- (IT, SOP, QSC, SGS, validation de site).
+-- L'IA n'est plus utilisée pour générer la baseline ;
+-- les templates officiels sont la source de vérité.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS checklist_templates (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type              text        NOT NULL CHECK (type IN ('IT', 'SOP', 'QSC', 'SGS', 'VALIDATION_SITE', 'HMG', 'COP', 'AUT')),
+  code              text        NOT NULL,
+  nom               text        NOT NULL,
+  version           text        NOT NULL DEFAULT '1.0',
+  edition_date      text,
+  source_fichier    text,
+  fichier_url       text,
+  description       text,
+  portee            text[]      NOT NULL DEFAULT '{}',
+  type_entite_cible text        NOT NULL DEFAULT 'aerodrome' CHECK (type_entite_cible IN ('aerodrome', 'helistation', 'mixte', 'tous')),
+  etat              text        NOT NULL DEFAULT 'brouillon' CHECK (etat IN ('brouillon', 'publie', 'archive')),
+  categorie         text        NOT NULL DEFAULT 'autres' CHECK (categorie IN ('homologation', 'certification', 'surveillance_continue', 'validation_site', 'autres')),
+  regime            text        NOT NULL DEFAULT 'tous' CHECK (regime IN ('certifie', 'homologue', 'tous')),
+  hierarchie        jsonb       NOT NULL DEFAULT '[]'::jsonb,
+  metadonnees       jsonb       DEFAULT '{}'::jsonb,
+  actif             boolean     NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by        uuid REFERENCES auth.users(id) ON DELETE SET NULL
+);
+-- Unicité : un seul template ACTIF par (type, code) — les versions
+-- précédentes passent etat='archive' et conservent leur historique.
+-- Remplace la contrainte UNIQUE(type, code, version) d'origine.
+ALTER TABLE checklist_templates DROP CONSTRAINT IF EXISTS uq_checklist_template;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checklist_template_active
+  ON checklist_templates (type, code) WHERE actif = true;
+
+COMMENT ON TABLE  checklist_templates              IS 'Templates maîtres de checklist importés des modèles Word ANACIM (IT, SOP, QSC, SGS, HMG, COP). Source de vérité pour la génération de checklist.';
+COMMENT ON COLUMN checklist_templates.type          IS 'Préfixe de code : IT=Inspection Technique (regroupe les domaines PHY, ELEC, MFP, OLS), SOP=Procédures, QSC=Surveillance Continue, SGS=PAOE, VALIDATION_SITE=Validation site, HMG=Homologation, COP=COP, AUT=Autres';
+COMMENT ON COLUMN checklist_templates.code          IS 'Identifiant unique du template. IT : un code par fichier/domaine — IT_CHKLIST_PHY, IT_CHKLIST_ELEC, IT_CHKLIST_MFP, IT_CHKLIST_OLS, IT_CHKLIST_SLI, IT_CHKLIST_RA, ou combinés (ex: IT_CHKLIST_ELEC_MFP), IT_CHKLIST_GENERAL si non spécifié. Autres : SOP_CHKLIST_GENERAL, QSC_CONTINUE, SGS_PAOE, VS_CHKLIST_GENERAL, HMG_CHKLIST_GENERAL, COP_CHKLIST_GENERAL, AUT_*';
+COMMENT ON COLUMN checklist_templates.nom           IS 'Nom lisible (ex: Caractéristiques physiques et surfaces de limitation des obstacles)';
+COMMENT ON COLUMN checklist_templates.version       IS 'Version du template (ex: NOV 2025)';
+COMMENT ON COLUMN checklist_templates.edition_date  IS 'Date d''édition (ex: Novembre 2025)';
+COMMENT ON COLUMN checklist_templates.source_fichier IS 'Nom du fichier Word d''origine importé';
+COMMENT ON COLUMN checklist_templates.fichier_url   IS 'URL du fichier source stocké dans Supabase Storage';
+COMMENT ON COLUMN checklist_templates.portee         IS 'Codes domaines couverts (PHY, ELEC, MFP, OLS, OPS, SLI, SGS, OBS…)';
+COMMENT ON COLUMN checklist_templates.type_entite_cible IS 'aerodrome | helistation | mixte | tous';
+COMMENT ON COLUMN checklist_templates.etat           IS 'brouillon | publie | archive';
+COMMENT ON COLUMN checklist_templates.categorie      IS 'Famille métier guidée à l''import : homologation | certification | surveillance_continue | validation_site | autres';
+COMMENT ON COLUMN checklist_templates.regime         IS 'Régime (surveillance continue) : certifie | homologue | tous';
+COMMENT ON COLUMN checklist_templates.hierarchie     IS 'Arbre complet DomaineChecklist[] au format JSON : [{id, nom, description, items, sousDomaines, …}]';
+COMMENT ON COLUMN checklist_templates.metadonnees    IS 'Métadonnées additionnelles : auteur, édition, références, nb_items, nb_sections, etc.';
+COMMENT ON COLUMN checklist_templates.actif          IS 'Template actif (utilisable) ou désactivé';
+COMMENT ON COLUMN checklist_templates.updated_by     IS 'Utilisateur ayant effectué la dernière modification';
+
+-- Index pour recherche rapide par type + portee
+CREATE INDEX IF NOT EXISTS idx_checklist_templates_type_portee ON checklist_templates USING GIN (portee);
+CREATE INDEX IF NOT EXISTS idx_checklist_templates_type_etat   ON checklist_templates (type, etat);
+CREATE INDEX IF NOT EXISTS idx_checklist_templates_actif       ON checklist_templates (actif) WHERE actif = true;
+CREATE INDEX IF NOT EXISTS idx_checklist_templates_categorie   ON checklist_templates (categorie);
+CREATE INDEX IF NOT EXISTS idx_checklist_templates_regime      ON checklist_templates (regime);
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION update_checklist_templates_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_checklist_templates_updated_at ON checklist_templates;
+CREATE TRIGGER trg_checklist_templates_updated_at
+  BEFORE UPDATE ON checklist_templates
+  FOR EACH ROW
+  EXECUTE FUNCTION update_checklist_templates_updated_at();
+
+-- ── RLS ──────────────────────────────────────────────────────
+ALTER TABLE checklist_templates ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  -- Lecture : tous les utilisateurs authentifiés peuvent voir les templates publiés
+  CREATE POLICY checklist_templates_select
+    ON checklist_templates FOR SELECT
+    USING (etat = 'publie' OR etat = 'archive' OR created_by = auth.uid());
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  -- Écriture : seuls admin et inspecteur peuvent créer/modifier
+  CREATE POLICY checklist_templates_insert
+    ON checklist_templates FOR INSERT
+    WITH CHECK (get_user_role() IN ('admin', 'inspector'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY checklist_templates_update
+    ON checklist_templates FOR UPDATE
+    USING (get_user_role() IN ('admin', 'inspector'))
+    WITH CHECK (get_user_role() IN ('admin', 'inspector'));
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY checklist_templates_delete
+    ON checklist_templates FOR DELETE
+    USING (get_user_role() = 'admin');
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- Grants
+GRANT SELECT ON checklist_templates TO authenticated;
+GRANT INSERT, UPDATE ON checklist_templates TO authenticated;
+
+-- ============================================================
+-- FIN SECTION 18 — Checklist templates
+-- ============================================================
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  SECTION 19 — AMDEC (Analyse des Modes de Défaillance)    ║
+-- ║  Criticité IPR = Gravité × Probabilité × Détection        ║
+-- ║  Persistée par aérodrome, reliée aux écarts/PAC (ecart_id)║
+-- ╚══════════════════════════════════════════════════════════╝
+
+CREATE TABLE IF NOT EXISTS amdec_analyses (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  aerodrome_id     UUID NOT NULL REFERENCES aerodromes(id) ON DELETE CASCADE,
+  mode_id          TEXT NOT NULL,
+  domaine          TEXT NOT NULL,
+  systeme          TEXT NOT NULL,
+  equipement       TEXT NOT NULL DEFAULT '',
+  mode_defaillance TEXT NOT NULL,
+  effet            TEXT NOT NULL DEFAULT '',
+  cause            TEXT NOT NULL DEFAULT '',
+  detection        TEXT NOT NULL DEFAULT '',
+  gravite          TEXT NOT NULL CHECK (gravite IN ('A','B','C','D','E')),
+  probabilite      INTEGER NOT NULL DEFAULT 3 CHECK (probabilite BETWEEN 1 AND 5),
+  detection_score  INTEGER NOT NULL DEFAULT 3 CHECK (detection_score BETWEEN 1 AND 5),
+  ipr              INTEGER NOT NULL DEFAULT 0,
+  niveau           TEXT NOT NULL DEFAULT 'faible' CHECK (niveau IN ('critique','eleve','moyen','faible')),
+  statut           TEXT NOT NULL DEFAULT 'a_analyser' CHECK (statut IN ('a_analyser','analyse','surveille','corrige')),
+  ecart_id         UUID REFERENCES ecarts(id) ON DELETE SET NULL,
+  observations     TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_amdec_aerodrome ON amdec_analyses(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_amdec_domaine ON amdec_analyses(aerodrome_id, domaine);
+CREATE INDEX IF NOT EXISTS idx_amdec_niveau ON amdec_analyses(statut, niveau);
+
+ALTER TABLE amdec_analyses ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "amdec_select" ON amdec_analyses;
+CREATE POLICY "amdec_select" ON amdec_analyses
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_id = get_user_aerodrome_id()
+    )
+  );
+
+DROP POLICY IF EXISTS "amdec_write" ON amdec_analyses;
+CREATE POLICY "amdec_write" ON amdec_analyses
+  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+
+-- Grants
+GRANT SELECT ON amdec_analyses TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON amdec_analyses TO authenticated;
+
+-- ============================================================
+-- FIN SECTION 19 — AMDEC
+-- ============================================================
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  SECTION 20 — FTA (Fault Tree Analysis / Arbre de         ║
+-- ║  Défaillance)                                             ║
+-- ║  Analyse causale top-down des événements (portes ET/OU)   ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+CREATE TABLE IF NOT EXISTS fta_analyses (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  evenement_id        UUID NOT NULL REFERENCES evenements_securite(id) ON DELETE CASCADE,
+  aerodrome_id        UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+  domaine             TEXT NOT NULL DEFAULT '',
+  evenement_label     TEXT NOT NULL DEFAULT '',
+  template_id         TEXT NOT NULL DEFAULT 'generique',
+  sommet_id           TEXT NOT NULL DEFAULT '',
+  noeuds              JSONB NOT NULL DEFAULT '[]'::jsonb,
+  statut              TEXT NOT NULL DEFAULT 'en_cours' CHECK (statut IN ('en_cours','termine')),
+  probabilite_sommet  REAL NOT NULL DEFAULT 0,
+  nb_coupes_minimales INTEGER NOT NULL DEFAULT 0,
+  causes_identifiees  TEXT[] NOT NULL DEFAULT '{}'::text[],
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fta_evenement ON fta_analyses(evenement_id);
+CREATE INDEX IF NOT EXISTS idx_fta_aerodrome ON fta_analyses(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_fta_domaine ON fta_analyses(aerodrome_id, domaine);
+
+ALTER TABLE fta_analyses ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "fta_select" ON fta_analyses;
+CREATE POLICY "fta_select" ON fta_analyses
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_id = get_user_aerodrome_id()
+    )
+  );
+
+DROP POLICY IF EXISTS "fta_write" ON fta_analyses;
+CREATE POLICY "fta_write" ON fta_analyses
+  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+
+-- Grants
+GRANT SELECT ON fta_analyses TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON fta_analyses TO authenticated;
+
+-- ============================================================
+-- FIN SECTION 20 — FTA
 -- ============================================================

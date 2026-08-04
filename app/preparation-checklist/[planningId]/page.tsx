@@ -28,7 +28,8 @@ import { SGSEvaluationModal, SGSEvaluationContent } from '@/components/modules/s
 import { EcartEvaluationCard } from '@/components/modules/surveillance';
 import type { EcartEvaluation, NiveauRisque } from '@/components/modules/surveillance';
 import { getDomaineLabel, getDomaineCode } from '@/lib/domaines';
-import { getCellColor } from '@/lib/risque';
+import { getCellColor, isSGSApplicable } from '@/lib/risque';
+import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral';
 import { checklistAgent } from '@/lib/ia/agents/checklistAgent';
 
@@ -635,8 +636,15 @@ function StandardContent({
   autoOpenSGS?: boolean;
 }) {
   const [sgsOpen, setSgsOpen] = useState(autoOpenSGS);
+  const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === aerodromeId));
+  const masterChecklists = useAppStore(s => s.masterChecklists);
 
-  const hasSGSDomain = domaines.some(d => d.nom?.toUpperCase().includes('SGS'));
+  const sgsTemplate = useMemo(
+    () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
+    [masterChecklists, aerodrome?.sgs_checklist_template],
+  );
+
+  const hasSGSDomain = domaines.some(d => d.nom?.toUpperCase().includes('SGS')) && isSGSApplicable(aerodrome);
 
   return (
     <>
@@ -704,6 +712,7 @@ function StandardContent({
           inspecteurNom={`${user?.prenom || ''} ${user?.nom || ''}`}
           onSave={(evaluation) => { onSaveSGS(evaluation); setSgsOpen(false); }}
           existingEvaluation={sgsEvaluation}
+          sgsTemplate={sgsTemplate as any}
           readOnly={false}
         />
       )}
@@ -716,7 +725,7 @@ function StandardContent({
 // ─────────────────────────────────────────────────────────────
 
 function SGSEvaluationDirect({
-  sgsEvaluation, onSaveSGS, planningId, aerodromeId, aerodromeNom, planningType, planningDateDebut, equipeIds, user,
+  sgsEvaluation, onSaveSGS, planningId, aerodromeId, aerodromeNom, planningType, planningDateDebut, equipeIds, user, sgsTemplate,
 }: {
   sgsEvaluation: EvaluationSGS | null;
   onSaveSGS: (e: EvaluationSGS) => void;
@@ -727,6 +736,7 @@ function SGSEvaluationDirect({
   planningDateDebut: string;
   equipeIds: string[];
   user: any;
+  sgsTemplate?: Record<string, unknown>;
 }) {
   return (
     <SGSEvaluationContent
@@ -740,6 +750,7 @@ function SGSEvaluationDirect({
       inspecteurNom={`${user?.prenom || ''} ${user?.nom || ''}`}
       onSave={onSaveSGS}
       existingEvaluation={sgsEvaluation}
+      sgsTemplate={sgsTemplate}
       readOnly={false}
       onBack={() => window.history.back()}
     />
@@ -770,6 +781,18 @@ export default function PreparationChecklistPage() {
   const user = useAppStore(s => s.user);
   const updatePlanning = useAppStore(s => s.updatePlanning);
   const findMasterChecklistForPortee = useAppStore(s => s.findMasterChecklistForPortee);
+  const masterChecklists = useAppStore(s => s.masterChecklists);
+
+  const planning = plannings.find(p => p.id === planningId);
+  const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
+  const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
+
+  // Template SGS résolu : Kit Inspecteur (source maîtresse) puis repli aérodrome
+  const sgsTemplate = useMemo(
+    () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
+    [masterChecklists, aerodrome?.sgs_checklist_template],
+  );
+  const sgsApplicable = isSGSApplicable(aerodrome);
 
   // ── États ──────────────────────────────────────────────────
   const [standardDomaines, setStandardDomaines] = useState<DomaineChecklist[]>([]);
@@ -811,10 +834,6 @@ export default function PreparationChecklistPage() {
     })
   }, [standardDomaines, delegations, user?.id, user?.role]);
 
-  const planning = plannings.find(p => p.id === planningId);
-  const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
-  const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
-
   const dataRef = useRef({ standardDomaines, pacItems, suiviItems, sgsEvaluation });
   dataRef.current = { standardDomaines, pacItems, suiviItems, sgsEvaluation };
 
@@ -839,8 +858,13 @@ export default function PreparationChecklistPage() {
   // ── Chargement ─────────────────────────────────────────────
   useEffect(() => {
     if (!planning) return;
-    const typeSurv = (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine'
-      : planning.type === 'maintien' ? 'maintien' : 'periodique';
+    const typeSurv: import('@/lib/checklistMemory').TypeInspection = (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine'
+      : planning.type === 'maintien' ? 'maintien'
+      : planning.type === 'certification' ? 'certification'
+      : planning.type === 'homologation' ? 'homologation'
+      : planning.type === 'suivi_ecarts' ? 'suivi_ecarts'
+      : planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac'
+      : 'periodique';
     const checklistPrefix = planning.type === 'certification' ? 'CERT'
       : planning.type === 'homologation' ? 'HMG' : 'QSC';
 
@@ -868,7 +892,10 @@ export default function PreparationChecklistPage() {
           setIaPrefilledCount(prev => prev + cnt);
         } else {
           // Générer depuis le kit inspecteur
-          const master = findMasterChecklistForPortee(planning.portee || []);
+          const master = findMasterChecklistForPortee(planning.portee || [],
+            planning.type === 'certification' || planning.type === 'homologation'
+              ? ['IT', 'SOP', 'SGS']
+              : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC']);
           if (master) {
             const snapshot = JSON.parse(JSON.stringify(master.checklist));
             const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
@@ -1087,9 +1114,17 @@ export default function PreparationChecklistPage() {
     try {
       const flatItems = walkItems(standardDomaines);
       if (flatItems.length === 0) return;
+      const ti: import('@/lib/checklistMemory').TypeInspection = (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine'
+        : planning.type === 'maintien' ? 'maintien'
+        : planning.type === 'certification' ? 'certification'
+        : planning.type === 'homologation' ? 'homologation'
+        : planning.type === 'suivi_ecarts' ? 'suivi_ecarts'
+        : planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac'
+        : 'periodique';
       const result = await checklistAgent.predictBatch({
         surveillanceId: planningId,
         aerodromeId: planning.aerodrome_id,
+        type_inspection: ti,
         items: flatItems,
         profil: profil ?? undefined,
       }, {});
@@ -1123,6 +1158,56 @@ export default function PreparationChecklistPage() {
     } catch (e) { console.error('[BatchPredict]', e); }
     finally { setIaBatchLoading(false); }
   }, [standardDomaines, aerodrome, planning, planningId, profil, iaBatchLoading, walkItems]);
+
+  // ── Merge sécurisé IA : préserve les items/domaines existants, ne supprime rien ──
+  const mergeChecklistUpdate = useCallback((aiDomaines: DomaineChecklist[]) => {
+    setStandardDomaines(prev => {
+      const merged = prev.map(dom => {
+        const aiDom = aiDomaines.find(d => d.id === dom.id || d.nom === dom.nom)
+        if (!aiDom) return dom // Domaine non touché par l'IA → inchangé
+
+        const mergeItems = (existing: ChecklistItem[] = [], incoming: ChecklistItem[] = []): ChecklistItem[] => {
+          const mergedMap = new Map(existing.map(i => [i.id, { ...i }]))
+          for (const aiItem of incoming) {
+            if (mergedMap.has(aiItem.id)) {
+              // Merge partiel : ne surcharge que les champs que l'IA a fournis
+              const existing = mergedMap.get(aiItem.id)!
+              mergedMap.set(aiItem.id, {
+                ...existing,
+                ...Object.fromEntries(
+                  Object.entries(aiItem).filter(([, v]) => v !== undefined && v !== null)
+                ),
+              })
+            } else {
+              // Nouvel item de l'IA
+              mergedMap.set(aiItem.id, { ...aiItem } as ChecklistItem)
+            }
+          }
+          return Array.from(mergedMap.values())
+        }
+
+        return {
+          ...dom,
+          items: mergeItems(dom.items, aiDom.items),
+          sousDomaines: (dom.sousDomaines ?? []).map(sd => {
+            const aiSd = (aiDom.sousDomaines ?? []).find(d => d.id === sd.id || d.nom === sd.nom)
+            if (!aiSd) return sd
+            return {
+              ...sd,
+              items: mergeItems(sd.items, aiSd.items),
+              sousSousDomaines: (sd.sousSousDomaines ?? []).map(ssd => {
+                const aiSsd = (aiSd.sousSousDomaines ?? []).find(d => d.id === ssd.id || d.nom === ssd.nom)
+                if (!aiSsd) return ssd
+                return { ...ssd, items: mergeItems(ssd.items, aiSsd.items) }
+              }),
+            }
+          }),
+        }
+      })
+      return merged
+    })
+    setHasChanges(true)
+  }, [])
 
   // ── Stats ──────────────────────────────────────────────────
   const stats = React.useMemo(() => {
@@ -1163,6 +1248,16 @@ export default function PreparationChecklistPage() {
 
   // Mode SGS — page entière dédiée (pas de layout standard)
   if (isSgsMode) {
+    if (!sgsApplicable) {
+      return (
+        <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <p className="font-semibold text-foreground text-lg mb-2">SGS non applicable</p>
+            <p className="text-muted-foreground">Cet aérodrome ne dispose pas d'un SGS évaluable. L'évaluation PAOE n'est pas disponible.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <SGSEvaluationDirect
         sgsEvaluation={sgsEvaluation}
@@ -1174,6 +1269,7 @@ export default function PreparationChecklistPage() {
         planningDateDebut={planning.date_debut}
         equipeIds={planning.equipe_ids || []}
         user={user}
+        sgsTemplate={sgsTemplate as any}
       />
     );
   }
@@ -1332,10 +1428,10 @@ export default function PreparationChecklistPage() {
       {/* Content — pleine largeur */}
       <div className={`w-full ${showAiAssistant ? 'flex flex-row gap-3 px-2 py-4' : 'px-2 py-4 space-y-4'}`}>
         {showAiAssistant && (
-          <div className="w-80 shrink-0 overflow-y-auto max-h-[calc(100vh-140px)] space-y-2">
+          <div className="w-80 shrink-0 self-start sticky top-32 space-y-2">
             <ChatIALateral
               checklistJson={standardDomaines}
-              onChecklistUpdate={(updated) => setStandardDomaines(updated)}
+              onChecklistUpdate={mergeChecklistUpdate}
             />
           </div>
         )}

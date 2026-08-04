@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { Card } from '@/components/ui/card'
+import { DataTable } from '@/components/ui/DataTable'
 import { Download, FileText, FileJson, Filter, X } from 'lucide-react'
 
 interface EnqueteExportProps {
@@ -125,32 +126,20 @@ export function EnqueteExport({ enqueteId, userRole = 'inspector' }: EnqueteExpo
       </Card>
 
       {/* Aperçu */}
-      <Card>
-        <div className="flex items-center justify-between mb-3">
-          <p className="font-medium text-small">Aperçu (5 premières lignes)</p>
-          <p className="text-small text-muted-foreground">{filteredData.length} entrée(s) à exporter</p>
-        </div>
-        <div className="table-container overflow-x-auto">
-          <table className="table text-xs">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                {HEADERS.map((h) => (
-                  <th key={h} className="pb-2 pr-3 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {apercu.map((row, idx) => (
-                <tr key={idx} className="border-b last:border-0">
-                  {KEYS.map((k) => (
-                    <td key={k} className="py-1.5 pr-3 whitespace-nowrap">{row[k]}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable
+        data={apercu}
+        columns={[
+          { key: 'aerodrome', header: 'Aérodrome', render: (row) => <span className="whitespace-nowrap">{row.aerodrome}</span> },
+          { key: 'repondant', header: 'Répondant', render: (row) => <span className="whitespace-nowrap">{row.repondant}</span> },
+          { key: 'date', header: 'Date', render: (row) => <span className="whitespace-nowrap">{row.date}</span> },
+          { key: 'q1', header: 'Q1 — Documentation SGS disponible ?', render: (row) => <span className="whitespace-nowrap">{row.q1}</span> },
+          { key: 'q2', header: 'Q2 — Score formation (Likert)', render: (row) => <span className="whitespace-nowrap">{row.q2}</span> },
+          { key: 'q3', header: 'Q3 — Appréciation générale', render: (row) => <span className="whitespace-nowrap">{row.q3}</span> },
+          { key: 'score_c1', header: 'Score C1', render: (row) => <span className="whitespace-nowrap">{row.score_c1}</span> },
+        ]}
+        keyExtractor={(row) => `${row.aerodrome}-${row.repondant}`}
+        cardProps={{ title: 'Aperçu (5 premières lignes)', badge: <span className="text-xs text-muted-foreground">{filteredData.length} entrée(s) à exporter</span> }}
+      />
 
       <button onClick={handleDownload} disabled={filteredData.length === 0} className="btn btn-primary gap-2">
         <Download className="w-4 h-4" />

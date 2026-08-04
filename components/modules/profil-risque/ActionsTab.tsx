@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { FeedbackSection } from './FeedbackSection'
 import { CalibrationPanel } from './CalibrationPanel'
+import { useActionsIAStore } from '@/lib/state/actionsIAStore'
 
 interface ActionsTabProps {
   profil: ProfilRisque
@@ -54,7 +55,7 @@ function nextStatus(s: ActionStatus): ActionStatus {
 
 export function ActionsTab({
   profil,
-  aerodromeId: _aerodromeId,
+  aerodromeId,
   aerodromeCode,
   userRole,
   onRecalculate,
@@ -67,6 +68,7 @@ export function ActionsTab({
   const [iaLoading, setIaLoading] = useState(true)
   const [iaError, setIaError] = useState(false)
   const tsMetrics = profil.ts_metrics
+  const setActionsPartagees = useActionsIAStore((s) => s.setActions)
 
   const [statusMap, setStatusMap] = useState<Record<number, ActionStatus>>({})
 
@@ -82,6 +84,7 @@ export function ActionsTab({
       const data = await res.json()
       if (data.actions && Array.isArray(data.actions)) {
         setActions(data.actions)
+        setActionsPartagees(aerodromeId, data.actions)
       } else {
         setIaError(true)
       }
@@ -90,7 +93,7 @@ export function ActionsTab({
     } finally {
       setIaLoading(false)
     }
-  }, [profil])
+  }, [profil, aerodromeId, setActionsPartagees])
 
   useEffect(() => { fetchActions() }, [fetchActions])
 
@@ -156,14 +159,14 @@ export function ActionsTab({
 
       {/* Thompson Sampling — unique à cet onglet */}
       {tsMetrics && (
-        <Card variant="role" title="IA — Thompson Sampling" icon={<Brain className="w-4 h-4" />}>
+        <Card variant="role" title="AERORISQ — Thompson Sampling" icon={<Brain className="w-4 h-4" />}>
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center flex-shrink-0">
               <Brain className="w-6 h-6 text-role-primary" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="badge primary">IA — Thompson Sampling</span>
+                <span className="badge primary">AERORISQ — Thompson Sampling</span>
                 <span className="text-xs text-foreground">
                   Confiance: <strong className="text-role-primary">{tsMetrics.bestProbability}%</strong>
                 </span>
@@ -182,7 +185,7 @@ export function ActionsTab({
       {/* Plan d'action — checklist inspecteur */}
       <Card
         title="Plan d'action — inspecteur"
-        subtitle={iaLoading ? 'Génération IA en cours...' : undefined}
+        subtitle={iaLoading ? 'Génération AERORISQ en cours...' : undefined}
         icon={iaLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ListChecks className="w-4 h-4" />}
         variant="level"
         levelColor={
@@ -198,13 +201,13 @@ export function ActionsTab({
         {iaLoading ? (
           <div className="flex flex-col items-center gap-4 py-8">
             <div className="w-10 h-10 rounded-full border-2 border-role-primary border-t-transparent animate-spin" />
-            <p className="text-sm text-foreground">Analyse des données profil en cours par IA...</p>
+            <p className="text-sm text-foreground">Analyse des données profil en cours par AERORISQ...</p>
             <p className="text-xs text-foreground">Génération des actions de vérification personnalisées</p>
           </div>
         ) : iaError ? (
           <div className="flex flex-col items-center gap-4 py-8">
             <AlertCircle className="w-10 h-10 text-warning" />
-            <p className="text-sm text-foreground">Service IA momentanément indisponible</p>
+            <p className="text-sm text-foreground">Service AERORISQ momentanément indisponible</p>
             <p className="text-xs text-foreground text-center max-w-md">Les actions de vérification n'ont pas pu être générées automatiquement. Vérifiez que la clé API Groq est configurée.</p>
             <button onClick={fetchActions} className="btn btn-sm btn-primary gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" />
@@ -214,7 +217,7 @@ export function ActionsTab({
         ) : actions.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-10 h-10 text-success" />
-            <p className="text-sm text-foreground">Aucune action requise — l'IA n'a identifié aucun signal necessitant une verification.</p>
+            <p className="text-sm text-foreground">Aucune action requise — AERORISQ n'a identifié aucun signal necessitant une verification.</p>
           </div>
         ) : (
           <>

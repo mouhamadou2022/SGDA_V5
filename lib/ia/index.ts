@@ -10,6 +10,31 @@ export { RandomForestModel, ChecklistResultPredictor, AnomalyDetector, checklist
 export { EnsembleModel, ensembleModel } from './models/ensemble'
 
 // ============================================================
+// BENCHMARK ML — RF / XGBoost / LightGBM / CatBoost / MLP
+// ============================================================
+export * from './benchmark/index'
+
+// ============================================================
+// ORCHESTRATEUR MULTI-AGENTS AERORISQ
+// ============================================================
+export * from './orchestrateur/index'
+
+// ============================================================
+// JUMEAU NUMÉRIQUE INTERACTIF
+// ============================================================
+export * from './digitalTwin'
+
+// ============================================================
+// EXPLICABILITÉ SHAP-LIKE
+// ============================================================
+export * from './shapExplainer'
+
+// ============================================================
+// GRAPHE UNIFIÉ OACI → RISQUES → ÉCARTS
+// ============================================================
+export * from './oaciGraph'
+
+// ============================================================
 // ENTRAÎNEMENT ET FEEDBACK
 // ============================================================
 export { ModelCalibrator, calibrator } from './training/calibrator'

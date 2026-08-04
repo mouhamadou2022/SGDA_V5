@@ -25,6 +25,15 @@ function getStoreState() {
 // TYPES
 // ============================================================
 
+export type TypeInspection =
+  | 'periodique' | 'inopine' | 'maintien'
+  | 'certification' | 'homologation'
+  | 'suivi_ecarts' | 'mise_oeuvre_pac'
+  | 'programmee' | 'inopinee' | 'speciale'
+  | 'surveillance' | 'evenement'
+  | 'audit_complet' | 'urgence'
+  | 'ecart';
+
 export interface TextModification {
   field: 'point_verification' | 'reference_reglementaire' | 'directive_preuve' | 'directive_sa' | 'directive_ns' | 'directive_nv' | 'directive_na';
   ancien: string;
@@ -36,7 +45,7 @@ export interface TextModification {
 export interface ItemHistoryRecord {
   id: string;
   aerodrome_id: string;
-  type_inspection: string;
+  type_inspection: TypeInspection;
   domaine: string;
   sous_domaine: string;
   sous_sous_domaine: string;
@@ -111,7 +120,7 @@ const MAX_HISTORY = 20;
  */
 export function upsertItemHistory(
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   domaine: string,
   sous_domaine: string,
   sous_sous_domaine: string,
@@ -257,7 +266,7 @@ export function calculateConfiance(record: ItemHistoryRecord): number {
  */
 export function getPredictionForItem(
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   domaine: string,
   sous_domaine: string,
   sous_sous_domaine: string,
@@ -348,7 +357,7 @@ export function getPredictionForItem(
  */
 export function recordCorrection(
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   domaine: string,
   sous_domaine: string,
   sous_sous_domaine: string,
@@ -468,7 +477,7 @@ export function getLearningStats(): {
  */
 export function recordTextModification(
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   domaine: string,
   sous_domaine: string,
   sous_sous_domaine: string,
@@ -621,7 +630,7 @@ export interface SuggestionDetaillee {
 
 export function getSuggestionsDetaillees(
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   profil?: { score_global: number; tendance: string }
 ): SuggestionDetaillee[] {
   const store = getStoreState()

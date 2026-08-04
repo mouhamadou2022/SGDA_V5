@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useShallow } from 'zustand/react/shallow';
@@ -118,6 +119,7 @@ const { user, certifications, homologations, surveillances, ecarts, deleteAerodr
 );
 const aerodromes = useOptimizedStore(s => s.aerodromes)
 const profilsRisque = useOptimizedStore(s => s.profilsRisque)
+const activeDepartement = useAppStore(s => s.activeDepartement)
 
   const currentUserRole = user?.role || userRole;
   const isOperator = OPERATOR_ROLES.includes(currentUserRole);
@@ -137,16 +139,20 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
 
   const [mounted,           setMounted]           = useState(false);
 
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+
   useEffect(() => { setMounted(true); return () => setMounted(false); }, []);
   useEffect(() => {
   if (viewMode === 'carte' && !mapLoaded) {
     setMapLoaded(true);
   }
 }, [viewMode, mapLoaded]);
+useEffect(() => setCurrentPage(1), [filters, searchTerm])
 
   // ── Filtrage ──────────────────────────────────────────────────────────────
   const filteredAerodromes = useMemo(() => {
-    let list = aerodromes.filter(a => !a.deleted_at);
+    let list = aerodromes.filter(a => !a.deleted_at && (a.departement ?? 'DNSA') === activeDepartement);
     if (isOperator && user?.aerodrome_id) list = list.filter(a => a.id === user.aerodrome_id);
 
     return list.filter(aero => {
@@ -164,14 +170,19 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
       }
       return true;
     });
-  }, [aerodromes, searchTerm, filters, profilsRisque, isOperator, user?.aerodrome_id]);
+  }, [aerodromes, searchTerm, filters, profilsRisque, isOperator, user?.aerodrome_id, activeDepartement]);
+
+  const paginatedAerodromes = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return filteredAerodromes.slice(start, start + PAGE_SIZE)
+  }, [filteredAerodromes, currentPage])
 
   // ── Statistiques ──────────────────────────────────────────────────────────
   const actifs = useMemo(() => {
-    let list = aerodromes.filter(a => !a.deleted_at)
+    let list = aerodromes.filter(a => !a.deleted_at && (a.departement ?? 'DNSA') === activeDepartement)
     if (isOperator && user?.aerodrome_id) list = list.filter(a => a.id === user.aerodrome_id)
     return list
-  }, [aerodromes, isOperator, user?.aerodrome_id])
+  }, [aerodromes, isOperator, user?.aerodrome_id, activeDepartement])
   const stats = useMemo(() => ({
     total:        actifs.length,
     aerodromes:   actifs.filter(a => a.type_entite === 'aerodrome' || !a.type_entite).length,
@@ -224,85 +235,79 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
   const closeForm = () => { setShowFormDialog(false); setSelectedAerodrome(null); };
 
   // ── Vue Liste ─────────────────────────────────────────────────────────────
-  const renderListView = () => (
-    <div className="table-container">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Code OACI</th>
-            <th>Nom</th>
-            <th>Région</th>
-            <th>Type</th>
-            <th>Statut</th>
-            <th>Certification</th>
-            <th>Dernière surv.</th>
-            <th>Écarts</th>
-            <th>Score risque</th>
-            <th className="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredAerodromes.length === 0 ? (
-            <tr>
-              <td colSpan={11} className="text-center py-12 text-muted-foreground">
-                <MapPin className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                Aucune infrastructure correspondant aux critères
-              </td>
-            </tr>
-          ) : filteredAerodromes.map(aerodrome => {
-            const profil = profilsRisque[aerodrome.id];
-            const derniereSurv = surveillances
-              .filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'transmise')
-              .sort((a, b) => new Date(b.date_fin).getTime() - new Date(a.date_fin).getTime())[0];
-            const ecartsOuverts   = ecarts.filter(e => e.aerodrome_id === aerodrome.id && e.statut !== 'cloture').length;
-            const ecartsCritiques = ecarts.filter(e => e.aerodrome_id === aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length;
+  const renderListView = () => {
+    const columns: Column<Aerodrome>[] = [
+      { key: 'code_oaci', header: 'Code OACI', render: (a) => <span className="code-oaci-badge">{a.code_oaci}</span> },
+      { key: 'nom', header: 'Nom', render: (a) => <span className="font-medium">{a.nom}</span> },
+      { key: 'region', header: 'Région', render: (a) => <span>{a.region}</span> },
+      { key: 'type', header: 'Type', render: (a) => getTypeBadge(a.type, a.type_entite) },
+      { key: 'statut', header: 'Statut', render: (a) => getStatutBadge(a.statut) },
+      { key: 'certification', header: 'Certification', render: (a) => getCertificationBadge(a.id) },
+      {
+        key: 'derniere_surv',
+        header: 'Dernière surv.',
+        render: (a) => {
+          const derniereSurv = surveillances
+            .filter(s => s.aerodrome_id === a.id && s.statut === 'transmise')
+            .sort((a, b) => new Date(b.date_fin).getTime() - new Date(a.date_fin).getTime())[0];
+          return derniereSurv ? (
+            <div className="flex items-center gap-1">
+              <Clock className="w-3 h-3 text-muted-foreground" />
+              <span className="text-small">{new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR')}</span>
+            </div>
+          ) : <span className="text-muted-foreground">-</span>;
+        },
+      },
+      {
+        key: 'ecarts',
+        header: 'Écarts',
+        render: (a) => {
+          const ecartsOuverts = ecarts.filter(e => e.aerodrome_id === a.id && e.statut !== 'cloture').length;
+          const ecartsCritiques = ecarts.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length;
+          return ecartsOuverts > 0 ? (
+            <div className="flex items-center gap-1">
+              <span className={ecartsCritiques > 0 ? 'badge danger' : 'badge warning'}>{ecartsOuverts}</span>
+              {ecartsCritiques > 0 && <span className="badge danger animate-pulse text-[10px] ml-1">{ecartsCritiques}c</span>}
+            </div>
+          ) : <span className="text-muted-foreground">0</span>;
+        },
+      },
+      {
+        key: 'score_risque',
+        header: 'Score risque',
+        render: (a) => {
+          const profil = profilsRisque[a.id];
+          return profil ? <span className={getRiskBadgeClass(profil.niveau)}>{profil.score_global}%</span> : <span className="text-muted-foreground">-</span>;
+        },
+      },
+      {
+        key: 'actions',
+        header: '',
+        className: 'text-right',
+        render: (a) => (
+          <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+            <button className="action-button" onClick={() => handleViewDetails(a)}><Eye className="w-4 h-4"/></button>
+            {!isOperator && <>
+              <button className="action-button" onClick={() => handleDirectEdit(a)}><PenSquare className="w-4 h-4"/></button>
+              <button className="action-button danger" onClick={() => handleDelete(a)}><Trash2 className="w-4 h-4"/></button>
+            </>}
+          </div>
+        ),
+      },
+    ];
 
-            return (
-              <tr key={aerodrome.id} className="cursor-pointer hover:bg-role-primary-soft transition-colors"
-                onClick={() => handleViewDetails(aerodrome)}>
-                <td><span className="code-oaci-badge">{aerodrome.code_oaci}</span></td>
-                <td className="font-medium">{aerodrome.nom}</td>
-                <td>{aerodrome.region}</td>
-                <td>{getTypeBadge(aerodrome.type, aerodrome.type_entite)}</td>
-                <td>{getStatutBadge(aerodrome.statut)}</td>
-                <td>{getCertificationBadge(aerodrome.id)}</td>
-                <td>
-                  {derniereSurv ? (
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-small">{new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR')}</span>
-                    </div>
-                  ) : <span className="text-muted-foreground">-</span>}
-                </td>
-                <td>
-                  {ecartsOuverts > 0 ? (
-                    <div className="flex items-center gap-1">
-                      <span className={ecartsCritiques > 0 ? 'badge danger' : 'badge warning'}>{ecartsOuverts}</span>
-                      {ecartsCritiques > 0 && <span className="badge danger animate-pulse text-[10px] ml-1">{ecartsCritiques}c</span>}
-                    </div>
-                  ) : <span className="text-muted-foreground">0</span>}
-                </td>
-                <td>
-                  {profil
-                    ? <span className={getRiskBadgeClass(profil.niveau)}>{profil.score_global}%</span>
-                    : <span className="text-muted-foreground">-</span>}
-                </td>
-                <td className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <button className="action-button" onClick={e => { e.stopPropagation(); handleViewDetails(aerodrome); }}><Eye className="w-4 h-4"/></button>
-                    {!isOperator && <>
-                      <button className="action-button" onClick={e => { e.stopPropagation(); handleDirectEdit(aerodrome); }}><PenSquare className="w-4 h-4"/></button>
-                      <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(aerodrome); }}><Trash2 className="w-4 h-4"/></button>
-                    </>}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+    return (
+      <DataTable
+        data={paginatedAerodromes}
+        columns={columns}
+        keyExtractor={(a) => a.id}
+        onRowClick={(a) => handleViewDetails(a)}
+        emptyState={{ icon: MapPin, title: 'Aucune infrastructure correspondant aux critères' }}
+        pagination={{ total: filteredAerodromes.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+        headerClassName="bg-role-primary-soft/40"
+      />
+    );
+  };
 
   // ── Vue Grille ────────────────────────────────────────────────────────────
   const renderGridView = () => (
@@ -543,8 +548,8 @@ const profilsRisque = useOptimizedStore(s => s.profilsRisque)
       {/* ── Modale Détail (inline — type stable) ── */}
       {showDetailDialog && selectedAerodrome && createPortal(
         <div className="modal-overlay" data-role={currentUserRole} onClick={() => setShowDetailDialog(false)}>
-          <div className="modal-content max-w-6xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
-            <AerodromeDetail aerodrome={selectedAerodrome} onClose={() => setShowDetailDialog(false)} onEdit={handleEdit} userRole={userRole} />
+          <div className="modal-content max-w-7xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
+            <AerodromeDetail aerodrome={selectedAerodrome} onClose={() => setShowDetailDialog(false)} onEdit={handleEdit} userRole={currentUserRole} />
           </div>
         </div>,
         document.body

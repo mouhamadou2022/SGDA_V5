@@ -4,7 +4,9 @@
 import { ReactNode, useEffect, useState, useSyncExternalStore, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import { chargerFeedbacksDepuisSupabase, synchroniserFeedback } from '@/lib/ia/syncEngineFeedback'
+import { chargerInspecteurFeedbacksDepuisSupabase, synchroniserInspecteurFeedback } from '@/lib/ia/syncInspecteurMonitoring'
 import { engineFeedback } from '@/lib/ia/engines/engineFeedback'
+import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring'
 import { thresholdController } from '@/lib/ia/thresholdController'
 import { decisionTracker, type DecisionRecord } from '@/lib/ia/decisionTracker'
 import { fetchThresholds, fetchDecisions, upsertThreshold, createDecision, fetchModelState, upsertModelState } from '@/lib/datastore'
@@ -72,10 +74,14 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
     // Restaurer l'état depuis IndexedDB avant Supabase
     decisionTracker.initFromIDB()
     engineFeedback.initFromIDB()
+    inspecteurMonitoring.initFromIDB()
     thresholdController.initFromIDB()
 
     chargerFeedbacksDepuisSupabase()
     engineFeedback.onSync(synchroniserFeedback)
+
+    chargerInspecteurFeedbacksDepuisSupabase()
+    inspecteurMonitoring.onSync(synchroniserInspecteurFeedback)
 
     // Charger les seuils depuis Supabase
     fetchThresholds().then(res => {

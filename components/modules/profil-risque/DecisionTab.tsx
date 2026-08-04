@@ -12,6 +12,7 @@ import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, 
 import { getRiskLevelBgVariant } from '@/lib/risque'
 import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
 import RecommandationDuJourCard from './RecommandationDuJourCard'
+import DecisionLangageClair from './DecisionLangageClair'
 
 interface Props {
   profil: ProfilRisque
@@ -76,6 +77,17 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
   return (
     <div className="space-y-10">
+      {/* En langage clair — synthèse DG via IA (fallback déterministe) */}
+      <DecisionLangageClair
+        profil={profil}
+        aerodromeCode={aerodromeCode}
+        aerodromeName={aerodromeName}
+        nbEcartsCritiques={nbEcartsCritiques}
+        ecartsActifs={ecartsActifs}
+        prochainesSurveillances={prochainesSurveillances}
+        evenements={evenements}
+      />
+
       {/* Carte score principal */}
       <div className={`rounded-2xl border-2 ${config.border} ${config.bg} p-6`}>
         <div className="flex items-start justify-between flex-wrap gap-4">
@@ -166,29 +178,79 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
         </Card>
       )}
 
-      {/* Prédictions simplifiées */}
+      {/* Prédictions & fiabilité — bloc décisionnel */}
       <Card variant="role" title="Projection du risque" icon={<BarChart3 className="w-4 h-4" />}>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-xs text-foreground">3 mois</p>
-            <p className={`text-lg font-bold ${profil.prediction_3m < 30 ? 'text-danger' : profil.prediction_3m < 60 ? 'text-warning' : 'text-success'}`}>
-              {profil.prediction_3m}/100
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-foreground">6 mois</p>
-            <p className={`text-lg font-bold ${profil.prediction_6m < 30 ? 'text-danger' : profil.prediction_6m < 60 ? 'text-warning' : 'text-success'}`}>
-              {profil.prediction_6m}/100
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-foreground">Scénario pire cas</p>
-            <p className={`text-lg font-bold ${(profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global) < 30 ? 'text-danger' : 'text-warning'}`}>
-              {profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global}/100
-            </p>
-          </div>
+        {/* Scores projetés */}
+        <div className="flex items-center justify-around flex-wrap gap-3">
+          {([
+            { label: '3 mois', val: profil.prediction_3m, ic: profil.prediction_interval_3m },
+            { label: '6 mois', val: profil.prediction_6m, ic: profil.prediction_interval_6m },
+            { label: '12 mois', val: profil.prediction_12m, ic: null },
+            { label: 'Pire cas', val: profil.scenarios?.[3]?.scoreProjecte ?? profil.score_global, ic: null },
+          ] as const).map((p) => {
+            if (p.val === undefined) return null
+            const color = p.val < 30 ? 'text-danger' : p.val < 60 ? 'text-warning' : 'text-success'
+            return (
+              <div key={p.label} className="text-center">
+                <p className="text-xs text-foreground">{p.label}</p>
+                <p className={`text-lg font-bold ${color}`}>{Math.round(p.val)}/100</p>
+                {p.ic && <p className="text-[10px] text-foreground italic">IC95 [{Math.round(p.ic.lower)}–{Math.round(p.ic.upper)}]</p>}
+              </div>
+            )
+          })}
         </div>
-        {profil.survival_metrics && (
+
+        {/* Probabilité d'incident 3/6/12m */}
+        {(profil.incident_prediction_3m !== undefined || profil.incident_prediction_6m !== undefined || profil.incident_prediction_12m !== undefined) && (
+          <div className="mt-3 pt-3 border-t border-border">
+            <p className="text-xs font-semibold text-foreground mb-2">Probabilité d'incident</p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                { label: '3 mois', val: profil.incident_prediction_3m },
+                { label: '6 mois', val: profil.incident_prediction_6m },
+                { label: '12 mois', val: profil.incident_prediction_12m },
+              ].map(({ label, val }) => {
+                const v = val ?? (label === '3 mois' && profil.survival_metrics ? Math.round(profil.survival_metrics.hazard90d * 100) : null)
+                return (
+                  <div key={label} className={`p-2 rounded-lg ${v !== null && v >= 30 ? 'bg-danger-soft/30' : 'bg-muted/20'}`}>
+                    <p className="text-xs text-foreground">{label}</p>
+                    <p className={`text-lg font-bold ${v !== null ? (v >= 30 ? 'text-danger' : v >= 15 ? 'text-warning' : 'text-success') : ''}`}>
+                      {v !== null ? `${v}%` : '—'}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Fiabilité des modèles & des données */}
+        {(profil.ensemble_confidence !== undefined || profil.qualityScore !== undefined) && (
+          <div className="mt-3 pt-3 border-t border-border space-y-2 text-xs text-foreground">
+            {profil.ensemble_confidence !== undefined && (
+              <div className="flex items-center gap-2">
+                <span>Fiabilité des modèles</span>
+                <div className="progress flex-1 h-1.5">
+                  <div className="progress-bar" style={{ width: `${profil.ensemble_confidence}%`, background: `var(--color-${profil.ensemble_confidence >= 70 ? 'success' : profil.ensemble_confidence >= 40 ? 'warning' : 'danger'})` }} />
+                </div>
+                <span className="font-mono">{profil.ensemble_confidence}%</span>
+              </div>
+            )}
+            {profil.qualityScore !== undefined && (
+              <div className="flex items-center gap-2">
+                <span>Fiabilité des données</span>
+                <div className="progress flex-1 h-1.5">
+                  <div className="progress-bar" style={{ width: `${profil.qualityScore}%`, background: `var(--color-${profil.qualityScore >= 70 ? 'success' : profil.qualityScore >= 40 ? 'warning' : 'danger'})` }} />
+                </div>
+                <span className="font-mono">{profil.qualityScore}%</span>
+                {profil.qualite && <span className="capitalize">{profil.qualite}</span>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Survival 90j — repli si aucune prédiction d'incident */}
+        {profil.survival_metrics && profil.incident_prediction_3m === undefined && (
           <div className="mt-3 pt-3 border-t border-border text-xs text-foreground text-center">
             Risque d'incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
             {profil.survival_metrics.hazard90d > 0.5 && <span className="text-danger font-semibold ml-1">— Inspection recommandée</span>}

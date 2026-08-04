@@ -33,21 +33,19 @@ export function EvenementCard({
 
   const getIconeGravite = (gravite: string) => {
     switch(gravite) {
-      case 'CRITIQUE': return <Flame className="w-5 h-5 text-danger" />
-      case 'ORANGE': return <AlertOctagon className="w-5 h-5 text-warning" />
-      case 'JAUNE': return <AlertCircle className="w-5 h-5 text-role-primary" />
-      case 'GRIS': return <Info className="w-5 h-5 text-muted-foreground" />
+      case 'critique': return <Flame className="w-5 h-5 text-danger" />
+      case 'eleve': return <AlertOctagon className="w-5 h-5 text-warning" />
+      case 'moyen': return <AlertCircle className="w-5 h-5 text-role-primary" />
       default: return <Info className="w-5 h-5 text-role-primary" />
     }
   }
 
   const getBadgeGravite = (gravite: string): { label: string; cls: string } => {
     const variants: Record<string, { label: string; cls: string }> = {
-      'CRITIQUE': { label: 'Critique', cls: 'badge danger animate-pulse' },
-      'ORANGE': { label: 'Orange', cls: 'badge warning' },
-      'JAUNE': { label: 'Jaune', cls: 'badge primary' },
-      'GRIS': { label: 'Gris', cls: 'badge neutral' },
-      'BLEU': { label: 'Bleu', cls: 'badge teal' },
+      'critique': { label: 'Critique', cls: 'badge danger animate-pulse' },
+      'eleve': { label: 'Élevé', cls: 'badge warning' },
+      'moyen': { label: 'Moyen', cls: 'badge primary' },
+      'faible': { label: 'Faible', cls: 'badge success' },
     }
     return variants[gravite] || { label: gravite, cls: 'badge neutral' }
   }
@@ -66,11 +64,10 @@ export function EvenementCard({
 
   const getBorderColor = (gravite: string): string => {
     const colors: Record<string, string> = {
-      'CRITIQUE': 'border-l-danger',
-      'ORANGE': 'border-l-warning',
-      'JAUNE': 'border-l-role-primary',
-      'GRIS': 'border-l-neutral',
-      'BLEU': 'border-l-success',
+      'critique': 'border-l-danger',
+      'eleve': 'border-l-warning',
+      'moyen': 'border-l-role-primary',
+      'faible': 'border-l-success',
     }
     return colors[gravite] || 'border-l-role-primary'
   }

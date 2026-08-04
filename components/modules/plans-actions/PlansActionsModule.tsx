@@ -297,7 +297,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       addNotification({
         user_id: user?.id || '',
         type: 'success',
-        title: 'IA a généré un écart',
+        title: 'AERORISQ a généré un écart',
         message: `${itemsNSNV.length} écart(s) généré(s) - Vérifiez et ajustez si nécessaire`,
         canal: 'in_app'
       })
@@ -305,7 +305,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       addNotification({
         user_id: user?.id || '',
         type: 'danger',
-        title: 'Erreur IA',
+        title: 'Erreur AERORISQ',
         message: error instanceof Error ? error.message : 'Impossible de générer l\'écart',
         canal: 'in_app'
       })
@@ -328,7 +328,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       addNotification({
         user_id: user?.id || '',
         type: 'success',
-        title: 'IA a évalué le PAC',
+        title: 'AERORISQ a évalué le PAC',
         message: `Note suggérée: ${result.note_globale}/100 - ${result.decision === 'accepte' ? 'Accepté' : 'Refusé'}`,
         canal: 'in_app'
       })
@@ -336,7 +336,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       addNotification({
         user_id: user?.id || '',
         type: 'danger',
-        title: 'Erreur IA',
+        title: 'Erreur AERORISQ',
         message: error instanceof Error ? error.message : 'Impossible d\'évaluer le PAC',
         canal: 'in_app'
       })
@@ -473,7 +473,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       <Card className="border-primary/20 bg-primary-soft/30">
           <div className="flex items-center gap-2 mb-2">
             <Brain className="w-4 h-4 text-role-primary" />
-            <span className="text-sm font-medium">Assistant IA - Posez une question</span>
+            <span className="text-sm font-medium">Assistant AERORISQ - Posez une question</span>
           </div>
           <div className="flex gap-2">
             <input
@@ -767,7 +767,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                       }}
                       disabled={isIaGenerating}
                       className="action-button text-role-primary"
-                      title="IA - Générer les écarts"
+                      title="AERORISQ - Générer les écarts"
                     >
                       {isIaGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
                     </button>
@@ -858,7 +858,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 <AccordionSection
                   key={evId}
                   icon={<AlertTriangle className="w-4 h-4 text-white" />}
-                  title={<><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border mr-2 ${evenement.gravite === 'CRITIQUE' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>{evenement.type}</span>{aerodrome?.code_oaci}</>}
+                  title={<><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border mr-2 ${evenement.gravite === 'critique' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>{evenement.type}</span>{aerodrome?.code_oaci}</>}
                   subtitle={new Date(evenement.date).toLocaleDateString('fr-FR')}
                   badges={
                     <>
@@ -1159,7 +1159,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               )}
               {sug.commentaire && (
                 <div className="form-field">
-                  <label className="filter-label">Commentaire IA</label>
+                  <label className="filter-label">Commentaire AERORISQ</label>
                   <p className="p-2 bg-gray-50 rounded text-sm">{sug.commentaire}</p>
                 </div>
               )}
@@ -1182,7 +1182,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     user_id: user?.id || '',
                     type: 'success',
                     title: 'Suggestion appliquée',
-                    message: 'Le formulaire a été pré-rempli avec la suggestion IA',
+                    message: 'Le formulaire a été pré-rempli avec la suggestion AERORISQ',
                     canal: 'in_app'
                   })
                 }

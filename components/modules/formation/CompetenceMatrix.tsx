@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
+import { DataTable } from '@/components/ui/DataTable'
 
 const selectStyle = {
   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
@@ -59,31 +60,28 @@ export function CompetenceMatrix({ userRole }: Props) {
           ))}
         </div>
       </div>
-      <div className="table-container overflow-x-auto">
-        <table className="table w-full">
-          <thead><tr className="bg-role-primary-soft">
-            <th className="text-left px-3 py-2 border border-border min-w-36">Inspecteur</th>
-            {domaines.map(d => <th key={d} className="px-3 py-2 border border-border text-center w-16">{d}</th>)}
-          </tr></thead>
-          <tbody>
-            {lignes.map(insp => (
-              <tr key={insp.id} className="hover:bg-role-primary-soft transition-colors">
-                <td className="px-3 py-2 border border-border font-medium whitespace-nowrap">{insp.prenom} {insp.nom}</td>
-                {domaines.map(d => {
-                  const n = niveauxParInsp[insp.id]?.[d] || 0
-                  return <td key={d} className="border border-border p-1 text-center"><span className={`inline-flex w-8 h-8 rounded-full items-center justify-center text-xs font-bold ${cellColor(n)}`}>{n}</span></td>
-                })}
-              </tr>
-            ))}
-            {filtre === 'tous' && (
-              <tr className="bg-role-primary-soft/50 font-semibold">
-                <td className="px-3 py-2 border border-border text-muted-foreground">Équipe (moy.)</td>
-                {moyennesEquipe.map((m, di) => <td key={di} className="border border-border p-1 text-center"><span className={`inline-flex w-8 h-8 rounded-full items-center justify-center text-xs font-bold ${cellColor(m)}`}>{m}</span></td>)}
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        data={filtre === 'tous' ? [...lignes, { _isAverage: true, _nom: 'Équipe (moy.)', _scores: Object.fromEntries(domaines.map((d, di) => [d, moyennesEquipe[di]])), id: '__average__' }] : lignes}
+        columns={[
+          { key: 'inspecteur', header: 'Inspecteur', headerClassName: 'min-w-36', render: (item: any) => (
+            <span className={item._isAverage ? 'text-muted-foreground font-semibold' : 'font-medium whitespace-nowrap'}>
+              {item._isAverage ? item._nom : `${item.prenom} ${item.nom}`}
+            </span>
+          )},
+          ...domaines.map(d => ({
+            key: d,
+            header: d,
+            headerClassName: 'text-center',
+            className: 'text-center',
+            render: (item: any) => {
+              const n = item._isAverage ? item._scores[d] : (niveauxParInsp[item.id]?.[d] || 0)
+              return <span className={`inline-flex w-8 h-8 rounded-full items-center justify-center text-xs font-bold ${cellColor(n)}`}>{n}</span>
+            },
+          })),
+        ]}
+        keyExtractor={(item) => item.id}
+        headerClassName="bg-role-primary-soft"
+      />
     </div>
   )
 }

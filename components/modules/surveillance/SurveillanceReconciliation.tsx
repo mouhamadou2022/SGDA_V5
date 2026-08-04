@@ -733,7 +733,7 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
                                 className="action-button hover:text-muted-foreground" title="Ignorer">
                                 <X className="w-3 h-3" />
                               </button>
-                              {/* Suggestion IA de doublon */}
+                              {/* Suggestion AERORISQ de doublon */}
                               {(() => {
                                 const match = aerodromeEcarts.find(e =>
                                   e.libelle?.toLowerCase().includes(item.description.slice(0, 20).toLowerCase())

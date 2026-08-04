@@ -27,6 +27,7 @@ import type {
   ProfilRisque,
   Notification,
   ChecklistItem,
+  DomaineChecklist,
   CodeAcces,
   Inspecteur,
   Formation,
@@ -36,8 +37,25 @@ import type {
   Message,
   ApiKey,
   RegistreEntry,
+  ChecklistTemplate,
 } from './store'
 import type { EngineFeedbackRecord } from './ia/engines/engineFeedback'
+import type { CapaciteInspecteur, ActionInspecteur } from './ia/engines/inspecteurMonitoring'
+import type { AmdecAnalyse } from './risque/amdecEngine'
+import type { ArbreFTA } from './risque/ftaEngine'
+
+export interface InspecteurFeedbackRow {
+  id: string
+  created_at: string
+  updated_at?: string
+  capacite: CapaciteInspecteur
+  action: ActionInspecteur
+  aerodrome_id: string | null
+  surveillance_id: string | null
+  user_id?: string | null
+  confiance: number | null
+  synced_at?: string | null
+}
 
 // ─────────────────────────────────────────────────────────────
 // TYPES DATASTORE
@@ -68,6 +86,8 @@ export interface InitialData {
   messages: Message[]
   apiKeys: ApiKey[]
   registreEntries: RegistreEntry[]
+  amdecAnalyses: AmdecAnalyse[]
+  ftaAnalyses: ArbreFTA[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -106,6 +126,8 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       apiKeysRes,
       planningEquipeRes,
       registreEntriesRes,
+      amdecRes,
+      ftaRes,
     ] = await Promise.all([
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
@@ -126,6 +148,8 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('api_keys').select('*').order('service').order('fallback_order'),
       supabase.from('planning_equipe').select('*'),
       supabase.from('registre_entries').select('*').order('date_entree', { ascending: false }),
+      supabase.from('amdec_analyses').select('*').order('updated_at', { ascending: false }),
+      supabase.from('fta_analyses').select('*').order('updated_at', { ascending: false }),
     ])
 
     const planningsData = (planningsRes.data ?? []) as Planning[]
@@ -211,6 +235,8 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         messages: (messagesRes?.data ?? []).map(unmarshalMessage) as Message[],
         apiKeys: (apiKeysRes?.data ?? []) as ApiKey[],
         registreEntries: (registreEntriesRes?.data ?? []) as RegistreEntry[],
+        amdecAnalyses: (amdecRes?.data ?? []) as AmdecAnalyse[],
+        ftaAnalyses: (ftaRes?.data ?? []) as ArbreFTA[],
       },
       error: null,
     }
@@ -791,6 +817,35 @@ export async function syncIAFeedbacks(feedbacks: EngineFeedbackRecord[]): Promis
 }
 
 // ─────────────────────────────────────────────────────────────
+// INSPECTEUR FEEDBACK — Suivi ML de l'Inspecteur Virtuel
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchInspecteurFeedbacks(aerodromeId?: string): Promise<DatastoreResult<InspecteurFeedbackRow[]>> {
+  let query = supabase.from('inspecteur_feedback').select('*').order('created_at', { ascending: false }).limit(500)
+  if (aerodromeId) query = query.eq('aerodrome_id', aerodromeId)
+  const { data, error } = await query
+  return { data: data as InspecteurFeedbackRow[] | null, error: error?.message ?? null }
+}
+
+export async function createInspecteurFeedback(payload: Omit<InspecteurFeedbackRow, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<InspecteurFeedbackRow>> {
+  const { data, error } = await supabase
+    .from('inspecteur_feedback')
+    .insert(payload)
+    .select()
+    .single()
+  return { data: data as InspecteurFeedbackRow | null, error: error?.message ?? null }
+}
+
+export async function syncInspecteurFeedbacks(records: InspecteurFeedbackRow[]): Promise<DatastoreResult<number>> {
+  const rows = records.map(r => ({
+    ...r,
+    synced_at: new Date().toISOString(),
+  }))
+  const { error, count } = await supabase.from('inspecteur_feedback').upsert(rows, { ignoreDuplicates: true })
+  return { data: count ?? 0, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
 // IA THRESHOLDS — Seuils dynamiques persistés
 // ─────────────────────────────────────────────────────────────
 
@@ -1109,6 +1164,74 @@ export async function getRegistreEntriesFromDB(): Promise<DatastoreResult<Regist
     .select('*')
     .order('date_entree', { ascending: false })
   return { data: data as RegistreEntry[] | null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AMDEC ANALYSES
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchAmdecAnalyses(): Promise<DatastoreResult<AmdecAnalyse[]>> {
+  const { data, error } = await supabase.from('amdec_analyses').select('*').order('updated_at', { ascending: false })
+  return { data: data as AmdecAnalyse[] | null, error: error?.message ?? null }
+}
+
+export async function createAmdecAnalyse(payload: Omit<AmdecAnalyse, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<AmdecAnalyse>> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('amdec_analyses')
+    .insert({ ...payload, created_at: now, updated_at: now })
+    .select()
+    .single()
+  return { data: data as AmdecAnalyse | null, error: error?.message ?? null }
+}
+
+export async function updateAmdecAnalyse(id: string, payload: Partial<AmdecAnalyse>): Promise<DatastoreResult<AmdecAnalyse>> {
+  const { data, error } = await supabase
+    .from('amdec_analyses')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as AmdecAnalyse | null, error: error?.message ?? null }
+}
+
+export async function deleteAmdecAnalyse(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('amdec_analyses').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// FTA ANALYSES (arbres de défaillance)
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchFtaAnalyses(): Promise<DatastoreResult<ArbreFTA[]>> {
+  const { data, error } = await supabase.from('fta_analyses').select('*').order('updated_at', { ascending: false })
+  return { data: data as ArbreFTA[] | null, error: error?.message ?? null }
+}
+
+export async function createFtaAnalyse(payload: Omit<ArbreFTA, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<ArbreFTA>> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('fta_analyses')
+    .insert({ ...payload, created_at: now, updated_at: now })
+    .select()
+    .single()
+  return { data: data as ArbreFTA | null, error: error?.message ?? null }
+}
+
+export async function updateFtaAnalyse(id: string, payload: Partial<ArbreFTA>): Promise<DatastoreResult<ArbreFTA>> {
+  const { data, error } = await supabase
+    .from('fta_analyses')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as ArbreFTA | null, error: error?.message ?? null }
+}
+
+export async function deleteFtaAnalyse(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('fta_analyses').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1466,5 +1589,107 @@ export async function updateDossier(id: string, payload: Partial<Dossier>): Prom
 
 export async function deleteDossier(id: string): Promise<DatastoreResult<null>> {
   const { error } = await supabase.from('dossiers').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHECKLIST TEMPLATES
+// ─────────────────────────────────────────────────────────────
+
+export async function listChecklistTemplates(actifOnly = true): Promise<DatastoreResult<ChecklistTemplate[]>> {
+  let query = supabase.from('checklist_templates').select('*').order('created_at', { ascending: false })
+  if (actifOnly) query = query.eq('actif', true)
+  const { data, error } = await query
+  return { data: data as ChecklistTemplate[] | null, error: error?.message ?? null }
+}
+
+export async function getChecklistTemplate(id: string): Promise<DatastoreResult<ChecklistTemplate>> {
+  const { data, error } = await supabase.from('checklist_templates').select('*').eq('id', id).single()
+  return { data: data as ChecklistTemplate | null, error: error?.message ?? null }
+}
+
+export async function createChecklistTemplate(payload: Partial<ChecklistTemplate> & { type: string; code: string; nom: string; hierarchie: DomaineChecklist[] }): Promise<DatastoreResult<ChecklistTemplate>> {
+  const now = new Date().toISOString()
+  // Ne pas écraser la version existante avec une chaîne vide (ex: autosave de l'éditeur)
+  const clean = { ...payload }
+  if (!clean.version) delete clean.version
+  // Upsert : si un template actif existe déjà pour (type, code), on le met à jour
+  // (évite les doublons créés à chaque autosave par l'éditeur)
+  const existing = await supabase
+    .from('checklist_templates')
+    .select('id')
+    .eq('type', payload.type)
+    .eq('code', payload.code)
+    .eq('actif', true)
+    .limit(1)
+    .maybeSingle()
+  if (existing.data?.id) {
+    const { data, error } = await supabase
+      .from('checklist_templates')
+      .update({ ...clean, updated_at: now, updated_by: payload.created_by })
+      .eq('id', existing.data.id)
+      .select()
+      .single()
+    return { data: data as ChecklistTemplate | null, error: error?.message ?? null }
+  }
+  const { data, error } = await supabase
+    .from('checklist_templates')
+    .insert({ ...clean, created_at: now, updated_at: now })
+    .select()
+    .single()
+  return { data: data as ChecklistTemplate | null, error: error?.message ?? null }
+}
+
+/**
+ * Toutes les versions (actives et archivées) d'un même thème (type + code),
+ * pour la détection de doublons et l'historique.
+ */
+export async function findChecklistTemplatesByTheme(type: string, code: string): Promise<DatastoreResult<ChecklistTemplate[]>> {
+  const { data, error } = await supabase
+    .from('checklist_templates')
+    .select('*')
+    .eq('type', type)
+    .eq('code', code)
+    .order('created_at', { ascending: false })
+  return { data: data as ChecklistTemplate[] | null, error: error?.message ?? null }
+}
+
+/**
+ * Import guidé : archive l'éventuel template actif de même (type, code),
+ * puis insère la nouvelle version comme active.
+ */
+export async function importChecklistTemplate(
+  payload: { type: string; code: string; nom: string; version: string; portee: string[]; hierarchie: DomaineChecklist[] } & Partial<ChecklistTemplate>,
+  opts?: { archivePrevious?: boolean },
+): Promise<DatastoreResult<ChecklistTemplate> & { existing?: ChecklistTemplate | null }> {
+  const now = new Date().toISOString()
+  const versions = await findChecklistTemplatesByTheme(payload.type, payload.code)
+  const active = (versions.data || []).find(t => t.actif)
+  if (opts?.archivePrevious !== false && active) {
+    await supabase
+      .from('checklist_templates')
+      .update({ actif: false, etat: 'archive', updated_at: now, updated_by: payload.updated_by })
+      .eq('id', active.id)
+  }
+  const { data, error } = await supabase
+    .from('checklist_templates')
+    .insert({ ...payload, created_at: now, updated_at: now })
+    .select()
+    .single()
+  return { data: data as ChecklistTemplate | null, error: error?.message ?? null, existing: active || null }
+}
+
+export async function updateChecklistTemplate(id: string, payload: Partial<ChecklistTemplate>): Promise<DatastoreResult<ChecklistTemplate>> {
+  const { data, error } = await supabase
+    .from('checklist_templates')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as ChecklistTemplate | null, error: error?.message ?? null }
+}
+
+export async function deleteChecklistTemplate(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('checklist_templates').delete().eq('id', id)
   return { data: null, error: error?.message ?? null }
 }

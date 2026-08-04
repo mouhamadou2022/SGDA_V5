@@ -20,6 +20,8 @@ import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/
 import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
 import { AppShell } from '@/components/layout/AppShell'
+import AdminPortal from '@/components/modules/admin/AdminPortal'
+import AerorisqDNAState from '@/components/modules/admin/AerorisqDNAState'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { TakeoffSplash } from '@/components/ui/TakeoffSplash'
@@ -1009,6 +1011,7 @@ export default function Page() {
   const user = useAppStore(s => s.user)
   const setUser = useAppStore(s => s.setUser)
   const activeModule = useAppStore(s => s.activeModule)
+  const activeDepartement = useAppStore(s => s.activeDepartement)
   const [showWelcome, setShowWelcome] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [hydrationDone, setHydrationDone] = useState(false)
@@ -1308,10 +1311,20 @@ export default function Page() {
 
   return (
     <>
-      {showWelcome && <WelcomeToast user={user} onClose={() => setShowWelcome(false)} />}
-      <AppShell user={user} onLogout={handleLogout}>
-        <ActiveModuleRenderer moduleKey={activeModule} user={user} />
-      </AppShell>
+      {showWelcome && user.role === 'admin' ? (
+        <AdminPortal user={user} onEnter={() => setShowWelcome(false)} />
+      ) : (
+        <>
+          {showWelcome && <WelcomeToast user={user} onClose={() => setShowWelcome(false)} />}
+          <AppShell user={user} onLogout={handleLogout}>
+            {activeDepartement === 'DNA' ? (
+              <AerorisqDNAState moduleKey={activeModule} />
+            ) : (
+              <ActiveModuleRenderer moduleKey={activeModule} user={user} />
+            )}
+          </AppShell>
+        </>
+      )}
     </>
   )
 }

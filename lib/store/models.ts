@@ -8,6 +8,7 @@ import { createRiskGraph, RiskGraph, calculateRiskPropagation, recommendActionsF
 import type { ProfilRisque, Ecart, Aerodrome } from '../store'
 import { DOMAINES_SURVEILLANCE } from '../domaines'
 import { idbStorage } from '../persistence/idbStorage'
+import { modelActive } from '../ia/benchmark/modelActive'
 
 // ============================================================
 // TYPES POUR LES MODÈLES AVANCÉS
@@ -318,6 +319,10 @@ class AdvancedModelsManager {
   }
 
   predict(profil: ProfilRisque): { prediction: string; confidence: number } | null {
+    // Modèle sélectionné via le benchmark (RF/XGBoost/LightGBM/CatBoost/MLP)
+    const active = modelActive.predict(profil)
+    if (active) return active
+
     if (!this.rfModel) {
       // Fallback: utiliser scoreToLabel
       return {
@@ -449,6 +454,11 @@ class AdvancedModelsManager {
     return this.rfSamples.length
   }
 
+  /** Retourne les échantillons d'entraînement (pour le benchmark ML). */
+  getSamples(): Array<{ features: Record<string, number>; label: string }> {
+    return [...this.rfSamples]
+  }
+
   // ============================================================
   // AUTO TRAIN SCHEDULING
   // ============================================================
@@ -470,6 +480,26 @@ class AdvancedModelsManager {
       clearInterval(this._autoTrainIntervalId)
       this._autoTrainIntervalId = null
     }
+  }
+
+  // ============================================================
+  // MODÈLE ACTIF (benchmark ML)
+  // ============================================================
+
+  /** Entraîne le modèle sélectionné (benchmark) sur tous les échantillons. */
+  async trainActiveModel(
+    modelId: Parameters<typeof modelActive.trainFromSamples>[1],
+    config?: Parameters<typeof modelActive.trainFromSamples>[2],
+  ): Promise<void> {
+    await modelActive.trainFromSamples(this.rfSamples, modelId, config)
+  }
+
+  getActiveModelInfo() {
+    return modelActive.getActive()
+  }
+
+  resetActiveModel() {
+    modelActive.reset()
   }
 
   // ============================================================

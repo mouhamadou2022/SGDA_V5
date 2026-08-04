@@ -38,6 +38,7 @@ import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { recordRiskIndexFeedback } from '@/lib/riskIndex';
 import { getRiskLevelFromCell, getCellColor, getRiskLevelClass, getRiskLevelVariant } from '@/lib/risque';
 import { generateEcartReference, computeNextEcartCounter, getTypeAbbr } from '@/lib/surveillanceUtils';
+import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 // Classes CSS réutilisées depuis globals.css
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -281,7 +282,7 @@ function IaSuggestionBanner({
       <div className="alert alert-info mb-4 animate-pulse">
         <Loader2 className="alert-icon w-4 h-4 animate-spin" />
         <div className="alert-content flex-1">
-          <div className="alert-title">🤖 IA en cours d'analyse...</div>
+          <div className="alert-title">🤖 AERORISQ en cours d'analyse...</div>
           <div className="alert-description">Génération d'une suggestion d'écart basée sur les items sélectionnés</div>
         </div>
       </div>
@@ -294,7 +295,7 @@ function IaSuggestionBanner({
     <div className="alert alert-info mb-4 animate-fade-in">
       <Sparkles className="alert-icon w-4 h-4 shrink-0" />
       <div className="alert-content flex-1">
-        <div className="alert-title">🤖 Suggestion IA</div>
+        <div className="alert-title">🤖 Suggestion AERORISQ</div>
         <div className="alert-description space-y-2">
           {/* Indice OACI — masqué pour le domaine SGS */}
           {!hideCellule && (
@@ -447,7 +448,7 @@ function IaAssistant({ onQuestion, isAsking }: { onQuestion: (question: string) 
         type="button"
         onClick={() => setShow(!show)}
         className="action-button text-role-primary"
-        title="Assistant IA"
+        title="Assistant AERORISQ"
       >
         <Brain className="w-4 h-4" />
       </button>
@@ -456,7 +457,7 @@ function IaAssistant({ onQuestion, isAsking }: { onQuestion: (question: string) 
         <div className="absolute right-0 top-full mt-2 w-80 bg-background border border-border rounded-xl shadow-lg z-50 p-3">
           <div className="flex items-center gap-2 mb-2">
             <Brain className="w-4 h-4 text-role-primary" />
-            <span className="text-sm font-semibold">Assistant IA</span>
+            <span className="text-sm font-semibold">Assistant AERORISQ</span>
           </div>
           <div className="flex gap-2">
             <input
@@ -698,10 +699,17 @@ export default function SurveillanceEcartsRedaction({
     }
 
     setShowIaSuggestion(false);
+    inspecteurMonitoring.enregistrer({
+      capacite: 'ecart',
+      action: wasAdjusted ? 'corrigee' : 'acceptee',
+      aerodromeId,
+      surveillanceId,
+      confiance: iaSuggestion.confiance,
+    })
     addNotification({
       user_id: user?.id || '',
       type: 'success',
-      title: 'Suggestion IA appliquée',
+      title: 'Suggestion AERORISQ appliquée',
       message: wasAdjusted
         ? `Suggestion appliquée avec ajustement : ${iaSuggestion.cellule} → ${finalCellule}`
         : `Champs pré-remplis — Indice OACI : ${finalCellule}`,
@@ -710,6 +718,13 @@ export default function SurveillanceEcartsRedaction({
   };
 
   const handleIgnoreIaSuggestion = () => {
+    inspecteurMonitoring.enregistrer({
+      capacite: 'ecart',
+      action: 'rejetee',
+      aerodromeId,
+      surveillanceId,
+      confiance: iaSuggestion?.confiance,
+    })
     setIaSuggestion(null);
     setShowIaSuggestion(false);
   };

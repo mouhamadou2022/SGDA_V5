@@ -27,11 +27,16 @@ export interface PlanningGeneratorParams {
   inspecteurs?: { id: string; prenom: string; nom: string; competences?: any[] }[]
   historiqueSurveillances?: { type: string; date: string; domaines: string[]; score?: number }[]
   statut_sgs?: string
+  type_entite?: string
 }
 
 export function genererPlanning(params: PlanningGeneratorParams): PlanningProposal[] {
-  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [], statut_sgs } = params
+  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [], statut_sgs, type_entite } = params
   const propositions: PlanningProposal[] = []
+
+  // Applicabilité SGS : non applicable si statut 'non_applicable' OU entité hélistation
+  const sgsApplicable = statut_sgs !== 'non_applicable' && type_entite !== 'helistation'
+  const exclureSGS = (d: string) => !(d === 'SGS' && !sgsApplicable)
 
   // ── Modèles mathématiques (calculés une fois, réutilisés) ──
   const scoresHistoriques = historiqueSurveillances.filter(h => h.score !== undefined).map(h => h.score!)
@@ -125,7 +130,6 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
 
     // Domaines — Copulas override (élargir si dépendance de queue)
     let domainesPrioritaires: string[]
-    const exclureSGS = (d: string) => !(d === 'SGS' && statut_sgs === 'non_applicable')
     if (modelOverrides.copula && modelOverrides.copula.tailDependence > 0.3) {
       // Forte dépendance → tous les domaines sont liés, inspecter large
       domainesPrioritaires = ['SGS', 'SLI', 'PHY', 'OLS', 'ELEC', 'MFP', 'RA', 'COP', 'OPS'].filter(exclureSGS)
@@ -240,7 +244,7 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
     const fin = new Date(debut.getTime() + 5 * 24 * 60 * 60 * 1000)
     propositions.push({
       aerodrome_id: aerodromeId, type: 'certification', date_debut: debut.toISOString(), date_fin: fin.toISOString(),
-      portee: ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'],
+      portee: ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'].filter(exclureSGS),
       equipe_ids: [], chef_id: '', statut: 'planifiee', priorite: 'haute',
       objectifs: `[RENOUVELLEMENT] Certification expire le ${expireDate.toLocaleDateString('fr-FR')}.\nPhase 1 sautée → Phase 2.\nTous domaines + SGS.`,
       est_proposition: true, annee_cible: annee, declencheur: 'renouvellement',

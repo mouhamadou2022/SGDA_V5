@@ -27,7 +27,7 @@ export function ChecklistLearningPanel({ aerodromeId }: Props) {
       >
         <div className="flex items-center gap-2">
           <Brain className="w-4 h-4 text-blue-600" />
-          <span className="text-sm font-semibold">Apprentissage IA</span>
+          <span className="text-sm font-semibold">Apprentissage AERORISQ</span>
           <span className="badge bg-blue-100 text-blue-700 border-blue-200 text-[10px]">
             {stats.total_items} item{stats.total_items > 1 ? 's' : ''}
           </span>

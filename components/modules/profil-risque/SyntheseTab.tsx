@@ -7,12 +7,14 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import { ProfilRisque, EvenementSecurite, Ecart, useAppStore } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Shield, Zap, Clock, Brain, BarChart3, Gauge, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
-import { synthetiserModeles, DiagnosticUnifie } from '@/lib/risque/modelSynthesis'
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Shield, Zap, Clock, BarChart3, Gauge, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
+import { synthetiserModeles, DiagnosticUnifie, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
+import { ModeleDetailsAvances } from './ModeleDetailsAvances'
+import { StatutModelesExplication } from './StatutModelesExplication'
 import { TendanceTable } from './TendanceTable'
 import { linearRegression } from '@/lib/risque/trends'
 import { ExplanabilityCard } from './ExplanabilityCard'
-import { FeatureDriftCard } from './FeatureDriftCard'
+import { FeatureDriftCard, buildDriftAnalysis } from './FeatureDriftCard'
 import { ExogenousFactorsCard } from './ExogenousFactorsCard'
 import { TriggersSection } from './TriggersSection'
 import { ResilienceScoreCard } from './ResilienceScoreCard'
@@ -140,16 +142,17 @@ export function SyntheseTab({
   const labelRadius = radarRadius + 12
 
   // --- Alert conditions ---
-  const hasHMM = !!profil.hmm_state
-  const hasSurvival = !!profil.survival_metrics
   const hasProactiveAlert = !!profil.proactive_alert
   const hasSystemStress = profil.system_stress && profil.system_stress.score !== undefined
   const hasHawkes = (profil.hawkes_intensity ?? 0) > 0.5
-  const hasInfra = !!profil.infrastructure
   const showAlertes = hasProactiveAlert || hasSystemStress || hasHawkes
 
   // --- Synthèse IA (tous modèles) — calcul des metriques ---
   const diagnostic: DiagnosticUnifie = useMemo(() => synthetiserModeles(profil), [profil])
+
+  // --- Dérives des indicateurs — la carte est masquée si aucune dérive mesurable ---
+  const driftAnalysis = useMemo(() => buildDriftAnalysis(profil), [profil])
+  const hasDriftCard = driftAnalysis.hasAnomaly || driftAnalysis.drifts.length > 0
 
   const recommandationDuJour = useMemo(() => {
     try {
@@ -311,8 +314,8 @@ export function SyntheseTab({
         {/* --- Synthèse IA (2x largeur) --- */}
         <div className="lg:col-span-2">
         <Card
-          title="Synthèse IA"
-          subtitle={synthLoading ? 'Génération IA en cours...' : undefined}
+          title="Synthèse AERORISQ"
+          subtitle={synthLoading ? 'Génération AERORISQ en cours...' : undefined}
           icon={synthLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : diagnostic.indiceGlobal >= 55 ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
           variant="level"
           levelColor={diagnostic.indiceGlobal >= 75 ? 'danger' : diagnostic.indiceGlobal >= 55 ? 'warning' : 'primary'}
@@ -321,7 +324,7 @@ export function SyntheseTab({
           {synthLoading ? (
             <div className="flex items-center gap-3 py-2">
               <div className="w-5 h-5 rounded-full border-2 border-role-primary border-t-transparent animate-spin" />
-              <p className="text-sm text-foreground">Analyse des modeles par IA...</p>
+              <p className="text-sm text-foreground">Analyse des modeles par AERORISQ...</p>
             </div>
           ) : (
             <>
@@ -425,15 +428,10 @@ export function SyntheseTab({
                 {profil.tendance === 'hausse' && <span className="text-success ml-1">— Amélioration</span>}
                 {profil.tendance === 'baisse' && <span className="text-danger ml-1">— Dégradation</span>}
               </p>
-              {synthIA?.interpretation && !synthLoading && (
-                <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-                  {synthIA.interpretation}
-                </p>
-              )}
-              {synthLoading && (
-                <div className="flex items-center gap-1.5 mt-2">
-                  <Sparkles className="w-3 h-3 text-muted-foreground animate-pulse" />
-                  <span className="text-[11px] text-muted-foreground">Analyse IA en cours...</span>
+              {profil.prediction_3m !== undefined && (
+                <div className="flex items-center gap-1.5 mt-2 text-xs text-foreground">
+                  <Activity className="w-3 h-3" />
+                  Prévision 3 mois : <span className={`font-semibold ${getScoreTextColor(profil.prediction_3m)}`}>{Math.round(profil.prediction_3m)}</span>
                 </div>
               )}
             </Card>
@@ -452,7 +450,7 @@ export function SyntheseTab({
           {/* Résumé */}
           <div className="flex items-center justify-between text-xs">
             <span className="text-foreground">
-              <span className="font-bold">{diagnostic.votes.length}</span> modèle{diagnostic.votes.length > 1 ? 's' : ''} actif{diagnostic.votes.length > 1 ? 's' : ''} / 10
+              <span className="font-bold">{diagnostic.votes.length}</span> modèle{diagnostic.votes.length > 1 ? 's' : ''} actif{diagnostic.votes.length > 1 ? 's' : ''} / {NOMBRE_MAX_VOTES}
             </span>
             <span className={`text-xs font-medium ${diagnostic.confianceGlobale >= 70 ? 'text-success' : diagnostic.confianceGlobale >= 40 ? 'text-warning' : 'text-danger'}`}>
               Confiance ensemble: {diagnostic.confianceGlobale}%
@@ -469,9 +467,16 @@ export function SyntheseTab({
               const confColor = v.confiance >= 70 ? 'text-success' : v.confiance >= 40 ? 'text-warning' : 'text-danger'
               return (
                 <div key={v.nom} className="rounded-lg border border-border p-2.5 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground">{v.nom}</span>
-                    <span className={`text-[10px] font-mono font-bold ${degColor}`}>{v.indiceDegradation}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground truncate">{v.nom}</span>
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {v.dataSupport !== undefined && v.dataSupport < 70 && (
+                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-warning/10 text-warning" title="Données limitées — poids réduit dans le consensus">
+                          données {v.dataSupport}%
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-mono font-bold ${degColor}`}>{v.indiceDegradation}</span>
+                    </span>
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{v.interpretation}</p>
                   <div className="flex items-center gap-2">
@@ -485,44 +490,11 @@ export function SyntheseTab({
             })}
           </div>
 
-          {/* Détails avancés en accordéon */}
-          {(hasHMM || hasSurvival || hasInfra) && (
-            <details className="text-sm pt-2 border-t border-border">
-              <summary className="cursor-pointer font-medium text-foreground text-xs flex items-center gap-1.5">
-                <Brain className="w-3 h-3 text-role-primary" />
-                Détails avancés des modèles
-              </summary>
-              <div className="mt-3 space-y-3">
-                {hasHMM && profil.hmm_state && (
-                  <div className="text-xs text-foreground space-y-1 p-2.5 rounded-lg bg-muted/30">
-                    <p className="font-medium">HMM — Markov {profil.hmm_state.isTransitioning && <span className="badge danger pulse text-[10px] ml-1">Transition</span>}</p>
-                    <p>État: {profil.hmm_state.currentStateName}</p>
-                    <p>Risque transition: {(profil.hmm_state.transitionRisk * 100).toFixed(0)}%</p>
-                    {profil.hmm_state.daysToCritical > 0 && <p>Jours avant critique: {profil.hmm_state.daysToCritical}j</p>}
-                  </div>
-                )}
-                {hasSurvival && profil.survival_metrics && (
-                  <div className="text-xs grid grid-cols-2 gap-2">
-                    <div className="text-center p-2 rounded-lg bg-primary-soft">
-                      <p className="text-foreground">Risque incident 90j</p>
-                      <p className="text-lg font-bold text-primary">{(profil.survival_metrics.hazard90d * 100).toFixed(1)}%</p>
-                    </div>
-                    <div className="text-center p-2 rounded-lg bg-success-soft">
-                      <p className="text-foreground">Médiane survie</p>
-                      <p className="text-lg font-bold text-success">{profil.survival_metrics.medianDays}j</p>
-                    </div>
-                  </div>
-                )}
-                {hasInfra && profil.infrastructure && (
-                  <div className="text-xs text-foreground space-y-1 p-2.5 rounded-lg bg-muted/30">
-                    <p className="font-medium">Infrastructure</p>
-                    <p>Type: {profil.infrastructure.type_entite.replace('_', ' ')}</p>
-                    <p>SSLIA: {profil.infrastructure.categorie_sslia}</p>
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
+          {/* Explication IA — modèles actifs, inactifs et lecture de la confiance */}
+          <StatutModelesExplication profil={profil} diagnostic={diagnostic} />
+
+          {/* Détails avancés — métriques réelles de chaque modèle présent */}
+          <ModeleDetailsAvances profil={profil} />
         </div>
       </Card>
 
@@ -580,6 +552,18 @@ export function SyntheseTab({
           </Card>
         )
       })()}
+
+      {/* ═══ ROW 4 — Cartes avancées (explicabilité, dérives, indicateurs, facteurs exogènes) ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className={hasDriftCard ? '' : 'lg:col-span-2'}>
+          <ExplanabilityCard profil={profil} ecarts={ecarts} evenements={evenements} />
+        </div>
+        {hasDriftCard && <FeatureDriftCard profil={profil} analysis={driftAnalysis} />}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TriggersSection profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
+        <ExogenousFactorsCard profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
+      </div>
 
       {/* Tableau de synthèse multicritère */}
       <TendanceTable profil={profil} />

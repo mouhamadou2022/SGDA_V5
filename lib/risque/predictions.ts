@@ -49,7 +49,7 @@ export function computeSaisonStats(evenements: { date: string; gravite?: string;
     })
     const types: Record<string, number> = {}
     evts.forEach(e => { const t = e.type || 'autre'; types[t] = (types[t] || 0) + 1 })
-    parMois.push({ mois: d.getMonth(), tot: evts.length, critiques: evts.filter(e => e.gravite === 'CRITIQUE').length, types })
+    parMois.push({ mois: d.getMonth(), tot: evts.length, critiques: evts.filter(e => e.gravite === 'critique').length, types })
   }
   const moyenne = parMois.reduce((s, m) => s + m.critiques, 0) / 12
   const ecart = Math.sqrt(parMois.reduce((s, m) => Math.pow(m.critiques - moyenne, 2) + s, 0) / 12)

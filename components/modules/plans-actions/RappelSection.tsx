@@ -263,7 +263,7 @@ L'équipe ANACIM`;
                   const resp = await assistantAgent.chat({
                     message: `Rédige un rappel professionnel pour un exploitant d'aérodrome concernant l'écart "${ecart?.reference}: ${ecart?.libelle?.substring(0, 80) || ''}" de niveau ${ecart?.niveau_risque}. Délai PAC: ${delaiPAC}. Rappel n°${nbRappels}. Format: email professionnel avec objet. Ton: ferme mais courtois. Langue: français. Signé: ANACIM - SGDA.`,
                     userRole: storeUser?.role || 'inspector',
-                    contexte: { aerodromeId: ecart?.aerodrome_id },
+                    contexte: { module: 'plans-actions', aerodromeId: ecart?.aerodrome_id },
                   })
                   if (resp?.message) setMessage(resp.message)
                   else setMessage(getMessageParDefaut())
@@ -276,7 +276,7 @@ L'équipe ANACIM`;
               disabled={isGeneratingIA}
               className={`btn btn-sm gap-1.5 mt-1.5 ${isGeneratingIA ? 'btn-secondary' : 'btn-outline'}`}
             >
-              {isGeneratingIA ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Génération...</> : <><Sparkles className="w-3.5 h-3.5" />Générer avec IA</>}
+              {isGeneratingIA ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Génération...</> : <><Sparkles className="w-3.5 h-3.5" />Générer avec AERORISQ</>}
             </button>
           </div>
 

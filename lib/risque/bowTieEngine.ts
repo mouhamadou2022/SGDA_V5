@@ -73,7 +73,7 @@ export function generateDomaineBowTie(params: GenerateBowTieParams): BowTieModel
 
   // Conséquence enrichie par les événements réels
   let consequence = ''
-  const evenementsGraves = evenementsDom?.filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE') || []
+  const evenementsGraves = evenementsDom?.filter(e => e.gravite === 'critique' || e.gravite === 'eleve') || []
   if (domaine === 'SGS') {
     consequence = c1Score < 40
       ? 'Non-conformité OACI Annexe 19 — risque de suspension de certification'

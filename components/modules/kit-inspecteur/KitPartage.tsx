@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { Share2, X, Download } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useAppStore } from '@/lib/store'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 interface DocPartageRecu {
   id: string
@@ -43,6 +44,8 @@ function KitPartage({ userRole }: KitPartageProps) {
   const partagerKitDocumentExploitant = useAppStore(s => s.partagerKitDocumentExploitant)
   const revoquerPartageKitDocument = useAppStore(s => s.revoquerPartageKitDocument)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
   const [selectedDoc, setSelectedDoc] = useState('')
   const [selectedAerodrome, setSelectedAerodrome] = useState('')
   const [message, setMessage] = useState('')
@@ -194,44 +197,26 @@ function KitPartage({ userRole }: KitPartageProps) {
       {/* Historique des partages émis */}
       <section className="space-y-3">
         <h3 className="font-medium text-muted-foreground">Historique des partages effectués</h3>
-        <div className="table-container overflow-x-auto">
-          <table className="table w-full">
-            <thead>
-              <tr className="border-b border-border text-left">
-                <th className="pb-2 pr-4">Document</th>
-                <th className="pb-2 pr-4">Destinataire</th>
-                <th className="pb-2 pr-4">Aérodrome</th>
-                <th className="pb-2 pr-4">Date</th>
-                <th className="pb-2">Statut</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {docsEmis.map(d => (
-                <tr key={d.id} className="border-b border-border">
-                  <td className="py-2 pr-4 font-medium text-foreground">{d.titre}</td>
-                  <td className="py-2 pr-4 text-foreground">{d.destinataire}</td>
-                  <td className="py-2 pr-4"><span className="badge outline">{d.aerodrome}</span></td>
-                  <td className="py-2 pr-4 text-foreground">{d.date}</td>
-                  <td className="py-2 pr-4">
-                    {d.revoque ? (
-                      <span className="badge danger">Révoqué</span>
-                    ) : (
-                      <span className="badge success">Actif</span>
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {!d.revoque && (
-                      <button className="btn btn-danger btn-sm" onClick={() => handleRevoquer(d)}>
-                        Révoquer
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {(() => {
+          const columns: Column<DocPartageEmis>[] = [
+            { key: 'titre', header: 'Document', render: (d) => <span className="font-medium text-foreground">{d.titre}</span> },
+            { key: 'destinataire', header: 'Destinataire', render: (d) => <span className="text-foreground">{d.destinataire}</span> },
+            { key: 'aerodrome', header: 'Aérodrome', render: (d) => <span className="badge outline">{d.aerodrome}</span> },
+            { key: 'date', header: 'Date', render: (d) => <span className="text-foreground">{d.date}</span> },
+            { key: 'statut', header: 'Statut', render: (d) => d.revoque ? <span className="badge danger">Révoqué</span> : <span className="badge success">Actif</span> },
+            { key: 'action', header: '', render: (d) => !d.revoque && <button className="btn btn-danger btn-sm" onClick={() => handleRevoquer(d)}>Révoquer</button> },
+          ]
+          const paginatedData = docsEmis.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+          return (
+            <DataTable
+              data={paginatedData}
+              columns={columns}
+              keyExtractor={(d) => d.id}
+              emptyState={{ title: 'Aucun partage effectué' }}
+              pagination={{ total: docsEmis.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+            />
+          )
+        })()}
       </section>
 
       <ShareDialog />

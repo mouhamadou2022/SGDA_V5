@@ -3,7 +3,8 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Users, Calendar, BarChart3, ChevronDown, ChevronRight, X, Brain, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Users, BarChart3 } from 'lucide-react';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Card } from '@/components/ui/card';
 import {
   BarChart,
@@ -57,6 +58,8 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
   const moisCourant = new Date().toISOString().slice(0, 7);
   const [moisSelectionne, setMoisSelectionne] = useState(moisCourant);
   const [aerodromeFiltre, setAerodromeFiltre] = useState('Tous');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   // Récupérer les vrais inspecteurs depuis le store
   const inspecteursReels = useMemo(() => {
@@ -219,57 +222,31 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
         )}
       </Card>
 
-      <Card
-        icon={<Users className="h-4 w-4 text-role-primary" />}
-        title={`Détail par inspecteur (${lignesCharge.length})`}
-        className="[&>div:last-child]:p-0"
-      >
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr className="border-b border-border">
-                  <th>Inspecteur</th>
-                  <th>Compétences</th>
-                  <th className="text-right">Missions</th>
-                  <th className="text-right">Jours terrain</th>
-                  <th className="text-right">Taux occupation</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lignesCharge.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Aucune donnée de charge disponible
-                    </td>
-                  </tr>
-                ) : (
-                  lignesCharge.map((ligne) => (
-                    <tr key={ligne.inspecteurId} className="border-b border-border hover:bg-role-primary-soft">
-                      <td className="font-medium text-foreground">
-                        {ligne.prenom} {ligne.nom}
-                      </td>
-                      <td className="text-muted-foreground text-xs">
-                        <div className="flex flex-wrap gap-1">
-                          {ligne.competences.slice(0, 2).map((c, i) => (
-                            <span key={i} className="badge outline text-[9px]">{c}</span>
-                          ))}
-                          {ligne.competences.length > 2 && (
-                            <span className="text-[9px] text-muted-foreground">+{ligne.competences.length - 2}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="text-right text-foreground">{ligne.missions}</td>
-                      <td className="text-right text-foreground">{ligne.joursTerrain} j</td>
-                      <td className="text-right text-foreground">{ligne.tauxOccupation}%</td>
-                      <td>{getStatusBadge(ligne.enAlerte, ligne.tauxOccupation)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-      </Card>
+      {(() => {
+        const columns: Column<LigneCharge>[] = [
+          { key: 'inspecteur', header: 'Inspecteur', render: (ligne) => <span className="font-medium text-foreground">{ligne.prenom} {ligne.nom}</span> },
+          { key: 'competences', header: 'Compétences', render: (ligne) => <div className="flex flex-wrap gap-1">{ligne.competences.slice(0, 2).map((c, i) => (<span key={i} className="badge outline text-[9px]">{c}</span>))}{ligne.competences.length > 2 && (<span className="text-[9px] text-muted-foreground">+{ligne.competences.length - 2}</span>)}</div> },
+          { key: 'missions', header: 'Missions', className: 'text-right', render: (ligne) => <span className="text-foreground">{ligne.missions}</span> },
+          { key: 'joursTerrain', header: 'Jours terrain', className: 'text-right', render: (ligne) => <span className="text-foreground">{ligne.joursTerrain} j</span> },
+          { key: 'tauxOccupation', header: 'Taux occupation', className: 'text-right', render: (ligne) => <span className="text-foreground">{ligne.tauxOccupation}%</span> },
+          { key: 'statut', header: 'Statut', render: (ligne) => getStatusBadge(ligne.enAlerte, ligne.tauxOccupation) },
+        ]
+        const paginatedData = lignesCharge.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+        return (
+          <DataTable
+            data={paginatedData}
+            columns={columns}
+            keyExtractor={(ligne) => ligne.inspecteurId}
+            emptyState={{ title: 'Aucune donnée de charge disponible' }}
+            pagination={{ total: lignesCharge.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+            cardProps={{
+              icon: <Users className="h-4 w-4 text-role-primary" />,
+              title: `Détail par inspecteur (${lignesCharge.length})`,
+              className: "[&>div:last-child]:p-0",
+            }}
+          />
+        )
+      })()}
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">

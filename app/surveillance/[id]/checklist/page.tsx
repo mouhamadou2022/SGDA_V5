@@ -12,6 +12,7 @@ import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvalu
 import type { DomaineChecklist, EvaluationSGS } from '@/types/checklist';
 import type { TypeChecklist } from '@/lib/domaines';
 import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type, RefreshCw } from 'lucide-react';
+import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 
 // Composant pour la version MIXTE (3 checklists dans des onglets)
 function ChecklistMixte({
@@ -256,6 +257,7 @@ export default function ChecklistPage() {
   const updateSurveillance = useAppStore(s => s.updateSurveillance)
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const checklistItems = useAppStore(s => s.checklistItems)
+  const masterChecklists = useAppStore(s => s.masterChecklists)
 
   const { decision, determineChecklistType } = useDecisionChecklist();
 
@@ -266,6 +268,12 @@ export default function ChecklistPage() {
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
+
+  // Template SGS résolu : Kit Inspecteur (source maîtresse) puis repli aérodrome
+  const sgsTemplate = React.useMemo(
+    () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
+    [masterChecklists, aerodrome?.sgs_checklist_template],
+  );
 
   const STATUT_ORDER = ['planifiee', 'en_cours', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'];
   const checklistReadOnly = STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 2;
@@ -280,14 +288,13 @@ export default function ChecklistPage() {
     const hasSuivi = typesChecklist.includes('suivi_ecarts');
     const hasPac = typesChecklist.includes('pac');
 
-    // priorité au mode "mixte" si on a plusieurs briques
-    if ((hasStandard && hasSuivi && hasPac) || (hasStandard && (hasSuivi || hasPac) && (hasSuivi || hasPac))) {
-      // choix du tab initial: pac > suivi > standard
-      if (hasPac) return { uiType: 'mixte' as const, initialTab: 'pac' as const };
-      if (hasSuivi) return { uiType: 'mixte' as const, initialTab: 'suivi' as const };
-      return { uiType: 'mixte' as const, initialTab: 'standard' as const };
+    // priorité au mode "mixte" si on a plusieurs briques (tab initial: pac > suivi > standard)
+    if ((hasStandard && (hasSuivi || hasPac)) || (hasSuivi && hasPac)) {
+      return {
+        uiType: 'mixte' as const,
+        initialTab: hasPac ? ('pac' as const) : hasSuivi ? ('suivi' as const) : ('standard' as const),
+      };
     }
-    if (hasSuivi && hasPac) return { uiType: 'mixte' as const, initialTab: hasPac ? 'pac' : 'suivi' as const };
     if (hasSuivi) return { uiType: 'suivi' as const, initialTab: 'suivi' as const };
     if (hasPac) return { uiType: 'pac' as const, initialTab: 'pac' as const };
     return { uiType: 'standard' as const, initialTab: 'standard' as const };
@@ -435,7 +442,7 @@ export default function ChecklistPage() {
             onSave={handleSaveSGSEvaluation}
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
-            sgsTemplate={aerodrome?.sgs_checklist_template as any}
+            sgsTemplate={sgsTemplate as any}
             structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
               const portee = surveillance?.portee || [];
@@ -624,7 +631,7 @@ export default function ChecklistPage() {
             onSave={handleSaveSGSEvaluation}
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
-            sgsTemplate={aerodrome?.sgs_checklist_template as any}
+            sgsTemplate={sgsTemplate as any}
             structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);

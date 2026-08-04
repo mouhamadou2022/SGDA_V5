@@ -11,6 +11,7 @@ import {
 import { useAppStore, RegistreEntry } from '@/lib/store';
 import { registreUtils } from '@/lib/registreUtils';
 import { useFormProgress } from '@/hooks/useFormProgress';
+import { FormProgressContext } from '@/components/ui/FormShell';
 import { uploadFile } from '@/lib/datastore';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -325,6 +326,9 @@ export function RegistreForm({
   const onProgressRef = useRef(onProgressChange)
   onProgressRef.current = onProgressChange
   useEffect(() => { onProgressRef.current?.(progress) }, [progress])
+
+  const setProgress = React.useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
 
   return (
     <div className="form-container animate-fade-up" data-role={userRole} data-module="registre-form">

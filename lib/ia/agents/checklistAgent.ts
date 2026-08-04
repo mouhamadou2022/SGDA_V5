@@ -10,7 +10,7 @@
 
 import { useAppStore, ChecklistItem, ProfilRisque, DomaineChecklist, SousDomaine, SousSousDomaine } from '@/lib/store'
 import type { DomaineChecklistOffline } from '@/lib/offline'
-import { checklistMemory, getSuggestionsDetaillees, detectRecurrentPatterns } from '@/lib/checklistMemory'
+import { checklistMemory, getSuggestionsDetaillees, detectRecurrentPatterns, type TypeInspection } from '@/lib/checklistMemory'
 import { idbGet, idbPut, IDB_STORES, isOnline, prepareSurveillanceForOffline, getChecklistHierarchyOffline } from '@/lib/offline'
 import { aiClient } from '@/lib/ia/aiClient'
 import { CHECKLIST_SYSTEM_PROMPT } from '@/lib/ia/prompts'
@@ -19,6 +19,7 @@ import { CHECKLIST_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 export interface ChecklistPredictionRequest {
   surveillanceId: string
   aerodromeId: string
+  type_inspection: TypeInspection
   domaine: string
   sousDomaine: string
   sousSousDomaine: string
@@ -39,6 +40,7 @@ export interface ChecklistPredictionResult {
 export interface ChecklistBatchPredictionRequest {
   surveillanceId: string
   aerodromeId: string
+  type_inspection: TypeInspection
   items: Array<{
     id: string
     numero: string
@@ -147,7 +149,7 @@ export class ChecklistAgent {
     // Utiliser checklistMemory existant
     const prediction = checklistMemory.getPredictionForItem(
       request.aerodromeId,
-      'programmee',
+      request.type_inspection,
       request.domaine,
       request.sousDomaine,
       request.sousSousDomaine,
@@ -211,6 +213,7 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
         {
           surveillanceId: request.surveillanceId,
           aerodromeId: request.aerodromeId,
+          type_inspection: request.type_inspection,
           domaine: item.domaine,
           sousDomaine: item.sousDomaine,
           sousSousDomaine: item.sousSousDomaine,
@@ -252,10 +255,11 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
 
   async getPriorityItems(
     aerodromeId: string,
+    type_inspection: TypeInspection = 'programmee',
     domaine?: string
   ): Promise<PriorityItem[]> {
     const store = useAppStore.getState()
-    const allSuggestions = getSuggestionsDetaillees(aerodromeId, 'programmee')
+    const allSuggestions = getSuggestionsDetaillees(aerodromeId, type_inspection)
     
     const priorityItems: PriorityItem[] = []
 
@@ -394,16 +398,21 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
         return { synced: false, itemsSynced: 0, errors: ['Aucune donnée offline trouvée'] }
       }
 
+      // Déterminer le type réel de la surveillance
+      const surv = store.surveillances.find(s => s.id === surveillanceId)
+      const typeReel: TypeInspection = (surv?.type as TypeInspection) || 'programmee'
+
       // Parcourir la hiérarchie offline et synchroniser les changements
       for (const domaine of offlineHierarchy) {
         for (const sousDomaine of domaine.sousDomaines) {
-          for (const sousSousDomaine of sousDomaine.sousSousDomaines) {
-            for (const item of sousSousDomaine.items) {
+          const ssdList = sousDomaine.sousSousDomaines || []
+          for (const sousSousDomaine of ssdList) {
+            for (const item of sousSousDomaine.items || []) {
               if (item.resultat) {
                 // Mettre à jour dans checklistMemory
                 checklistMemory.upsertItemHistory(
                   surveillanceId,
-                  'programmee',
+                  typeReel,
                   domaine.nom,
                   sousDomaine.nom,
                   sousSousDomaine.nom,
@@ -425,7 +434,6 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
       }
 
       // Mettre à jour le profil de risque
-      const surv = store.surveillances.find(s => s.id === surveillanceId)
       if (surv?.aerodrome_id) {
         await store.recalculerProfilRisque(surv.aerodrome_id)
       }

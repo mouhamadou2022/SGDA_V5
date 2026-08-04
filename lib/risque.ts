@@ -284,6 +284,19 @@ export function mapScoreToRiskLevel(score: number): 'critique' | 'eleve' | 'moye
   return 'faible';
 }
 
+/**
+ * Un aérodrome dispose-t-il d'un SGS évaluable ?
+ * Règle d'applicabilité lue dans le module aérodrome :
+ *  - `statut_sgs === 'non_applicable'` → SGS exclu (voir AerodromeDetail, riskEngine, planningGenerator)
+ *  - `type_entite` hélistation seule → pas de SGS (aérodrome / mixte uniquement)
+ */
+export function isSGSApplicable(aerodrome?: Pick<Aerodrome, 'statut_sgs' | 'type_entite'> | null): boolean {
+  if (!aerodrome) return true
+  if (aerodrome.statut_sgs === 'non_applicable') return false
+  if (aerodrome.type_entite === 'helistation') return false
+  return true
+}
+
 // Matrice de corrélation par défaut (hypothèses expertes — à recalibrer sur données réelles)
 export const DEFAULT_CORRELATION_MATRIX: CorrelationMatrix = {
   c1_c2: 0.72,
@@ -325,8 +338,8 @@ export function calculateC1(
   scoreEnquetes?: number,
   statut_sgs?: 'complet' | 'simplifie' | 'non_applicable',
 ): number {
-  // SGS non applicable → score neutre (ne pénalise pas le profil global)
-  if (statut_sgs === 'non_applicable') return 100
+  // SGS non applicable → pas de score (sera exclu du score global)
+  if (statut_sgs === 'non_applicable') return 0
   if (typeof maturiteSgs !== 'number' || isNaN(maturiteSgs)) maturiteSgs = 50
   const sgsScore = maturiteSgs <= 5 ? (maturiteSgs - 1) * 25 : maturiteSgs;
   let score = sgsScore;
@@ -398,7 +411,7 @@ export function calculateC4(ecartsActifs: Array<{ niveau: string }>, seuilMax: n
 }
 
 const GRAVITE_C5_WEIGHTS: Record<string, number> = {
-  critique: 40, orange: 20, jaune: 10, gris: 5, bleu: 3,
+  critique: 40, eleve: 20, moyen: 10, faible: 5,
   accident: 40, incident_grave: 20, incident: 10, panne: 5,
 }
 
@@ -440,9 +453,19 @@ export function calculateC5(evenements: Array<{ gravite: string; date?: string }
 
 export function calculateGlobalScore(
   criteria: RiskCriteria,
-  weights?: Record<string, number>
+  weights?: Record<string, number>,
+  excludeC1?: boolean
 ): number {
   const w = weights ?? { c1: 20, c2: 25, c3: 20, c4: 20, c5: 15 }
+  if (excludeC1) {
+    const total = (w.c2 ?? 25) + (w.c3 ?? 20) + (w.c4 ?? 20) + (w.c5 ?? 15)
+    return Math.round(
+      (criteria.c2 ?? 50) * (w.c2 ?? 25) / total +
+      (criteria.c3 ?? 50) * (w.c3 ?? 20) / total +
+      (criteria.c4 ?? 50) * (w.c4 ?? 20) / total +
+      (criteria.c5 ?? 50) * (w.c5 ?? 15) / total
+    )
+  }
   return Math.round(
     criteria.c1 * (w.c1 ?? 20) / 100 +
     criteria.c2 * (w.c2 ?? 25) / 100 +
@@ -649,7 +672,7 @@ export async function computeBayesianNetworkRisk(
 // ============================================================
 
 const INCIDENT_GRAVITY_WEIGHTS: Record<string, number> = {
-  critique: 4, orange: 3, jaune: 2, gris: 1, bleu: 0.5,
+  critique: 4, eleve: 3, moyen: 2, faible: 1,
   accident: 4, incident_grave: 3, incident: 2, panne: 1,
 }
 
@@ -2464,6 +2487,7 @@ export const risqueUtils = {
   calculateC5,
   calculateGlobalScore,
   getRiskLevel,
+  isSGSApplicable,
   predictRiskScore,
   calculateC2FromEcarts,
   calculateC4FromEcarts,

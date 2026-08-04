@@ -474,7 +474,7 @@ export function EvaluationPreuvesForm({
           <div className="card border-primary/30 bg-primary/5 p-4 rounded-lg flex items-center gap-3">
             <Sparkles className="w-5 h-5 text-primary animate-pulse" />
             <div>
-              <p className="text-sm font-medium">Vérification IA en cours...</p>
+              <p className="text-sm font-medium">Vérification AERORISQ en cours...</p>
               <p className="text-xs text-muted-foreground">Analyse des preuves soumises</p>
             </div>
           </div>
@@ -482,7 +482,7 @@ export function EvaluationPreuvesForm({
           <div className={`card p-4 rounded-lg border-2 ${verificationIA.conforme ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-4 h-4 text-primary" />
-              <p className="text-sm font-semibold">Vérification automatique IA</p>
+              <p className="text-sm font-semibold">Vérification automatique AERORISQ</p>
               <span className={`text-xs px-2 py-0.5 rounded-full ${verificationIA.conforme ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning'}`}>
                 Confiance: {verificationIA.niveauConfiance}%
               </span>
@@ -651,7 +651,7 @@ export function EvaluationPreuvesForm({
             <div className="mt-2 p-3 rounded bg-blue-50 border border-blue-200 space-y-2">
               <div className="flex items-center gap-2">
                 <Star className="w-4 h-4 text-blue-600" />
-                <span className="text-[11px] font-semibold text-blue-800">Analyse IA de l'évaluation des preuves</span>
+                <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation des preuves</span>
               </div>
               <div className="space-y-1.5 text-[11px] text-blue-900">
                 <p>• {tousNotes ? `Score pondéré : ${scorePondere.toFixed(1)}/4 (${scorePourcentage}%)` : 'Évaluez tous les critères pour obtenir une analyse'}</p>
@@ -669,7 +669,7 @@ export function EvaluationPreuvesForm({
                 )}
               </div>
               <details>
-                <summary className="text-[10px] text-blue-600 cursor-pointer font-medium">Pondérations apprises par l'IA</summary>
+                <summary className="text-[10px] text-blue-600 cursor-pointer font-medium">Pondérations apprises par AERORISQ</summary>
                 <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
                   {Object.entries(learningStats.ponderations_criteres).map(([k, v]) => (
                     <span key={k} className="px-1 py-0.5 rounded bg-blue-100/50">

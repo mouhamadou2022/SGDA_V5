@@ -14,6 +14,8 @@ export interface LettreTransmissionUploadProps {
   disabled?: boolean;
   required?: boolean;
   accept?: string;
+  /** Si fourni, le fichier est publié dans le bucket « documents » sous ce préfixe (persistance Supabase). */
+  storagePrefix?: string;
 }
 
 export function LettreTransmissionUpload({
@@ -26,15 +28,33 @@ export function LettreTransmissionUpload({
   disabled = false,
   required = true,
   accept = '.pdf,.doc,.docx',
+  storagePrefix,
 }: LettreTransmissionUploadProps) {
   const [uploading, setUploading] = useState(false);
 
   const handleFileSelect = async (file: File) => {
     setUploading(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const url = URL.createObjectURL(file);
-    onUpload(url, file.name, new Date().toISOString());
-    setUploading(false);
+    try {
+      if (storagePrefix) {
+        // Persistance réelle : upload vers Supabase Storage (URL stable après rechargement)
+        const { uploadFile } = await import('@/lib/datastore');
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const result = await uploadFile('documents', `${storagePrefix}/${Date.now()}_${safeName}`, file);
+        if (result.error || !result.data) throw new Error(result.error || 'Échec de l\'upload');
+        onUpload(result.data.url, file.name, new Date().toISOString());
+      } else {
+        // Fallback historique (URL locale éphémère)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const url = URL.createObjectURL(file);
+        onUpload(url, file.name, new Date().toISOString());
+      }
+    } catch (err) {
+      console.error('[LettreTransmissionUpload] Échec upload Supabase:', err);
+      const url = URL.createObjectURL(file);
+      onUpload(url, file.name, new Date().toISOString());
+    } finally {
+      setUploading(false);
+    }
   };
 
   const triggerFileInput = () => {

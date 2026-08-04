@@ -9,6 +9,7 @@ import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import { computeHawkesContagion } from '@/lib/risque'
 import { aiClient } from '@/lib/ia/aiClient'
 import { ECART_SYSTEM_PROMPT, SGS_ECART_SYSTEM_PROMPT, PAC_SYSTEM_PROMPT } from '@/lib/ia/prompts'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
 
 export interface GenerateEcartRequest {
   itemsNSNV: Array<{
@@ -210,6 +211,14 @@ export class EcartAgent {
     const delais = NIVEAUX_DELAI[niveau_risque]
     const refs = [...new Set(request.itemsNSNV.map(i => i.reference_reglementaire).filter(Boolean))]
 
+    // Contexte réglementaire RAG (Kit Inspecteur) — citations fiables, pas d'invention
+    const contexteReglementaire = construireContexteReglementaire({
+      domaines: request.itemsNSNV.map(i => i.domaine),
+      type_entite: aerodrome?.type_entite,
+      requete: request.itemsNSNV.map(i => i.point_verification).join(' '),
+      maxChars: 3500,
+    })
+
     // Calcul de la cellule OACI (matrice probabilité × gravité) — non applicable SGS
     const { probabilite, gravite, cellule, justification } = isSGS
       ? { probabilite: 1 as NiveauProbabiliteOACI, gravite: 'A' as NiveauGraviteOACI, cellule: 'N/A', justification: 'SGS — évaluation PAOE, pas de matrice OACI' }
@@ -232,7 +241,10 @@ Aérodrome : ${aerodrome?.code_oaci ?? ''} — ${aerodrome?.nom ?? ''}
 Éléments SGS non conformes constatés (avec niveau PAOE) :
 ${itemsContext}
 
-Retourne UNIQUEMENT le libellé officiel de l'écart SGS (1-3 phrases, style réglementaire ANACIM, références Annexe 19 / Doc 9859).
+${contexteReglementaire}
+
+Retourne UNIQUEMENT le libellé officiel de l'écart SGS (1-3 phrases, style réglementaire ANACIM).
+Cite la référence exacte fournie dans les références ci-dessus (ex : Doc 9859 §6.3) à l'appui du constat.
 Ne mentionne pas de matrice de risque, de probabilité ni de gravité OACI.
 Ne retourne pas de JSON ni d'explications supplémentaires.`
     } else {
@@ -248,7 +260,10 @@ Items non-satisfaisants constatés :
 ${itemsContext}
 ${request.profil ? `Profil de risque : score global ${request.profil.score_global}/100, C4 (charge critique) : ${request.profil.c4}/100` : ''}
 
+${contexteReglementaire}
+
 Retourne UNIQUEMENT le libellé officiel de l'écart (1-3 phrases, style réglementaire ANACIM).
+Cite la référence exacte fournie dans les références ci-dessus (ex : RAS 14 I §3.1.2) à l'appui du constat.
 Ne retourne pas de JSON ni d'explications supplémentaires.`
     }
 

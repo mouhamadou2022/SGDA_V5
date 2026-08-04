@@ -11,7 +11,7 @@ import { risqueUtils } from './risque'
 import { plansActionsUtils } from './plansActionsUtils'
 import { NIVEAUX_RISQUE_ECART } from './config'
 import { riskEngine, DecisionChecklist, DomainDegradation, EcartUrgent } from './riskEngine';
-import { checklistMemory, ItemHistoryRecord, PredictionResult, BatchValidationResult } from './checklistMemory';
+import { checklistMemory, ItemHistoryRecord, PredictionResult, BatchValidationResult, type TypeInspection } from './checklistMemory';
 import type { TypeSurveillanceContinue, TypeChecklist } from './domaines';
 import { supabase } from './supabase'
 import * as datastore from './datastore'
@@ -26,9 +26,13 @@ import type { ResultatChecklist } from '@/types/checklist';
 import type { HelistationData } from './types/helistation'
 import type { SuggestionDetaillee } from './checklistMemory';
 import type { NiveauRisque, ScoreHistoryPoint } from './risque/types';
+import type { AmdecAnalyse } from './risque/amdecEngine';
+import type { ArbreFTA, NoeudFTA } from './risque/ftaEngine';
 // Ré-exporter ScoreHistoryPoint depuis risque/types.ts (type canonique unique)
 // pour les modules qui importent depuis '@/lib/store' sans changer leurs imports.
 export type { ScoreHistoryPoint } from './risque/types';
+export type { AmdecAnalyse } from './risque/amdecEngine';
+export type { ArbreFTA, NoeudFTA } from './risque/ftaEngine';
 
 // ============================================================
 // Types métier existants
@@ -110,6 +114,7 @@ export type TypeEntiteAerodrome = 'aerodrome' | 'helistation' | 'mixte'
 
 export interface Aerodrome {
   id: string
+  departement?: 'DNSA' | 'DNA'
   nom: string
   code_oaci: string
   type: 'international' | 'national'
@@ -205,12 +210,15 @@ export interface Surveillance {
   
   rapport_html?: string
   rapport_sections?: string  // JSON des sections du rapport (persistance locale)
+  rapport_versions?: string  // JSON array: historique des snapshots [{version, sections, modifie_par, modifie_le, diff}]
   rapport_type?: 'redige' | 'charge'
   rapport_fichier_url?: string
   rapport_fichier_nom?: string
   rapport_signe_par?: string
   rapport_signe_le?: string
   rapport_sig_url?: string
+  rapport_pdf_url?: string
+  checklist_pdf_url?: string
   lettre_html?: string
   lettre_signee_url?: string
   
@@ -228,6 +236,13 @@ export interface Surveillance {
   sgs_evaluation_prepa?: any  // EvaluationSGS — transférée depuis le planning lors du lancement
   sgs_evaluation_signee_le?: string  // date ISO de signature de l'évaluation SGS (PAOE)
   sgs_ecarts_signes_le?: string      // date ISO de signature des écarts SGS
+  verification_report?: {
+    dateVerification: string
+    documents: Array<{ docId: string; docNom: string; aEvolue: boolean; versionDoc: string; versionGeneree: string | null }>
+    gapsCount: number
+    scoreCouverture: number
+    synthese: string
+  }
   deleted_at?: string
   deleted_by?: string
 }
@@ -919,13 +934,15 @@ export interface ChecklistItem {
   justification?: string;
   alerte?: boolean;
   prefilled?: boolean;
+  /** Item ajouté/modifié par le Chat IA — en attente de validation par l'inspecteur */
+  aiPropose?: boolean;
   observation_stylus_data?: string;
   // ── Directives d'évaluation (critères par état) ────────────────────────────
   directive_sa?: string;
   directive_ns?: string;
   directive_nv?: string;
   directive_na?: string;
-  mode_saisie_obs?: 'clavier' | 'stylet' | 'ocr';
+  mode_saisie_obs?: 'clavier' | 'stylet' | 'mixte';
 }
 
 export interface SousSousDomaine {
@@ -956,6 +973,37 @@ export interface DomaineChecklist {
   assigne_nom?: string;
   progression: number;
   ordre: number;
+}
+
+export type ChecklistTemplateType = 'IT' | 'SOP' | 'QSC' | 'SGS' | 'VALIDATION_SITE' | 'HMG' | 'COP' | 'AUT'
+export type ChecklistTemplateEtat = 'brouillon' | 'publie' | 'archive'
+export type ChecklistTemplateCategorie = 'homologation' | 'certification' | 'surveillance_continue' | 'validation_site' | 'autres'
+export type ChecklistTemplateRegime = 'certifie' | 'homologue' | 'tous'
+
+export interface ChecklistTemplate {
+  id: string
+  type: ChecklistTemplateType
+  code: string
+  nom: string
+  version: string
+  edition_date?: string
+  source_fichier?: string
+  fichier_url?: string
+  description?: string
+  portee: string[]
+  type_entite_cible: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+  /** Famille métier guidée à l'import (homologation, certification, surveillance_continue, validation_site, autres) */
+  categorie?: ChecklistTemplateCategorie
+  /** Régime pour la surveillance continue : certifie | homologue | tous */
+  regime?: ChecklistTemplateRegime
+  etat: ChecklistTemplateEtat
+  hierarchie: DomaineChecklist[]
+  metadonnees?: Record<string, unknown>
+  actif: boolean
+  created_at: string
+  updated_at: string
+  created_by?: string
+  updated_by?: string
 }
 
 export interface Certification {
@@ -1162,12 +1210,13 @@ export interface Planning {
   // Délégations préparatoires { domaine_code → inspecteur_id }
   delegations?: Record<string, string>
   // Rappels avant surveillance
-  rappels_envoyes?: { j30?: boolean; j15?: boolean; j7?: boolean }
+  rappels_envoyes?: { j30?: boolean; j15?: boolean; j7?: boolean; overdue?: boolean }
   // Confirmation par l'inspecteur
   confirme_le?: string
   confirme_par?: string
   date_confirmee?: string
   motif_report?: string
+  planning_modifications?: string  // JSON array [{date, utilisateur_id, utilisateur_nom, champ, ancien, nouveau}]
   created_at: string
   updated_at: string
   deleted_at?: string
@@ -1214,7 +1263,7 @@ export interface EvenementSecurite {
   aerodrome_id: string
   reference: string
   type: string
-  gravite: 'CRITIQUE' | 'ORANGE' | 'JAUNE' | 'GRIS' | 'BLEU'
+  gravite: 'critique' | 'eleve' | 'moyen' | 'faible'
   date: string
   heure: string
   localisation: string
@@ -1659,7 +1708,7 @@ interface ChecklistMemorySlice {
   setChecklistMemoryRecords: (records: ChecklistMemoryRecord[]) => void;
   upsertItemHistory: (
     aerodrome_id: string,
-    type_inspection: string,
+    type_inspection: TypeInspection,
     domaine: string,
     sous_domaine: string,
     sous_sous_domaine: string,
@@ -1668,7 +1717,7 @@ interface ChecklistMemorySlice {
   ) => void;
   getPredictionForItem: (
     aerodrome_id: string,
-    type_inspection: string,
+    type_inspection: TypeInspection,
     domaine: string,
     sous_domaine: string,
     sous_sous_domaine: string,
@@ -1677,7 +1726,7 @@ interface ChecklistMemorySlice {
   ) => PredictionResult;
   recordCorrection: (
     aerodrome_id: string,
-    type_inspection: string,
+    type_inspection: TypeInspection,
     domaine: string,
     sous_domaine: string,
     sous_sous_domaine: string,
@@ -1687,9 +1736,11 @@ interface ChecklistMemorySlice {
     commentaire?: string
   ) => void;
   getProblematicItems: (aerodrome_id?: string, seuilErreur?: number) => { record: ChecklistMemoryRecord; taux_erreur: number }[];
-  getSuggestionsWithAi?: (aerodromeId: string, type_inspection: string) => Promise<SuggestionDetaillee[]>;
+  getSuggestionsWithAi?: (aerodromeId: string, type_inspection: TypeInspection) => Promise<SuggestionDetaillee[]>;
   getLearningStats: () => { total_items: number; items_avec_historique: number; confiance_moyenne: number; taux_ecart_recurrent: number; items_problematiques: number };
   validateBatchItems: (items: { id: string; prediction: ResultatChecklist; confiance: number }[], acceptAllSA?: boolean) => BatchValidationResult;
+  addRapportVersion: (surveillanceId: string, sections: Record<string, unknown>, userId: string, userName: string) => void;
+  addPlanningModification: (planningId: string, userId: string, userName: string, champ: string, ancien: string, nouveau: string) => void;
   importChecklistMemoryRecords: (items: {
     numero: string;
     reference_reglementaire: string;
@@ -1929,6 +1980,8 @@ interface HomologationSlice {
 interface UISlice {
   activeModule: string
   setActiveModule: (module: string) => void
+  activeDepartement: 'DNSA' | 'DNA'
+  setActiveDepartement: (dep: 'DNSA' | 'DNA') => void
   activeSurveillanceId: string | null
   setActiveSurveillanceId: (id: string | null) => void
   sidebarOpen: boolean
@@ -2099,9 +2152,14 @@ interface KitSlice {
 
 interface MasterChecklistSlice {
   masterChecklists: Record<string, DomaineChecklist[]>
+  archivedMasterChecklists: Record<string, DomaineChecklist[]>
+  templateVersions: Record<string, { version: string; date: string; domaines: DomaineChecklist[] }[]>
   setMasterChecklist: (id: string, checklist: DomaineChecklist[]) => void
   deleteMasterChecklist: (id: string) => void
-  findMasterChecklistForPortee: (portee: string[]) => { id: string; checklist: DomaineChecklist[] } | null
+  archiveMasterChecklist: (id: string) => void
+  unarchiveMasterChecklist: (id: string) => void
+  addTemplateVersion: (id: string, domaines: DomaineChecklist[]) => void
+  findMasterChecklistForPortee: (portee: string[], typeFilters?: string[]) => { id: string; checklist: DomaineChecklist[] } | null
 }
 
 interface ApiKeySlice {
@@ -2190,6 +2248,39 @@ interface RiskAnalyticsSlice {
 }
 
 // ============================================================
+// SLICE AMDEC — Analyse des Modes de Défaillance et de leur Criticité
+// ============================================================
+
+interface AmdecSlice {
+  amdecAnalyses: AmdecAnalyse[]
+  setAmdecAnalyses: (analyses: AmdecAnalyse[]) => void
+  /** Initialise les analyses AMDEC d'un aérodrome depuis le catalogue (modes non encore analysés) */
+  initializeAmdecForAerodrome: (aerodromeId: string) => Promise<void>
+  addAmdecAnalyse: (analyse: Omit<AmdecAnalyse, 'id' | 'created_at' | 'updated_at'>) => Promise<AmdecAnalyse | null>
+  updateAmdecAnalyse: (id: string, data: Partial<AmdecAnalyse>) => Promise<void>
+  deleteAmdecAnalyse: (id: string) => Promise<void>
+  getAmdecByAerodrome: (aerodromeId: string) => AmdecAnalyse[]
+  /** Lien écart créé depuis une analyse AMDEC */
+  lierEcartAmdec: (analyseId: string, ecartId: string) => Promise<void>
+}
+
+// ============================================================
+// SLICE FTA — Arbres de défaillance (analyse causale événements)
+// ============================================================
+
+interface FtaSlice {
+  ftaAnalyses: ArbreFTA[]
+  setFtaAnalyses: (arbres: ArbreFTA[]) => void
+  /** Crée l'analyse FTA d'un événement depuis le template le plus pertinent */
+  initializeFtaForEvenement: (evenement: { id: string; aerodrome_id: string; type?: string; description?: string; causes?: string[] }) => Promise<ArbreFTA | null>
+  getFtaByEvenement: (evenementId: string) => ArbreFTA | null
+  updateFtaAnalyse: (id: string, data: Partial<ArbreFTA>) => Promise<void>
+  /** Met à jour les noeuds (portes, causes, états) et recalcule la probabilité + coupes */
+  setFtaNoeuds: (id: string, noeuds: NoeudFTA[]) => Promise<void>
+  deleteFtaAnalyse: (id: string) => Promise<void>
+}
+
+// ============================================================
 // STORE COMPLET
 // ============================================================
 
@@ -2233,7 +2324,9 @@ export interface AppStore extends
    RiskIndexFeedbackSlice,
    IaSuggestionSlice,
    SuggestionFeedbackSlice,
-   SgsMemorySlice {}
+   SgsMemorySlice,
+   AmdecSlice,
+   FtaSlice {}
 
 
 interface DelegationSlice {
@@ -2715,11 +2808,12 @@ updateAerodrome: async (id, data) => {
   try {
     const result = await datastore.updateAerodrome(id, data)
     if (result.error) throw new Error(result.error)
-    get().recalculerProfilRisque(id)
   } catch (error) {
     set({ aerodromes: snapshot, currentAerodrome: snapshotCurrent })
     throw error
   }
+  // Non-critical: ne PAS rollback la sauvegarde si ce calcul échoue (ex: 403 Supabase)
+  get().recalculerProfilRisque(id).catch(() => {})
 },
 
 deleteAerodrome: async (id: string) => {
@@ -3945,6 +4039,50 @@ getActiveAerodromes: () => {
             })
           }
         })
+
+          // ── Alertes plannings dont la date de fin est dépassée ─────
+          const PLANNING_TERMINES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'annulee']
+          state.plannings?.forEach(planning => {
+            if (planning.deleted_at || planning.est_proposition) return
+            if (PLANNING_TERMINES.includes(planning.statut)) return
+            if (planning.rappels_envoyes?.overdue) return
+            const dFin = new Date(planning.date_fin || planning.date_debut).getTime()
+            if (Number.isNaN(dFin) || dFin >= Date.now()) return
+
+            const updated = { ...planning.rappels_envoyes, overdue: true }
+            get().updatePlanning(planning.id, { rappels_envoyes: updated } as any)
+
+            const aerodrome = state.aerodromes.find(a => a.id === planning.aerodrome_id)
+            const codeOaci = aerodrome?.code_oaci || planning.aerodrome_id
+            const typeLabel = (planning.type as string)?.replace(/_/g, ' ') || 'surveillance'
+            const dateStr = new Date(planning.date_fin || planning.date_debut).toLocaleDateString('fr-FR')
+            const joursRetard = Math.max(1, Math.ceil((Date.now() - dFin) / (1000 * 60 * 60 * 24)))
+            const message = `Le planning ${typeLabel} de ${codeOaci} a dépassé sa date de fin (${dateStr}, ${joursRetard} j de retard) sans être clôturé. Réajustez les dates ou clôturez-le.`
+
+            const equipeIds = planning.equipe_ids || []
+            const cibles = [...equipeIds]
+            if (planning.chef_id && !cibles.includes(planning.chef_id)) cibles.push(planning.chef_id)
+            cibles.forEach(uid => {
+              get().addNotification({
+                user_id: uid, type: 'danger',
+                title: `⛔ Planning dépassé — ${codeOaci}`,
+                message, canal: 'in_app', link: `/planning`,
+              })
+            })
+
+            const exploitants = state.utilisateurs?.filter(u =>
+              u.aerodrome_id === planning.aerodrome_id &&
+              ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+            ) || []
+            exploitants.forEach(op => {
+              get().addNotification({
+                user_id: op.id, type: 'warning',
+                title: `⛔ Surveillance dépassée — ${codeOaci}`,
+                message: `La surveillance ${typeLabel} dont la date de fin était le ${dateStr} n'a pas eu lieu. Contactez l'équipe ANACIM pour connaître les nouvelles dates.`,
+                canal: 'in_app', link: `/operatorDashboard`,
+              })
+            })
+          })
       },
 
       marquerEcartEnRetard: (ecartId) => {
@@ -4235,6 +4373,59 @@ getSuggestionsWithAi: async (aerodromeId, type_inspection) => {
   const { getSuggestionsDetaillees } = await import('@/lib/checklistMemory');
   const suggestions = getSuggestionsDetaillees(aerodromeId, type_inspection);
   return suggestions;
+},
+
+addRapportVersion: (surveillanceId, sections, userId, userName) => {
+  set((state) => {
+    const surv = state.surveillances.find(s => s.id === surveillanceId);
+    if (!surv) return state;
+    const versions = surv.rapport_versions ? JSON.parse(surv.rapport_versions) : [];
+    const prevSections = surv.rapport_sections ? JSON.parse(surv.rapport_sections) : {};
+    const diff: Record<string, { ancien: string; nouveau: string }> = {};
+    for (const [key, val] of Object.entries(sections)) {
+      if (JSON.stringify(prevSections[key]) !== JSON.stringify(val)) {
+        diff[key] = { ancien: String(prevSections[key] || ''), nouveau: String(val || '') };
+      }
+    }
+    if (Object.keys(diff).length === 0) return state;
+    const version = {
+      version: versions.length + 1,
+      modifie_le: new Date().toISOString(),
+      modifie_par: userId,
+      modifie_par_nom: userName,
+      sections_modifiees: Object.keys(diff),
+      diff,
+    };
+    versions.push(version);
+    if (versions.length > 50) versions.splice(0, versions.length - 50);
+    return {
+      surveillances: state.surveillances.map(s =>
+        s.id === surveillanceId ? { ...s, rapport_versions: JSON.stringify(versions) } : s
+      )
+    };
+  });
+},
+
+addPlanningModification: (planningId, userId, userName, champ, ancien, nouveau) => {
+  set((state) => {
+    const planning = state.plannings.find(p => p.id === planningId);
+    if (!planning) return state;
+    const mods = planning.planning_modifications ? JSON.parse(planning.planning_modifications) : [];
+    mods.push({
+      date: new Date().toISOString(),
+      utilisateur_id: userId,
+      utilisateur_nom: userName,
+      champ,
+      ancien: String(ancien),
+      nouveau: String(nouveau),
+    });
+    if (mods.length > 100) mods.splice(0, mods.length - 100);
+    return {
+      plannings: state.plannings.map(p =>
+        p.id === planningId ? { ...p, planning_modifications: JSON.stringify(mods) } : p
+      )
+    };
+  });
 },
 
 // SgsMemory Slice
@@ -4702,12 +4893,13 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         const aerodrome = aerodromes.find(a => a.id === aerodromeId)
         const reponsesEnquetesAerodrome = (reponsesEnquetes || []).filter((r: ReponseEnquete) => r.aerodrome_id === aerodromeId)
 
-        // C1 : SGS non applicable → neutre (100), pas de donnée → bas (10)
-        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 100 : (aerodrome?.maturite_sgs ?? 10)
+        // C1 : SGS non applicable → pas de donnée (0), sera exclu du score global
+        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 0 : (aerodrome?.maturite_sgs ?? 10)
         const scoreEnquetes = reponsesEnquetesAerodrome.length > 0
           ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length
           : undefined
         const c1 = risqueUtils.calculateC1(maturiteSGS, scoreEnquetes, aerodrome?.statut_sgs)
+        const sgsNonApplicable = aerodrome?.statut_sgs === 'non_applicable'
 
         // C2 : dégradée par l'âge de l'aérodrome si pas d'écarts
         let c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome)
@@ -4760,12 +4952,23 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           })
         }
 
+        // Malus AMDEC : modes de défaillance à criticité élevée non corrigés
+        // dégradent la conformité technique (C3)
+        const analysesAmdec = get().amdecAnalyses?.filter(a => a.aerodrome_id === aerodromeId) || []
+        if (analysesAmdec.length > 0) {
+          const { calculeMalusC3 } = await import('./risque/amdecEngine')
+          const malusAmdec = calculeMalusC3(analysesAmdec)
+          if (malusAmdec > 0) {
+            c3Final = Math.max(0, c3Final - malusAmdec)
+          }
+        }
+
         const c4 = risqueUtils.calculateC4FromEcarts(ecartsAerodrome)
         const c5 = risqueUtils.calculateC5(evenementsAerodrome.map((e: EvenementSecurite) => ({
           gravite: e.gravite,
           date: e.date || e.created_at,
         })))
-        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 })
+        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 }, undefined, sgsNonApplicable)
         let niveau: 'faible' | 'moyen' | 'eleve' | 'critique' = 'faible'
         if (scoreGlobal >= 80) niveau = 'faible'
         else if (scoreGlobal >= 60) niveau = 'moyen'
@@ -5521,6 +5724,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
           inspecteurs,
           historiqueSurveillances: historique,
           statut_sgs: aerodrome?.statut_sgs,
+          type_entite: aerodrome?.type_entite,
         })
         return proposals as unknown as Planning[]
       },
@@ -5577,7 +5781,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         get().recalculerProfilRisque(newEvent.aerodrome_id)
         import('@/lib/risque/bayesian').then(({ updatePriorAfterIncident }) => {
           const graviteMap: Record<string, 'mineur' | 'majeur' | 'critique' | 'catastrophique'> = {
-            CRITIQUE: 'critique', ORANGE: 'majeur', JAUNE: 'mineur', GRIS: 'mineur', BLEU: 'mineur',
+            critique: 'critique', eleve: 'majeur', moyen: 'mineur', faible: 'mineur',
           }
           const bayesianGravite = graviteMap[newEvent.gravite] ?? 'mineur'
           updatePriorAfterIncident(0.3, bayesianGravite)
@@ -5619,6 +5823,181 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         }
         if (eventAvant) {
           get().recalculerProfilRisque(eventAvant.aerodrome_id)
+        }
+      },
+      // ============================================================
+      // AMDEC SLICE
+      // ============================================================
+      amdecAnalyses: [],
+      setAmdecAnalyses: (analyses) => set({ amdecAnalyses: analyses }),
+      initializeAmdecForAerodrome: async (aerodromeId) => {
+        try {
+          const { CATALOGUE_AMDEC, analyseDepuisCatalogue } = await import('./risque/amdecEngine')
+          const existantes = get().amdecAnalyses.filter(a => a.aerodrome_id === aerodromeId)
+          const modeIdsExistants = new Set(existantes.map(a => a.mode_id))
+          const aCreer = CATALOGUE_AMDEC.filter(m => !modeIdsExistants.has(m.id))
+          if (aCreer.length === 0) return
+          const nouvelles: AmdecAnalyse[] = aCreer.map(m => analyseDepuisCatalogue(m, aerodromeId))
+          set((state) => ({ amdecAnalyses: [...state.amdecAnalyses, ...nouvelles] }))
+          for (const analyse of nouvelles) {
+            await datastore.createAmdecAnalyse(analyse)
+          }
+        } catch (error) {
+          console.error('[Store] Erreur initialisation AMDEC:', error)
+        }
+      },
+      addAmdecAnalyse: async (analyse) => {
+        const now = new Date().toISOString()
+        const nouvelle: AmdecAnalyse = { ...analyse, id: crypto.randomUUID(), created_at: now, updated_at: now }
+        set((state) => ({ amdecAnalyses: [nouvelle, ...state.amdecAnalyses] }))
+        try {
+          const result = await datastore.createAmdecAnalyse(nouvelle)
+          if (result.error) throw new Error(result.error)
+          if (result.data?.id) {
+            set((state) => ({ amdecAnalyses: state.amdecAnalyses.map(a => a.id === nouvelle.id ? { ...a, id: result.data!.id } : a) }))
+          }
+          get().recalculerProfilRisque(nouvelle.aerodrome_id)
+          return result.data ?? nouvelle
+        } catch (error) {
+          console.error('[Store] Erreur création analyse AMDEC, rollback:', error)
+          set((state) => ({ amdecAnalyses: state.amdecAnalyses.filter(a => a.id !== nouvelle.id) }))
+          return null
+        }
+      },
+      updateAmdecAnalyse: async (id, data) => {
+        const analyseAvant = get().amdecAnalyses.find(a => a.id === id)
+        const snapshot = get().amdecAnalyses
+        // Recalculer IPR/niveau si gravite/probabilite/detection_score modifiés
+        const patch: Partial<AmdecAnalyse> = { ...data }
+        if (data.gravite !== undefined || data.probabilite !== undefined || data.detection_score !== undefined) {
+          const { calculeIPR, getIPRNiveau } = await import('./risque/amdecEngine')
+          const base = analyseAvant ?? (patch as AmdecAnalyse)
+          const gravite = (data.gravite ?? base.gravite)
+          const probabilite = data.probabilite ?? base.probabilite
+          const detection_score = data.detection_score ?? base.detection_score
+          patch.ipr = calculeIPR(gravite, probabilite, detection_score)
+          patch.niveau = getIPRNiveau(patch.ipr)
+        }
+        set((state) => ({ amdecAnalyses: state.amdecAnalyses.map(a => a.id === id ? { ...a, ...patch, updated_at: new Date().toISOString() } : a) }))
+        try {
+          const result = await datastore.updateAmdecAnalyse(id, patch)
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur update analyse AMDEC, rollback:', error)
+          set({ amdecAnalyses: snapshot })
+          return
+        }
+        if (analyseAvant) {
+          get().recalculerProfilRisque(analyseAvant.aerodrome_id)
+        }
+      },
+      deleteAmdecAnalyse: async (id) => {
+        const analyseAvant = get().amdecAnalyses.find(a => a.id === id)
+        const snapshot = get().amdecAnalyses
+        set((state) => ({ amdecAnalyses: state.amdecAnalyses.filter(a => a.id !== id) }))
+        try {
+          const result = await datastore.deleteAmdecAnalyse(id)
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur delete analyse AMDEC, rollback:', error)
+          set({ amdecAnalyses: snapshot })
+          return
+        }
+        if (analyseAvant) {
+          get().recalculerProfilRisque(analyseAvant.aerodrome_id)
+        }
+      },
+      getAmdecByAerodrome: (aerodromeId) => get().amdecAnalyses.filter(a => a.aerodrome_id === aerodromeId),
+      lierEcartAmdec: async (analyseId, ecartId) => {
+        const analyseAvant = get().amdecAnalyses.find(a => a.id === analyseId)
+        set((state) => ({ amdecAnalyses: state.amdecAnalyses.map(a => a.id === analyseId ? { ...a, ecart_id: ecartId, statut: 'surveille' as const, updated_at: new Date().toISOString() } : a) }))
+        try {
+          const result = await datastore.updateAmdecAnalyse(analyseId, { ecart_id: ecartId, statut: 'surveille' })
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur lien écart AMDEC, rollback:', error)
+          set((state) => ({ amdecAnalyses: state.amdecAnalyses.map(a => a.id === analyseId ? analyseAvant! : a) }))
+          return
+        }
+        if (analyseAvant) {
+          get().recalculerProfilRisque(analyseAvant.aerodrome_id)
+        }
+      },
+      // ============================================================
+      // FTA SLICE
+      // ============================================================
+      ftaAnalyses: [],
+      setFtaAnalyses: (arbres) => set({ ftaAnalyses: arbres }),
+      initializeFtaForEvenement: async (evenement) => {
+        const { creerArbreDepuisTemplate } = await import('./risque/ftaEngine')
+        const arbre = creerArbreDepuisTemplate(evenement)
+        set((state) => ({ ftaAnalyses: [arbre, ...state.ftaAnalyses] }))
+        try {
+          const result = await datastore.createFtaAnalyse(arbre)
+          if (result.error) throw new Error(result.error)
+          if (result.data?.id) {
+            set((state) => ({ ftaAnalyses: state.ftaAnalyses.map(a => a.id === arbre.id ? { ...a, id: result.data!.id } : a) }))
+          }
+          return result.data ?? arbre
+        } catch (error) {
+          console.error('[Store] Erreur création FTA, rollback:', error)
+          set((state) => ({ ftaAnalyses: state.ftaAnalyses.filter(a => a.id !== arbre.id) }))
+          return null
+        }
+      },
+      getFtaByEvenement: (evenementId) => get().ftaAnalyses.find(a => a.evenementId === evenementId) || null,
+      updateFtaAnalyse: async (id, data) => {
+        const snapshot = get().ftaAnalyses
+        set((state) => ({ ftaAnalyses: state.ftaAnalyses.map(a => a.id === id ? { ...a, ...data, updated_at: new Date().toISOString() } : a) }))
+        try {
+          const result = await datastore.updateFtaAnalyse(id, data)
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur update FTA, rollback:', error)
+          set({ ftaAnalyses: snapshot })
+          return
+        }
+      },
+      setFtaNoeuds: async (id, noeuds) => {
+        const arbreAvant = get().ftaAnalyses.find(a => a.id === id)
+        const snapshot = get().ftaAnalyses
+        const { calculerArbre, getCausesPresentes } = await import('./risque/ftaEngine')
+        const base = arbreAvant
+        if (!base) return
+        const calc = calculerArbre({ ...base, noeuds })
+        const causes = getCausesPresentes(noeuds).map((c) => c.label)
+        set((state) => ({
+          ftaAnalyses: state.ftaAnalyses.map(a => a.id === id ? {
+            ...a,
+            noeuds,
+            updated_at: new Date().toISOString(),
+            probabilite_sommet: calc.probabiliteSommet,
+            nb_coupes_minimales: calc.coupesMinimales.length,
+            causes_identifiees: causes,
+          } : a),
+        }))
+        try {
+          const result = await datastore.updateFtaAnalyse(id, {
+            noeuds,
+            probabilite_sommet: calc.probabiliteSommet,
+            nb_coupes_minimales: calc.coupesMinimales.length,
+            causes_identifiees: causes,
+          })
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur noeuds FTA, rollback:', error)
+          set({ ftaAnalyses: snapshot })
+        }
+      },
+      deleteFtaAnalyse: async (id) => {
+        const snapshot = get().ftaAnalyses
+        set((state) => ({ ftaAnalyses: state.ftaAnalyses.filter(a => a.id !== id) }))
+        try {
+          const result = await datastore.deleteFtaAnalyse(id)
+          if (result.error) throw new Error(result.error)
+        } catch (error) {
+          console.error('[Store] Erreur delete FTA, rollback:', error)
+          set({ ftaAnalyses: snapshot })
         }
       },
       assignerInspecteur: async (evenementId, inspecteurId) => {
@@ -5721,7 +6100,7 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
         })
       },
       getEvenementsByAerodrome: (aerodromeId) => get().evenements.filter(e => e.aerodrome_id === aerodromeId),
-      getEvenementsUrgents: () => get().evenements.filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE'),
+      getEvenementsUrgents: () => get().evenements.filter(e => e.gravite === 'critique' || e.gravite === 'eleve'),
 
       accepterAssignation: async (evenementId) => {
         const now = new Date().toISOString()
@@ -6716,6 +7095,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       // MASTER CHECKLIST SLICE (checklist source unique Kit Inspecteur)
       // ============================================================
       masterChecklists: {},
+      archivedMasterChecklists: {},
+      templateVersions: {},
 
       setMasterChecklist: (id, checklist) => set((state) => ({
         masterChecklists: { ...state.masterChecklists, [id]: checklist }
@@ -6726,12 +7107,46 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         return { masterChecklists: rest }
       }),
 
-      findMasterChecklistForPortee: (portee) => {
+      archiveMasterChecklist: (id) => set((state) => {
+        const checklist = state.masterChecklists[id]
+        if (!checklist) return state
+        const { [id]: _, ...rest } = state.masterChecklists
+        return {
+          masterChecklists: rest,
+          archivedMasterChecklists: { ...state.archivedMasterChecklists, [id]: checklist }
+        }
+      }),
+
+      unarchiveMasterChecklist: (id) => set((state) => {
+        const checklist = state.archivedMasterChecklists[id]
+        if (!checklist) return state
+        const { [id]: _, ...rest } = state.archivedMasterChecklists
+        return {
+          archivedMasterChecklists: rest,
+          masterChecklists: { ...state.masterChecklists, [id]: checklist }
+        }
+      }),
+
+      addTemplateVersion: (id, domaines) => set((state) => {
+        const existing = state.templateVersions[id] || []
+        const version = String(existing.length + 1)
+        return {
+          templateVersions: {
+            ...state.templateVersions,
+            [id]: [...existing, { version, date: new Date().toISOString(), domaines }]
+          }
+        }
+      }),
+
+      findMasterChecklistForPortee: (portee, typeFilters) => {
         const mcs = get().masterChecklists
         if (!portee || portee.length === 0) return null
         const porteeSansSGS = portee.filter(p => p.toUpperCase() !== 'SGS')
         if (porteeSansSGS.length === 0) return null
-        for (const [id, checklist] of Object.entries(mcs)) {
+        const entries = typeFilters && typeFilters.length > 0
+          ? Object.entries(mcs).filter(([id]) => typeFilters.some(t => id.startsWith(t + '_')))
+          : Object.entries(mcs)
+        for (const [id, checklist] of entries) {
           const domainesCodes = checklist.map(d => d.nom.toUpperCase())
           // Matching strict : tous les domaines demandés (hors SGS) doivent correspondre exactement
           const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
@@ -6880,8 +7295,20 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       // ============================================================
       // UI SLICE
       // ============================================================
-      activeModule: 'dashboard',
-      setActiveModule: (module) => set({ activeModule: module }),
+      activeModule: typeof window !== 'undefined' ? (() => { try { return localStorage.getItem('sgda-last-module') || 'dashboard' } catch { return 'dashboard' } })() : 'dashboard',
+      setActiveModule: (module) => {
+        if (typeof window !== 'undefined') {
+          try { localStorage.setItem('sgda-last-module', module) } catch { /* ignore */ }
+        }
+        set({ activeModule: module })
+      },
+      activeDepartement: typeof window !== 'undefined' ? (() => { try { return (localStorage.getItem('sgda-departement') as 'DNSA' | 'DNA') || 'DNSA' } catch { return 'DNSA' } })() : 'DNSA',
+      setActiveDepartement: (dep) => {
+        if (typeof window !== 'undefined') {
+          try { localStorage.setItem('sgda-departement', dep) } catch { /* ignore */ }
+        }
+        set({ activeDepartement: dep, activeModule: 'dashboard' })
+      },
       activeSurveillanceId: null,
       setActiveSurveillanceId: (id) => set({ activeSurveillanceId: id }),
       sidebarOpen: true,
@@ -7268,6 +7695,42 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
               }
             }
             await get().updateSurveillance(surveillanceId, updateData)
+            // Feedback AERORISQ : ingérer les résultats de checklist pour recalibrage
+            if (nouveauStatut === 'checklist_signee') {
+              setTimeout(async () => {
+                try {
+                  const { checklistFeedbackEngine } = await import('@/lib/ia/agents/checklistFeedbackEngine')
+                  await checklistFeedbackEngine.ingestSurveillanceResults(surveillanceId)
+                } catch (err) {
+                  console.warn('[passerEtapeSuivante] Erreur feedback AERORISQ:', err)
+                }
+                // Vérification de couverture documentaire
+                try {
+                  const { checklistVerificationEngine } = await import('@/lib/ia/agents/checklistVerificationEngine')
+                  const report = await checklistVerificationEngine.verifier(surveillanceId)
+                  if (report) {
+                    const storeNow = get()
+                    storeNow.updateSurveillance(surveillanceId, {
+                      verification_report: {
+                        dateVerification: report.dateVerification,
+                        documents: report.documents.map(d => ({
+                          docId: d.docId, docNom: d.docNom, aEvolue: d.aEvolue,
+                          versionDoc: d.versionDoc, versionGeneree: d.versionGeneree,
+                        })),
+                        gapsCount: report.gaps.length,
+                        scoreCouverture: report.scoreCouverture,
+                        synthese: report.synthese,
+                      },
+                    })
+                    if (report.scoreCouverture < 80 || report.documents.some(d => d.aEvolue)) {
+                      console.warn(`[passerEtapeSuivante] Alerte couverture ${report.scoreCouverture}% — ${report.synthese}`)
+                    }
+                  }
+                } catch (err) {
+                  console.warn('[passerEtapeSuivante] Erreur vérification couverture:', err)
+                }
+              }, 0)
+            }
             return
           }
 
@@ -7399,6 +7862,21 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
             }
 
             await get().updateSurveillance(surveillanceId, { statut: nouveauStatut, transmitted_at: now })
+
+            // Publier le dossier PDF (checklist signée + rapport signé) vers le portail
+            // exploitant. Best-effort : ne bloque jamais la transmission en cas d'échec.
+            try {
+              const { publierDossier } = await import('@/lib/services/dossierTransmission')
+              const urls = await publierDossier(surveillanceId)
+              const dossierUpdate: Partial<Surveillance> = {}
+              if (urls.rapportPdfUrl) dossierUpdate.rapport_pdf_url = urls.rapportPdfUrl
+              if (urls.checklistPdfUrl) dossierUpdate.checklist_pdf_url = urls.checklistPdfUrl
+              if (Object.keys(dossierUpdate).length > 0) {
+                await get().updateSurveillance(surveillanceId, dossierUpdate)
+              }
+            } catch (err) {
+              console.warn('[passerEtapeSuivante] Erreur publication dossier PDF:', err)
+            }
 
             // Créer l'entrée dans le registre
             const surv = get().surveillances.find(s => s.id === surveillanceId)
@@ -7752,12 +8230,30 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
     {
       storage: zustandIDBStorage,
       name: 'sgda-storage',
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
-        if (version >= 3) return persistedState as never
-        // Migration progressive depuis v1/v2 : préserver les données existantes,
+        if (version >= 4) return persistedState as never
+        // Migration progressive : préserver les données existantes,
         // ne réinitialiser que ce qui est nécessaire pour la nouvelle version
         const old = (persistedState || {}) as Record<string, unknown>
+
+        // v4 : normalisation gravité événements (échelle OACI 5 niveaux → risque 4 niveaux)
+        const GRAVITE_MAP_V4: Record<string, string> = { CRITIQUE: 'critique', ORANGE: 'eleve', JAUNE: 'moyen', GRIS: 'faible', BLEU: 'faible' }
+        const normaliserGraviteV4 = (g: unknown): unknown => {
+          if (typeof g !== 'string') return g
+          const lower = g.trim().toLowerCase()
+          if (lower === 'critique' || lower === 'eleve' || lower === 'moyen' || lower === 'faible') return lower
+          return GRAVITE_MAP_V4[g.trim()] || g
+        }
+        const evenements = Array.isArray(old.evenements)
+          ? (old.evenements as Array<Record<string, unknown>>).map(e => ({ ...e, gravite: normaliserGraviteV4(e.gravite) }))
+          : []
+
+        if (version === 3) {
+          return { ...old, evenements } as never
+        }
+
+        // Migration v1/v2 → v4 : préserver les données existantes
         return {
           aerodromes: Array.isArray(old.aerodromes) ? old.aerodromes : [],
           utilisateurs: Array.isArray(old.utilisateurs) ? old.utilisateurs : [],
@@ -7772,9 +8268,12 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           plannings: Array.isArray(old.plannings) ? old.plannings : [],
           kitDocuments: Array.isArray(old.kitDocuments) ? old.kitDocuments : [],
           masterChecklists: (old.masterChecklists && typeof old.masterChecklists === 'object') ? old.masterChecklists : {},
+          archivedMasterChecklists: (old.archivedMasterChecklists && typeof old.archivedMasterChecklists === 'object') ? old.archivedMasterChecklists : {},
+          templateVersions: (old.templateVersions && typeof old.templateVersions === 'object') ? old.templateVersions : {},
           notifications: Array.isArray(old.notifications) ? old.notifications : [],
           delegations: Array.isArray(old.delegations) ? old.delegations : [],
           dossiers: Array.isArray(old.dossiers) ? old.dossiers : [],
+          evenements,
         } as never
       },
       partialize: (state) => ({
@@ -7803,6 +8302,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         fichesPresence: state.fichesPresence,
         kitDocuments: state.kitDocuments,
         masterChecklists: state.masterChecklists,
+        archivedMasterChecklists: state.archivedMasterChecklists,
+        templateVersions: state.templateVersions,
         // UI
         filters: state.filters,
         viewMode: state.viewMode,
@@ -7815,6 +8316,8 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         suggestionFeedbacks: state.suggestionFeedbacks,
         checklistMemoryRecords: state.checklistMemoryRecords,
         sgsMemoryRecords: state.sgsMemoryRecords,
+        amdecAnalyses: state.amdecAnalyses,
+        ftaAnalyses: state.ftaAnalyses,
       }),
       onRehydrateStorage: () => {
         clearRappelsTimer()
@@ -8049,7 +8552,7 @@ export const useDecisionChecklist = () => {
 
 export const usePredictionForItem = (
   aerodrome_id: string,
-  type_inspection: string,
+  type_inspection: TypeInspection,
   domaine: string,
   sous_domaine: string,
   sous_sous_domaine: string,

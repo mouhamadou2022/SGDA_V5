@@ -3,7 +3,7 @@
 
 import { ProfilRisque } from './store';
 import { ResultatChecklist } from '@/types/surveillance';
-import { checklistMemory, ItemHistoryRecord } from './checklistMemory';
+import { checklistMemory, ItemHistoryRecord, type TypeInspection } from './checklistMemory';
 import { riskEngine } from './riskEngine';
 
 // Types
@@ -102,7 +102,8 @@ export function recordLearningFeedback(
   prediction: ResultatChecklist,
   confiance_avant: number,
   correction: ResultatChecklist,
-  commentaire?: string
+  commentaire?: string,
+  type_inspection: TypeInspection = 'programmee'
 ): LearningFeedback {
   const justesse = prediction === correction;
   const impact_confiance = justesse ? 5 : -10;
@@ -127,7 +128,7 @@ export function recordLearningFeedback(
   // Mettre à jour la mémoire
   checklistMemory.recordCorrection(
     aerodrome_id,
-    'programmee',
+    type_inspection,
     domaine,
     sous_domaine,
     '',

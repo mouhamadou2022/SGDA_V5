@@ -1,24 +1,27 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Bot, User, Send, X, Brain, Sparkles, Loader2 } from 'lucide-react'
+import { Bot, User, Send, X, Brain, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { aiClient } from '@/lib/ia/aiClient'
 
 const CHAT_SYSTEM_PROMPT = (contexte: string) => `Tu es un assistant expert en réglementation aéronautique (OACI, Annexe 14, Doc 9137, Doc 9981, Doc 9157, Doc 9859, Doc 9261, circulaires ANACIM).
 
 Tu aides un inspecteur à **construire et affiner une checklist** de surveillance d'aérodrome.
 
-**Règles :**
-- L'utilisateur peut demander d'AJOUTER, MODIFIER ou SUPPRIMER des items.
+**Règles ABSOLUES :**
+- Tu peux AJOUTER de nouveaux items ou MODIFIER des items existants.
+- Tu NE DOIS JAMAIS SUPPRIMER des items, domaines, sous-domaines ou sous-sous-domaines existants.
+- Tu NE DOIS JAMAIS renvoyer updatedChecklist sans tous les items existants.
 - Réponds TOUJOURS en JSON uniquement avec le format ci-dessous.
-- Si tu modifies la checklist, renvoie la structure COMPLÈTE mise à jour (pas de diff).
+- Si tu modifies la checklist, renvoie SEULEMENT les domaines/items modifiés ou ajoutés (le système fusionnera avec l'existant).
 - Si tu ne fais que répondre à une question, mets updatedChecklist: null.
 - Conserve scrupuleusement les IDs existants des domaines, sous-domaines et sous-sous-domaines.
 - Pour les nouveaux items, génère un ID unique (ex: "ai_item_{Date.now()}_{index}").
-- Les items doivent avoir ces champs : id, numero, reference_reglementaire, point_verification, directive_preuve, prediction ("NV"), confiance (50), justification, alerte (false), prefilled (true).
+- Les nouveaux items doivent avoir ces champs : id, numero, reference_reglementaire, point_verification, directive_preuve, directive_sa, directive_ns, directive_nv, directive_na, type_entite_cible, sous_domaine, prediction ("NV"), confiance (50), justification, alerte (false), prefilled (true).
+- Base TOUJOURS les questions et références sur la réglementation aéronautique réelle (RAS 14, Annexe 14, Doc 9137, Doc 9859, etc.). N'invente JAMAIS des références.
 
 **Format de réponse :**
-{"message": "Réponse pour l'utilisateur", "updatedChecklist": null | tableau de domaines}
+{"message": "Réponse pour l'utilisateur", "updatedChecklist": null | tableau de domaines (seulement ceux modifiés ou ajoutés)}
 
 **Contexte actuel de la checklist (JSON) :**
 ${contexte}`
@@ -26,12 +29,15 @@ ${contexte}`
 interface ChatIALateralProps {
   checklistJson: any[]
   onChecklistUpdate: (updatedChecklist: any[]) => void
+  /** Affiche un bouton de fermeture dans l'en-tête (mode panneau/flottant) */
+  onClose?: () => void
 }
 
-export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALateralProps) {
+export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: ChatIALateralProps) {
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -59,7 +65,12 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
           items: (d.items || []).map((i: any) => ({
             id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
             point_verification: i.point_verification, directive_preuve: i.directive_preuve,
+            directive_sa: i.directive_sa, directive_ns: i.directive_ns,
+            directive_nv: i.directive_nv, directive_na: i.directive_na,
+            type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
+            source_document_id: i.source_document_id,
             prediction: i.prediction, confiance: i.confiance, justification: i.justification,
+            alerte: i.alerte, prefilled: i.prefilled,
           })),
           sousDomaines: (d.sousDomaines || []).map((sd: any) => ({
             id: sd.id,
@@ -67,7 +78,12 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
             items: (sd.items || []).map((i: any) => ({
               id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
               point_verification: i.point_verification, directive_preuve: i.directive_preuve,
+              directive_sa: i.directive_sa, directive_ns: i.directive_ns,
+              directive_nv: i.directive_nv, directive_na: i.directive_na,
+              type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
+              source_document_id: i.source_document_id,
               prediction: i.prediction, confiance: i.confiance, justification: i.justification,
+              alerte: i.alerte, prefilled: i.prefilled,
             })),
             sousSousDomaines: (sd.sousSousDomaines || []).map((ssd: any) => ({
               id: ssd.id,
@@ -75,17 +91,27 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
               items: (ssd.items || []).map((i: any) => ({
                 id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
                 point_verification: i.point_verification, directive_preuve: i.directive_preuve,
+                directive_sa: i.directive_sa, directive_ns: i.directive_ns,
+                directive_nv: i.directive_nv, directive_na: i.directive_na,
+                type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
+                source_document_id: i.source_document_id,
                 prediction: i.prediction, confiance: i.confiance, justification: i.justification,
+                alerte: i.alerte, prefilled: i.prefilled,
               })),
             })),
           })),
         }))
       )
 
+      // Contexte réglementaire par domaine
+      const domainesInfos = (checklistJson || []).map((d: any) =>
+        `- ${d.nom}: ${d.description || 'Réglementation aéronautique'}`
+      ).join('\n')
+
       const result = await aiClient.callJSON<{ message: string; updatedChecklist: any[] | null }>(
         {
           systemPrompt: CHAT_SYSTEM_PROMPT(contexte),
-          userMessage: msg,
+          userMessage: `Question: ${msg}\n\nDomaines de la checklist:\n${domainesInfos}\n\nRéponds UNIQUEMENT en JSON. Si tu ajoutes ou modifies des items, renvoie SEULEMENT les domaines modifiés dans updatedChecklist.`,
           temperature: 0.3,
           maxTokens: 4096,
           responseFormat: 'json_object',
@@ -98,7 +124,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
       }
       setMessages(prev => [...prev, { role: 'assistant', content: result.message }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: "Erreur de communication avec l'IA. Vérifiez que le service est disponible." }])
+      setMessages(prev => [...prev, { role: 'assistant', content: "Erreur de communication avec AERORISQ. Vérifiez que le service est disponible." }])
     } finally {
       setLoading(false)
     }
@@ -112,14 +138,51 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
     'Reformule la question SGS.01 plus précisément',
   ]
 
-  return (
-    <div className="w-80 shrink-0 border-r border-blue-200 flex flex-col bg-white">
+  return collapsed ? (
+    <div className="w-9 h-full shrink-0 border-r border-blue-200 bg-blue-50 flex flex-col items-center py-2 gap-2">
+      <button type="button" onClick={() => setCollapsed(false)}
+        className="p-1.5 rounded text-blue-600 hover:bg-blue-100 transition-colors"
+        title="Déplier le chat AERORISQ">
+        <ChevronRight className="w-4 h-4" />
+      </button>
+      <div className="flex-1 flex items-center justify-center">
+        <Brain className="w-4 h-4 text-blue-400" />
+      </div>
+      <button type="button" onClick={() => setCollapsed(false)}
+        className="p-1.5 rounded text-blue-600 hover:bg-blue-100 transition-colors"
+        title="Déplier le chat AERORISQ">
+        <Sparkles className="w-3.5 h-3.5" />
+      </button>
+      {onClose && (
+        <button type="button" onClick={onClose}
+          className="p-1 rounded text-blue-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+          title="Fermer le chat">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  ) : (
+    <div className="w-80 h-full shrink-0 border-r border-blue-200 flex flex-col bg-white">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-blue-100 bg-blue-50">
         <div className="flex items-center gap-2">
           <Brain className="w-4 h-4 text-blue-600" />
-          <span className="text-sm font-semibold text-blue-800">Assistant IA</span>
+          <span className="text-sm font-semibold text-blue-800">Assistant AERORISQ</span>
           <Sparkles className="w-3 h-3 text-blue-400" />
+        </div>
+        <div className="flex items-center gap-0.5">
+          <button type="button" onClick={() => setCollapsed(true)}
+            className="p-1 rounded text-blue-400 hover:text-blue-700 hover:bg-blue-100 transition-colors"
+            title="Replier le chat AERORISQ">
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          {onClose && (
+            <button type="button" onClick={onClose}
+              className="p-1 rounded text-blue-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Fermer le chat">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -129,7 +192,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate }: ChatIALatera
           <div className="text-center py-6">
             <Bot className="w-8 h-8 mx-auto mb-2 text-blue-300" />
             <p className="text-xs text-blue-400 mb-3">
-              Demandez à l'IA d'ajouter, modifier ou supprimer des items de la checklist.
+              Demandez à AERORISQ d'ajouter, modifier ou supprimer des items de la checklist.
             </p>
             <div className="space-y-1.5">
               {examples.map((ex, i) => (

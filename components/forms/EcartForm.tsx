@@ -14,6 +14,7 @@ import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import { DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getRiskLevelBgColor, getRiskLevelColor } from '@/lib/risque'
 import { useFormProgress } from '@/hooks/useFormProgress'
+import { FormProgressContext } from '@/components/ui/FormShell'
 import { NiveauRisqueMatrix, CRITERES_NIVEAU_RISQUE } from '@/components/modules/plans-actions/NiveauRisqueMatrix'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -216,6 +217,9 @@ export const EcartForm = memo(function EcartForm({
   onProgressRef.current = onProgressChange
   useEffect(() => { onProgressRef.current?.(progress) }, [progress])
 
+  const setProgress = React.useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
+
   const currentNiveau = NIVEAUX_RISQUE.find(n => n.id === formData.niveau_risque)
   const NiveauIcon = currentNiveau?.icon
 
@@ -301,7 +305,7 @@ export const EcartForm = memo(function EcartForm({
           <div className="alert alert-warning mb-6 animate-fade-in">
             <Sparkles className="alert-icon w-4 h-4" />
             <div className="alert-content flex-1">
-              <div className="alert-title">🤖 Prédiction IA</div>
+              <div className="alert-title">🤖 Prédiction AERORISQ</div>
               <div className="alert-description">
                 Cet écart présente un risque de récurrence élevé ({recurrencePrediction.confiance}% de confiance).
                 {recurrencePrediction.justification && ` ${recurrencePrediction.justification}`}

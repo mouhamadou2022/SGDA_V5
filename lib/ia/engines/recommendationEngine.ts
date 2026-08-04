@@ -347,7 +347,7 @@ export class RecommendationEngine {
       return !isNaN(d.getTime()) && (Date.now() - d.getTime()) < 90 * 86400000
     })
     if (evtsRecents.length > 0) {
-      const graves = evtsRecents.filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE')
+      const graves = evtsRecents.filter(e => e.gravite === 'critique' || e.gravite === 'eleve')
       motivations.push({
         source: 'evenement',
         label: `${evtsRecents.length} événement(s) dans les 90 jours${graves.length > 0 ? ` dont ${graves.length} grave(s)` : ''}`,
@@ -473,7 +473,7 @@ export class RecommendationEngine {
       action = `Traiter en priorité les ${pacCritiques.length} écarts critiques ouverts. Chaque écart critique non résolu dégrade le score C2 (efficacité PAC) de 15 à 25 points.`
     } else if (signalFort?.motif === 'evenement_grave') {
       titre = `Événements graves récents — ${aerodromeNom}`
-      action = `Analyser les causes profondes des ${evtsRecents.filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE').length} événements graves des 90 derniers jours. Renforcer les barrières de sécurité et mettre à jour l'analyse de risques.`
+      action = `Analyser les causes profondes des ${evtsRecents.filter(e => e.gravite === 'critique' || e.gravite === 'eleve').length} événements graves des 90 derniers jours. Renforcer les barrières de sécurité et mettre à jour l'analyse de risques.`
     } else if (signalFort?.motif === 'dégradation') {
       titre = `Dégradation continue — ${aerodromeNom}`
       action = `Inverser la tendance baissière en priorisant la résolution des écarts et le renforcement du SGS. Le score pourrait passer sous ${profil.score_global - 20} dans 6 mois si rien n'est fait.`

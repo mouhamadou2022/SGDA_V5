@@ -81,7 +81,7 @@ jest.mock('@/lib/formationUtils', () => ({
     getNiveauLabel: jest.fn((n: number) => `${n}`),
   },
 }))
-jest.mock('@/lib/utils', () => ({ formatDate: jest.fn((d: string) => d) }))
+jest.mock('@/lib/utils', () => ({ ...jest.requireActual('@/lib/utils'), formatDate: jest.fn((d: string) => d) }))
 jest.mock('../CompetenceMatrix', () => ({ CompetenceMatrix: () => <div data-testid="competence-matrix">CompetenceMatrix</div> }))
 
 jest.mock('../FormationSuggestions', () => ({ FormationSuggestions: () => <div data-testid="formation-suggestions">FormationSuggestions</div> }))
@@ -109,8 +109,8 @@ describe('FormationModule', () => {
       expect(screen.getAllByText('Formations').length).toBeGreaterThanOrEqual(1)
       expect(screen.getByText('Calendrier')).toBeInTheDocument()
       expect(screen.getByText('Compétences')).toBeInTheDocument()
-      expect(screen.getByText('Échéances')).toBeInTheDocument()
       expect(screen.getByText('Suggestions')).toBeInTheDocument()
+      expect(screen.getByText('Dashboard')).toBeInTheDocument()
     })
 
     it('affiche les KPIs du dashboard', () => {
@@ -227,6 +227,7 @@ describe('FormationModule', () => {
     it('les formations sont draggables', () => {
       renderModule()
       fireEvent.click(screen.getByText('Calendrier'))
+      fireEvent.click(screen.getByText('Année'))
       const draggableItems = document.querySelectorAll('[draggable="true"]')
       expect(draggableItems.length).toBeGreaterThan(0)
     })

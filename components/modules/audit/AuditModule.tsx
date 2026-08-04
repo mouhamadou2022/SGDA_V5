@@ -6,11 +6,11 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import {
   FileSearch,
   Download,
   Search,
-  Filter,
   Calendar,
   Shield,
   Clock,
@@ -30,6 +30,7 @@ import {
   TrendingUp,
   Grid3x3,
   List,
+  Filter,
 } from 'lucide-react';
 import { useAppStore, type AuditLog } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
@@ -98,7 +99,7 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'raw'>('details');
   const [viewMode, setViewMode] = useState<'liste' | 'compact'>('liste');
-  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const listeLogs = auditLogs ?? [];
 
@@ -135,13 +136,15 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
   }, [listeLogs, searchTerm, filters]);
 
   const paginatedLogs = useMemo(() => {
-    return filteredLogs.slice(0, displayLimit);
-  }, [filteredLogs, displayLimit]);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredLogs.slice(start, start + PAGE_SIZE);
+  }, [filteredLogs, currentPage]);
 
-  const hasMore = displayLimit < filteredLogs.length;
+  const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE);
 
-  const handleLoadMore = useCallback(() => {
-    setDisplayLimit(prev => prev + PAGE_SIZE);
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    setShowDetails(false);
   }, []);
 
   // Graphique d'activité (7 derniers jours)
@@ -235,109 +238,107 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
   }, [listeLogs]);
 
   // Vue liste
+  const columns: Column<AuditLog>[] = useMemo(() => [
+    {
+      key: 'date',
+      header: 'Date/Heure',
+      render: (log) => (
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <span className="text-sm">{new Date(log.date).toLocaleString('fr-FR')}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'utilisateur',
+      header: 'Utilisateur',
+      render: (log) => (
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full shrink-0 ${
+            log.utilisateur_role === 'admin' ? 'bg-role-primary' :
+            log.utilisateur_role === 'inspector' ? 'bg-warning' : 'bg-success'
+          }`} />
+          <div>
+            <p className="text-sm font-medium">{log.utilisateur_nom}</p>
+            <p className="text-xs text-muted-foreground">{log.utilisateur_role}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (log) => (
+        <span className={`${getActionBadge(log.action)} flex items-center gap-1 w-fit`}>
+          {getActionIcon(log.action)}
+          <span>{getActionLabel(log.action)}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'module',
+      header: 'Module',
+      render: (log) => (
+        <div className="flex items-center gap-2">
+          {getModuleIcon(log.module)}
+          <span className="text-sm">{getModuleLabel(log.module)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'entite',
+      header: 'Entité',
+      render: (log) => (
+        <div>
+          <p className="text-xs font-mono">{log.entite_id}</p>
+          <p className="text-xs text-muted-foreground">{log.entite_nom || '-'}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'ip',
+      header: 'IP',
+      render: (log) => (
+        <code className="text-xs bg-muted/30 px-1.5 py-0.5 rounded font-mono">
+          {log.ip || '-'}
+        </code>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      headerClassName: 'text-right',
+      className: 'text-right',
+      render: (log) => (
+        <button
+          className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
+          onClick={(e) => { e.stopPropagation(); handleOpenDetails(log); }}
+          title="Voir détails"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      ),
+    },
+  ], [getActionBadge, getActionIcon, getActionLabel, getModuleIcon, getModuleLabel, handleOpenDetails]);
+
   const renderListView = () => (
-    <div className="table-container">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Date/Heure</th>
-            <th>Utilisateur</th>
-            <th>Action</th>
-            <th>Module</th>
-            <th>Entité</th>
-            <th>IP</th>
-            <th className="text-right">Détails</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginatedLogs.map((log) => (
-            <tr
-              key={log.id}
-              className="cursor-pointer hover:bg-role-primary-soft group transition-colors"
-              onClick={() => handleOpenDetails(log)}
-            >
-              <td>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-foreground" />
-                  <span className="text-small text-foreground">
-                    {new Date(log.date).toLocaleString('fr-FR')}
-                  </span>
-                </div>
-              </td>
-              <td>
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    log.utilisateur_role === 'admin' ? 'bg-role-primary' :
-                    log.utilisateur_role === 'inspector' ? 'bg-warning' : 'bg-success'
-                  }`} />
-                  <div>
-                    <p className="font-medium text-foreground">{log.utilisateur_nom}</p>
-                    <p className="text-xs text-foreground">{log.utilisateur_role}</p>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <span className={`${getActionBadge(log.action)} flex items-center gap-1 w-fit`}>
-                  {getActionIcon(log.action)}
-                  <span>{getActionLabel(log.action)}</span>
-                </span>
-              </td>
-              <td>
-                <div className="flex items-center gap-2">
-                  {getModuleIcon(log.module)}
-                  <span className="text-small text-foreground">{getModuleLabel(log.module)}</span>
-                </div>
-              </td>
-              <td>
-                <div>
-                  <p className="font-mono text-xs text-foreground">{log.entite_id}</p>
-                  <p className="text-xs text-foreground">{log.entite_nom || '-'}</p>
-                </div>
-              </td>
-              <td>
-                <code className="code-oaci-badge text-xs bg-muted/30">
-                  {log.ip || '-'}
-                </code>
-              </td>
-              <td className="text-right">
-                <button
-                  className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
-                  onClick={(e) => { e.stopPropagation(); handleOpenDetails(log); }}
-                  title="Voir détails"
-                >
-                  <Eye className="w-4 h-4" />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {hasMore && (
-        <div className="p-4 text-center border-t border-border">
-          <button
-            onClick={handleLoadMore}
-            className="btn btn-ghost gap-2 text-sm"
-          >
-            Voir plus ({filteredLogs.length - paginatedLogs.length} restants)
-          </button>
-        </div>
-      )}
-
-      {filteredLogs.length > 0 && !hasMore && paginatedLogs.length > PAGE_SIZE && (
-        <div className="p-3 text-center text-xs text-foreground border-t border-border">
-          Affichage de tous les {filteredLogs.length} résultats
-        </div>
-      )}
-
-      {filteredLogs.length === 0 && (
-        <div className="p-12 text-center text-foreground">
-          <FileSearch className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-body text-foreground">Aucun log trouvé</p>
-          <p className="text-xs text-foreground mt-1">Modifiez vos filtres pour élargir la recherche</p>
-        </div>
-      )}
-    </div>
+    <DataTable
+      data={paginatedLogs}
+      columns={columns}
+      keyExtractor={(log) => log.id}
+      onRowClick={handleOpenDetails}
+      emptyState={{
+        icon: FileSearch,
+        title: 'Aucun log trouvé',
+        description: 'Modifiez vos filtres pour élargir la recherche',
+      }}
+      pagination={{
+        total: filteredLogs.length,
+        current: currentPage,
+        pageSize: PAGE_SIZE,
+        onPageChange: handlePageChange,
+      }}
+    />
   );
 
   // Vue compacte (cartes)
@@ -385,14 +386,39 @@ export default function AuditModule({ userRole }: AuditModuleProps) {
         </Card>
       ))}
 
-      {hasMore && (
-        <div className="col-span-full text-center py-4">
-          <button
-            onClick={handleLoadMore}
-            className="btn btn-ghost gap-2 text-sm"
-          >
-            Voir plus ({filteredLogs.length - paginatedLogs.length} restants)
-          </button>
+      {totalPages > 1 && (
+        <div className="col-span-full flex items-center justify-between py-3">
+          <span className="text-xs text-muted-foreground">
+            {filteredLogs.length} résultat{filteredLogs.length !== 1 ? 's' : ''}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              disabled={currentPage <= 1}
+              onClick={() => handlePageChange(currentPage - 1)}
+            >←</button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const start = Math.max(1, currentPage - 2);
+              const page = start + i;
+              if (page > totalPages) return null;
+              return (
+                <button
+                  key={page}
+                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                    page === currentPage
+                      ? 'border-role-primary bg-role-primary-soft text-role-primary font-semibold'
+                      : 'border-border hover:bg-muted'
+                  }`}
+                  onClick={() => handlePageChange(page)}
+                >{page}</button>
+              );
+            })}
+            <button
+              className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              disabled={currentPage >= totalPages}
+              onClick={() => handlePageChange(currentPage + 1)}
+            >→</button>
+          </div>
         </div>
       )}
 

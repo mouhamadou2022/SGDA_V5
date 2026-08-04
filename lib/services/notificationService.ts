@@ -173,7 +173,7 @@ const EVENTS: Record<EventType, EventMeta> = {
     type: 'danger',
     defaultCanal: 'email_sms',
     rolesCibles: ['dg_operator', 'focal_operator', 'admin'],
-    title: (ctx) => tpl`Evenement de securite ${ctx.critique ? 'CRITIQUE' : 'signale'}`,
+    title: (ctx) => tpl`Evenement de securite ${ctx.critique ? 'critique' : 'signale'}`,
     message: (ctx) => tpl`Un evenement de securite a ete signale sur votre aerodrome.`,
   },
   code_expiration: {
@@ -269,7 +269,7 @@ class NotificationService {
       const reponse = await assistantAgent.chat({
         message: 'Redige un message de notification personnalise et court (max 2 phrases) pour informer un exploitant que l\'evenement suivant vient de se produire : "' + titre + '". Contexte : ' + JSON.stringify(context) + '. Ton : professionnel, courtois, rassurant.',
         userRole: store.user?.role || 'admin',
-        contexte: { aerodromeId: context.aerodrome_id as string, surveillanceId: context.surveillance_id as string },
+        contexte: { module: 'notifications', aerodromeId: context.aerodrome_id as string, surveillanceId: context.surveillance_id as string },
       })
       if (reponse.message && !reponse.message.includes('Je suis desole')) {
         return reponse.message

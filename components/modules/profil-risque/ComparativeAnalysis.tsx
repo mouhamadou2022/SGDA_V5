@@ -9,6 +9,7 @@ import { BarChart3, TrendingUp, TrendingDown, Minus, Medal, Crown, Eye, Plane, T
 import { useAppStore, ProfilRisque, Aerodrome } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' }
@@ -83,29 +84,84 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
         )}
 
         {viewMode === 'list' ? (
-          <table className="table">
-            <thead><tr><th>#</th><th>Aérodrome</th><th>Score</th><th>Tendance</th><th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th></th></tr></thead>
-            <tbody>
-              {aerodromesWithProfil.map(({ aerodrome, profil }, idx) => {
-                const rank = idx + 1
-                const RankIcon = getRankMedal(rank).icon
-                return (
-                  <tr key={aerodrome.id} className="cursor-pointer hover:bg-role-primary-soft/20 transition-colors" onClick={() => onSelectAerodrome?.(aerodrome.id)}>
-                    <td className="font-mono"><div className="flex items-center gap-1"><RankIcon className={`w-4 h-4 ${getRankMedal(rank).color}`} /><span className="text-sm text-foreground">{rank}</span></div></td>
-                    <td><div className="flex items-center gap-2"><Plane className="w-3.5 h-3.5 text-foreground" /><span className="font-medium text-sm text-foreground">{aerodrome.code_oaci}</span><span className="text-xs text-foreground truncate max-w-[120px]">{aerodrome.nom}</span></div></td>
-                    <td><span className={`text-sm font-bold ${getScoreColor(profil.score_global)}`}>{profil.score_global}</span></td>
-                    <td>{profil.tendance === 'hausse' ? <TrendingUp className="w-3.5 h-3.5 text-success" /> : profil.tendance === 'baisse' ? <TrendingDown className="w-3.5 h-3.5 text-danger animate-pulse" /> : <Minus className="w-3.5 h-3.5 text-foreground" />}</td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c1)}`}>{profil.c1}</span> <span className="text-xs text-foreground">({getSgsMaturiteLabel(profil.c1)})</span></td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></td>
-                    <td><span className={`text-xs font-medium ${getScoreColor(profil.c5)}`}>{profil.c5}</span></td>
-                    <td><Eye className="w-3.5 h-3.5 text-foreground" /></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <DataTable
+            data={aerodromesWithProfil}
+            columns={[
+              {
+                key: 'rank',
+                header: '#',
+                render: (item) => {
+                  const rank = aerodromesWithProfil.indexOf(item) + 1
+                  const RankIcon = getRankMedal(rank).icon
+                  return (
+                    <div className="flex items-center gap-1">
+                      <RankIcon className={`w-4 h-4 ${getRankMedal(rank).color}`} />
+                      <span className="text-sm text-foreground">{rank}</span>
+                    </div>
+                  )
+                },
+              },
+              {
+                key: 'aerodrome',
+                header: 'Aérodrome',
+                render: (item) => (
+                  <div className="flex items-center gap-2">
+                    <Plane className="w-3.5 h-3.5 text-foreground" />
+                    <span className="font-medium text-sm text-foreground">{item.aerodrome.code_oaci}</span>
+                    <span className="text-xs text-foreground truncate max-w-[120px]">{item.aerodrome.nom}</span>
+                  </div>
+                ),
+              },
+              {
+                key: 'score',
+                header: 'Score',
+                render: (item) => (
+                  <span className={`text-sm font-bold ${getScoreColor(item.profil.score_global)}`}>{item.profil.score_global}</span>
+                ),
+              },
+              {
+                key: 'tendance',
+                header: 'Tendance',
+                render: (item) => item.profil.tendance === 'hausse' ? <TrendingUp className="w-3.5 h-3.5 text-success" /> : item.profil.tendance === 'baisse' ? <TrendingDown className="w-3.5 h-3.5 text-danger animate-pulse" /> : <Minus className="w-3.5 h-3.5 text-foreground" />,
+              },
+              {
+                key: 'c1',
+                header: 'C1',
+                render: (item) => (
+                  <><span className={`text-xs font-medium ${getScoreColor(item.profil.c1)}`}>{item.profil.c1}</span> <span className="text-xs text-foreground">({getSgsMaturiteLabel(item.profil.c1)})</span></>
+                ),
+              },
+              {
+                key: 'c2',
+                header: 'C2',
+                render: (item) => <span className={`text-xs font-medium ${getScoreColor(item.profil.c2)}`}>{item.profil.c2}</span>,
+              },
+              {
+                key: 'c3',
+                header: 'C3',
+                render: (item) => <span className={`text-xs font-medium ${getScoreColor(item.profil.c3)}`}>{item.profil.c3}</span>,
+              },
+              {
+                key: 'c4',
+                header: 'C4',
+                render: (item) => <span className={`text-xs font-medium ${getScoreColor(item.profil.c4)}`}>{item.profil.c4}</span>,
+              },
+              {
+                key: 'c5',
+                header: 'C5',
+                render: (item) => <span className={`text-xs font-medium ${getScoreColor(item.profil.c5)}`}>{item.profil.c5}</span>,
+              },
+              {
+                key: 'actions',
+                header: '',
+                render: () => <Eye className="w-3.5 h-3.5 text-foreground" />,
+              },
+            ]}
+            keyExtractor={(item) => item.aerodrome.id}
+            onRowClick={(item) => onSelectAerodrome?.(item.aerodrome.id)}
+            emptyState={{ icon: Plane, title: 'Aucun résultat' }}
+            headerClassName="bg-role-primary-soft/40"
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {aerodromesWithProfil.map(({ aerodrome, profil }, idx) => {

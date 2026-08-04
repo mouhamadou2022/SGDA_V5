@@ -4,6 +4,7 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
+import { DataTable } from '@/components/ui/DataTable'
 import { Download, TrendingUp, Users, Calendar, Star } from 'lucide-react'
 import {
   BarChart,
@@ -177,40 +178,22 @@ export function EnqueteStats({ enqueteId, userRole = 'inspector' }: EnqueteStats
       </Card>
 
       {/* Tableau */}
-      <Card>
-        <p className="font-medium mb-3 text-role-primary">Détail des réponses</p>
-        <div className="table-container overflow-x-auto">
-          <table className="table text-sm">
-            <thead>
-              <tr>
-                <th>Aérodrome</th>
-                <th>Répondant</th>
-                <th>Date</th>
-                <th>Score C1</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reponses.map((r, idx) => {
-                const code = aerodromes.find((a) => a.id === r.aerodrome_id)?.code_oaci ?? r.aerodrome_id
-                return (
-                  <tr key={idx}>
-                    <td>
-                      <span className="code-oaci-badge">{code}</span>
-                    </td>
-                    <td>{r.repondant_nom}</td>
-                    <td>{new Date(r.submitted_at).toLocaleDateString('fr-FR')}</td>
-                    <td>
-                      {r.score_c1 != null ? (
-                        <span className={getScoreBadgeClass(r.score_c1)}>{r.score_c1.toFixed(1)}</span>
-                      ) : '—'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable
+        data={reponses}
+        columns={[
+          { key: 'aerodrome', header: 'Aérodrome', render: (r) => {
+            const code = aerodromes.find((a) => a.id === r.aerodrome_id)?.code_oaci ?? r.aerodrome_id
+            return <span className="code-oaci-badge">{code}</span>
+          }},
+          { key: 'repondant', header: 'Répondant', render: (r) => r.repondant_nom },
+          { key: 'date', header: 'Date', render: (r) => new Date(r.submitted_at).toLocaleDateString('fr-FR') },
+          { key: 'score', header: 'Score C1', render: (r) => r.score_c1 != null ? (
+            <span className={getScoreBadgeClass(r.score_c1)}>{r.score_c1.toFixed(1)}</span>
+          ) : '—' },
+        ]}
+        keyExtractor={(r) => `${r.aerodrome_id}-${r.submitted_at}`}
+        cardProps={{ title: 'Détail des réponses' }}
+      />
     </div>
   )
 }

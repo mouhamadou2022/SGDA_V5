@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { useFormProgress } from '@/hooks/useFormProgress'
+import { FormProgressContext } from '@/components/ui/FormShell'
 import { ROLES } from '@/lib/config'
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 
@@ -90,10 +91,12 @@ export function UtilisateurForm({
     ...(mode === 'creation' ? ['mot_de_passe'] : []),
   ])
 
-   const onProgressRef = useRef(onProgressChange)
-   onProgressRef.current = onProgressChange
-   // Only run when progress actually changes
-   useEffect(() => { onProgressRef.current?.(progress) }, [progress])
+  const onProgressRef = useRef(onProgressChange)
+  onProgressRef.current = onProgressChange
+  useEffect(() => { onProgressRef.current?.(progress) }, [progress])
+
+  const setProgress = React.useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
 
    const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)

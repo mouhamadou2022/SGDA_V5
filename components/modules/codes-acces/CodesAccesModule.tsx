@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
 import {
   Key,
@@ -34,6 +35,8 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { codeAccesUtils } from '@/lib/codeAccesUtils';
 import { CodeAccesForm } from '@/components/forms/CodeAccesForm';
 import { formatDate } from '@/lib/utils';
+
+const PAGE_SIZE = 20;
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -65,12 +68,18 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
    const [showForm, setShowForm] = useState(false);
   const [showRevokeModal, setShowRevokeModal] = useState(false);
   const [selectedCode, setSelectedCode] = useState<CodeAcces | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [showCode, setShowCode] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedSuccess, setCopiedSuccess] = useState(false);
 
 
   const listeCodesAcces = codesAcces ?? [];
+
+  // Reset page quand les filtres changent
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filters]);
 
   // Auto-suppression des codes expirés au montage du module
   useEffect(() => {
@@ -112,6 +121,12 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
       return true;
     });
   }, [listeCodesAcces, searchTerm, filters, aerodromes]);
+
+  // Pagination
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredCodes.slice(start, start + PAGE_SIZE);
+  }, [filteredCodes, currentPage]);
 
   // Statistiques
   const stats = useMemo(() => {
@@ -212,6 +227,141 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const columns: Column<CodeAcces>[] = [
+    {
+      key: 'code',
+      header: 'Code',
+      render: (code) => {
+        const afficherCode = showCode[code.id];
+        const isCopied = copiedId === code.id;
+        return (
+          <div className="flex items-center gap-2">
+            <code className="code-oaci-badge text-xs">
+              {afficherCode ? code.code : code.code_partiel}
+            </code>
+            <button
+              onClick={() => toggleShowCode(code.id)}
+              className="action-button !p-1"
+              title={afficherCode ? 'Masquer le code' : 'Afficher le code'}
+            >
+              {afficherCode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => handleCopyCode(code.code, code.id)}
+              className="action-button !p-1"
+              title={isCopied ? 'Copié !' : 'Copier le code'}
+            >
+              {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'aerodrome',
+      header: 'Aérodrome',
+      render: (code) => (
+        <div className="flex items-center gap-2">
+          <Building className="w-3.5 h-3.5 text-muted" />
+          <span className="font-medium text-small text-foreground">{getAerodromeName(code.aerodrome_id)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (code) => (
+        <span className="text-small text-muted">{code.description || '-'}</span>
+      ),
+    },
+    {
+      key: 'created_at',
+      header: 'Créé le',
+      render: (code) => (
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-muted" />
+          <span className="text-small text-foreground">{new Date(code.created_at).toLocaleDateString('fr-FR')}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'expires_at',
+      header: 'Expire le',
+      render: (code) => {
+        const estExpire = !!(code.expires_at && new Date(code.expires_at) < new Date());
+        return code.expires_at ? (
+          <div className="flex items-center gap-1">
+            <Calendar className="w-3 h-3 text-muted" />
+            <span className={`text-small ${estExpire ? 'text-danger font-medium' : 'text-foreground'}`}>
+              {new Date(code.expires_at).toLocaleDateString('fr-FR')}
+            </span>
+          </div>
+        ) : (
+          <span className="text-small text-muted">Jamais</span>
+        );
+      },
+    },
+    {
+      key: 'last_login',
+      header: 'Dernière connexion',
+      render: (code) =>
+        code.last_login ? (
+          <div className="flex items-center gap-1">
+            <Clock className="w-3 h-3 text-muted" />
+            <span className="text-small text-foreground">{new Date(code.last_login).toLocaleDateString('fr-FR')}</span>
+          </div>
+        ) : (
+          <span className="text-small text-muted">Jamais</span>
+        ),
+    },
+    {
+      key: 'nb_connexions',
+      header: 'Connexions',
+      render: (code) => (
+        <span className="badge outline">{code.nb_connexions}</span>
+      ),
+    },
+    {
+      key: 'statut',
+      header: 'Statut',
+      render: (code) => getStatutBadge(code.statut, !!(code.expires_at && new Date(code.expires_at) < new Date())),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      headerClassName: 'text-right',
+      render: (code) => {
+        const estExpire = !!(code.expires_at && new Date(code.expires_at) < new Date());
+        return (
+          <div className="flex justify-end gap-1">
+            {code.statut === 'actif' && !estExpire && (
+              <button
+                onClick={() => handleRevoke(code.id)}
+                className="action-button hover:text-danger"
+                title="Révoquer le code"
+              >
+                <XCircle className="w-4 h-4" />
+              </button>
+            )}
+            {(code.statut === 'expire' || code.statut === 'revogue' || estExpire) && (
+              <button
+                onClick={() => handleDelete(code)}
+                className="action-button hover:text-danger hover:bg-danger/10"
+                title="Supprimer définitivement"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            <button className="action-button" title="Historique d'utilisation">
+              <History className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="codes-acces">
@@ -365,135 +515,23 @@ export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
       </Card>
 
       {/* Tableau des codes */}
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Aérodrome</th>
-              <th>Description</th>
-              <th>Créé le</th>
-              <th>Expire le</th>
-              <th>Dernière connexion</th>
-              <th>Connexions</th>
-              <th>Statut</th>
-              <th className="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredCodes.map((code) => {
-              const estExpire = !!(code.expires_at && new Date(code.expires_at) < new Date());
-              const afficherCode = showCode[code.id];
-              const isCopied = copiedId === code.id;
-
-              return (
-                <tr key={code.id} className="hover:bg-role-primary-soft transition-colors">
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <code className="code-oaci-badge text-xs">
-                        {afficherCode ? code.code : code.code_partiel}
-                      </code>
-                      <button
-                        onClick={() => toggleShowCode(code.id)}
-                        className="action-button !p-1"
-                        title={afficherCode ? 'Masquer le code' : 'Afficher le code'}
-                      >
-                        {afficherCode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        onClick={() => handleCopyCode(code.code, code.id)}
-                        className="action-button !p-1"
-                        title={isCopied ? 'Copié !' : 'Copier le code'}
-                      >
-                        {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <Building className="w-3.5 h-3.5 text-muted" />
-                      <span className="font-medium text-small text-foreground">{getAerodromeName(code.aerodrome_id)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="text-small text-muted">{code.description || '-'}</span>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-muted" />
-                      <span className="text-small text-foreground">{new Date(code.created_at).toLocaleDateString('fr-FR')}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {code.expires_at ? (
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-muted" />
-                        <span className={`text-small ${estExpire ? 'text-danger font-medium' : 'text-foreground'}`}>
-                          {new Date(code.expires_at).toLocaleDateString('fr-FR')}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-small text-muted">Jamais</span>
-                    )}
-                  </td>
-                  <td>
-                    {code.last_login ? (
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-muted" />
-                        <span className="text-small text-foreground">{new Date(code.last_login).toLocaleDateString('fr-FR')}</span>
-                      </div>
-                    ) : (
-                      <span className="text-small text-muted">Jamais</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="badge outline">{code.nb_connexions}</span>
-                  </td>
-                  <td>
-                    {getStatutBadge(code.statut, estExpire)}
-                  </td>
-                  <td className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {code.statut === 'actif' && !estExpire && (
-                        <button
-                          onClick={() => handleRevoke(code.id)}
-                          className="action-button hover:text-danger"
-                          title="Révoquer le code"
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                      {(code.statut === 'expire' || code.statut === 'revogue' || estExpire) && (
-                        <button
-                          onClick={() => handleDelete(code)}
-                          className="action-button hover:text-danger hover:bg-danger/10"
-                          title="Supprimer définitivement"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button className="action-button" title="Historique d'utilisation">
-                        <History className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {filteredCodes.length === 0 && (
-          <div className="card-content py-12 text-center">
-            <Key className="w-12 h-12 text-muted mx-auto mb-4 opacity-30" />
-            <p className="text-muted">Aucun code d'accès trouvé</p>
-            <button onClick={() => setShowForm(true)} className="btn btn-primary mt-4 gap-2">
-              <Plus className="w-4 h-4" />
-              Générer un code
-            </button>
-          </div>
-        )}
-      </div>
+      <DataTable<CodeAcces>
+        data={paginatedData}
+        columns={columns}
+        keyExtractor={(item) => item.id}
+        emptyState={{
+          icon: Key,
+          title: "Aucun code d'accès trouvé",
+          description: 'Essayez de modifier vos filtres de recherche.',
+        }}
+        pagination={{
+          total: filteredCodes.length,
+          current: currentPage,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage,
+        }}
+        headerClassName="bg-role-primary-soft/40"
+      />
 
       {/* Modal Génération de code */}
       <FormShell

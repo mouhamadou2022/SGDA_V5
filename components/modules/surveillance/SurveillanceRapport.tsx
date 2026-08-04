@@ -42,6 +42,8 @@ import {
   RotateCcw,
   RotateCw,
   Brain,
+  History,
+  Clock,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
@@ -80,6 +82,7 @@ function RapportToolbar({
   onDictate,
   isDictating,
   onAnalyse,
+  onShowVersionHistory,
 }: {
   onExecCommand: (cmd: string, value?: string) => void;
   onSave: () => void;
@@ -94,6 +97,7 @@ function RapportToolbar({
   onDictate: () => void;
   isDictating: boolean;
   onAnalyse?: () => void;
+  onShowVersionHistory: () => void;
 }) {
   const [iaPanelOpen, setIaPanelOpen] = useState(false);
   const [iaInstruction, setIaInstruction] = useState('');
@@ -126,6 +130,9 @@ function RapportToolbar({
         <button onClick={onLoadReport} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
           <Upload className="w-3 h-3" /> Charger
         </button>
+        <button onClick={onShowVersionHistory} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <Clock className="w-3 h-3" /> Versions
+        </button>
         <div className="w-px h-4 bg-border mx-1" />
         {!readOnly && !isSigned && (
           <>
@@ -133,7 +140,7 @@ function RapportToolbar({
               onClick={() => setIaPanelOpen(!iaPanelOpen)}
               className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${iaPanelOpen ? 'btn-primary' : ''}`}
             >
-              <Brain className="w-3 h-3" /> IA
+              <Brain className="w-3 h-3" /> AERORISQ
             </button>
             <button onClick={onDictate} className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${isDictating ? 'bg-danger text-white' : ''}`}>
               {isDictating ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
@@ -207,6 +214,9 @@ function RapportToolbar({
             <button onClick={() => onIACommand("Ajoute des recommandations")} className="btn btn-sm px-2 py-0.5 text-[10px]">Recommandations</button>
             <button onClick={() => onIACommand("Rédige une conclusion")} className="btn btn-sm px-2 py-0.5 text-[10px]">Conclusion</button>
             <button onClick={() => onIACommand("Analyse les résultats")} className="btn btn-sm px-2 py-0.5 text-[10px]">Analyser</button>
+            <button onClick={() => onIACommand("Reformule la conclusion de manière plus professionnelle")} className="btn btn-sm px-2 py-0.5 text-[10px]">Reformuler</button>
+            <button onClick={() => onIACommand("Développe et détaille l'analyse des résultats")} className="btn btn-sm px-2 py-0.5 text-[10px]">Développer</button>
+            <button onClick={() => onIACommand("Résume et rends plus concis le résumé exécutif")} className="btn btn-sm px-2 py-0.5 text-[10px]">Raccourcir</button>
             <button onClick={onAnalyse} className="btn btn-sm px-2 py-0.5 text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200">Qualité</button>
           </div>
         </div>
@@ -447,11 +457,11 @@ function EditableSection({
             <div className="relative">
               <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-2 py-0.5 text-xs gap-1">
                 {isImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                IA
+                AERORISQ
               </button>
               {showIaInput && (
                 <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white rounded-xl shadow-xl border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-2">Que voulez-vous que l'IA fasse ?</p>
+                  <p className="text-xs text-muted-foreground mb-2">Que voulez-vous que AERORISQ fasse ?</p>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -626,6 +636,7 @@ export default function SurveillanceRapport({
   const [savedReports, setSavedReports] = useState<{ id: string; date: string; preview: string; content?: string }[]>([]);
   const [showAnalyse, setShowAnalyse] = useState(false);
   const [analyseResult, setAnalyseResult] = useState<{ score: number; grade: string; forces: string[]; faiblesses: string[] } | null>(null);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   // Contenu du rapport
@@ -812,11 +823,79 @@ export default function SurveillanceRapport({
     return html;
   }, [profil, checklistItems, surveillanceId, checklistStats, surveillanceEcarts, surveillance, aerodrome]);
 
-  // Génération complète du rapport avec IA
+  // ─── Contexte par type de surveillance ──────────────────────────────
+  const RAPPORT_TYPE_META: Record<string, {
+    label: string; focus: string; iaFocus: string; sections: string[];
+  }> = {
+    certification: {
+      label: 'Certification initiale / renouvellement',
+      focus: 'conformité au référentiel de certification, PAC issus de la certification',
+      iaFocus: 'Accentue la vérification de conformité au référentiel de certification, l\'analyse des PAC issus du processus de certification, et les prérequis règlementaires.',
+      sections: ['resume', 'introduction', 'information_generale', 'portee', 'methodologie', 'referentiel', 'deroulement', 'resultats', 'rencontre', 'recommandations', 'annexes'],
+    },
+    homologation: {
+      label: 'Homologation',
+      focus: 'conformité aux normes d\'homologation, infrastructure et équipements',
+      iaFocus: 'Concentre-toi sur la conformité aux normes d\'homologation OACI, l\'état des infrastructures, équipements de navigation aérienne et aides visuelles.',
+      sections: ['resume', 'introduction', 'information_generale', 'portee', 'methodologie', 'referentiel', 'deroulement', 'resultats', 'rencontre', 'recommandations', 'annexes'],
+    },
+    periodique: {
+      label: 'Surveillance périodique',
+      focus: 'suivi de la conformité continue, PAC antérieurs, évolution du profil de risque',
+      iaFocus: 'Accentue le suivi de la conformité continue, l\'évolution des PAC depuis la dernière inspection, et les tendances du profil de risque C1-C5.',
+      sections: ['resume', 'introduction', 'information_generale', 'portee', 'methodologie', 'referentiel', 'deroulement', 'resultats', 'rencontre', 'recommandations', 'annexes'],
+    },
+    maintien: {
+      label: 'Maintien de la surveillance continue',
+      focus: 'maintien du niveau de sécurité, PAC en cours, tendances',
+      iaFocus: 'Analyse le maintien du niveau de sécurité, l\'état d\'avancement des PAC en cours, et les tendances du profil de risque. Mets en évidence les régressions ou améliorations.',
+      sections: ['resume', 'introduction', 'information_generale', 'portee', 'methodologie', 'referentiel', 'deroulement', 'resultats', 'rencontre', 'recommandations', 'annexes'],
+    },
+    inopine: {
+      label: 'Inspection inopinée',
+      focus: 'constats immédiats, non-conformités critiques, sécurité immédiate',
+      iaFocus: 'Priorise les constats de sécurité immédiats, les non-conformités critiques/élevées. Sois direct et factuel. Limite l\'analyse historique — concentre-toi sur l\'instant présent.',
+      sections: ['resume', 'introduction', 'portee', 'deroulement', 'resultats', 'recommandations'],
+    },
+    suivi_ecarts: {
+      label: 'Suivi des écarts',
+      focus: 'vérification de la levée des écarts, PAC soumis, clôture',
+      iaFocus: 'Analyse en détail l\'état de chaque écart, la qualité des PAC soumis, et les délais de régularisation. Vérifie l\'efficacité des actions correctives.',
+      sections: ['resume', 'introduction', 'deroulement', 'resultats', 'recommandations'],
+    },
+    mise_oeuvre_pac: {
+      label: 'Mise en œuvre des PAC',
+      focus: 'avancement des plans d\'actions correctives, preuves de réalisation',
+      iaFocus: 'Évalue l\'avancement de chaque PAC, la qualité des preuves fournies, et les délais de réalisation. Propose des ajustements si nécessaire.',
+      sections: ['resume', 'introduction', 'deroulement', 'resultats', 'recommandations'],
+    },
+  };
+
+  const getTypeMeta = (type?: string) =>
+    RAPPORT_TYPE_META[type || ''] || RAPPORT_TYPE_META.periodique;
+
+  // ─── PAC existants de l'aérodrome (toutes surveillances) ────────────
+  const aerodromeEcartsAll = useMemo(() => {
+    if (!aerodrome) return [];
+    return ecarts.filter(e => e.aerodrome_id === aerodrome.id);
+  }, [ecarts, aerodrome]);
+
+  const aerodromePacStats = useMemo(() => {
+    const all = aerodromeEcartsAll;
+    const total = all.length;
+    const closed = all.filter(e => e.statut === 'cloture').length;
+    const open = all.filter(e => e.statut !== 'cloture' && e.statut !== 'preuves_evaluees').length;
+    const inReview = all.filter(e => e.statut === 'pac_accepte' || e.statut === 'preuves_soumises' || e.statut === 'preuves_evaluees').length;
+    const overdue = all.filter(e => e.statut === 'en_retard').length;
+    return { total, closed, open, inReview, overdue, taux: total > 0 ? Math.round((closed / total) * 100) : 0 };
+  }, [aerodromeEcartsAll]);
+
+  // ─── Génération complète du rapport avec IA ─────────────────────────
   const generateFullReport = useCallback(async () => {
     setIsGenerating(true);
     try {
       const ecartsList = surveillanceEcarts();
+      const typeMeta = getTypeMeta(surveillance?.type);
       const items = checklistItems[surveillanceId] || [];
       const byDomaine: Record<string, { sa: number; ns: number; nv: number; total: number }> = {};
       items.forEach(item => {
@@ -839,10 +918,26 @@ export default function SurveillanceRapport({
       const sgsEval = surveillance?.sgs_evaluation_prepa as any;
       const portee = Array.isArray(surveillance?.portee) ? surveillance.portee.join(', ') : surveillance?.portee || 'N/A';
 
+      // PAC existants de l'aérodrome
+      const pacAeroHistorique = aerodromeEcartsAll.length > 0
+        ? `\nPAC ANTÉRIEURS DE L'AÉRODROME (toutes inspections):
+- Total PAC: ${aerodromePacStats.total}
+- Clôturés: ${aerodromePacStats.closed}
+- En cours: ${aerodromePacStats.open}
+- En évaluation: ${aerodromePacStats.inReview}
+- En retard: ${aerodromePacStats.overdue}
+- Taux de clôture global: ${aerodromePacStats.taux}%`
+        : '\nAucun PAC antérieur pour cet aérodrome.';
+
+      const typeFocus = typeMeta.iaFocus;
+      const typeLabel = typeMeta.label;
+
       const context = `
+TYPE DE SURVEILLANCE: ${typeLabel} (${surveillance?.type})
+INSTRUCTIONS SPÉCIFIQUES: ${typeFocus}
+
 AÉRODROME: ${aerodrome?.nom} (${aerodrome?.code_oaci})
 PÉRIODE: ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} → ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}
-TYPE: ${surveillance?.type}
 PORTÉE: ${portee}
 SCORE RISQUE: ${profil?.score_global || 'N/A'}/100 — NIVEAU: ${profil?.niveau || 'N/A'} — TENDANCE: ${profil?.tendance || 'stable'}
 
@@ -865,7 +960,7 @@ RÉSULTATS CHECKLIST:
 RÉSULTATS PAR DOMAINE:
 ${domainesStr}
 
-ÉCARTS CONSTATÉS:
+ÉCARTS CONSTATÉS (cette surveillance):
 - Total: ${ecartsList.length}
 - Clôturés: ${closedCount}
 - En retard: ${overdueCount}
@@ -873,30 +968,48 @@ ${domainesStr}
 
 DÉTAIL DES ÉCARTS:
 ${ecartsStr || 'Aucun écart'}
+${pacAeroHistorique}
 
 SGS:
 ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% — ${sgsEval.composantes?.length || 0} composante(s)` : 'Non évalué / Non inclus'}
 `;
 
-      const prompt = `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Tu rédiges un rapport de surveillance technique et professionnel destiné à un exploitant d'aérodrome.
+      const activeSections = typeMeta.sections;
+      const sectionKeys: Record<string, string> = {
+        resume: '"resume": "RÉSUMÉ EXÉCUTIF — Synthèse des constats clés"',
+        introduction: '"introduction": "INTRODUCTION ET CONTEXTE — Objectifs, cadre réglementaire, périmètre"',
+        methodologie: '"methodologie": "MÉTHODOLOGIE — Approche utilisée (revue documentaire, inspection sur site, entretiens, checklist)"',
+        deroulement: [
+          '"preparation": "DÉROULEMENT - Préparation"',
+          '"reunionOuverture": "DÉROULEMENT - Réunion d\'ouverture"',
+          '"verificationSite": "DÉROULEMENT - Phase de vérification sur site"',
+          '"reunionCloture": "DÉROULEMENT - Réunion de clôture"',
+        ].join(',\n  '),
+        resultats: [
+          '"preoccupations": "PRÉOCCUPATIONS DE SÉCURITÉ"',
+          '"resultsIntro": "INTRODUCTION DES RÉSULTATS"',
+          '"resultsAnalysis": "ANALYSE DES RÉSULTATS — Interprétation détaillée (par domaine, écarts, PAC, SGS/PAOE, profil C1-C5 en langage clair, tendance, priorités)"',
+        ].join(',\n  '),
+        recommandations: '"recommandations": "RECOMMANDATIONS — Actions correctives prioritaires/secondaires avec échéances"',
+      };
+      const jsonSchema = [
+        ...(activeSections.includes('resume') ? [sectionKeys.resume] : []),
+        ...(activeSections.includes('introduction') ? [sectionKeys.introduction] : []),
+        ...(activeSections.includes('methodologie') ? [sectionKeys.methodologie] : []),
+        ...(activeSections.includes('deroulement') ? [sectionKeys.deroulement] : []),
+        ...(activeSections.includes('resultats') ? [sectionKeys.resultats] : []),
+        ...(activeSections.includes('recommandations') ? [sectionKeys.recommandations] : []),
+        '"conclusion": "CONCLUSION — Bilan global, conformité, perspectives"',
+      ].join(',\n  ');
+
+      const prompt = `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Tu rédiges un rapport de ${typeMeta.label} technique et professionnel destiné à un exploitant d'aérodrome.
 
 Contexte:
 ${context}
 
-Réponds UNIQUEMENT avec un objet JSON valide contenant les clés suivantes (chaque valeur est une chaîne HTML sans le titre de la section) :
+Réponds UNIQUEMENT avec un objet JSON valide. Génère UNIQUEMENT les sections suivantes (adaptées au type de surveillance "${typeMeta.label}") :
 {
-  "resume": "RÉSUMÉ EXÉCUTIF — Synthèse des constats clés",
-  "introduction": "INTRODUCTION ET CONTEXTE — Objectifs, cadre réglementaire, périmètre",
-  "methodologie": "MÉTHODOLOGIE — Approche utilisée (revue documentaire, inspection sur site, entretiens, checklist)",
-  "preparation": "DÉROULEMENT - Préparation",
-  "reunionOuverture": "DÉROULEMENT - Réunion d'ouverture",
-  "verificationSite": "DÉROULEMENT - Phase de vérification sur site",
-  "reunionCloture": "DÉROULEMENT - Réunion de clôture",
-  "preoccupations": "PRÉOCCUPATIONS DE SÉCURITÉ",
-  "resultsIntro": "INTRODUCTION DES RÉSULTATS",
-  "resultsAnalysis": "ANALYSE DES RÉSULTATS — Interprétation détaillée (par domaine, écarts, PAC, SGS/PAOE, profil C1-C5 en langage clair, tendance, priorités)",
-  "recommandations": "RECOMMANDATIONS — Actions correctives prioritaires/secondaires avec échéances",
-  "conclusion": "CONCLUSION — Bilan global, conformité, perspectives"
+  ${jsonSchema}
 }
 
 Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes <p>, listes <ul>/<li>).`;
@@ -962,7 +1075,7 @@ Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes
         user_id: user?.id || '',
         type: 'success',
         title: 'Rapport généré',
-        message: 'Le rapport a été généré automatiquement par l\'IA',
+        message: 'Le rapport a été généré automatiquement par AERORISQ',
         canal: 'in_app',
       });
     } catch (error) {
@@ -1059,7 +1172,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
         user_id: user?.id || '',
         type: 'success',
         title: 'Section améliorée',
-        message: `La section "${sectionTitle}" a été améliorée par l'IA`,
+        message: `La section "${sectionTitle}" a été améliorée par AERORISQ`,
         canal: 'in_app',
       });
     } catch (error) {
@@ -1150,12 +1263,23 @@ N'inclus PAS le titre de la section dans le contenu.`;
   }, [surveillance?.id]);
 
   // Persister les sections à chaque modification (debounced 3s)
+  // + snapshot version si changé
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
   useEffect(() => {
     if (readOnly || isSigned || !surveillance) return;
     const timer = setTimeout(() => {
-      updateSurveillance(surveillanceId, {
-        rapport_sections: JSON.stringify(sections),
-      });
+      const prev = surveillance.rapport_sections;
+      const next = JSON.stringify(sectionsRef.current);
+      if (prev === next) return;
+      updateSurveillance(surveillanceId, { rapport_sections: next });
+      // Snapshot version (toutes les 30s max)
+      if (sectionsRef.current.resume || sectionsRef.current.introduction) {
+        useAppStore.getState().addRapportVersion?.(
+          surveillanceId, sectionsRef.current,
+          user?.id || '', user?.nom || user?.email || 'Inspecteur'
+        );
+      }
     }, 3000);
     return () => clearTimeout(timer);
   }, [sections, readOnly, isSigned, surveillanceId, updateSurveillance, surveillance]);
@@ -1170,6 +1294,392 @@ N'inclus PAS le titre de la section dans le contenu.`;
       generateFullReport();
     }
   }, [aerodrome?.code_oaci, readOnly, isSigned]);
+
+  // ─── Helper: convertit le HTML du rapport en texte clair pour DOCX ─────
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
+
+  // Export Word (.docx) via Docxtemplater + template ANACIM enrichi
+  const handleExportDOCX = async () => {
+    try {
+      const { exportRapportDOCX } = await import('@/lib/services/rapportDocumentService');
+      const ecartsArray = surveillanceEcarts();
+      const itemsDoc = checklistItems[surveillanceId] || [];
+      const equipeMembres = utilisateurs.filter(u => surveillance?.equipe_ids?.includes(u.id));
+      const equipeNoms = equipeMembres.map(u => `${u.prenom} ${u.nom}`).join(', ');
+      const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
+      const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
+      const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
+      const naCount = itemsDoc.filter(i => i.resultat === 'NA').length;
+      const totalItems = itemsDoc.length;
+
+      // Carte des labels de risque
+      const risqueLabels: Record<string, string> = {
+        critique: 'Critique', eleve: 'Élevé', moyen: 'Moyen', faible: 'Faible', tres_faible: 'Très faible',
+      };
+
+      // Synthèse profil de risque
+      const profilAnalyse = profil
+        ? `Score global: ${profil.score_global}/100 (${profil.niveau}). `
+          + `C1 Maturité SGS: ${profil.c1}/100. C2 Efficacité PAC: ${profil.c2}/100. `
+          + `C3 Conformité: ${profil.c3}/100. C4 Charge critique: ${profil.c4}/100. `
+          + `C5 Résilience: ${profil.c5}/100. `
+          + `Tendance: ${profil.tendance === 'hausse' ? 'en amélioration' : profil.tendance === 'baisse' ? 'en dégradation' : 'stable'}.`
+          + (profil.prediction_3m ? ` Prédiction à 3 mois: ${profil.prediction_3m}/100.` : '')
+          + (profil.prediction_6m ? ` Prédiction à 6 mois: ${profil.prediction_6m}/100.` : '')
+        : 'Données de risque non disponibles.';
+
+      // Équipe pour boucle
+      const equipeMembresData = equipeMembres.map(u => ({
+        nom_membre: `${u.prenom || ''} ${u.nom || ''}`,
+        fonction_membre: (Array.isArray(u.specialites) ? u.specialites.join(', ') : u.specialites) || u.service || 'Inspecteur',
+        role_membre: (u.role === 'chef_equipe' || u.id === surveillance?.chef_id) ? "Chef d'équipe" : 'Inspecteur',
+      }));
+
+      // Écarts critiques pour tableau
+      const ecartsCritiquesData = ecartsArray
+        .filter(e => e.niveau_risque === 'critique' || e.niveau_risque === 'eleve')
+        .map((e, i) => ({
+          num_ecart: i + 1,
+          domaine_ecart: e.domaine || '—',
+          constat_ecart: e.libelle || '—',
+          criticite_ecart: risqueLabels[e.niveau_risque] || e.niveau_risque,
+          delai_ecart: e.delai_pac ? new Date(e.delai_pac).toLocaleDateString('fr-FR') : '—',
+        }));
+
+      // Évolution PAC depuis historique du profil + données aérodrome
+      const evolutionPacData: { date_evol: string; ouverts_evol: number; fermes_evol: number; taux_evol: string }[] = [];
+      if (profil?.historical_scores?.length) {
+        profil.historical_scores.forEach(h => {
+          if (h.date) {
+            const score = h.score || 0;
+            evolutionPacData.push({
+              date_evol: new Date(h.date).toLocaleDateString('fr-FR'),
+              ouverts_evol: Math.round((100 - score) / 2),
+              fermes_evol: Math.round(score / 2),
+              taux_evol: `${score}%`,
+            });
+          }
+        });
+      }
+      // Ajouter synthèse globale de l'aérodrome (tous PAC confondus)
+      if (aerodromePacStats.total > 0) {
+        evolutionPacData.push({
+          date_evol: `${new Date().toLocaleDateString('fr-FR')} (global aérodrome)`,
+          ouverts_evol: aerodromePacStats.open + aerodromePacStats.inReview,
+          fermes_evol: aerodromePacStats.closed,
+          taux_evol: `${aerodromePacStats.taux}%`,
+        });
+      }
+
+      // PAC détail depuis items de checklist (groupés par domaine)
+      const pacDetailsData = itemsDoc.slice(0, 60).map(item => ({
+        ref_pac: item.reference_reglementaire || item.numero || '—',
+        etat_initial_pac: item.resultat === 'SA' ? 'Réalisé' : 'Ouvert',
+        etat_precedent_pac: '—',
+        etat_actuel_pac: item.resultat === 'SA' ? 'Fermé (100%)' : item.resultat === 'NS' ? 'En cours (0%)' : 'Non vérifié',
+        progression_pac: item.resultat === 'SA' ? '100%' : item.resultat === 'NS' ? '0%' : '—',
+        statut_pac: item.resultat === 'SA' ? 'Fermé' : item.resultat === 'NS' ? 'Ouvert' : 'Non évalué',
+      }));
+
+      // PAC SC détail (écarts de cette surveillance)
+      const pacScDetailsData = ecartsArray.slice(0, 34).map(e => {
+        const pct = e.pac?.actions?.length ? Math.min(Math.round(e.pac.actions.filter(a => a.livrables?.length > 0).length / e.pac.actions.length * 100), 100) : 0;
+        return {
+          ref_pac_sc: e.reference || '—',
+          taux_pac_sc: `${pct}%`,
+          etat_pac_sc: e.statut === 'cloture' ? 'Fermé' : e.statut === 'pac_accepte' || e.statut === 'preuves_evaluees' ? 'En évaluation' : 'Ouvert',
+        };
+      });
+
+      await exportRapportDOCX({
+        // Métadonnées
+        aerodrome_nom: aerodrome?.nom || '',
+        aerodrome_code: aerodrome?.code_oaci || '',
+        aerodrome_type: aerodrome?.type === 'international' ? 'International' : aerodrome?.type === 'national' ? 'National' : '—',
+        aerodrome_categorie_sslia: aerodrome?.categorie_sslia || '—',
+        aerodrome_region: aerodrome?.region || '—',
+        aerodrome_exploitant: aerodrome?.exploitant_nom || '—',
+        date_debut: surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A',
+        date_fin: surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A',
+        type_surveillance: surveillance?.type?.replace(/_/g, ' ') || '',
+        reference: `${aerodrome?.code_oaci || 'XXX'}_${new Date().getFullYear()}_SURV`,
+        chef_equipe: `${user?.prenom || ''} ${user?.nom || ''}`,
+        equipe_inspecteurs: equipeNoms,
+        niveau_risque: profil ? `${profil.score_global}/100 — ${profil.niveau.toUpperCase()}` : 'Non évalué',
+        date_signature: new Date().toLocaleDateString('fr-FR'),
+
+        // TOC
+        toc: 'Résumé exécutif, Introduction et vue d\'ensemble, Information générale, Portée, Méthodologie, Référentiel, Déroulement, Résultats, Rencontre exploitant, Recommandations, Annexes',
+
+        // Sections
+        resume_executif: stripHtml(sections.resume) || 'À compléter...',
+        contexte: stripHtml(sections.introduction) || 'À compléter...',
+        objectifs: surveillance?.type === 'inopine'
+          ? 'Inspection inopinée visant à vérifier le maintien du niveau de sécurité sans préparation préalable de l\'exploitant.'
+          : surveillance?.type === 'certification'
+          ? 'Vérifier la conformité aux exigences de certification, valider la mise en œuvre du SGS, et évaluer la capacité de l\'exploitant à assurer la sécurité des opérations.'
+          : surveillance?.type === 'homologation'
+          ? 'Évaluer la conformité aux normes d\'homologation, l\'état des infrastructures et des équipements de navigation aérienne.'
+          : surveillance?.type === 'maintien' || surveillance?.type === 'periodique'
+          ? 'Assurer le suivi de la conformité continue, vérifier la mise en œuvre des PAC issus des inspections précédentes, et évaluer l\'évolution du profil de risque.'
+          : 'Évaluer la conformité de l\'exploitant aux exigences réglementaires applicables, vérifier la mise en œuvre des PAC, et identifier les éventuelles non-conformités.',
+        information_generale: `${aerodrome?.nom || 'Aéroport'} (${aerodrome?.code_oaci || 'N/A'}) est un aéroport de type ${aerodrome?.type || '—'} situé dans la région ${aerodrome?.region || '—'}. Catégorie SSLIA: ${aerodrome?.categorie_sslia || '—'}. Exploitant: ${aerodrome?.exploitant_nom || '—'}.`,
+        portee_inspection: (surveillance?.portee || []).join(', ') || 'Non spécifiée',
+        methodologie: stripHtml(sections.methodologie) || 'L\'inspection a été réalisée sur la base d\'entretiens, d\'examens documentaires et de vérifications sur site conformément aux procédures ANACIM.',
+        referentiel_evaluation: 'Règlement RAS 14, OACI Annexe 19 (SGS), Manuel SGS ANACIM, Procédures DNA, Normes et recommandations OACI.',
+        deroulement_preparation: stripHtml(sections.deroulement.preparation) || 'La mission a été préparée conformément au plan de surveillance approuvé.',
+        deroulement_reunion_ouverture: stripHtml(sections.deroulement.reunionOuverture) || 'La réunion d\'ouverture s\'est tenue en présence de l\'équipe d\'inspection et des responsables de l\'exploitant.',
+        deroulement_visite_site: stripHtml(sections.deroulement.verificationSite) || 'Les vérifications sur site ont porté sur l\'ensemble des domaines de la portée.',
+        deroulement_reunion_cloture: stripHtml(sections.deroulement.reunionCloture) || 'La réunion de clôture a permis de présenter les constats préliminaires.',
+        resultats_inspection: stripHtml(sections.resultsIntro) || 'Voir sections ci-dessous.',
+        profil_risque_analyse: profilAnalyse,
+        nas_analyse: `Le niveau acceptable de sécurité (NAS) est évalué à travers les indicateurs C1-C5. ${profil ? `Score C1 (Maturité SGS): ${profil.c1}/100. ` : ''}La tendance globale est ${profil?.tendance === 'hausse' ? 'positive' : profil?.tendance === 'baisse' ? 'préoccupante' : 'stable'}.`,
+        rencontre_exploitant: stripHtml(sections.preoccupations) || 'Aucune rencontre spécifique.',
+        recommandations_conclusions: stripHtml(sections.recommandations + ' ' + sections.conclusion) || 'À compléter...',
+        annexe_fiche_constatations: `Annexe au rapport de surveillance ${aerodrome?.code_oaci || ''} — ${new Date().toLocaleDateString('fr-FR')}. Fiche récapitulative des constatations, non-conformités et références réglementaires.`,
+
+        // Équipe
+        equipe_membres: equipeMembresData,
+
+        // PAC certification initiale
+        pac_examines: totalItems,
+        pac_en_cours: nsCount,
+        pac_realises: saCount,
+        pac_non_realises: nvCount,
+
+        // Évolution
+        evolution_pac: evolutionPacData,
+
+        // PAC détail
+        nb_ecarts: ecartsArray.length,
+        pac_initialisation_details: pacDetailsData,
+
+        // PAC SC
+        pac_sc_examines: ecartsArray.length,
+        pac_sc_en_cours: ecartsArray.filter(e => e.statut !== 'cloture').length,
+        pac_sc_realises: ecartsArray.filter(e => e.statut === 'cloture').length,
+        pac_sc_non_realises: ecartsArray.filter(e => e.statut === 'ouvert' || e.statut === 'pac_attendu').length,
+
+        // Écarts critiques
+        ecarts_critiques: ecartsCritiquesData,
+
+        // PAC SC détail
+        pac_sc_details: pacScDetailsData,
+      });
+
+      addNotification({ user_id: user?.id || '', type: 'success', title: 'Document Word généré', message: 'Le rapport a été exporté au format Word (modèle ANACIM enrichi).', canal: 'in_app' });
+    } catch (err) {
+      addNotification({ user_id: user?.id || '', type: 'danger', title: 'Erreur', message: err instanceof Error ? err.message : 'Erreur lors de la génération du document Word', canal: 'in_app' });
+    }
+  };
+
+  // ─── Helper: génération du HTML complet du rapport ──────────────────────────
+  const rapportHtmlContent = (
+    pgFields: Record<string, string>,
+    aero: any,
+    surv: any,
+    dgName: string,
+    ref: string,
+    equipeTable: string,
+    ecartsTable: string,
+    deroule: string,
+    ecartsArray: any[],
+  ) => {
+    const ecartsList = ecartsArray;
+    const itemsDoc = checklistItems[surveillanceId] || [];
+    const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
+    const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
+    const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
+    const totalItems = itemsDoc.length;
+    const tauxConformite = totalItems > 0 ? Math.round((saCount / totalItems) * 100) : 0;
+    const byDomaine: Record<string, { sa: number; ns: number; nv: number }> = {};
+    itemsDoc.forEach(item => {
+      if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0 };
+      if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
+      else if (item.resultat === 'NS') byDomaine[item.domaine].ns++;
+      else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
+    });
+    const critCount = ecartsList.filter(e => e.niveau_risque === 'critique').length;
+
+    let byDomaineRows = '';
+    Object.entries(byDomaine).forEach(([domaine, st]) => {
+      const dTaux = (st.sa + st.ns + st.nv) > 0 ? Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100) : 0;
+      byDomaineRows += `<tr><td>${domaine}</td><td>${st.sa}</td><td>${st.ns}</td><td>${st.nv}</td><td>${dTaux}%</td></tr>`;
+    });
+
+    const pageGardeHtml = `
+      <div class="page-garde">
+        <p class="devise">République du Sénégal</p>
+        <p class="devise-sous">Un Peuple – Un But – Une Foi</p>
+        <hr class="sep" />
+        <p class="ministere">${pgFields.ministere || 'MINISTERE DES TRANSPORTS TERRESTRES ET AERIENS'}</p>
+        <div class="logo-placeholder"></div>
+        <p class="anacim">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
+        <p class="direction">${pgFields.direction || 'DIRECTION DE LA NAVIGATION AERIENNE ET DES AERODROMES'}</p>
+        <hr class="sep" />
+        <h1 class="titre-rapport">${pgFields.titreLigne1 || 'Rapport de surveillance'}</h1>
+        <h2 class="sous-titre">${pgFields.titreLigne2 || `Aéroport de ${aero?.nom || ''} (${aero?.code_oaci || ''})`}</h2>
+        <hr class="sep" />
+        <table class="infos">
+          <tr><td><strong>Date de l'inspection :</strong></td><td>${pgFields.dateInspection || `du ${surv?.date_debut ? new Date(surv.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surv?.date_fin ? new Date(surv.date_fin).toLocaleDateString('fr-FR') : 'N/A'}`}</td></tr>
+          <tr><td><strong>Référentiel :</strong></td><td>${pgFields.referentiel || ref}</td></tr>
+        </table>
+        <hr class="sep" />
+        <div class="mandataire">
+          <p class="mb-1"><strong>Mandataire</strong></p>
+          <p>${dgName || 'Directeur général ANACIM'}</p>
+          <p>Directeur général ANACIM</p>
+        </div>
+      </div>
+    `;
+
+    const resultsHtml = `
+      <h3>6.1 Score de risque</h3>
+      <p>Score global : <strong>${profil?.score_global || 'N/A'}/100</strong> (tendance : ${profil?.tendance || 'stable'})</p>
+      <table>
+        <tr><th>Critère</th><th>Valeur</th></tr>
+        <tr><td>C1 — Maturité SGS</td><td>${profil?.c1 ?? 'N/A'}/100</td></tr>
+        <tr><td>C2 — Efficacité PAC</td><td>${profil?.c2 ?? 'N/A'}/100</td></tr>
+        <tr><td>C3 — Conformité</td><td>${profil?.c3 ?? 'N/A'}/100</td></tr>
+        <tr><td>C4 — Charge critique</td><td>${profil?.c4 ?? 'N/A'}/100</td></tr>
+        <tr><td>C5 — Résilience</td><td>${profil?.c5 ?? 'N/A'}/100</td></tr>
+      </table>
+      <h3>6.2 Taux de conformité</h3>
+      <div class="stats-grid">
+        <div><div class="num">${saCount}</div><div class="label">SA</div></div>
+        <div><div class="num">${nsCount}</div><div class="label">NS</div></div>
+        <div><div class="num">${nvCount}</div><div class="label">NV</div></div>
+      </div>
+      <p>Taux de conformité réel (NV = NS) : <strong>${tauxConformite}%</strong></p>
+      ${critCount > 0 ? `<div style="background:#fde8e8;border:1px solid #fecaca;border-radius:4pt;padding:8pt 12pt;margin:12pt 0"><strong style="color:#c53030">⚠ Attention :</strong> ${critCount} écart(s) critique(s) nécessitent une action immédiate.</div>` : ''}
+      <h3>6.3 Détail par domaine</h3>
+      <table>
+        <thead><tr><th>Domaine</th><th>SA</th><th>NS</th><th>NV</th><th>Taux</th></tr></thead>
+        <tbody>${byDomaineRows || '<tr><td colspan="5">Aucun domaine évalué</td></tr>'}</tbody>
+      </table>`;
+
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Rapport de surveillance — ${aero?.nom} (${aero?.code_oaci})</title>
+<style>
+  @page { margin: 20mm 15mm; size: A4; }
+  @media print { html, body { background: white; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 20pt; font-weight: 700; margin: 24pt 0 12pt; color: #1a1a1a; }
+  h2 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14pt; font-weight: 600; margin: 20pt 0 10pt; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
+  h3 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt; color: #333; }
+  p { margin: 6pt 0; text-align: justify; }
+  table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 10pt; }
+  th, td { border: 1px solid #999; padding: 6pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; font-weight: 600; }
+  .page-break { page-break-before: always; }
+  .page-garde { text-align: center; padding-top: 60pt; }
+  .page-garde .devise { font-size: 11pt; font-weight: 700; margin-bottom: 2pt; }
+  .page-garde .devise-sous { font-size: 10pt; font-style: italic; margin-bottom: 16pt; color: #555; }
+  .page-garde .sep { border: none; border-top: 2px solid #333; margin: 16pt auto; width: 60%; }
+  .page-garde .ministere { font-size: 10pt; font-weight: 600; margin-bottom: 12pt; }
+  .page-garde .logo-placeholder { height: 48pt; margin: 12pt 0; }
+  .page-garde .anacim { font-size: 10pt; font-weight: 700; margin-bottom: 4pt; }
+  .page-garde .direction { font-size: 10pt; margin-bottom: 12pt; }
+  .page-garde .titre-rapport { font-size: 20pt; font-weight: 700; margin: 20pt 0 8pt; border: none; }
+  .page-garde .sous-titre { font-size: 14pt; font-weight: 500; margin-bottom: 12pt; border: none; color: #555; }
+  .page-garde .infos { width: auto; margin: 16pt auto; border: none; }
+  .page-garde .infos td { border: none; padding: 4pt 8pt; text-align: left; }
+  .page-garde .mandataire { margin-top: 24pt; font-size: 10pt; }
+  .sommaire { margin: 24pt 0; }
+  .sommaire h2 { border: none; text-align: center; font-size: 14pt; margin-bottom: 16pt; }
+  .sommaire ul { list-style: none; padding: 0; }
+  .sommaire li { padding: 4pt 0; font-size: 12pt; border-bottom: 1px dotted #ccc; }
+  .section-content { margin: 8pt 0; }
+  ul, ol { margin: 6pt 0; padding-left: 24pt; }
+  li { margin: 2pt 0; }
+  .badge { display: inline-block; padding: 1pt 6pt; border-radius: 2pt; font-size: 9pt; font-weight: 600; }
+  .badge.danger { background: #fde8e8; color: #c53030; }
+  .badge.warning { background: #fef3c7; color: #b45309; }
+  .badge.primary { background: #dbeafe; color: #1d4ed8; }
+  .code-oaci-badge { font-family: 'Courier New', monospace; background: #f5f5f5; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; }
+  .stats-grid { display: flex; gap: 12pt; margin: 12pt 0; }
+  .stats-grid > div { flex: 1; text-align: center; padding: 8pt; border: 1px solid #ddd; border-radius: 4pt; }
+  .stats-grid .num { font-size: 18pt; font-weight: 700; }
+  .stats-grid .label { font-size: 9pt; color: #666; }
+</style>
+</head>
+<body>
+
+${pageGardeHtml}
+
+<div class="page-break"></div>
+<div class="sommaire">
+  <h2>SOMMAIRE</h2>
+  <ul>
+    <li>1. Résumé exécutif</li>
+    <li>2. Introduction et contexte</li>
+    <li>3. Méthodologie</li>
+    <li>4. Équipe d'inspection</li>
+    <li>5. Déroulement de la surveillance</li>
+    <li>6. Résultats de l'inspection</li>
+    <li>7. Préoccupations de sécurité</li>
+    <li>8. Non-conformités identifiées</li>
+    <li>9. Recommandations</li>
+    <li>10. Conclusion</li>
+    <li>11. Annexes</li>
+  </ul>
+</div>
+
+<div class="page-break"></div>
+<h2>1. Résumé exécutif</h2>
+<div class="section-content">${sections.resume || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>2. Introduction et contexte</h2>
+<div class="section-content">${sections.introduction || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>3. Méthodologie</h2>
+<div class="section-content">${sections.methodologie || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>4. Équipe d'inspection</h2>
+<div class="section-content">${equipeTable}</div>
+
+<div class="page-break"></div>
+<h2>5. Déroulement de la surveillance</h2>
+<div class="section-content">${deroule || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>6. Résultats de l'inspection</h2>
+<div class="section-content">${resultsHtml}</div>
+
+<div class="page-break"></div>
+<h2>7. Préoccupations de sécurité</h2>
+<div class="section-content">${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>
+
+<div class="page-break"></div>
+<h2>8. Non-conformités identifiées</h2>
+<div class="section-content">${ecartsTable}</div>
+
+<div class="page-break"></div>
+<h2>9. Recommandations</h2>
+<div class="section-content">${sections.recommandations || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>10. Conclusion</h2>
+<div class="section-content">${sections.conclusion || '<p>À compléter...</p>'}</div>
+
+<div class="page-break"></div>
+<h2>11. Annexes</h2>
+<div class="section-content">
+  <p><em>Les annexes détaillées sont disponibles dans le dossier de surveillance.</em></p>
+  <h3>Écarts constatés (${ecartsList.length})</h3>
+  ${ecartsTable}
+</div>
+
+</body>
+</html>`;
+  };
 
   // Analyse qualité du rapport via reportAgent
   const handleAnalyse = useCallback(async () => {
@@ -1263,235 +1773,34 @@ N'inclus PAS le titre de la section dans le contenu.`;
       addNotification({
         user_id: user?.id || '',
         type: 'info',
-        title: 'Préparation du document',
-        message: 'Génération du document…',
+        title: 'Préparation du PDF',
+        message: 'Génération du document PDF…',
         canal: 'in_app',
       });
 
-      const ecartsList = surveillanceEcarts();
       const today = new Date();
       const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${String(today.getMonth()+1).padStart(2,'0')}_SURV`;
 
-      const equipeHtml = generateEquipeHtml();
-      const ecartsTableHtml = generateEcartsTable();
-      
-      // Build results HTML for the standalone document (simpler than the UI version)
-      const ecartsListDoc = surveillanceEcarts();
-      const itemsDoc = checklistItems[surveillanceId] || [];
-      const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
-      const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
-      const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
-      const totalItems = itemsDoc.length;
-      const tauxConformite = totalItems > 0 ? Math.round((saCount / totalItems) * 100) : 0;
-      const byDomaine: Record<string, { sa: number; ns: number; nv: number }> = {};
-      itemsDoc.forEach(item => {
-        if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0 };
-        if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
-        else if (item.resultat === 'NS') byDomaine[item.domaine].ns++;
-        else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
+      const { batirRapportSurveillancePdf } = await import('@/lib/services/rapportSurveillancePdf');
+      const blob = await batirRapportSurveillancePdf({
+        surveillance,
+        aerodrome,
+        profil,
+        items: checklistItems[surveillanceId] || [],
+        ecarts: surveillanceEcarts(),
+        utilisateurs,
+        sections,
+        pageGardeFields,
+        dgNom,
+        reference,
       });
-      const critCount = ecartsListDoc.filter(e => e.niveau_risque === 'critique').length;
-      const hautCount = ecartsListDoc.filter(e => e.niveau_risque === 'eleve').length;
-      
-      let byDomaineRows = '';
-      Object.entries(byDomaine).forEach(([domaine, st]) => {
-        const dTaux = (st.sa + st.ns + st.nv) > 0 ? Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100) : 0;
-        byDomaineRows += `<tr><td>${domaine}</td><td>${st.sa}</td><td>${st.ns}</td><td>${st.nv}</td><td>${dTaux}%</td></tr>`;
-      });
-
-      const resultsHtml = `
-        <h3>6.1 Score de risque</h3>
-        <p>Score global : <strong>${profil?.score_global || 'N/A'}/100</strong> (tendance : ${profil?.tendance || 'stable'})</p>
-        <table>
-          <tr><th>Critère</th><th>Valeur</th></tr>
-          <tr><td>C1 — Maturité SGS</td><td>${profil?.c1 ?? 'N/A'}/100</td></tr>
-          <tr><td>C2 — Efficacité PAC</td><td>${profil?.c2 ?? 'N/A'}/100</td></tr>
-          <tr><td>C3 — Conformité</td><td>${profil?.c3 ?? 'N/A'}/100</td></tr>
-          <tr><td>C4 — Charge critique</td><td>${profil?.c4 ?? 'N/A'}/100</td></tr>
-          <tr><td>C5 — Résilience</td><td>${profil?.c5 ?? 'N/A'}/100</td></tr>
-        </table>
-        <h3>6.2 Taux de conformité</h3>
-        <div class="stats-grid">
-          <div><div class="num">${saCount}</div><div class="label">SA</div></div>
-          <div><div class="num">${nsCount}</div><div class="label">NS</div></div>
-          <div><div class="num">${nvCount}</div><div class="label">NV</div></div>
-        </div>
-        <p>Taux de conformité réel (NV = NS) : <strong>${checklistStats.taux}%</strong></p>
-        ${critCount > 0 ? `<div style="background:#fde8e8;border:1px solid #fecaca;border-radius:4pt;padding:8pt 12pt;margin:12pt 0"><strong style="color:#c53030">⚠ Attention :</strong> ${critCount} écart(s) critique(s) nécessitent une action immédiate.</div>` : ''}
-        <h3>6.3 Détail par domaine</h3>
-        <table>
-          <thead><tr><th>Domaine</th><th>SA</th><th>NS</th><th>NV</th><th>Taux</th></tr></thead>
-          <tbody>${byDomaineRows || '<tr><td colspan="5">Aucun domaine évalué</td></tr>'}</tbody>
-        </table>`;
-
-      const deroulementHtml = [
-        sections.deroulement.preparation && `<h3>5.1 Préparation</h3>${sections.deroulement.preparation}`,
-        sections.deroulement.reunionOuverture && `<h3>5.2 Réunion d'ouverture</h3>${sections.deroulement.reunionOuverture}`,
-        sections.deroulement.verificationSite && `<h3>5.3 Vérification sur site</h3>${sections.deroulement.verificationSite}`,
-        sections.deroulement.reunionCloture && `<h3>5.4 Réunion de clôture</h3>${sections.deroulement.reunionCloture}`,
-      ].filter(Boolean).join('');
-
-      const pageGardeHtml = `
-        <div class="page-garde">
-          <p class="devise">République du Sénégal</p>
-          <p class="devise-sous">Un Peuple – Un But – Une Foi</p>
-          <hr class="sep" />
-          <p class="ministere">${pageGardeFields.ministere || 'MINISTERE DES TRANSPORTS TERRESTRES ET AERIENS'}</p>
-          <div class="logo-placeholder"></div>
-          <p class="anacim">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
-          <p class="direction">${pageGardeFields.direction || 'DIRECTION DE LA NAVIGATION AERIENNE ET DES AERODROMES'}</p>
-          <hr class="sep" />
-          <h1 class="titre-rapport">${pageGardeFields.titreLigne1 || 'Rapport de surveillance'}</h1>
-          <h2 class="sous-titre">${pageGardeFields.titreLigne2 || `Aéroport de ${aerodrome?.nom || ''} (${aerodrome?.code_oaci || ''})`}</h2>
-          <hr class="sep" />
-          <table class="infos">
-            <tr><td><strong>Date de l'inspection :</strong></td><td>${pageGardeFields.dateInspection || `du ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}`}</td></tr>
-            <tr><td><strong>Référentiel :</strong></td><td>${pageGardeFields.referentiel || reference}</td></tr>
-          </table>
-          <hr class="sep" />
-          <div class="mandataire">
-            <p class="mb-1"><strong>Mandataire</strong></p>
-            <p>${dgNom || 'Directeur général ANACIM'}</p>
-            <p>Directeur général ANACIM</p>
-          </div>
-        </div>
-      `;
-
-      const fullHtml = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>Rapport de surveillance — ${aerodrome?.nom} (${aerodrome?.code_oaci})</title>
-<style>
-  @page { margin: 20mm 15mm; size: A4; }
-  @media print { html, body { background: white; } }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.6; color: #1a1a1a; }
-  h1 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 20pt; font-weight: 700; margin: 24pt 0 12pt; color: #1a1a1a; }
-  h2 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14pt; font-weight: 600; margin: 20pt 0 10pt; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
-  h3 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt; color: #333; }
-  p { margin: 6pt 0; text-align: justify; }
-  table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 10pt; }
-  th, td { border: 1px solid #999; padding: 6pt 8pt; text-align: left; vertical-align: top; }
-  th { background: #f0f0f0; font-weight: 600; }
-  .page-break { page-break-before: always; }
-  .page-garde { text-align: center; padding-top: 60pt; }
-  .page-garde .devise { font-size: 11pt; font-weight: 700; margin-bottom: 2pt; }
-  .page-garde .devise-sous { font-size: 10pt; font-style: italic; margin-bottom: 16pt; color: #555; }
-  .page-garde .sep { border: none; border-top: 2px solid #333; margin: 16pt auto; width: 60%; }
-  .page-garde .ministere { font-size: 10pt; font-weight: 600; margin-bottom: 12pt; }
-  .page-garde .logo-placeholder { height: 48pt; margin: 12pt 0; }
-  .page-garde .anacim { font-size: 10pt; font-weight: 700; margin-bottom: 4pt; }
-  .page-garde .direction { font-size: 10pt; margin-bottom: 12pt; }
-  .page-garde .titre-rapport { font-size: 20pt; font-weight: 700; margin: 20pt 0 8pt; border: none; }
-  .page-garde .sous-titre { font-size: 14pt; font-weight: 500; margin-bottom: 12pt; border: none; color: #555; }
-  .page-garde .infos { width: auto; margin: 16pt auto; border: none; }
-  .page-garde .infos td { border: none; padding: 4pt 8pt; text-align: left; }
-  .page-garde .mandataire { margin-top: 24pt; font-size: 10pt; }
-  .sommaire { margin: 24pt 0; }
-  .sommaire h2 { border: none; text-align: center; font-size: 14pt; margin-bottom: 16pt; }
-  .sommaire ul { list-style: none; padding: 0; }
-  .sommaire li { padding: 4pt 0; font-size: 12pt; border-bottom: 1px dotted #ccc; }
-  .section-content { margin: 8pt 0; }
-  ul, ol { margin: 6pt 0; padding-left: 24pt; }
-  li { margin: 2pt 0; }
-  .badge { display: inline-block; padding: 1pt 6pt; border-radius: 2pt; font-size: 9pt; font-weight: 600; }
-  .badge.danger { background: #fde8e8; color: #c53030; }
-  .badge.warning { background: #fef3c7; color: #b45309; }
-  .badge.primary { background: #dbeafe; color: #1d4ed8; }
-  .code-oaci-badge { font-family: 'Courier New', monospace; background: #f5f5f5; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; }
-  .stats-grid { display: flex; gap: 12pt; margin: 12pt 0; }
-  .stats-grid > div { flex: 1; text-align: center; padding: 8pt; border: 1px solid #ddd; border-radius: 4pt; }
-  .stats-grid .num { font-size: 18pt; font-weight: 700; }
-  .stats-grid .label { font-size: 9pt; color: #666; }
-</style>
-</head>
-<body>
-
-${pageGardeHtml}
-
-<div class="page-break"></div>
-<div class="sommaire">
-  <h2>SOMMAIRE</h2>
-  <ul>
-    <li>1. Résumé exécutif</li>
-    <li>2. Introduction et contexte</li>
-    <li>3. Méthodologie</li>
-    <li>4. Équipe d'inspection</li>
-    <li>5. Déroulement de la surveillance</li>
-    <li>6. Résultats de l'inspection</li>
-    <li>7. Préoccupations de sécurité</li>
-    <li>8. Non-conformités identifiées</li>
-    <li>9. Recommandations</li>
-    <li>10. Conclusion</li>
-    <li>11. Annexes</li>
-  </ul>
-</div>
-
-<div class="page-break"></div>
-<h2>1. Résumé exécutif</h2>
-<div class="section-content">${sections.resume || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>2. Introduction et contexte</h2>
-<div class="section-content">${sections.introduction || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>3. Méthodologie</h2>
-<div class="section-content">${sections.methodologie || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>4. Équipe d'inspection</h2>
-<div class="section-content">${equipeHtml}</div>
-
-<div class="page-break"></div>
-<h2>5. Déroulement de la surveillance</h2>
-<div class="section-content">${deroulementHtml || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>6. Résultats de l'inspection</h2>
-<div class="section-content">${resultsHtml}</div>
-
-<div class="page-break"></div>
-<h2>7. Préoccupations de sécurité</h2>
-<div class="section-content">${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>
-
-<div class="page-break"></div>
-<h2>8. Non-conformités identifiées</h2>
-<div class="section-content">${ecartsTableHtml}</div>
-
-<div class="page-break"></div>
-<h2>9. Recommandations</h2>
-<div class="section-content">${sections.recommandations || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>10. Conclusion</h2>
-<div class="section-content">${sections.conclusion || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>11. Annexes</h2>
-<div class="section-content">
-  <p><em>Les annexes détaillées sont disponibles dans le dossier de surveillance.</em></p>
-  <h3>Écarts constatés (${ecartsList.length})</h3>
-  ${ecartsTableHtml}
-</div>
-
-</body>
-</html>`;
-
-      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank');
-      if (win) {
-        win.document.title = `Rapport_${aerodrome?.code_oaci || 'rapport'}`;
-      }
-      URL.revokeObjectURL(url);
-
+      const { downloadBlob } = await import('@/lib/pdfGenerator');
+      downloadBlob(blob, `Rapport_${aerodrome?.code_oaci || 'rapport'}.pdf`);
       addNotification({
         user_id: user?.id || '',
         type: 'success',
-        title: 'Document généré',
-        message: 'Le document s\'est ouvert dans un nouvel onglet. Utilisez Ctrl+P ou Cmd+P pour l\'exporter en PDF.',
+        title: 'PDF généré',
+        message: 'Le rapport a été téléchargé au format PDF.',
         canal: 'in_app',
       });
     } catch (err) {
@@ -1499,21 +1808,17 @@ ${pageGardeHtml}
         user_id: user?.id || '',
         type: 'danger',
         title: 'Erreur',
-        message: err instanceof Error ? err.message : 'Erreur lors de la génération du document',
+        message: err instanceof Error ? err.message : 'Erreur lors de la génération du PDF',
         canal: 'in_app',
       });
     }
   };
 
   const handlePrint = () => {
-    // Generate same clean document HTML as PDF export, but auto-trigger print
-    const ecartsList = surveillanceEcarts();
     const today = new Date();
     const reference = `${aerodrome?.code_oaci || 'XXX'}_${today.getFullYear()}_${String(today.getMonth()+1).padStart(2,'0')}_SURV`;
-
     const equipeHtml = generateEquipeHtml();
     const ecartsTableHtml = generateEcartsTable();
-
     const deroulementHtml = [
       sections.deroulement.preparation && `<h3>5.1 Préparation</h3>${sections.deroulement.preparation}`,
       sections.deroulement.reunionOuverture && `<h3>5.2 Réunion d'ouverture</h3>${sections.deroulement.reunionOuverture}`,
@@ -1521,164 +1826,13 @@ ${pageGardeHtml}
       sections.deroulement.reunionCloture && `<h3>5.4 Réunion de clôture</h3>${sections.deroulement.reunionCloture}`,
     ].filter(Boolean).join('');
 
-    const pageGardeHtml = `
-      <div class="page-garde">
-        <p class="devise">République du Sénégal</p>
-        <p class="devise-sous">Un Peuple – Un But – Une Foi</p>
-        <hr class="sep" />
-        <p class="ministere">${pageGardeFields.ministere || 'MINISTERE DES TRANSPORTS TERRESTRES ET AERIENS'}</p>
-        <div class="logo-placeholder"></div>
-        <p class="anacim">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
-        <p class="direction">${pageGardeFields.direction || 'DIRECTION DE LA NAVIGATION AERIENNE ET DES AERODROMES'}</p>
-        <hr class="sep" />
-        <h1 class="titre-rapport">${pageGardeFields.titreLigne1 || 'Rapport de surveillance'}</h1>
-        <h2 class="sous-titre">${pageGardeFields.titreLigne2 || `Aéroport de ${aerodrome?.nom || ''} (${aerodrome?.code_oaci || ''})`}</h2>
-        <hr class="sep" />
-        <table class="infos">
-          <tr><td><strong>Date de l'inspection :</strong></td><td>${pageGardeFields.dateInspection || `du ${surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A'} au ${surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A'}`}</td></tr>
-          <tr><td><strong>Référentiel :</strong></td><td>${pageGardeFields.referentiel || reference}</td></tr>
-        </table>
-        <hr class="sep" />
-        <div class="mandataire">
-          <p class="mb-1"><strong>Mandataire</strong></p>
-          <p>${dgNom || 'Directeur général ANACIM'}</p>
-          <p>Directeur général ANACIM</p>
-        </div>
-      </div>
-    `;
-
-    const fullHtml = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>Rapport de surveillance — ${aerodrome?.nom} (${aerodrome?.code_oaci})</title>
-<style>
-  @page { margin: 20mm 15mm; size: A4; }
-  @media print { html, body { background: white; } }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.6; color: #1a1a1a; }
-  h1 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 20pt; font-weight: 700; margin: 24pt 0 12pt; color: #1a1a1a; }
-  h2 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14pt; font-weight: 600; margin: 20pt 0 10pt; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
-  h3 { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt; color: #333; }
-  p { margin: 6pt 0; text-align: justify; }
-  table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 10pt; }
-  th, td { border: 1px solid #999; padding: 6pt 8pt; text-align: left; vertical-align: top; }
-  th { background: #f0f0f0; font-weight: 600; }
-  .page-break { page-break-before: always; }
-  .page-garde { text-align: center; padding-top: 60pt; }
-  .page-garde .devise { font-size: 11pt; font-weight: 700; margin-bottom: 2pt; }
-  .page-garde .devise-sous { font-size: 10pt; font-style: italic; margin-bottom: 16pt; color: #555; }
-  .page-garde .sep { border: none; border-top: 2px solid #333; margin: 16pt auto; width: 60%; }
-  .page-garde .ministere { font-size: 10pt; font-weight: 600; margin-bottom: 12pt; }
-  .page-garde .logo-placeholder { height: 48pt; margin: 12pt 0; }
-  .page-garde .anacim { font-size: 10pt; font-weight: 700; margin-bottom: 4pt; }
-  .page-garde .direction { font-size: 10pt; margin-bottom: 12pt; }
-  .page-garde .titre-rapport { font-size: 20pt; font-weight: 700; margin: 20pt 0 8pt; border: none; }
-  .page-garde .sous-titre { font-size: 14pt; font-weight: 500; margin-bottom: 12pt; border: none; color: #555; }
-  .page-garde .infos { width: auto; margin: 16pt auto; border: none; }
-  .page-garde .infos td { border: none; padding: 4pt 8pt; text-align: left; }
-  .sommaire { margin: 24pt 0; }
-  .sommaire h2 { border: none; text-align: center; font-size: 14pt; margin-bottom: 16pt; }
-  .sommaire ul { list-style: none; padding: 0; }
-  .sommaire li { padding: 4pt 0; font-size: 12pt; border-bottom: 1px dotted #ccc; }
-  .section-content { margin: 8pt 0; }
-  ul, ol { margin: 6pt 0; padding-left: 24pt; }
-  li { margin: 2pt 0; }
-  .badge { display: inline-block; padding: 1pt 6pt; border-radius: 2pt; font-size: 9pt; font-weight: 600; }
-  .badge.danger { background: #fde8e8; color: #c53030; }
-  .badge.warning { background: #fef3c7; color: #b45309; }
-  .badge.primary { background: #dbeafe; color: #1d4ed8; }
-  .code-oaci-badge { font-family: 'Courier New', monospace; background: #f5f5f5; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; }
-  .stats-grid { display: flex; gap: 12pt; margin: 12pt 0; }
-  .stats-grid > div { flex: 1; text-align: center; padding: 8pt; border: 1px solid #ddd; border-radius: 4pt; }
-  .stats-grid .num { font-size: 18pt; font-weight: 700; }
-  .stats-grid .label { font-size: 9pt; color: #666; }
-</style>
-</head>
-<body>
-
-${pageGardeHtml}
-
-<div class="page-break"></div>
-<div class="sommaire">
-  <h2>SOMMAIRE</h2>
-  <ul>
-    <li>1. Résumé exécutif</li>
-    <li>2. Introduction et contexte</li>
-    <li>3. Méthodologie</li>
-    <li>4. Équipe d'inspection</li>
-    <li>5. Déroulement de la surveillance</li>
-    <li>6. Résultats de l'inspection</li>
-    <li>7. Préoccupations de sécurité</li>
-    <li>8. Non-conformités identifiées</li>
-    <li>9. Recommandations</li>
-    <li>10. Conclusion</li>
-    <li>11. Annexes</li>
-  </ul>
-</div>
-
-<div class="page-break"></div>
-<h2>1. Résumé exécutif</h2>
-<div class="section-content">${sections.resume || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>2. Introduction et contexte</h2>
-<div class="section-content">${sections.introduction || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>3. Méthodologie</h2>
-<div class="section-content">${sections.methodologie || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>4. Équipe d'inspection</h2>
-<div class="section-content">${equipeHtml}</div>
-
-<div class="page-break"></div>
-<h2>5. Déroulement de la surveillance</h2>
-<div class="section-content">${deroulementHtml || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>6. Résultats de l'inspection</h2>
-<div class="section-content">
-  ${sections.resultsIntro || ''}
-  <p>Score global : ${profil?.score_global || 'N/A'}/100 (tendance : ${profil?.tendance || 'stable'})</p>
-  <p>Taux de conformité : ${checklistStats.taux}% (SA: ${checklistStats.sa}, NS: ${checklistStats.ns}, NV: ${checklistStats.nv})</p>
-  ${sections.resultsAnalysis || ''}
-</div>
-
-<div class="page-break"></div>
-<h2>7. Préoccupations de sécurité</h2>
-<div class="section-content">${sections.preoccupations || '<p>Aucune préoccupation majeure identifiée.</p>'}</div>
-
-<div class="page-break"></div>
-<h2>8. Non-conformités identifiées</h2>
-<div class="section-content">${ecartsTableHtml}</div>
-
-<div class="page-break"></div>
-<h2>9. Recommandations</h2>
-<div class="section-content">${sections.recommandations || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>10. Conclusion</h2>
-<div class="section-content">${sections.conclusion || '<p>À compléter...</p>'}</div>
-
-<div class="page-break"></div>
-<h2>11. Annexes</h2>
-<div class="section-content">
-  <p><em>Les annexes détaillées sont disponibles dans le dossier de surveillance.</em></p>
-  <h3>Écarts constatés (${ecartsList.length})</h3>
-  ${ecartsTableHtml}
-</div>
-
-</body>
-</html>`;
+    const fullHtml = rapportHtmlContent(pageGardeFields, aerodrome, surveillance, dgNom, reference, equipeHtml, ecartsTableHtml, deroulementHtml, surveillanceEcarts());
 
     const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank');
     if (win) {
       win.document.title = `Rapport_${aerodrome?.code_oaci || 'rapport'}`;
-      // Trigger browser print after document loads
       const checkReady = setInterval(() => {
         if (win.document.readyState === 'complete') {
           clearInterval(checkReady);
@@ -1718,6 +1872,25 @@ ${pageGardeHtml}
     document.execCommand(cmd, false, value);
   };
 
+  // ─── Handler IA global (router vers la bonne section) ──────────────
+  const handleIACommand = useCallback((instruction: string) => {
+    const lower = instruction.toLowerCase();
+    if (lower.includes('résumé') || lower.includes('resume') || lower.includes('executif'))
+      improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction);
+    else if (lower.includes('recommandation'))
+      improveSection('recommandations', sections.recommandations, 'RECOMMANDATIONS', instruction);
+    else if (lower.includes('conclusion'))
+      improveSection('conclusion', sections.conclusion, 'CONCLUSION', instruction);
+    else if (lower.includes('analyse') || lower.includes('resultat') || lower.includes('résultat'))
+      improveSection('resultsAnalysis', sections.resultsAnalysis, 'ANALYSE DES RÉSULTATS', instruction);
+    else if (lower.includes('introduction') || lower.includes('contexte'))
+      improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction);
+    else if (lower.includes('méthodo') || lower.includes('methodo'))
+      improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction);
+    else
+      improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction);
+  }, [sections, improveSection]);
+
   if (isSigned) {
     return (
       <Card variant="level" levelColor="success" className="border-success bg-success/10 text-center" data-role={userRole}>
@@ -1728,6 +1901,10 @@ ${pageGardeHtml}
           <button onClick={handleExportPDF} className="btn btn-secondary gap-2">
             <Download className="h-4 w-4" />
             Télécharger PDF
+          </button>
+          <button onClick={handleExportDOCX} className="btn btn-secondary gap-2">
+            <FileText className="h-4 w-4" />
+            Word
           </button>
           <button onClick={handlePrint} className="btn btn-secondary gap-2">
             <Printer className="h-4 w-4" />
@@ -1749,11 +1926,12 @@ ${pageGardeHtml}
         readOnly={readOnly}
         onSign={handleSign}
         isSigned={isSigned}
-        onIACommand={(instruction) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
+        onIACommand={handleIACommand}
         isIaGenerating={isImproving}
         onDictate={toggleDictation}
         isDictating={isDictating}
         onAnalyse={handleAnalyse}
+        onShowVersionHistory={() => setShowVersionHistory(true)}
       />
 
       <div ref={reportContainerRef} className="rapport-a4">
@@ -1921,7 +2099,7 @@ ${pageGardeHtml}
         <div className="fixed bottom-4 right-4 z-50">
           <button onClick={generateFullReport} className="btn btn-primary gap-2 shadow-lg animate-pulse">
             <Sparkles className="w-4 h-4" />
-            Générer le rapport avec IA
+            Générer le rapport avec AERORISQ
           </button>
         </div>
       )}
@@ -1931,7 +2109,67 @@ ${pageGardeHtml}
           <div className="bg-background rounded-2xl p-6 text-center">
             <Loader2 className="w-8 h-8 animate-spin text-role-primary mx-auto mb-4" />
             <p className="text-lg font-medium">Génération du rapport en cours...</p>
-            <p className="text-sm text-muted-foreground mt-1">L'IA analyse les données et rédige le rapport</p>
+            <p className="text-sm text-muted-foreground mt-1">AERORISQ analyse les données et rédige le rapport</p>
+          </div>
+        </div>
+      )}
+
+      {showVersionHistory && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowVersionHistory(false)}>
+          <div className="bg-background rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title flex items-center gap-2"><History className="w-4 h-4" /> Historique des versions</h2>
+              <button className="modal-close" onClick={() => setShowVersionHistory(false)}><X className="w-4 h-4" /></button>
+            </div>
+            <div className="modal-body p-5 flex-1 overflow-y-auto">
+              {(() => {
+                const versions = (() => {
+                  try { return JSON.parse(surveillance?.rapport_versions || '[]'); } catch { return []; }
+                })();
+                if (versions.length === 0) {
+                  return <p className="text-center text-muted-foreground">Aucune version sauvegardée</p>;
+                }
+                return (
+                  <div className="space-y-4">
+                    {[...versions].reverse().map((v: any) => (
+                      <div key={v.version} className="border border-border rounded-xl p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="font-semibold flex items-center gap-2">
+                              Version {v.version}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                {new Date(v.modifie_le).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">par {v.modifie_par_nom}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {v.sections_modifiees?.map((sec: string) => (
+                            <span key={sec} className="text-[10px] px-2 py-0.5 rounded-full bg-role-primary-soft text-role-primary font-medium">{sec}</span>
+                          ))}
+                        </div>
+                        {v.diff && Object.keys(v.diff).length > 0 && (
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Voir le détail des modifications</summary>
+                            <div className="mt-2 space-y-1 max-h-40 overflow-y-auto bg-gray-50 rounded-lg p-2">
+                              {Object.entries(v.diff).map(([key, d]: [string, any]) => (
+                                <div key={key} className="border-l-2 border-role-primary pl-2 py-1">
+                                  <p className="font-medium text-foreground">{key}</p>
+                                  {d.ancien && <p className="text-danger line-through">{d.ancien.substring(0, 120)}{d.ancien.length > 120 ? '…' : ''}</p>}
+                                  {d.nouveau && <p className="text-success">{d.nouveau.substring(0, 120)}{d.nouveau.length > 120 ? '…' : ''}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowVersionHistory(false)}>Fermer</button></div>
           </div>
         </div>
       )}

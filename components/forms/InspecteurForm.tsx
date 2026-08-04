@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useContext, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
+import { useFormProgress } from '@/hooks/useFormProgress'
+import { FormProgressContext } from '@/components/ui/FormShell'
 import { AlertCircle } from 'lucide-react'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -74,6 +76,16 @@ export function InspecteurForm({ inspecteurId, initial, onSubmit, onCancel }: Pr
   const [domaines, setDomaines] = useState<Record<string, { coche: boolean; niveau: string }>>(
     Object.fromEntries(DOMAINES_AGA.map(d => [d, { coche: false, niveau: '1' }]))
   )
+
+  const progress = useFormProgress({
+    matricule: form.matricule,
+    prenom: form.prenom,
+    nom: form.nom,
+    email: form.email,
+    competences: Object.values(domaines).filter(d => d.coche),
+  }, ['matricule', 'prenom', 'nom', 'email', 'competences'])
+  const setProgress = useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
 
   const toggleDomaine = (d: string) => setDomaines(prev => ({ ...prev, [d]: { ...prev[d], coche: !prev[d].coche } }))
   const setNiveau = (d: string, niveau: string) => setDomaines(prev => ({ ...prev, [d]: { ...prev[d], niveau } }))

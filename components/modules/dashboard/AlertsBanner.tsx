@@ -112,7 +112,7 @@ export function AlertsBanner({ userRole }: AlertsBannerProps) {
         const jours = Math.ceil((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
         result.push({
           id: `evt-attente-${evt.id}`,
-          priorite: evt.gravite === 'CRITIQUE' ? 'CRITIQUE' : 'HAUTE',
+          priorite: evt.gravite === 'critique' ? 'CRITIQUE' : 'HAUTE',
           titre: 'Événement en attente de traitement',
           message: `Événement ${evt.reference} (${evt.type}) en attente de traitement depuis ${jours} jours.`,
           module: 'evenements', date,

@@ -58,6 +58,7 @@ interface PlanningCardProps {
   onDelete?: (planning: Planning) => void
   isLancee?: boolean
   surveillanceId?: string
+  estRetard?: boolean
   userRole?: string
   profilScore?: number
   onSuggestionIA?: (planning: Planning) => void
@@ -689,6 +690,7 @@ export function PlanningCard({
   onDelete,
   isLancee = false,
   surveillanceId,
+  estRetard = false,
   userRole = 'inspector',
   profilScore,
   onSuggestionIA,
@@ -745,6 +747,7 @@ export function PlanningCard({
   }
   
   const getBorderColor = () => {
+    if (estRetard) return 'border-l-danger'
     if (planning.est_proposition) return 'border-l-warning'
     if (planning.priorite === 'critique') return 'border-l-danger'
     if (planning.priorite === 'haute') return 'border-l-warning'
@@ -773,7 +776,10 @@ export function PlanningCard({
   })
   
   const isProposition = planning.est_proposition
-  const sb = statusBadge(planning.statut)
+  const sbRaw = statusBadge(planning.statut)
+  const sb = estRetard && planning.statut === 'planifiee'
+    ? { cls: 'badge danger animate-pulse', icon: AlertTriangle, label: 'Dépassé' }
+    : sbRaw
   const StatutIcon = sb.icon
   const pb = prioriteBadge(planning.priorite)
   const borderColor = getBorderColor()
@@ -869,7 +875,7 @@ export function PlanningCard({
             
             {/* Action buttons */}
              <div className="flex items-center gap-2">
-               {/* Bouton Suggestion IA & Profil - Dynamique selon le profil */}
+               {/* Bouton Suggestion AERORISQ & Profil - Dynamique selon le profil */}
                {onSuggestionIA && (
                  <button
                    className={`action-button transition-all duration-300 ${
@@ -879,7 +885,7 @@ export function PlanningCard({
                      'text-primary hover:bg-primary/10 hover:scale-110'
                    }`}
                    onClick={() => onSuggestionIA(planning)}
-                   title={profilScore !== undefined && profilScore !== null ? `Suggestion IA & Profil (Score: ${profilScore}/100)` : "Suggestion IA & Profil"}
+                   title={profilScore !== undefined && profilScore !== null ? `Suggestion AERORISQ & Profil (Score: ${profilScore}/100)` : "Suggestion AERORISQ & Profil"}
                  >
                    <Brain className="h-4 w-4" />
                  </button>
@@ -940,6 +946,19 @@ export function PlanningCard({
              </div>
           </div>
           
+          {/* Alerte planning dépassé */}
+          {estRetard && (
+            <div className="mb-3 flex items-start gap-2 p-2.5 rounded-lg border border-danger/40 bg-danger-soft/20">
+              <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <p className="font-semibold text-danger">Planning dépassé — date de fin écoulée</p>
+                <p className="text-muted-foreground mt-0.5">
+                  Ce planning a dépassé sa date de fin ({endDate}) sans être clôturé. Réajustez les dates ou clôturez-le.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Objectifs */}
           {planning.objectifs && (
             <p className="text-sm text-muted-foreground mb-3 line-clamp-2 bg-role-primary-soft p-2 rounded">

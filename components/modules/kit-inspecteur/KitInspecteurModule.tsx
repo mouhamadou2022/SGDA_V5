@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FormShell } from '@/components/ui/FormShell';
@@ -31,86 +31,43 @@ import {
   Share2,
   Trash2,
   Edit3,
-  ChevronDown,
   Grid3x3,
   List,
-  Tag,
   Brain,
-  Database,
   Sparkles,
   AlertTriangle,
-  AlertOctagon,
-  Clock,
   X,
   ClipboardList,
   LayoutList,
+  Layers,
   Target,
   PenSquare,
   Filter,
+  Archive,
+  Clock,
+  Shield,
+  ChevronRight,
+  History,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist } from '@/lib/store';
+import { SGS_COMPOSANTES_STRUCTURE } from '@/types/checklist';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist, type ChecklistTemplate, type ChecklistTemplateCategorie } from '@/lib/store';
 import { uploadFile } from '@/lib/datastore';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { kitUtils } from '@/lib/kitUtils';
 import { formatDate } from '@/lib/utils';
-import { kitDocAgent, generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
-import { expandDomaines } from '@/lib/domaines';
+import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
+import { generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
+import { getDomainesIndividuelsCodes } from '@/lib/domaines';
+import { parseChecklistWord } from '@/lib/services/checklistParser';
+import type { TemplateDiff } from '@/lib/services/checklistTemplateService';
+import { KitDocForm } from '@/components/forms';
+import { TYPES_DOCUMENTS, DOMAINES, ETATS_DOCUMENT } from '@/lib/kitOptions';
 
 interface KitInspecteurModuleProps {
   userRole: string;
 }
-
-// Types de documents (catégorie)
-const TYPES_DOCUMENTS = [
-  { id: 'reglementation', label: 'Réglementation', icon: FileText, color: 'primary' },
-  { id: 'procedure', label: 'Procédure', icon: FileText, color: 'primary' },
-  { id: 'checklist', label: 'Checklist', icon: FileText, color: 'success' },
-  { id: 'modele_rapport', label: 'Modèle de rapport', icon: FileText, color: 'info' },
-  { id: 'guide', label: 'Guide', icon: FileText, color: 'warning' },
-  { id: 'autre', label: 'Autre', icon: FileText, color: 'neutral' },
-];
-
-// Types OACI de référence
-const TYPES_OACI: { id: TypeDocumentOACI; label: string }[] = [
-  { id: 'RAS-14', label: 'RAS 14 (Norme aérodromes)' },
-  { id: 'Circulaires', label: 'Circulaires ANACIM' },
-  { id: 'Guides', label: 'Guides OACI (Doc 9157, 9261...)' },
-  { id: 'Checklists', label: 'Checklists officielles' },
-  { id: 'Procédures', label: 'Procédures internes' },
-  { id: 'Rapports', label: 'Rapports de surveillance' },
-  { id: 'Formulaires', label: 'Formulaires ANACIM' },
-];
-
-// Formats de fichier
-const FORMATS_FICHIER: { id: FormatDocument; label: string }[] = [
-  { id: 'PDF', label: 'PDF' },
-  { id: 'DOCX', label: 'Word (DOCX)' },
-  { id: 'XLS', label: 'Excel (XLS/XLSX)' },
-  { id: 'PPT', label: 'PowerPoint (PPT)' },
-  { id: 'ZIP', label: 'Archive (ZIP)' },
-];
-
-// Domaines (alignés avec DOMAINES_SURVEILLANCE)
-const DOMAINES = [
-  { id: 'SGS', label: 'SGS — Système de Gestion de la Sécurité' },
-  { id: 'SLI', label: 'SLI — Sauvetage et Lutte contre l\'Incendie' },
-  { id: 'PHY', label: 'PHY — Caractéristiques Physiques' },
-  { id: 'OLS', label: 'OLS — Surface de Limitation d\'Obstacles' },
-  { id: 'RA', label: 'RA — Risque Animalier' },
-  { id: 'ELEC', label: 'ELEC — Réseaux Électriques' },
-  { id: 'MFP', label: 'MFP — Marques, Feux et Panneaux' },
-  { id: 'COP', label: 'COP — Compétences Organisationnelles et Personnels' },
-  { id: 'OPS', label: 'OPS — Procédures Opérationnelles' },
-  { id: 'AGA', label: 'AGA — Tous domaines' },
-];
-
-// États
-const ETATS_DOCUMENT = [
-  { id: 'a_jour', label: 'À jour', icon: CheckCircle2, color: 'success' },
-  { id: 'en_revision', label: 'En révision', icon: RefreshCw, color: 'warning' },
-  { id: 'obsolete', label: 'Obsolète', icon: XCircle, color: 'danger' },
-];
 
 // Mapping des couleurs pour les classes CSS (non dynamiques)
 const TYPE_COLOR_CLASSES: Record<string, string> = {
@@ -167,262 +124,6 @@ const TYPE_SURVEILLANCE_OPTIONS = [
   { value: 'maintien', label: 'Maintien', description: 'Suivi des écarts et mesures correctives' },
 ];
 
-/* ───────── Composants de modale extraits (module-level) ───────── */
-
-function FormModal({ showForm, setShowForm, resetForm, selectedDocument, isSubmitting, handleSubmit, formData, setFormData, formErrors, domainesOpen, setDomainesOpen, domainesRef, userRole, focusClass, selectStyle }: {
-  showForm: boolean; setShowForm: (v: boolean) => void; resetForm: () => void;
-  selectedDocument: KitDocument | null; isSubmitting: boolean;
-  handleSubmit: (e: React.FormEvent) => Promise<void>;
-  formData: any; setFormData: any; formErrors: Record<string, string>;
-  domainesOpen: boolean; setDomainesOpen: (v: boolean) => void; domainesRef: React.RefObject<HTMLDivElement | null>;
-  userRole: string; focusClass: string; selectStyle: React.CSSProperties;
-}) {
-  if (!showForm) return null;
-  return (
-    <FormShell
-      open={showForm}
-      onClose={() => { setShowForm(false); resetForm(); }}
-      title={selectedDocument ? 'Modifier le document' : 'Ajouter un document'}
-      icon={Briefcase}
-      size="3xl"
-      dataRole={userRole}
-      footer={
-        <>
-          <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); resetForm(); }}>
-            Annuler
-          </button>
-          <button type="submit" form="kit-document-form" disabled={isSubmitting} className="btn btn-primary gap-2">
-            {isSubmitting ? 'Sauvegarde...' : (selectedDocument ? 'Modifier' : 'Ajouter')}
-          </button>
-        </>
-      }
-    >
-      <form onSubmit={handleSubmit} className="space-y-6" id="kit-document-form">
-        <div className="form-grid grid-cols-2 gap-4">
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <FileText className="w-3 h-3 inline mr-1" />
-              Nom du document *
-            </label>
-            <input
-              type="text"
-              value={formData.nom}
-              onChange={(e) => setFormData({...formData, nom: e.target.value})}
-              placeholder="Ex: RAS 14 - Section 9.2"
-              className={`form-input w-full ${focusClass} ${formErrors.nom ? 'border-danger' : ''}`}
-            />
-            {formErrors.nom && <span className="field-error">{formErrors.nom}</span>}
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Catégorie *</label>
-            <select
-              value={formData.type_document}
-              onChange={(e) => setFormData({...formData, type_document: e.target.value})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {TYPES_DOCUMENTS.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <Brain className="w-3 h-3 inline mr-1" />
-              Type OACI / Référence
-            </label>
-            <select
-              value={formData.type_document_oaci}
-              onChange={(e) => setFormData({...formData, type_document_oaci: e.target.value as TypeDocumentOACI | ''})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              <option value="">— Sélectionner (optionnel) —</option>
-              {TYPES_OACI.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-            <p className="field-description">Améliore la détection automatique des références réglementaires</p>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Version *</label>
-            <input
-              type="text"
-              value={formData.version}
-              onChange={(e) => setFormData({...formData, version: e.target.value})}
-              placeholder="v1.0"
-              className={`form-input w-full ${focusClass} ${formErrors.version ? 'border-danger' : ''}`}
-            />
-            {formErrors.version && <span className="field-error">{formErrors.version}</span>}
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">Format</label>
-            <select
-              value={formData.format}
-              onChange={(e) => setFormData({...formData, format: e.target.value as FormatDocument})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {FORMATS_FICHIER.map(f => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <Calendar className="w-3 h-3 inline mr-1" />
-              Date de révision *
-            </label>
-            <input
-              type="date"
-              value={formData.date_revision}
-              onChange={(e) => setFormData({...formData, date_revision: e.target.value})}
-              className={`form-input w-full ${focusClass}`}
-            />
-          </div>
-
-          <div className="form-field">
-            <label className="filter-label">
-              <RefreshCw className="w-3 h-3 inline mr-1" />
-              État *
-            </label>
-            <select
-              value={formData.etat}
-              onChange={(e) => setFormData({...formData, etat: e.target.value})}
-              className={`form-select w-full ${focusClass}`}
-              style={selectStyle}
-            >
-              {ETATS_DOCUMENT.map(e => (
-                <option key={e.id} value={e.id}>{e.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Tag className="w-3 h-3 inline mr-1" />
-              Domaines concernés *
-            </label>
-            <div ref={domainesRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setDomainesOpen(!domainesOpen)}
-                className={`w-full h-10 flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-background text-foreground transition-all ${focusClass} ${formErrors.domaines ? 'border-danger' : ''} ${domainesOpen ? 'ring-2 ring-role-primary border-transparent' : ''}`}
-                style={selectStyle}
-              >
-                <span className={formData.domaines.length === 0 ? 'text-muted-foreground' : 'text-foreground'}>
-                  {formData.domaines.length === 0
-                    ? '-- Sélectionner des domaines --'
-                    : formData.domaines.map((d: string) => DOMAINES.find(o => o.id === d)?.label || d).join(', ')}
-                </span>
-                <ChevronDown className={`w-4 h-4 ml-2 transition-transform shrink-0 ${domainesOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {domainesOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
-                  <div className="max-h-60 overflow-y-auto">
-                    {DOMAINES.map(d => {
-                      const selected = formData.domaines.includes(d.id)
-                      return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => {
-                            if (selected) {
-                              setFormData({...formData, domaines: formData.domaines.filter((id: string) => id !== d.id)})
-                            } else {
-                              setFormData({...formData, domaines: [...formData.domaines, d.id]})
-                            }
-                          }}
-                          className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${selected ? 'bg-role-primary-soft text-role-primary font-medium' : 'text-foreground hover:bg-role-primary-soft'}`}
-                        >
-                          {d.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-            {formErrors.domaines && <span className="field-error">{formErrors.domaines}</span>}
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Tag className="w-3 h-3 inline mr-1" />
-              Mots-clés
-            </label>
-            <input
-              type="text"
-              value={formData.mots_cles.join(', ')}
-              onChange={(e) => setFormData({...formData, mots_cles: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)})}
-              placeholder="sgs, sécurité, inspection..."
-              className={`form-input w-full ${focusClass}`}
-            />
-            <p className="field-description">Séparés par des virgules</p>
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">Résumé</label>
-            <textarea
-              value={formData.resume}
-              onChange={(e) => setFormData({...formData, resume: e.target.value})}
-              placeholder="Description succincte du document..."
-              rows={3}
-              className={`form-textarea w-full ${focusClass}`}
-            />
-          </div>
-
-          <div className="form-field col-span-2">
-            <label className="filter-label">
-              <Upload className="w-3 h-3 inline mr-1" />
-              Fichier *
-            </label>
-            <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-role-primary transition-colors">
-              <input
-                type="file"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setFormData({...formData, fichier: e.target.files[0]});
-                  }
-                }}
-                className="hidden"
-                id="kit-fichier"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-              />
-              <label htmlFor="kit-fichier" className="cursor-pointer flex flex-col items-center gap-2">
-                <Upload className="w-8 h-8 text-muted-foreground" />
-                <span className="text-small text-muted-foreground">
-                  {formData.fichier ? formData.fichier.name : (selectedDocument?.fichier_nom || 'Cliquez pour ajouter un fichier')}
-                </span>
-                <span className="text-xs text-muted-foreground">PDF, Word, Excel, PowerPoint (max 10 Mo)</span>
-              </label>
-            </div>
-            {formErrors.fichier && <span className="field-error">{formErrors.fichier}</span>}
-          </div>
-
-          <div className="flex items-center gap-3 p-3 bg-role-primary-soft rounded-xl col-span-2">
-            <input
-              type="checkbox"
-              id="accessible_exploitant"
-              checked={formData.accessible_exploitant}
-              onChange={(e) => setFormData({...formData, accessible_exploitant: e.target.checked})}
-              className="form-checkbox"
-            />
-            <label htmlFor="accessible_exploitant" className="text-small cursor-pointer">
-              Rendre accessible aux exploitants (visible dans leur portail)
-            </label>
-          </div>
-        </div>
-      </form>
-    </FormShell>
-  );
-}
 
 function DetailModal({ showDetails, selectedDocument, setShowDetails, handleDownload, getTypeIcon, getEtatBadge, formatTaille, userRole }: {
   showDetails: boolean; selectedDocument: KitDocument | null;
@@ -447,11 +148,6 @@ function DetailModal({ showDetails, selectedDocument, setShowDetails, handleDown
           <button className="btn btn-secondary" onClick={() => setShowDetails(false)}>
             Fermer
           </button>
-          {selectedDocument?.ia_analyse_at && (
-            <div className="text-xs text-muted-foreground mb-2">
-              Analyse IA effectuée le {new Date(selectedDocument.ia_analyse_at).toLocaleDateString('fr-FR')}
-            </div>
-          )}
           <button className="btn btn-primary gap-2" onClick={() => handleDownload(selectedDocument)}>
             <Download className="w-4 h-4" />
             Télécharger
@@ -583,10 +279,38 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const deleteKitDocument = useAppStore(s => s.deleteKitDocument);
   const incrementerTelechargement = useAppStore(s => s.incrementerTelechargement);
   const addNotification = useAppStore(s => s.addNotification);
-  const importChecklistMemoryRecords = useAppStore(s => s.importChecklistMemoryRecords);
   const masterChecklists = useAppStore(s => s.masterChecklists);
+  const archivedMasterChecklists = useAppStore(s => s.archivedMasterChecklists);
   const setMasterChecklist = useAppStore(s => s.setMasterChecklist);
   const deleteMasterChecklist = useAppStore(s => s.deleteMasterChecklist);
+  const archiveMasterChecklist = useAppStore(s => s.archiveMasterChecklist);
+  const unarchiveMasterChecklist = useAppStore(s => s.unarchiveMasterChecklist);
+  const aerodromes = useAppStore(s => s.aerodromes);
+  const updateAerodrome = useAppStore(s => s.updateAerodrome);
+  const surveillances = useAppStore(s => s.surveillances);
+
+  // Templates persistés en Supabase (versions, dates, utilisateurs) pour l'accordéon
+  const [supaTemplates, setSupaTemplates] = useState<ChecklistTemplate[]>([]);
+
+  useEffect(() => {
+    let cancelled = false
+    import('@/lib/services/checklistTemplateService').then(({ loadTemplatesFromSupabase }) => {
+      loadTemplatesFromSupabase().then(list => { if (!cancelled) setSupaTemplates(list) }).catch(() => {})
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Historique par thème (type_code) à partir des templates persistés
+  const supaByTheme = useMemo(() => {
+    const m: Record<string, ChecklistTemplate[]> = {}
+    for (const t of supaTemplates) {
+      const k = `${t.type}_${t.code}`
+      if (!m[k]) m[k] = []
+      m[k].push(t)
+    }
+    for (const k of Object.keys(m)) m[k].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    return m
+  }, [supaTemplates])
 
   // États
   const [searchTerm, setSearchTerm] = useState('');
@@ -601,26 +325,23 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const [showDetails, setShowDetails] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [viewMode, setViewMode] = useState<'liste' | 'grille'>('liste');
-  const [sousTab, setSousTab] = useState<'documents' | 'entrainement'>('documents');
-  const [domainesOpen, setDomainesOpen] = useState(false);
-  const domainesRef = useRef<HTMLDivElement>(null);
+  const [sousTab, setSousTab] = useState<'documents' | 'templates'>('documents');
 
+  // Filtres templates
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templateFilterType, setTemplateFilterType] = useState<string>('tous');
+  const [templateFilterDomaine, setTemplateFilterDomaine] = useState<string>('tous');
+  const [showArchived, setShowArchived] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState<string | null>(null);
+
+  // Charger les templates depuis Supabase au montage
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (domainesRef.current && !domainesRef.current.contains(e.target as Node)) {
-        setDomainesOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    import('@/lib/services/checklistTemplateService').then(({ loadTemplatesFromSupabase }) => {
+      loadTemplatesFromSupabase().catch(() => {})
+    }).catch(() => {})
   }, []);
 
   const router = useRouter();
-
-  // Analyse IA post-ajout
-  const [analyseIA, setAnalyseIA] = useState<KitDocAnalysis | null>(null);
-  const [analyseLoading, setAnalyseLoading] = useState(false);
-  const [showAnalyse, setShowAnalyse] = useState(false);
 
   // Génération multi-docs (enrichie avec profil de risque)
   const [showGenModal, setShowGenModal] = useState(false);
@@ -630,45 +351,318 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const [genTypeSurveillance, setGenTypeSurveillance] = useState<'periodique' | 'inopine' | 'maintien'>('periodique');
   const [genInstructions, setGenInstructions] = useState('');
 
-  // Import checklist ANACIM dans la mémoire IA
-  const [importDoc, setImportDoc] = useState<KitDocument | null>(null);
-  const [importItems, setImportItems] = useState<Awaited<ReturnType<typeof kitDocAgent.extractAnacimChecklistItems>>>([]);
-  const [importLoading, setImportLoading] = useState(false);
+  // Import modèle ANACIM (.docx)
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importDragOver, setImportDragOver] = useState(false);
+  const [importParsing, setImportParsing] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importPreview, setImportPreview] = useState<{
+    template: { type: string; code: string; nom: string; version: string; portee: string[] }
+    hierarchie: any[]
+    filename: string
+  } | null>(null);
+  const [importPorteeEdit, setImportPorteeEdit] = useState<string[]>([]);
+  const [importDomaineOverrides, setImportDomaineOverrides] = useState<Record<string, string>>({});
+  const [importing, setImporting] = useState(false);
+  const [importTypeEdit, setImportTypeEdit] = useState<string>('QSC');
+  const [importPorteeManual, setImportPorteeManual] = useState<string>('');
+  const [porteeManuallyEdited, setPorteeManuallyEdited] = useState(false);
+  const [importFileBuffer, setImportFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [importSGSAerodrome, setImportSGSAerodrome] = useState<string>('');
+  const [exportMenuOpen, setExportMenuOpen] = useState<string | null>(null);
+  const [exportMenuRect, setExportMenuRect] = useState<{ top: number; right: number } | null>(null);
 
-  const handleImportAnacim = async (doc: KitDocument) => {
-    setImportLoading(true);
-    setImportDoc(doc);
-    try {
-      const items = await kitDocAgent.extractAnacimChecklistItems(doc.id);
-      setImportItems(items);
-    } catch (err) {
-      console.error('[KitInspecteur] Erreur extraction checklist ANACIM:', err);
-    } finally {
-      setImportLoading(false);
+  // ── Wizard d'import guidé ──────────────────────────────────────────────────
+  const [importStep, setImportStep] = useState<'upload' | 'config' | 'confirmation'>('upload');
+  const [importCategorie, setImportCategorie] = useState<ChecklistTemplateCategorie>('surveillance_continue');
+  const [importSousType, setImportSousType] = useState<string>('IT');
+  const [importITDomaines, setImportITDomaines] = useState<string[]>([]);
+  const [importTypeEntite, setImportTypeEntite] = useState<'aerodrome' | 'helistation'>('aerodrome');
+  const [importRegime, setImportRegime] = useState<'certifie' | 'homologue'>('certifie');
+  const [importCodeLibre, setImportCodeLibre] = useState('');
+  const [importVersion, setImportVersion] = useState('');
+  const [importEditionDate, setImportEditionDate] = useState('');
+  const [existingVersions, setExistingVersions] = useState<ChecklistTemplate[]>([]);
+  const [templateDiff, setTemplateDiff] = useState<TemplateDiff | null>(null);
+  const [diffIA, setDiffIA] = useState<string | null>(null);
+  const [diffIALoading, setDiffIALoading] = useState(false);
+  const [checkingDup, setCheckingDup] = useState(false);
+  const [importDecision, setImportDecision] = useState<'replace' | 'keep'>('replace');
+
+  const IMPORT_CATEGORIES: { value: ChecklistTemplateCategorie; label: string; desc: string }[] = [
+    { value: 'homologation', label: 'Homologation', desc: 'Aérodrome ou hélistation' },
+    { value: 'certification', label: 'Certification', desc: 'Inspection technique, Procédures, SGS, COP' },
+    { value: 'surveillance_continue', label: 'Surveillance continue', desc: 'Aérodrome certifié ou homologué' },
+    { value: 'validation_site', label: 'Validation de site', desc: 'Aérodrome ou hélistation' },
+    { value: 'autres', label: 'Autres checklist', desc: 'Études de sécurité, manuel d\'aérodrome…' },
+  ];
+
+  const CERTIFICATION_SUBTYPES = [
+    { value: 'IT', label: 'Inspection technique' },
+    { value: 'SOP', label: 'Procédures' },
+    { value: 'SGS', label: 'SGS (PAOE)' },
+    { value: 'COP', label: 'COP' },
+  ];
+
+  // Identité (type + code) dérivée de la famille choisie dans le wizard
+  const computeImportIdentity = useCallback((): { type: string; code: string } => {
+    switch (importCategorie) {
+      case 'homologation': return { type: 'HMG', code: 'HMG_CHKLIST_GENERAL' }
+      case 'certification': {
+        let code = importSousType === 'SGS' ? 'SGS_PAOE'
+          : importSousType === 'COP' ? 'COP_CHKLIST_GENERAL'
+          : importSousType === 'SOP' ? 'SOP_CHKLIST_GENERAL'
+          : 'IT_CHKLIST_GENERAL'
+        // IT : un fichier par domaine (PHY, ELEC, MFP, OLS) ou domaines combinés (ex. ELEC + MFP)
+        if (importSousType === 'IT' && importITDomaines.length > 0) {
+          code = `IT_CHKLIST_${[...importITDomaines].sort().join('_')}`
+        }
+        return { type: importSousType, code }
+      }
+      case 'surveillance_continue': return { type: 'QSC', code: 'QSC_CONTINUE' }
+      case 'validation_site': return { type: 'VALIDATION_SITE', code: 'VS_CHKLIST_GENERAL' }
+      case 'autres':
+      default:
+        return { type: 'AUT', code: (importCodeLibre || 'AUT').toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 24) }
     }
-  };
+  }, [importCategorie, importSousType, importCodeLibre, importITDomaines]);
 
-  const handleConfirmImport = () => {
-    if (importItems.length === 0 || !importDoc) return;
-    importChecklistMemoryRecords(importItems);
-    addNotification?.({ type: 'success', title: 'Import réussi', message: `${importItems.length} item(s) importé(s) dans la mémoire IA`, user_id: user?.id || '', canal: 'in_app' });
-    setImportDoc(null);
-    setImportItems([]);
-  };
+  // Passage à l'étape de confirmation : détection de doublon + diff client
+  const goToConfirmation = useCallback(async () => {
+    if (!importPreview) return
+    setCheckingDup(true)
+    setTemplateDiff(null)
+    setDiffIA(null)
+    setExistingVersions([])
+    try {
+      const { fetchTemplateVersions, compareChecklists } = await import('@/lib/services/checklistTemplateService')
+      const { type, code } = computeImportIdentity()
+      const versions = await fetchTemplateVersions(type, code)
+      setExistingVersions(versions)
+      const active = versions.find(v => v.actif)
+      if (active) {
+        setTemplateDiff(compareChecklists(active.hierarchie, importPreview.hierarchie))
+      }
+    } finally {
+      setCheckingDup(false)
+      setImportStep('confirmation')
+    }
+  }, [importPreview, computeImportIdentity]);
 
-  // Escape key closes modal
+  // Comparaison détaillée IA (à la demande)
+  const runDiffIA = useCallback(async () => {
+    if (!importPreview || !existingVersions.length) return
+    const active = existingVersions.find(v => v.actif)
+    if (!active) return
+    setDiffIALoading(true)
+    setDiffIA(null)
+    try {
+      const { compareChecklistsWithIA } = await import('@/lib/services/checklistTemplateService')
+      const analyse = await compareChecklistsWithIA(active.hierarchie, importPreview.hierarchie)
+      setDiffIA(analyse)
+    } finally {
+      setDiffIALoading(false)
+    }
+  }, [importPreview, existingVersions]);
+
+  // Import final (validation)
+  const confirmImport = useCallback(async () => {
+    if (!importPreview) return
+    if (importDecision === 'keep') {
+      setShowImportModal(false); setImportPreview(null); setImportStep('upload'); setImportError(null)
+      return
+    }
+    setImporting(true)
+    try {
+      const { type, code } = computeImportIdentity()
+      const templateId = `${type}_${code}`
+      const hierarchieWithOverrides = importPreview.hierarchie.map((d: any, i: number) => {
+        if (importDomaineOverrides[i] && importDomaineOverrides[i] !== d.nom) return { ...d, nom: importDomaineOverrides[i] }
+        return d
+      })
+      const effectivePortee = importPorteeEdit.length > 0
+        ? importPorteeEdit
+        : [...new Set(hierarchieWithOverrides.map((d: any) => d.nom))]
+      setMasterChecklist(templateId, hierarchieWithOverrides)
+
+      if (type !== importPreview.template.type && user?.id) {
+        import('@/lib/services/checklistTemplateService').then(({ recordTypeCorrection }) => {
+          recordTypeCorrection(importPreview.filename, importPreview.template.type, type, user.id)
+        }).catch(() => {})
+      }
+
+      const { importTemplateToSupabase } = await import('@/lib/services/checklistTemplateService')
+      await importTemplateToSupabase(
+        type as any,
+        code,
+        importPreview.template.nom,
+        effectivePortee,
+        hierarchieWithOverrides,
+        {
+          categorie: importCategorie,
+          regime: importCategorie === 'surveillance_continue' ? importRegime : undefined,
+          type_entite_cible: importTypeEntite,
+          version: importVersion || importPreview.template.version || '1.0',
+          edition_date: importEditionDate || undefined,
+          source_fichier: importPreview.filename,
+          etat: 'publie',
+          archivePrevious: true,
+        },
+      )
+
+      // Template SGS appliqué à un aérodrome
+      if (type === 'SGS' && importSGSAerodrome) {
+        const aero = aerodromes.find(a => a.id === importSGSAerodrome)
+        if (aero) {
+          import('@/lib/services/checklistParser').then(({ buildSGSTemplateFromImport }) => {
+            const sgsTemplate = buildSGSTemplateFromImport(hierarchieWithOverrides, code)
+            updateAerodrome(importSGSAerodrome, { sgs_checklist_template: sgsTemplate as any })
+          }).catch(() => {})
+        }
+      }
+
+      setImportPreview(null)
+      setImportStep('upload')
+      setShowImportModal(false)
+      setSousTab('templates')
+    } catch (err: any) {
+      setImportError(err?.message || 'Erreur lors de l\'import du template.')
+    } finally {
+      setImporting(false)
+    }
+  }, [importPreview, importDecision, computeImportIdentity, importDomaineOverrides, importPorteeEdit, setMasterChecklist, user, importCategorie, importRegime, importTypeEntite, importVersion, importEditionDate, importSGSAerodrome, aerodromes, updateAerodrome, setSousTab]);
+
+  const handleImportFile = useCallback(async (file: File) => {
+    if (!file.name.endsWith('.docx')) {
+      setImportError('Seuls les fichiers .docx (Word) sont acceptés.')
+      return
+    }
+    setImportError(null)
+    setImportParsing(true)
+    setImportPreview(null)
+    setImportFileBuffer(null)
+    try {
+      const buffer = await file.arrayBuffer()
+      // Recréer un File-like object à partir du buffer pour pouvoir re-parser
+      const fileObj = new File([buffer], file.name, { type: file.type })
+      const result = await parseChecklistWord(fileObj)
+      setImportFileBuffer(buffer)
+      setImportPreview({
+        template: result.template,
+        hierarchie: result.hierarchie,
+        filename: file.name,
+      })
+      setImportTypeEdit(result.template.type)
+      setImportPorteeEdit(result.template.portee)
+      setImportDomaineOverrides({})
+      setPorteeManuallyEdited(false)
+      setImportVersion(result.template.version || '')
+      setImportEditionDate('')
+      setImportStep('config')
+    } catch (err: any) {
+      setImportError(err?.message || 'Erreur lors de l\'analyse du fichier.')
+    } finally {
+      setImportParsing(false)
+    }
+  }, [])
+
+  const totalItems = (d: any) =>
+    (d.items?.length || 0) +
+    (d.sousDomaines || []).reduce((s: number, sd: any) =>
+      s + (sd.items?.length || 0) +
+      (sd.sousSousDomaines || []).reduce((s2: number, ssd: any) =>
+        s2 + (ssd.items?.length || 0), 0), 0)
+
+  const TYPE_LABELS: Record<string, string> = {
+    IT: 'Inspection Technique',
+    SOP: 'Procédures d\'Exploitation Normalisées',
+    QSC: 'QSC — Surveillance Continue',
+    SGS: 'SGS — PAOE',
+    VALIDATION_SITE: 'Validation de site (construction)',
+  }
+
+  // Sync la portée globale depuis les overrides de domaine par section
   useEffect(() => {
-    if (!showGenModal) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowGenModal(false) }
+    if (!importPreview) return
+    if (porteeManuallyEdited) return
+    const effective = [...new Set(
+      importPreview.hierarchie.map((d: any, i: number) => importDomaineOverrides[i] ?? d.nom)
+    )]
+    setImportPorteeEdit(effective)
+  }, [importPreview, importDomaineOverrides, porteeManuallyEdited])
+
+  // Re-parser quand l'utilisateur change le type manuellement
+  useEffect(() => {
+    if (!importPreview || !importFileBuffer || !importTypeEdit) return
+    if (importTypeEdit === importPreview.template.type) return
+    // Type différent → re-parser avec le type corrigé
+    const reparse = async () => {
+      setImportParsing(true)
+      try {
+        const { parseChecklistWord } = await import('@/lib/services/checklistParser')
+        const fileObj = new File([importFileBuffer], importPreview.filename, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+        const result = await parseChecklistWord(fileObj, importTypeEdit as any)
+        setImportPreview({
+          template: { ...result.template, type: importTypeEdit },
+          hierarchie: result.hierarchie,
+          filename: importPreview.filename,
+        })
+        setImportPorteeEdit(result.template.portee)
+        setImportDomaineOverrides({})
+        setPorteeManuallyEdited(false)
+      } catch {
+        // Garder l'ancien aperçu si le re-parse échoue
+      } finally {
+        setImportParsing(false)
+      }
+    }
+    reparse()
+  }, [importTypeEdit, importFileBuffer])
+
+  // Synchroniser le type effectif avec la famille choisie dans le wizard
+  useEffect(() => {
+    if (!importPreview) return
+    const ident = computeImportIdentity()
+    if (importTypeEdit !== ident.type) setImportTypeEdit(ident.type)
+  }, [computeImportIdentity, importPreview, importTypeEdit])
+
+  // Reset states when import modal closes
+  useEffect(() => {
+    if (!importPreview && !showImportModal) {
+      setImportTypeEdit('QSC')
+      setImportPorteeManual('')
+      setPorteeManuallyEdited(false)
+      setImportFileBuffer(null)
+      setImportSGSAerodrome('')
+      setImportStep('upload')
+      setImportCategorie('surveillance_continue')
+      setImportSousType('IT')
+      setImportITDomaines([])
+      setImportTypeEntite('aerodrome')
+      setImportRegime('certifie')
+      setImportCodeLibre('')
+      setImportVersion('')
+      setImportEditionDate('')
+      setExistingVersions([])
+      setTemplateDiff(null)
+      setDiffIA(null)
+      setImportDecision('replace')
+    }
+  }, [importPreview, showImportModal])
+
+  // Escape key closes modals
+  useEffect(() => {
+    if (!showGenModal && !showImportModal) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowGenModal(false); setShowImportModal(false) } }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [showGenModal])
+  }, [showGenModal, showImportModal])
 
   const handleGenerateChecklist = async () => {
     if (genPortee.length === 0) return
     setGenLoading(true)
     try {
-      if (!kitDocAgent.isReady()) await kitDocAgent.init()
+      if (!inspecteurVirtuel.isReady()) await inspecteurVirtuel.init()
       const now = new Date();
       const mmYY = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
       const domaineCode = genPortee.includes('AGA') || genPortee.length >= 8 ? 'AGA' : genPortee.join('-');
@@ -837,27 +831,23 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     };
   }, [listeDocuments]);
 
-  const trainingRecords = useAppStore(s => s.checklistMemoryRecords).filter(r => r.aerodrome_id === 'anacim_legacy');
-  const trainingStats = useMemo(() => {
-    const parDomaine: Record<string, number> = {}
-    for (const r of trainingRecords) {
-      parDomaine[r.domaine] = (parDomaine[r.domaine] || 0) + 1
+  const templateStats = useMemo(() => {
+    const types: Record<string, { count: number; items: number }> = {}
+    let totalItems = 0
+    for (const [id, domaines] of Object.entries(masterChecklists)) {
+      const items = domaines.flatMap(d => d.items || [])
+      totalItems += items.length
+      const prefixes = new Set(items.map(i => i.numero?.split('-')[0]).filter(Boolean))
+      let type = 'surveillance'
+      if (prefixes.has('CERT')) type = 'certification'
+      else if (prefixes.has('HMG')) type = 'homologation'
+      else if (domaines.length === 1 && domaines[0].nom === 'SGS') type = 'sgs'
+      if (!types[type]) types[type] = { count: 0, items: 0 }
+      types[type].count++
+      types[type].items += items.length
     }
-    const confianceMoyenne = trainingRecords.length > 0
-      ? Math.round(trainingRecords.reduce((s, r) => s + (r.confiance || 0), 0) / trainingRecords.length)
-      : 0
-    return {
-      total: trainingRecords.length,
-      parDomaine,
-      confianceMoyenne,
-      avecResultat: trainingRecords.filter(r => r.dernier_resultat).length,
-      masterCount: Object.keys(masterChecklists).length,
-    }
-  }, [trainingRecords, masterChecklists]);
-
-  const parseItemDesc = (desc: string): string => {
-    try { const p = JSON.parse(desc); return p.pv || desc; } catch { return desc; }
-  };
+    return { total: Object.keys(masterChecklists).length, totalItems, types }
+  }, [masterChecklists]);
 
   const getTypeIcon = (typeId: string, className?: string) => {
     const type = TYPES_DOCUMENTS.find(t => t.id === typeId);
@@ -894,12 +884,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     if (formData.domaines.length === 0) errors.domaines = "Au moins un domaine est requis";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFormData({...formData, fichier: e.target.files[0]});
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -967,53 +951,14 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       setShowForm(false);
       resetForm();
 
-      const isRegulation = documentData.type_document === 'reglementation' ||
-        documentData.type_document_oaci === 'RAS-14' ||
-        documentData.type_document_oaci === 'Circulaires';
-
-      if (isRegulation && savedDoc) {
-        setAnalyseLoading(true);
-        setShowAnalyse(true);
-        try {
-          if (!kitDocAgent.isReady()) await kitDocAgent.init();
-          const analyse = await kitDocAgent.analyzeDocument(savedDoc);
-          console.debug('[KitInspecteur] Analyse IA réussie:', analyse.reference_base, analyse.domaines_impactes);
-          setAnalyseIA(analyse);
-
-          const docId = savedDoc.id;
-          if (docId && docId !== 'pending') {
-            await updateKitDocument(docId, {
-              reference_base: analyse.reference_base,
-              extraits: analyse.extraits.map(e => ({
-                reference: e.reference,
-                titre: e.titre,
-                contenu_resume: e.contenu_resume,
-                statut: e.statut,
-                domaines: e.domaines,
-                type_entite_cible: e.type_entite_cible,
-                seuil_numerique: e.seuil_numerique,
-                source_document_id: e.source_document_id,
-                detecte_le: e.detecte_le,
-              })),
-              ia_analyse_at: analyse.analysed_at,
-              ia_impact: analyse.impact,
-            } as any);
-          } else {
-            console.warn('[KitInspecteur] Document ID invalide, analyse persistée en mémoire uniquement');
-          }
-
-          addNotification?.({
-            user_id: user?.id || '',
-            type: 'success',
-            title: 'Analyse terminée',
-            message: `Document "${savedDoc?.nom}" analysé. Le profil de risque sera appliqué lors du lancement d'une surveillance depuis le Planning.`,
-            canal: 'in_app',
-          });
-        } catch (err) {
-          console.error('[KitDocAgent] Erreur analyse:', err);
-        } finally {
-          setAnalyseLoading(false);
-        }
+      if (savedDoc) {
+        addNotification?.({
+          user_id: user?.id || '',
+          type: 'success',
+          title: 'Document ajouté',
+          message: `Document "${savedDoc?.nom}" ajouté au Kit Inspecteur.`,
+          canal: 'in_app',
+        });
       }
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
@@ -1037,7 +982,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       resume: '',
       accessible_exploitant: false,
     });
-    setDomainesOpen(false);
     setSelectedDocument(null);
     setFormErrors({});
   };
@@ -1088,15 +1032,92 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     }
   };
 
-  const analyseCfg = {
-    borderClass: 'border border-border',
-    bgClass: 'bg-role-primary-soft',
-    iconClass: 'text-role-primary',
-    badgeClass: 'badge primary',
-    label: 'Analyse IA',
-    Icon: Sparkles,
-  };
-  const isAdminRole = userRole === 'admin' || userRole === 'dg_anacim';
+  const columnsDef: Column<KitDocument>[] = [
+    {
+      key: 'document',
+      header: 'Document',
+      render: (doc) => (
+        <div className="flex items-center gap-2">
+          {getTypeIcon(doc.type_document, "w-4 h-4")}
+          <div>
+            <p className="font-medium text-foreground">{doc.nom}</p>
+            <p className="text-xs text-muted-foreground truncate max-w-xs">{doc.resume}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (doc) => <span className="badge outline">{doc.version}</span>,
+    },
+    {
+      key: 'revision',
+      header: 'Révision',
+      render: (doc) => (
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-muted-foreground" />
+          {doc.date_revision ? new Date(doc.date_revision).toLocaleDateString('fr-FR') : '-'}
+        </div>
+      ),
+    },
+    {
+      key: 'domaines',
+      header: 'Domaines',
+      render: (doc) => (
+        <div className="flex flex-wrap gap-1">
+          {doc.domaines?.map((d: string) => (
+            <span key={d} className="badge outline text-[10px]">{d}</span>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'etat',
+      header: 'État',
+      render: (doc) => getEtatBadge(doc.etat),
+    },
+    {
+      key: 'exploitant',
+      header: 'Exploitant',
+      render: (doc) => (
+        <span className={`badge ${doc.accessible_exploitant ? 'success' : 'neutral'}`}>
+          {doc.accessible_exploitant ? 'Oui' : 'Non'}
+        </span>
+      ),
+    },
+    {
+      key: 'telechargements',
+      header: 'Téléch.',
+      render: (doc) => <span className="badge outline">{doc.telechargements}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      render: (doc) => (
+        <div className="flex justify-end gap-2">
+          <button className="action-button" onClick={() => handleDownload(doc)}>
+            <Download className="w-4 h-4" />
+          </button>
+          <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowDetails(true); }}>
+            <Eye className="w-4 h-4" />
+          </button>
+          <button className="action-button" onClick={() => handleEdit(doc)} title="Modifier">
+            <Edit3 className="w-4 h-4" />
+          </button>
+          <button className="action-button" onClick={() => handleDelete(doc.id)} title="Supprimer">
+            <Trash2 className="w-4 h-4 text-danger" />
+          </button>
+          {doc.accessible_exploitant && (
+            <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowShareModal(true); }}>
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="kit-inspecteur">
@@ -1107,6 +1128,10 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         title="Kit Inspecteur"
         description={`Base documentaire - ${stats.total} documents`}
         actions={<div className="flex items-center gap-2">
+          <button onClick={() => setShowImportModal(true)} className="btn btn-secondary gap-2">
+            <Upload className="w-4 h-4" />
+            Importer modèle ANACIM
+          </button>
           <button onClick={() => setShowGenModal(true)} className="btn btn-secondary gap-2">
             <LayoutList className="w-4 h-4" />
             Générer la checklist
@@ -1117,94 +1142,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           </button>
         </div>}
       />
-
-      {/* Bandeau Analyse IA — design AlertCard */}
-      {showAnalyse && (
-        <div className={`card ${analyseCfg.borderClass} hover:shadow-xl transition-all duration-300`} data-role={userRole}>
-          <div className="card-content p-4">
-            <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-lg ${analyseCfg.bgClass} flex items-center justify-center flex-shrink-0`}>
-                <analyseCfg.Icon className={`w-5 h-5 ${analyseCfg.iconClass}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={analyseCfg.badgeClass}>{analyseCfg.label}</span>
-                  {isAdminRole && !analyseLoading && <span className="badge outline">Vue Admin</span>}
-                </div>
-                <p className="text-sm font-medium mb-1">
-                  {analyseLoading
-                    ? 'Analyse réglementaire IA en cours…'
-                    : `Analyse réglementaire — Impact : ${analyseIA?.impact?.toUpperCase()}`}
-                </p>
-                {!analyseLoading && analyseIA && (
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p><span className="font-medium text-foreground">Référence :</span> {analyseIA.reference_base}</p>
-                    <p><span className="font-medium text-foreground">Type OACI :</span> {analyseIA.type_oaci_detecte}</p>
-                    {analyseIA.domaines_impactes.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="font-medium text-foreground">Domaines :</span>
-                        {analyseIA.domaines_impactes.map((d, i) => (
-                          <span key={i} className="badge outline">{d}</span>
-                        ))}
-                      </div>
-                    )}
-                    {analyseIA.extraits.length > 0 && (
-                      <p>
-                        <span className="font-medium text-foreground">Extraits :</span>{' '}
-                        {analyseIA.extraits.length} section(s) identifiée(s)
-                      </p>
-                    )}
-                    {analyseIA.conflits.length > 0 && (
-                      <div className="mt-2 p-2 rounded-lg bg-danger-soft border border-danger">
-                        <p className="font-medium text-danger">
-                          {analyseIA.conflits.length} conflit(s) détecté(s) avec des documents existants
-                        </p>
-                        {isAdminRole
-                          ? analyseIA.conflits.map((c, i) => (
-                              <p key={i} className="text-danger mt-1">{c.description}</p>
-                            ))
-                          : <p className="text-danger mt-1">Contactez un administrateur pour résoudre les conflits.</p>
-                        }
-                      </div>
-                    )}
-                    <p className="mt-1">
-                      {userRole === 'inspector'
-                        ? 'La checklist sera pré-remplie automatiquement lors de la prochaine surveillance.'
-                        : 'La checklist sera pré-remplie automatiquement. Vérifiez les conflits avant validation.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-            {!analyseLoading && analyseIA && (
-              <div className="flex items-center justify-end gap-2 pt-3 mt-3 border-t border-border">
-                {analyseIA.extraits.length > 0 && (
-                  <button
-                    className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
-                    aria-label="Voir les extraits réglementaires"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                )}
-                {isAdminRole && analyseIA.conflits.length > 0 && (
-                  <span className="badge danger animate-pulse">{analyseIA.conflits.length} conflit(s)</span>
-                )}
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="w-3 h-3" />
-                  <span>{new Date().toLocaleDateString('fr-FR')}</span>
-                </div>
-                <button
-                  onClick={() => setShowAnalyse(false)}
-                  className="action-button hover:text-danger hover:bg-danger/10 transition-all duration-200"
-                  aria-label="Ignorer l'analyse"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Sous-onglets */}
       <div className="tabs-container border-b border-border mb-6">
@@ -1222,14 +1159,14 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           </button>
           <button
             className={`tab px-4 py-2 font-medium transition-all ${
-              sousTab === 'entrainement'
+              sousTab === 'templates'
                 ? 'active border-b-2 border-role-primary text-role-primary'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => setSousTab('entrainement')}
+            onClick={() => setSousTab('templates')}
           >
-            <Brain className="w-4 h-4 inline mr-2" />
-            Entraînement IA
+            <LayoutList className="w-4 h-4 inline mr-2" />
+            Templates
           </button>
         </div>
       </div>
@@ -1277,189 +1214,338 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       </div>
       </>)}
 
-      {/* Contenu Entraînement IA */}
-      {sousTab === 'entrainement' && (
-      <>
-      {/* Entraînement IA */}
-      <div className="space-y-6 animate-fade-up">
-          {/* Stats d'entraînement */}
+      {/* Contenu Templates importés */}
+      {sousTab === 'templates' && (
+        <div className="space-y-6 animate-fade-up">
+          {/* Stats templates */}
           <div className="kpi-grid">
             <div className="kpi-card">
               <div className="kpi-icon bg-purple-50">
-                <Database className="w-5 h-5 text-purple-600" />
+                <FileText className="w-5 h-5 text-purple-600" />
               </div>
-              <div className="kpi-label">Items ANACIM importés</div>
-              <div className="kpi-value">{trainingStats.total}</div>
+              <div className="kpi-label">Templates</div>
+              <div className="kpi-value">{templateStats.total}</div>
             </div>
             <div className="kpi-card">
               <div className="kpi-icon bg-blue-50">
-                <Brain className="w-5 h-5 text-blue-600" />
+                <ClipboardList className="w-5 h-5 text-blue-600" />
               </div>
-              <div className="kpi-label">Confiance moyenne</div>
-              <div className="kpi-value">{trainingStats.confianceMoyenne}%</div>
+              <div className="kpi-label">Total items</div>
+              <div className="kpi-value">{templateStats.totalItems}</div>
             </div>
             <div className="kpi-card">
               <div className="kpi-icon bg-green-50">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <Layers className="w-5 h-5 text-green-600" />
               </div>
-              <div className="kpi-label">Avec résultat</div>
-              <div className="kpi-value">{trainingStats.avecResultat}</div>
+              <div className="kpi-label">Types</div>
+              <div className="kpi-value">{Object.keys(templateStats.types).length}</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-icon bg-amber-50">
-                <ClipboardList className="w-5 h-5 text-amber-600" />
+              <div className="kpi-icon bg-orange-50">
+                <Archive className="w-5 h-5 text-orange-600" />
               </div>
-              <div className="kpi-label">Checklists produites</div>
-              <div className="kpi-value">{trainingStats.masterCount}</div>
+              <div className="kpi-label">Archivés</div>
+              <div className="kpi-value">{Object.keys(archivedMasterChecklists).length}</div>
             </div>
           </div>
 
-          {/* Répartition par domaine & actions */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title text-sm">Répartition par domaine</div>
+          {/* Barre de recherche et filtres — design SurveillanceModule */}
+          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[200px] relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input type="text" value={templateSearch} onChange={e => setTemplateSearch(e.target.value)}
+                  placeholder="Référence, domaine, type..."
+                  className={`w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm ${focusClass}`} />
+              </div>
+              <select value={templateFilterType} onChange={e => setTemplateFilterType(e.target.value)}
+                className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+                style={selectStyle}>
+                <option value="tous">Tous les types</option>
+                <option value="surveillance">Surveillance</option>
+                <option value="certification">Certification</option>
+                <option value="homologation">Homologation</option>
+                <option value="sgs">SGS</option>
+              </select>
+              <select value={templateFilterDomaine} onChange={e => setTemplateFilterDomaine(e.target.value)}
+                className={`h-10 px-3 pr-8 rounded-xl border border-border bg-background text-foreground text-sm cursor-pointer appearance-none ${focusClass}`}
+                style={selectStyle}>
+                <option value="tous">Tous domaines</option>
+                {DOMAINES.map(d => <option key={d.id} value={d.id}>{d.label.split(' — ')[0]}</option>)}
+              </select>
+              <label className="flex items-center gap-2 text-sm cursor-pointer ml-auto">
+                <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)}
+                  className="form-checkbox" />
+                <Archive className="w-3.5 h-3.5 text-muted-foreground" />
+                Afficher archivés
+              </label>
             </div>
-            <div className="card-content">
-              {Object.keys(trainingStats.parDomaine).length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">Aucun item importé. Importez des checklists ANACIM via le bouton <Database className="w-3.5 h-3.5 inline" /> sur les documents analysés.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(trainingStats.parDomaine).map(([domaine, count]) => (
-                    <div key={domaine} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-role-primary-soft/10 border border-border">
-                      <span className="badge outline text-[10px] font-mono">{domaine}</span>
-                      <span className="text-sm font-semibold text-foreground">{count}</span>
-                      <span className="text-xs text-muted-foreground">item{count > 1 ? 's' : ''}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          </Card>
 
-          {/* Table des items importés */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title text-sm">Items importés (mémoire ANACIM)</div>
-            </div>
-            <div className="card-content p-0 overflow-x-auto">
-              {trainingRecords.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">Aucun item dans la mémoire d'entraînement.</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">N°</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Point à vérifier</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Domaine</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Résultat</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Confiance</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Importé le</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trainingRecords.map(r => (
-                      <tr key={r.id} className="border-b border-border/50 hover:bg-role-primary-soft/10">
-                        <td className="py-2 px-3 font-mono text-foreground">{r.item_numero}</td>
-                        <td className="py-2 px-3 text-foreground max-w-[300px] truncate">{parseItemDesc(r.item_description)}</td>
-                        <td className="py-2 px-3">
-                          <span className="badge outline text-[10px]">{r.domaine}</span>
-                        </td>
-                        <td className="py-2 px-3">
-                          {r.dernier_resultat ? (
-                            <span className={`badge ${r.dernier_resultat === 'SA' ? 'success' : r.dernier_resultat === 'NS' ? 'danger' : 'neutral'} text-[10px]`}>{r.dernier_resultat}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className="text-foreground">{r.confiance}%</span>
-                        </td>
-                        <td className="py-2 px-3 text-muted-foreground">
-                          {r.dernier_feedback ? new Date(r.dernier_feedback).toLocaleDateString('fr-FR') : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+          {/* Templates importés par catégorie */}
+          {(() => {
+            const TYPE_CONFIG = [
+              { id: 'sgs', label: 'SGS — Système de Gestion de la Sécurité', icon: Brain },
+              { id: 'certification', label: 'Certification', icon: FileText },
+              { id: 'surveillance', label: 'Surveillance continue', icon: ClipboardList },
+              { id: 'homologation', label: 'Homologation', icon: FileText },
+              { id: 'validation', label: 'Validation de site', icon: Target },
+              { id: 'helistation', label: 'Hélistation', icon: FileText },
+            ] as const
 
-          {/* Master Checklists produites */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title text-sm">Checklists produites</div>
-            </div>
-            <div className="card-content p-0 overflow-x-auto">
-              {Object.keys(masterChecklists).length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">Aucune checklist générée. Utilisez "Générer la checklist" dans l'onglet Documents.</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">ID</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Domaines</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Items</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground">Actions</th>
+            const classifyChecklist = (key: string, domaines: DomaineChecklist[]): string => {
+              // Source de vérité : type/catégorie persistés lors de l'import (wizard)
+              const latest = (supaByTheme[key] || [])[0]
+              if (latest) {
+                switch (latest.type) {
+                  case 'HMG': return 'homologation'
+                  case 'QSC': return 'surveillance'
+                  case 'VALIDATION_SITE': return 'validation'
+                  case 'SGS': return 'sgs'
+                  case 'IT':
+                  case 'SOP':
+                  case 'COP': return 'certification'
+                  default: break
+                }
+              }
+              if (latest?.categorie) {
+                switch (latest.categorie) {
+                  case 'homologation': return 'homologation'
+                  case 'certification': return 'certification'
+                  case 'surveillance_continue': return 'surveillance'
+                  case 'validation_site': return 'validation'
+                  default: break
+                }
+              }
+              const items = domaines.flatMap(d => d.items || [])
+              const domainCodes = domaines.map(d => d.nom)
+              const prefixes = new Set(items.map(i => i.numero?.split('-')[0]).filter(Boolean))
+              if (prefixes.has('CERT')) return 'certification'
+              if (prefixes.has('HMG')) return 'homologation'
+              if (domainCodes.length > 0 && domainCodes.every(d => d === 'SGS')) return 'sgs'
+              if (items.some(i => (i as any).type_entite_cible === 'helistation')) return 'helistation'
+              return 'surveillance'
+            }
 
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(masterChecklists).map(([id, domaines]) => {
-                      const totalItems = domaines.reduce((s: number, d: any) => {
-                        let c = (d.items || []).length
-                        for (const sd of (d.sousDomaines || [])) {
-                          c += (sd.items || []).length
-                          for (const ssd of (sd.sousSousDomaines || [])) {
-                            c += (ssd.items || []).length
-                          }
-                        }
-                        return s + c
-                      }, 0)
-                      return (
-                        <tr key={id} className="border-b border-border/50 hover:bg-role-primary-soft/10">
-                          <td className="py-2 px-3 font-mono text-foreground text-[11px]">{id}</td>
-                          <td className="py-2 px-3">
-                            <div className="flex flex-wrap gap-1">
-                              {domaines.map((d: any, i: number) => (
-                                <span key={i} className="badge outline text-[10px]">{d.nom || d.id}</span>
-                              ))}
+            // Fusionner templates actifs + archivés (si showArchived)
+            const allChecklists = { ...masterChecklists }
+            if (showArchived) Object.assign(allChecklists, archivedMasterChecklists)
+
+            const grouped: Record<string, { key: string; domaines: string[]; itemsCount: number; archived?: boolean; version?: string; updatedAt?: string; updatedByName?: string; versionsCount?: number }[]> = {}
+            for (const [key, domaines] of Object.entries(allChecklists)) {
+              if (templateSearch) {
+                const term = templateSearch.toLowerCase()
+                if (!key.toLowerCase().includes(term) && !domaines.some(d => d.nom.toLowerCase().includes(term))) continue
+              }
+              const type = classifyChecklist(key, domaines)
+              if (templateFilterType !== 'tous' && type !== templateFilterType) continue
+              if (templateFilterDomaine !== 'tous' && !domaines.some(d => d.nom === templateFilterDomaine.toUpperCase())) continue
+              if (!grouped[type]) grouped[type] = []
+              const itemsCount = domaines.reduce((acc, d) => acc + (d.items?.length || 0) + (d.sousDomaines?.reduce((a, sd) => a + (sd.items?.length || 0), 0) || 0), 0)
+              const domaineLabels = [...new Set(domaines.map(d => d.nom))]
+              const supa = supaByTheme[key] || []
+              const latest = supa[0]
+              grouped[type].push({
+                key,
+                domaines: domaineLabels,
+                itemsCount,
+                archived: !!archivedMasterChecklists[key],
+                version: latest?.version,
+                updatedAt: latest?.updated_at,
+                updatedByName: (latest?.metadonnees as any)?.updated_by_name || '',
+                versionsCount: supa.length,
+              })
+            }
+
+            const totalVisible = Object.values(grouped).reduce((acc, entries) => acc + entries.length, 0)
+
+            return totalVisible === 0 ? (
+              <Card title="Templates" icon={<FileText className="w-4 h-4 text-role-primary" />}>
+                <p className="text-sm text-foreground/60 py-4 text-center">
+                  {showArchived ? 'Aucun template (actif ou archivé) trouvé.' : 'Aucun template trouvé.'}
+                </p>
+              </Card>
+            ) : (
+              <div className="divide-y divide-border rounded-xl border border-border">
+                {TYPE_CONFIG.map(ct => {
+                  const entries = grouped[ct.id] || []
+                  if (entries.length === 0) return null
+                  return (
+                    <AccordionSection
+                      key={ct.id}
+                      title={
+                        <div className="flex items-center gap-3">
+                          <ct.icon className="w-5 h-5 text-role-primary" />
+                          <span className="text-sm font-medium text-foreground">{ct.label}</span>
+                        </div>
+                      }
+                      badges={[`${entries.length} template${entries.length > 1 ? 's' : ''}`]}
+                      defaultOpen={true}
+                    >
+                      {entries.map(e => {
+                        const isArchived = e.archived
+                        return (
+                          <div key={e.key} className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${isArchived ? 'opacity-60 hover:opacity-100 bg-muted/10' : 'hover:bg-muted/30'}`}>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-mono text-foreground">{e.key}</span>
+                                <span className="text-xs text-muted-foreground">— {e.itemsCount} item{e.itemsCount > 1 ? 's' : ''}</span>
+                                {e.version && <span className="text-[10px] px-1.5 py-0.5 rounded bg-role-primary-soft/40 text-role-primary font-medium">v{e.version}</span>}
+                                {isArchived && <span className="badge neutral text-[10px]">Archivé</span>}
+                                {(e.versionsCount || 0) > 1 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium">{e.versionsCount} versions</span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {e.domaines.map(d => (
+                                  <span key={d} className="text-[10px] px-1.5 py-0.5 rounded bg-primary-soft/50 text-role-primary">{d}</span>
+                                ))}
+                              </div>
+                              {(e.updatedAt || e.updatedByName) && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  {e.updatedAt && <span>{formatDate(e.updatedAt)}</span>}
+                                  {e.updatedByName && <span>— modifié par {e.updatedByName}</span>}
+                                </div>
+                              )}
+                              {(e.versionsCount || 0) > 1 && (
+                                <details className="mt-1.5">
+                                  <summary className="text-[10px] text-role-primary cursor-pointer hover:underline">Historique des versions</summary>
+                                  <div className="mt-1 space-y-0.5">
+                                    {(supaByTheme[e.key] || []).map(t => (
+                                      <div key={t.id} className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                        <span className="font-mono">v{t.version || '—'}</span>
+                                        <span className={`px-1 rounded ${t.actif ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>{t.actif ? 'actif' : t.etat}</span>
+                                        <span>{formatDate(t.updated_at || t.created_at)}</span>
+                                        {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name) && (
+                                          <span>— {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name)}</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
                             </div>
-                          </td>
-                          <td className="py-2 px-3 text-foreground font-semibold">{totalItems}</td>
-                          <td className="py-2 px-3 text-right">
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => router.push(`/kit-checklist/${id}`)}
-                                className="action-button"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (confirm('Supprimer cette checklist ?')) {
-                                    deleteMasterChecklist(id)
-                                  }
-                                }}
-                                className="action-button danger"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                            <div className="flex items-center gap-1">
+                              {(e.versionsCount || 0) > 1 && (
+                                <button className="action-button" onClick={() => setShowVersionHistory(e.key)} title="Historique des versions"><History className="w-3.5 h-3.5" /></button>
+                              )}
+                              {!isArchived && (
+                                <>
+                                  <button className="action-button" onClick={() => router.push(`/kit-checklist/${e.key}`)} title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>
+                                  {ct.id === 'sgs' && (
+                                    <button className="action-button" title="Importer un formulaire rempli" onClick={() => {
+                                      const input = document.createElement('input')
+                                      input.type = 'file'
+                                      input.accept = '.docx'
+                                      input.onchange = async (ev: any) => {
+                                        const file = ev.target?.files?.[0]
+                                        if (!file) return
+                                        try {
+                                          const { parseSGSFormDOCX } = await import('@/lib/services/sgsFormRoundtrip')
+                                          const { itemStates } = await parseSGSFormDOCX(file)
+                                          const hierarchie = (allChecklists[e.key] as any[]).map((d: any) => ({
+                                            ...d,
+                                            items: (d.items || []).map((it: any) => {
+                                              const state = it.numero ? itemStates[it.numero] : undefined
+                                              if (!state) return it
+                                              const { commentaire, ...paoe } = state
+                                              return { ...it, paoe: { ...(it.paoe || {}), ...paoe }, commentaire: commentaire || it.commentaire }
+                                            }),
+                                          }))
+                                          setMasterChecklist(e.key, hierarchie)
+                                          addNotification({ user_id: '', type: 'success', title: 'Formulaire importé', message: `${Object.keys(itemStates).length} indicateur(s) mis à jour sur ${e.key}`, canal: 'in_app' })
+                                        } catch (err: any) {
+                                          addNotification({ user_id: '', type: 'danger', title: 'Échec de l\'import', message: err?.message || 'Fichier illisible', canal: 'in_app' })
+                                        }
+                                      }
+                                      input.click()
+                                    }}><Upload className="w-3.5 h-3.5" /></button>
+                                  )}
+                                  <div className="relative inline-block">
+                                    <button className="action-button" onClick={(ev) => { ev.stopPropagation(); const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect(); setExportMenuRect({ top: rect.bottom + 4, right: rect.right }); setExportMenuOpen(exportMenuOpen === e.key ? null : e.key) }} title="Exporter"><Download className="w-3.5 h-3.5" /></button>
+                                    {exportMenuOpen === e.key && exportMenuRect && createPortal(
+                                      <>
+                                        <div className="fixed inset-0 z-[199]" onClick={() => { setExportMenuOpen(null); setExportMenuRect(null) }} />
+                                        <div className="fixed z-[200] bg-background border border-border rounded-xl shadow-lg py-1 min-w-[120px]" style={{ left: Math.max(0, exportMenuRect.right - 130) + 'px', top: exportMenuRect.top + 'px' }}>
+                                          <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 flex items-center gap-2 whitespace-nowrap" onClick={async (ev) => {
+                                            ev.stopPropagation(); setExportMenuOpen(null); setExportMenuRect(null)
+                                            const hierarchie = allChecklists[e.key] as any[]
+                                            const m = await import('@/lib/services/exportChecklist')
+                                            let sgsTemplate: Record<string, any> | undefined
+                                            if (ct.id === 'sgs') {
+                                              const { buildSGSTemplateFromImport } = await import('@/lib/services/checklistParser')
+                                              sgsTemplate = buildSGSTemplateFromImport(hierarchie as any, e.key)
+                                            }
+                                            m.exportChecklistPDF(hierarchie, { titre: e.key, code: e.key, portee: e.domaines, sgsTemplate })
+                                          }}>
+                                            <Download className="w-3 h-3" /> PDF
+                                          </button>
+                                          <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 flex items-center gap-2 whitespace-nowrap" onClick={async (ev) => {
+                                            ev.stopPropagation(); setExportMenuOpen(null); setExportMenuRect(null)
+                                            const hierarchie = allChecklists[e.key] as any[]
+                                            const m = await import('@/lib/services/documentTemplater')
+                                            let sgsTemplate: Record<string, any> | undefined
+                                            if (ct.id === 'sgs') {
+                                              const { buildSGSTemplateFromImport } = await import('@/lib/services/checklistParser')
+                                              sgsTemplate = buildSGSTemplateFromImport(hierarchie as any, e.key)
+                                            }
+                                            m.exportChecklistDOCX(hierarchie, { titre: e.key, code: e.key, portee: e.domaines, aerodrome: '', sgsTemplate })
+                                          }}>
+                                            <FileText className="w-3 h-3" /> Word
+                                          </button>
+                                          {ct.id === 'sgs' && (
+                                            <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 flex items-center gap-2 whitespace-nowrap" onClick={async (ev) => {
+                                              ev.stopPropagation(); setExportMenuOpen(null); setExportMenuRect(null)
+                                              const hierarchie = allChecklists[e.key] as any[]
+                                              const { buildSGSTemplateFromImport } = await import('@/lib/services/checklistParser')
+                                              const sgsTemplate = buildSGSTemplateFromImport(hierarchie as any, e.key)
+                                              // Pré-remplir avec les états P/A/O/E déjà enregistrés sur les items (si l'inspecteur a déjà travaillé dessus)
+                                              const itemStates: Record<string, any> = {}
+                                              for (const d of hierarchie) {
+                                                for (const it of (d.items || [])) {
+                                                  if (it.numero && (it.paoe || it.commentaire)) {
+                                                    itemStates[it.numero] = { ...(it.paoe || {}), commentaire: it.commentaire || it.observation || '' }
+                                                  }
+                                                }
+                                              }
+                                              const { exportSGSFormDOCX } = await import('@/lib/services/sgsFormRoundtrip')
+                                              exportSGSFormDOCX(hierarchie, sgsTemplate, { titre: e.key, code: e.key, aerodrome: '' }, itemStates)
+                                            }}>
+                                              <FileText className="w-3 h-3" /> Formulaire (cases à cocher)
+                                            </button>
+                                          )}
+                                        </div>
+                                      </>,
+                                      document.body
+                                    )}
+                                  </div>
+                                  {(e.versionsCount || 0) > 1 && (
+                                    <button className="action-button" onClick={() => setShowVersionHistory(e.key)} title="Historique versions"><Clock className="w-3.5 h-3.5" /></button>
+                                  )}
+                                  <button className="action-button text-warning hover:text-warning" onClick={() => { if (confirm(`Archiver le template ${e.key} ?`)) archiveMasterChecklist(e.key); }} title="Archiver"><Archive className="w-3.5 h-3.5" /></button>
+                                  <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </>
+                              )}
+                              {isArchived && (
+                                <>
+                                  <button className="action-button" onClick={() => unarchiveMasterChecklist(e.key)} title="Restaurer"><RefreshCw className="w-3.5 h-3.5" /></button>
+                                  <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer définitivement"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </>
+                              )}
                             </div>
-                          </td>
-
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+                          </div>
+                        )
+                      })}
+                    </AccordionSection>
+                  )
+                })}
+              </div>
+            )
+          })()}
         </div>
-      </>)}
+      )}
+      {/* Contenu Documents */}
       {/* Contenu Documents */}
       {sousTab === 'documents' && (<>
       {/* Barre d'outils */}
@@ -1546,84 +1632,13 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                 </div>
               }
             >
-                    <div className="table-container">
-                      <table className="table">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th>Document</th>
-                            <th>Version</th>
-                            <th>Révision</th>
-                            <th>Domaines</th>
-                            <th>État</th>
-                            <th>Exploitant</th>
-                            <th>Téléch.</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {docs.map(doc => (
-                            <tr key={doc.id} className="border-b border-border hover:bg-role-primary-soft transition-colors">
-                              <td className="py-3">
-                                <div className="flex items-center gap-2">
-                                  {getTypeIcon(doc.type_document, "w-4 h-4")}
-                                  <div>
-                                    <p className="font-medium text-foreground">{doc.nom}</p>
-                                    <p className="text-xs text-muted-foreground truncate max-w-xs">{doc.resume}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td><span className="badge outline">{doc.version}</span></td>
-                              <td>
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3 text-muted-foreground" />
-                                  {doc.date_revision ? new Date(doc.date_revision).toLocaleDateString('fr-FR') : '-'}
-                                </div>
-                              </td>
-                              <td>
-                                <div className="flex flex-wrap gap-1">
-                                  {doc.domaines?.map((d: string) => (
-                                    <span key={d} className="badge outline text-[10px]">{d}</span>
-                                  ))}
-                                </div>
-                              </td>
-                              <td>{getEtatBadge(doc.etat)}</td>
-                              <td>
-                                <span className={`badge ${doc.accessible_exploitant ? 'success' : 'neutral'}`}>
-                                  {doc.accessible_exploitant ? 'Oui' : 'Non'}
-                                </span>
-                              </td>
-                              <td><span className="badge outline">{doc.telechargements}</span></td>
-                              <td className="text-right">
-                                <div className="flex justify-end gap-2">
-                                  <button className="action-button" onClick={() => handleDownload(doc)}>
-                                    <Download className="w-4 h-4" />
-                                  </button>
-                                  <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowDetails(true); }}>
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                  <button className="action-button" onClick={() => handleEdit(doc)} title="Modifier">
-                                    <Edit3 className="w-4 h-4" />
-                                  </button>
-                                  <button className="action-button" onClick={() => handleDelete(doc.id)} title="Supprimer">
-                                    <Trash2 className="w-4 h-4 text-danger" />
-                                  </button>
-                                  {doc.accessible_exploitant && (
-                                    <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowShareModal(true); }}>
-                                      <Share2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                  {doc.extraits && doc.extraits.length > 0 && (
-                                    <button className="action-button" onClick={() => handleImportAnacim(doc)} title="Importer dans la mémoire IA">
-                                      <Database className="w-4 h-4 text-role-primary" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      data={docs}
+                      columns={columnsDef}
+                      keyExtractor={(doc) => doc.id}
+                      headerClassName="text-foreground font-semibold"
+                      emptyState={{ icon: FileText, title: 'Aucun document' }}
+                    />
             </AccordionSection>
           );
           })}
@@ -1684,9 +1699,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                         <Trash2 className="w-3 h-3 text-danger" />
                       </button>
                       {doc.extraits && doc.extraits.length > 0 && (
-                        <button className="action-button h-7 w-7 p-0" onClick={() => handleImportAnacim(doc)} title="Importer dans la mémoire IA">
-                          <Database className="w-3 h-3 text-role-primary" />
-                        </button>
+                        <span className="badge outline text-[10px]">{doc.extraits.length} extrait(s)</span>
                       )}
                     </div>
                   </div>
@@ -1695,6 +1708,60 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             );
           })}
         </div>
+      )}
+
+      {/* Historique des versions */}
+      {showVersionHistory && createPortal(
+        <div className="modal-overlay" onClick={() => setShowVersionHistory(null)}>
+          <div className="form-shell-content max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="form-shell-inner" data-role={userRole}>
+              <div className="form-shell-header">
+                <div className="form-shell-title">
+                  <span className="form-shell-icon-wrap">
+                    <Clock className="w-5 h-5 text-white" />
+                  </span>
+                  <div>
+                    <span className="form-shell-title-text">Historique des versions</span>
+                    <span className="form-shell-subtitle">{showVersionHistory}</span>
+                  </div>
+                </div>
+                <button className="modal-close" onClick={() => setShowVersionHistory(null)} aria-label="Fermer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="form-shell-body space-y-3">
+                {(() => {
+                  const versions = (supaByTheme[showVersionHistory] || [])
+                  if (versions.length === 0) {
+                    return <p className="text-sm text-muted-foreground">Aucun historique de version pour ce template.</p>
+                  }
+                  return versions.map((v, i) => (
+                    <div key={v.id} className="flex items-start gap-3 p-3 rounded-lg border border-border">
+                      <div className="w-8 h-8 rounded-full bg-primary-soft flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-role-primary">v{v.version}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${v.actif ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>{v.actif ? 'actif' : v.etat}</span>
+                          {i === 0 && <span className="text-[10px] text-muted-foreground">dernière version</span>}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(v.updated_at || v.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {((v.metadonnees as any)?.updated_by_name || (v.metadonnees as any)?.created_by_name) && ` — par ${(v.metadonnees as any)?.updated_by_name || (v.metadonnees as any)?.created_by_name}`}
+                        </p>
+                        <p className="text-xs text-foreground mt-1">
+                          {(v.hierarchie || []).length} domaine{(v.hierarchie || []).length > 1 ? 's' : ''} : {[...new Set((v.hierarchie || []).map((d: any) => d.nom))].join(', ')}
+                        </p>
+                        {v.source_fichier && <p className="text-[10px] text-muted-foreground mt-0.5">Fichier : {v.source_fichier}</p>}
+                      </div>
+                    </div>
+                  ))
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {showGenModal && createPortal(
@@ -1827,78 +1894,511 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         document.body
       )}
 
-      {importDoc && createPortal(
-        <div className="modal-overlay" onClick={() => { setImportDoc(null); setImportItems([]); }}>
+      {/* Modal Import modèle ANACIM */}
+      {showImportModal && createPortal(
+        <div className="modal-overlay" onClick={() => { setShowImportModal(false); setImportPreview(null); setImportError(null); setImportStep('upload'); }}>
           <div className="form-shell-content max-w-3xl" onClick={e => e.stopPropagation()}>
             <div className="form-shell-inner">
               <div className="form-shell-header">
                 <div className="form-shell-title">
                   <span className="form-shell-icon-wrap">
-                    <Database className="w-5 h-5 text-white" />
+                    <Upload className="w-5 h-5 text-white" />
                   </span>
                   <div>
-                    <span className="form-shell-title-text">Importer dans la mémoire IA</span>
-                    <span className="form-shell-subtitle">{importDoc.nom} — {importItems.length} item(s) extraits</span>
+                    <span className="form-shell-title-text">Importer un modèle ANACIM</span>
+                    <span className="form-shell-subtitle">Fichier .docx — IT, SOP, QSC, SGS, Validation de site</span>
                   </div>
                 </div>
-                <button className="modal-close" onClick={() => { setImportDoc(null); setImportItems([]); }} aria-label="Fermer">
+                <button className="modal-close" onClick={() => { setShowImportModal(false); setImportPreview(null); setImportError(null); setImportStep('upload'); }} aria-label="Fermer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="form-shell-body">
-                {importLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <RefreshCw className="w-6 h-6 animate-spin text-role-primary" />
-                    <span className="ml-3 text-sm text-muted-foreground">Extraction des items en cours...</span>
+                <div className="flex items-center gap-2 mb-4 text-xs">
+                  {[
+                    { id: 'upload', label: '1. Fichier' },
+                    { id: 'config', label: '2. Configuration' },
+                    { id: 'confirmation', label: '3. Validation' },
+                  ].map((s, i) => (
+                    <React.Fragment key={s.id}>
+                      {i > 0 && <div className={`h-px flex-1 ${importStep === s.id ? 'bg-role-primary' : 'bg-border'}`} />}
+                      <span className={`px-2.5 py-1 rounded-full font-medium whitespace-nowrap ${importStep === s.id ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+                        {s.label}
+                      </span>
+                    </React.Fragment>
+                  ))}
+                </div>
+                {importError && (
+                  <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2 text-sm text-danger">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    {importError}
+                    <button onClick={() => setImportError(null)} className="ml-auto p-1 hover:bg-danger/20 rounded">
+                      <XCircle className="w-4 h-4" />
+                    </button>
                   </div>
-                ) : importItems.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Database className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
-                    <p className="text-sm text-muted-foreground">Aucun item de checklist structuré trouvé dans ce document.</p>
+                )}
+
+                {importStep === 'upload' && (<>
+                  {!importPreview && !importParsing && (
+                  <div
+                    className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer
+                      ${importDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-gray-50'}`}
+                    onDragOver={e => { e.preventDefault(); setImportDragOver(true) }}
+                    onDragLeave={() => setImportDragOver(false)}
+                    onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]) }}
+                    onClick={() => {
+                      const input = document.createElement('input')
+                      input.type = 'file'
+                      input.accept = '.docx'
+                      input.onchange = (e: any) => { if (e.target?.files?.[0]) handleImportFile(e.target.files[0]) }
+                      input.click()
+                    }}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                      <p className="text-sm font-medium text-foreground">Déposer un fichier .docx ici</p>
+                      <p className="text-xs text-muted-foreground">Modèles Word ANACIM officiels (IT, SOP, QSC, SGS, Validation de site)</p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 px-2 font-semibold text-foreground">N°</th>
-                          <th className="text-left py-2 px-2 font-semibold text-foreground">Réf. réglementaire</th>
-                          <th className="text-left py-2 px-2 font-semibold text-foreground">Point à vérifier</th>
-                          <th className="text-left py-2 px-2 font-semibold text-foreground">Résultat</th>
-                          <th className="text-left py-2 px-2 font-semibold text-foreground">Domaine</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importItems.map((item, i) => (
-                          <tr key={i} className="border-b border-border/50 hover:bg-role-primary-soft/10">
-                            <td className="py-2 px-2 font-mono text-foreground">{item.numero}</td>
-                            <td className="py-2 px-2 text-muted-foreground max-w-[200px] truncate">{item.reference_reglementaire}</td>
-                            <td className="py-2 px-2 text-foreground max-w-[300px] truncate">{item.point_verification}</td>
-                            <td className="py-2 px-2">
-                              {item.resultat ? (
-                                <span className={`badge ${item.resultat === 'SA' ? 'success' : item.resultat === 'NS' ? 'danger' : 'neutral'} text-[10px]`}>{item.resultat}</span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-2">
-                              <span className="badge outline text-[10px]">{item.domaine}</span>
-                            </td>
-                          </tr>
+                )}
+
+                {importParsing && (
+                  <div className="flex flex-col items-center gap-2 py-12">
+                    <RefreshCw className="w-8 h-8 text-role-primary animate-spin" />
+                    <p className="text-sm text-muted-foreground">Analyse du document en cours...</p>
+                  </div>
+                )}
+                </>)}
+
+                {/* Étape 2 — Configuration */}
+                {importStep === 'config' && importPreview && (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-semibold text-foreground">{importPreview.template.nom}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">{importPreview.filename}</p>
+                      </div>
+                    </div>
+
+                    {/* Famille métier */}
+                    <div>
+                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-role-primary" />
+                        Famille de la checklist
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {IMPORT_CATEGORIES.map(cat => (
+                          <button key={cat.value}
+                            onClick={() => setImportCategorie(cat.value)}
+                            className={`p-2.5 rounded-xl border text-left transition-colors ${importCategorie === cat.value ? 'border-role-primary bg-role-primary-soft/10 shadow-[0_0_0_1px_var(--role-primary)]' : 'border-border hover:border-role-primary/40 bg-background'}`}
+                          >
+                            <span className="block text-xs font-semibold text-foreground">{cat.label}</span>
+                            <span className="block text-[10px] text-muted-foreground mt-0.5">{cat.desc}</span>
+                          </button>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
+
+                    {/* Détails selon la famille */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-role-primary-soft/20 rounded-xl">
+                      <div className="col-span-2 sm:col-span-1">
+                        <p className="text-xs text-muted-foreground mb-1">Type</p>
+                        {importCategorie === 'certification' && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {CERTIFICATION_SUBTYPES.map(st => (
+                              <button key={st.value}
+                                onClick={() => setImportSousType(st.value)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importSousType === st.value ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                {st.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {importCategorie === 'certification' && importSousType === 'IT' && (
+                          <div className="mt-2">
+                            <p className="text-[10px] text-muted-foreground mb-1.5">
+                              Domaine(s) couvert(s) par ce fichier (un fichier par domaine, ou combinés — ex. ELEC + MFP) :
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {['PHY', 'ELEC', 'MFP', 'OLS', 'SLI', 'RA'].map(d => (
+                                <button key={d}
+                                  onClick={() => setImportITDomaines(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importITDomaines.includes(d) ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                  {d}
+                                </button>
+                              ))}
+                              {importITDomaines.length === 0 && (
+                                <span className="text-[10px] text-muted-foreground self-center italic">Aucun sélectionné → IT_CHKLIST_GENERAL</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {(importCategorie === 'homologation' || importCategorie === 'validation_site') && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(['aerodrome', 'helistation'] as const).map(t => (
+                              <button key={t} onClick={() => setImportTypeEntite(t)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importTypeEntite === t ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                {t === 'aerodrome' ? 'Aérodrome' : 'Hélistation'}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {importCategorie === 'surveillance_continue' && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(['certifie', 'homologue'] as const).map(r => (
+                              <button key={r} onClick={() => setImportRegime(r)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importRegime === r ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                {r === 'certifie' ? 'Certifié' : 'Homologué'}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {importCategorie === 'autres' && (
+                          <input
+                            value={importCodeLibre}
+                            onChange={e => setImportCodeLibre(e.target.value)}
+                            placeholder="Code libre (ex: ETUDE_SECURITE)"
+                            className="w-full h-7 text-xs px-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)]"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Code</p>
+                        <p className="text-sm font-medium text-foreground font-mono">{computeImportIdentity().code}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Version</p>
+                        <input
+                          value={importVersion}
+                          onChange={e => setImportVersion(e.target.value)}
+                          placeholder={importPreview.template.version || '1.0'}
+                          className="w-full h-7 text-xs px-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)]"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Date d'édition</p>
+                        <input
+                          type="date"
+                          value={importEditionDate}
+                          onChange={e => setImportEditionDate(e.target.value)}
+                          className="w-full h-7 text-xs px-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)]"
+                        />
+                      </div>
+                    </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Portée
+                          <button
+                            onClick={() => setPorteeManuallyEdited(false)}
+                            className="text-role-primary text-[10px] ml-2 underline hover:no-underline"
+                            title="Réinitialiser depuis les sections"
+                          >
+                            auto
+                          </button>
+                        </p>
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {importPorteeEdit.map(code => (
+                            <span key={code}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-role-primary-soft/20 text-role-primary">
+                              {code}
+                              <button
+                                onClick={() => {
+                                  setImportPorteeEdit(prev => prev.filter(c => c !== code))
+                                  setPorteeManuallyEdited(true)
+                                }}
+                                className="hover:text-danger transition-colors"
+                                title="Retirer ce domaine"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                          {importPorteeEdit.length === 0 && (
+                            <span className="text-xs text-muted-foreground italic">Aucun domaine</span>
+                          )}
+                        </div>
+                        <select
+                          value=""
+                          onChange={e => {
+                            if (e.target.value) {
+                              setImportPorteeEdit(prev => [...new Set([...prev, e.target.value])])
+                              setPorteeManuallyEdited(true)
+                            }
+                          }}
+                          className="w-full h-7 text-xs px-2 rounded-md border border-border bg-background text-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] appearance-none cursor-pointer"
+                          style={{ backgroundImage: 'url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3e%3cpath fill=%27none%27 stroke=%27%23343a40%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27 stroke-width=%272%27 d=%27M2 5l6 6 6-6%27/%3e%3c/svg%3e")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.3rem center', backgroundSize: '10px' }}
+                        >
+                          <option value="">+ Ajouter un domaine...</option>
+                          {getDomainesIndividuelsCodes().filter(c => !importPorteeEdit.includes(c)).map(code => (
+                            <option key={code} value={code}>{code}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Items</p>
+                        <p className="text-sm font-medium text-foreground">
+                          {importPreview.hierarchie.reduce((s: number, d: any) => s + totalItems(d), 0)}
+                        </p>
+                      </div>
+
+                    {(importTypeEdit === 'SGS') && aerodromes.length > 0 && (
+                      <div className="p-3 bg-role-primary-soft/10 rounded-xl border border-role-primary/20">
+                        <p className="text-xs font-medium text-foreground mb-2 flex items-center gap-1.5">
+                          <Shield className="w-3.5 h-3.5 text-role-primary" />
+                          Enregistrer aussi comme template SGS pour un aérodrome
+                        </p>
+                        <select
+                          value={importSGSAerodrome}
+                          onChange={e => setImportSGSAerodrome(e.target.value)}
+                          className={`w-full h-9 text-xs px-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] appearance-none cursor-pointer ${focusClass}`}
+                          style={{ backgroundImage: 'url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3e%3cpath fill=%27none%27 stroke=%27%23343a40%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27 stroke-width=%272%27 d=%27M2 5l6 6 6-6%27/%3e%3c/svg%3e")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '12px', paddingRight: '2rem' }}
+                        >
+                          <option value="">Ne pas enregistrer (import standard uniquement)</option>
+                          {aerodromes.map(a => (
+                            <option key={a.id} value={a.id}>{a.nom} ({a.code_oaci})</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-muted-foreground mt-1">Le template SGS servira pour l'évaluation PAOE dans SGSEvaluation</p>
+                      </div>
+                    )}
+
+                    {importTypeEdit === 'SGS' ? (
+                      <div className="max-h-80 overflow-y-auto space-y-2">
+                        {(() => {
+                          const allItems: any[] = []
+                          for (const d of importPreview.hierarchie) {
+                            allItems.push(...(d.items || []))
+                            for (const sd of (d.sousDomaines || [])) {
+                              allItems.push(...(sd.items || []))
+                              for (const ssd of (sd.sousSousDomaines || [])) {
+                                allItems.push(...(ssd.items || []))
+                              }
+                            }
+                          }
+                          const byElement: Record<string, any[]> = {}
+                          for (const item of allItems) {
+                            const parts = (item.numero || '').split('.')
+                            if (parts.length < 2) continue
+                            const eid = `${parts[0]}.${parts[1]}`
+                            if (!byElement[eid]) byElement[eid] = []
+                            byElement[eid].push(item)
+                          }
+                          const comps = SGS_COMPOSANTES_STRUCTURE
+                            .map(comp => ({
+                              ...comp,
+                              elements: comp.elements.filter(el => (byElement[el.id]?.length || 0) > 0),
+                            }))
+                            .filter(comp => comp.elements.length > 0)
+                          return comps.length > 0 ? comps.map(comp => (
+                            <div key={comp.id} className="border border-role-primary/20 rounded-xl overflow-hidden">
+                              <div className="px-3 py-2 bg-role-primary-soft/10 font-semibold text-xs text-foreground flex items-center gap-2">
+                                <Shield className="w-3.5 h-3.5 text-role-primary" />
+                                <span>Composante {comp.id} — {comp.label} <span className="text-muted-foreground font-normal">({comp.elements.reduce((s, el) => s + byElement[el.id].length, 0)} items)</span></span>
+                              </div>
+                              {comp.elements.map(el => (
+                                <div key={el.id} className="border-t border-border/50">
+                                  <div className="px-3 py-1.5 text-xs font-medium text-foreground bg-muted/20 flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-role-primary" />
+                                    Élément {el.id} — {el.label}
+                                  </div>
+                                  <div className="divide-y divide-border/30">
+                                    {byElement[el.id].map((item: any) => (
+                                      <div key={item.id || item.numero} className="px-3 py-1.5 flex items-start gap-2 text-xs">
+                                        <span className="font-mono text-muted-foreground shrink-0 mt-0.5 min-w-[3rem]">{item.numero}</span>
+                                        <span className="text-foreground">{item.point_verification || item.description || ''}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )) : (
+                            <div className="text-xs text-muted-foreground text-center py-4">
+                              Aucun élément SGS structuré trouvé. {allItems.length} item(s) non groupés.
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        {importPreview.hierarchie.map((d: any, i: number) => {
+                          const overridden = importDomaineOverrides[i] ?? d.nom
+                          const allCodes = [...new Set([
+                            ...importPreview.hierarchie.map((x: any) => x.nom),
+                            ...getDomainesIndividuelsCodes(),
+                          ])].sort()
+                          return (
+                            <div key={d.id || i} className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                                <select
+                                  value={overridden}
+                                  onChange={e => setImportDomaineOverrides(prev => ({ ...prev, [i]: e.target.value }))}
+                                  className="w-16 text-xs font-medium bg-transparent border border-dashed border-border rounded px-1 py-0.5 text-role-primary hover:border-role-primary focus:border-role-primary focus:outline-none cursor-pointer"
+                                  title="Code domaine"
+                                >
+                                  {allCodes.map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                  ))}
+                                </select>
+                                <span className="text-sm text-foreground truncate">{d.description || d.nom}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground shrink-0 ml-2">{totalItems(d)} item{totalItems(d) > 1 ? 's' : ''}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Étape 3 — Validation */}
+                {importStep === 'confirmation' && importPreview && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-role-primary/20 bg-role-primary-soft/10 p-4">
+                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                        <ClipboardList className="w-3.5 h-3.5 text-role-primary" />
+                        Récapitulatif
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Type</p>
+                          <p className="font-medium text-foreground">{TYPE_LABELS[computeImportIdentity().type] || computeImportIdentity().type}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Code</p>
+                          <p className="font-medium text-foreground font-mono">{computeImportIdentity().code}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Version</p>
+                          <p className="font-medium text-foreground">{importVersion || importPreview.template.version || '1.0'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Domaine(s)</p>
+                          <p className="font-medium text-foreground">
+                            {(importPorteeEdit.length > 0 ? importPorteeEdit : [...new Set(importPreview.hierarchie.map((x: any) => x.nom))]).join(', ') || '—'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-2">
+                        {importPreview.hierarchie.reduce((s: number, d: any) => s + totalItems(d), 0)} item(s) — {importCategorie === 'surveillance_continue' ? `régime ${importRegime}` : importCategorie === 'certification' && importSousType === 'IT' ? `IT — domaine(s) ${importITDomaines.length > 0 ? importITDomaines.join(' + ') : 'général (aucun sélectionné)'}` : importCategorie === 'certification' ? `sous-type ${importSousType}` : importCategorie === 'homologation' || importCategorie === 'validation_site' ? `type ${importTypeEntite}` : importCategorie} — fichier {importPreview.filename}
+                      </div>
+                    </div>
+
+                    {checkingDup ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                        <RefreshCw className="w-4 h-4 animate-spin text-role-primary" />
+                        Vérification des versions existantes...
+                      </div>
+                    ) : (
+                      <>
+                        {existingVersions.length > 0 && existingVersions.some(v => v.actif) ? (
+                          <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
+                            <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-warning" />
+                              Un template actif existe déjà ({existingVersions.find(v => v.actif)?.version || 'version ?'}) — {existingVersions.length} version(s) au total
+                            </p>
+                            {templateDiff && (
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Items existants</p>
+                                  <p className="font-semibold text-foreground">{templateDiff.existingItems}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Items importés</p>
+                                  <p className="font-semibold text-foreground">{templateDiff.incomingItems}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Ajoutés</p>
+                                  <p className="font-semibold text-success">{templateDiff.added.length}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Retirés</p>
+                                  <p className="font-semibold text-danger">{templateDiff.removed.length}</p>
+                                </div>
+                              </div>
+                            )}
+                            {templateDiff && (templateDiff.added.length + templateDiff.removed.length + templateDiff.modified.length) > 0 && (
+                              <div className="max-h-40 overflow-y-auto space-y-1 text-xs">
+                                {templateDiff.added.slice(0, 8).map((d, i) => (
+                                  <div key={`a${i}`} className="flex items-start gap-2 text-foreground">
+                                    <span className="shrink-0 px-1 rounded bg-success/15 text-success font-semibold">+</span>
+                                    <span className="font-mono text-muted-foreground shrink-0">{d.numero}</span>
+                                    <span className="truncate">{d.question}</span>
+                                  </div>
+                                ))}
+                                {templateDiff.modified.slice(0, 8).map((d, i) => (
+                                  <div key={`m${i}`} className="flex items-start gap-2 text-foreground">
+                                    <span className="shrink-0 px-1 rounded bg-warning/15 text-warning font-semibold">~</span>
+                                    <span className="font-mono text-muted-foreground shrink-0">{d.numero}</span>
+                                    <span className="truncate"><span className="line-through opacity-60">{d.before}</span> → {d.after}</span>
+                                  </div>
+                                ))}
+                                {templateDiff.removed.slice(0, 8).map((d, i) => (
+                                  <div key={`r${i}`} className="flex items-start gap-2 text-foreground">
+                                    <span className="shrink-0 px-1 rounded bg-danger/15 text-danger font-semibold">−</span>
+                                    <span className="font-mono text-muted-foreground shrink-0">{d.numero}</span>
+                                    <span className="truncate line-through opacity-60">{d.question}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <button onClick={runDiffIA} disabled={diffIALoading}
+                                className="btn btn-secondary gap-1.5">
+                                {diffIALoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+                                Comparaison détaillée IA
+                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button onClick={() => setImportDecision('replace')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importDecision === 'replace' ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+                                  Remplacer (archiver l'existant)
+                                </button>
+                                <button onClick={() => setImportDecision('keep')}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importDecision === 'keep' ? 'bg-warning text-white' : 'bg-muted text-muted-foreground'}`}>
+                                  Garder l'existant
+                                </button>
+                              </div>
+                            </div>
+                            {diffIA && (
+                              <div className="text-xs text-foreground bg-background border border-border rounded-lg p-3 whitespace-pre-wrap">{diffIA}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-success/30 bg-success/5 p-3 text-sm text-foreground flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                            Aucun template actif existant pour ce type/code — import en création.
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
 
               <div className="form-shell-footer">
-                <button onClick={() => { setImportDoc(null); setImportItems([]); }} className="btn btn-secondary">Annuler</button>
-                <button onClick={handleConfirmImport} disabled={importItems.length === 0 || importLoading} className="btn btn-primary gap-1.5">
-                  <Database className="w-3.5 h-3.5" />
-                  Importer {importItems.length} item(s)
-                </button>
+                <button onClick={() => { setShowImportModal(false); setImportPreview(null); setImportError(null); setImportStep('upload'); }}
+                  className="btn btn-secondary">Annuler</button>
+                {importStep === 'config' && importPreview && (
+                  <button onClick={goToConfirmation} disabled={importing || checkingDup}
+                    className="btn btn-primary gap-1.5">
+                    {checkingDup ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    Continuer
+                  </button>
+                )}
+                {importStep === 'confirmation' && importPreview && (
+                  <>
+                    <button onClick={() => setImportStep('config')} className="btn btn-secondary">
+                      Retour
+                    </button>
+                    <button onClick={confirmImport} disabled={importing}
+                      className="btn btn-primary gap-1.5">
+                      {importing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      {importDecision === 'keep' ? 'Fermer (garder l\'existant)' : (existingVersions.some(v => v.actif) ? 'Remplacer & importer' : 'Valider l\'import')}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1908,11 +2408,10 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
       </>)}
       {/* Modales — vrais composants React (pas d'appels de fonction) */}
-      <FormModal showForm={showForm} setShowForm={setShowForm} resetForm={resetForm}
+      <KitDocForm showForm={showForm} setShowForm={setShowForm} resetForm={resetForm}
         selectedDocument={selectedDocument} isSubmitting={isSubmitting}
         handleSubmit={handleSubmit} formData={formData} setFormData={setFormData}
-        formErrors={formErrors} domainesOpen={domainesOpen} setDomainesOpen={setDomainesOpen}
-        domainesRef={domainesRef as React.RefObject<HTMLDivElement | null>}
+        formErrors={formErrors}
         userRole={userRole} focusClass={focusClass} selectStyle={selectStyle} />
       <DetailModal showDetails={showDetails} selectedDocument={selectedDocument}
         setShowDetails={setShowDetails} handleDownload={handleDownload}

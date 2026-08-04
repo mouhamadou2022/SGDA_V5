@@ -37,11 +37,10 @@ const SEUILS_FREQUENCE = [
 
 // Tableau des sévérités observées → catégorie
 const GRAVITE_SEUILS: Record<string, number> = {
-  CRITIQUE: 5,
-  ORANGE: 4,
-  JAUNE: 3,
-  GRIS: 2,
-  BLEU: 1,
+  critique: 5,
+  eleve: 4,
+  moyen: 3,
+  faible: 1,
 }
 
 // Matrice ICAO (probabilité × sévérité → niveau de risque)

@@ -20,7 +20,7 @@ export default function KitChecklistPreviewPage() {
 
   const handleBack = () => {
     clearKitPreview()
-    router.push('/kit-inspecteur')
+    router.push('/')
   }
 
   // ── data-role sur body pour les variables CSS de rôle (btn-primary, bg-role-gradient…) ──
@@ -35,7 +35,7 @@ export default function KitChecklistPreviewPage() {
     if (!kitPreviewDoc && id) {
       const doc = kitDocuments.find(d => d.id === id)
       if (!doc) {
-        router.push('/kit-inspecteur')
+        router.push('/')
       }
     }
   }, [kitPreviewDoc, id, kitDocuments, router])

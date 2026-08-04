@@ -25,7 +25,7 @@ const getGraviteStyles = (gravite: 'rouge' | 'orange') => {
   if (gravite === 'rouge') return {
     bgClass: 'bg-danger/10', borderClass: 'border-danger/30',
     hoverBgClass: 'hover:bg-danger/20', textClass: 'text-danger',
-    badgeClass: 'badge danger animate-pulse', badgeLabel: 'CRITIQUE',
+    badgeClass: 'badge danger animate-pulse', badgeLabel: 'Critique',
     icon: <AlertTriangle className="h-4 w-4" />,
   }
   return {

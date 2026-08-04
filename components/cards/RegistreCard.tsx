@@ -59,7 +59,7 @@ export function RegistreCard({
 
   const getStatutBadge = (statut: string, type?: string, niveau?: string) => {
     if (niveau === 'critique') {
-      return { label: 'CRITIQUE', cls: 'badge danger animate-pulse' }
+      return { label: 'Critique', cls: 'badge danger animate-pulse' }
     }
     if (type === 'ecarts') {
       const variants: Record<string, { label: string; cls: string }> = {

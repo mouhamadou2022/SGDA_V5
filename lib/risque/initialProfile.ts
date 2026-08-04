@@ -86,12 +86,12 @@ function profilCertifie(aerodrome: Aerodrome): {
   const recents = age !== null && age < 36
   const confiance = recents ? 60 : 50
 
-  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 100 : Math.round(Math.min(95, Math.max(70, aerodrome.maturite_sgs ?? 80)))
+  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 0 : Math.round(Math.min(95, Math.max(70, aerodrome.maturite_sgs ?? 80)))
   const c2 = 95
   const c3 = 90
   const c4 = 92
   const c5 = recents ? 90 : 80
-  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
+  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, aerodrome.statut_sgs === 'non_applicable')
   const tendance: ProfilRisque['tendance'] = !recents ? 'baisse' : (aerodrome.maturite_sgs ?? 80) >= 80 ? 'stable' : 'hausse'
 
   return { c1, c2, c3, c4, c5, confiance, scoreGlobal, tendance }
@@ -105,12 +105,12 @@ function profilHomologue(aerodrome: Aerodrome): {
   const recents = age !== null && age < 36
   const confiance = recents ? 40 : 30
 
-  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 100 : Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
+  const c1 = aerodrome.statut_sgs === 'non_applicable' ? 0 : Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
   const c2 = 85
   const c3 = 80
   const c4 = 90
   const c5 = recents ? 85 : 78
-  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
+  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, aerodrome.statut_sgs === 'non_applicable')
   const tendance: ProfilRisque['tendance'] = !recents ? 'baisse' : 'stable'
 
   return { c1, c2, c3, c4, c5, confiance, scoreGlobal, tendance }
@@ -157,7 +157,7 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
   }
 
   const c2 = degradeC2ParTemps(aerodrome)
-  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 })
+  const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, aerodrome.statut_sgs === 'non_applicable')
 
   const sgs = aerodrome.statut_sgs === 'non_applicable' ? 75 : (aerodrome.maturite_sgs ?? 50)
   const tendance: ProfilRisque['tendance'] = sgs >= 75 ? 'hausse' : sgs <= 25 ? 'baisse' : 'stable'
@@ -209,9 +209,9 @@ function construireProfil(aerodrome: Aerodrome, p: {
     historical_scores: [],
     hawkes_intensity: 0,
     effectiveness_score: aerodrome.statut_certification === 'certifie' ? 85 : aerodrome.statut_certification === 'homologue' ? 70 : 50,
-    incident_prediction_3m:  aerodrome.statut_certification === 'certifie' ? 0.02 : aerodrome.statut_certification === 'homologue' ? 0.04 : 0.05,
-    incident_prediction_6m:  aerodrome.statut_certification === 'certifie' ? 0.05 : aerodrome.statut_certification === 'homologue' ? 0.08 : 0.12,
-    incident_prediction_12m: aerodrome.statut_certification === 'certifie' ? 0.10 : aerodrome.statut_certification === 'homologue' ? 0.15 : 0.22,
+    incident_prediction_3m:  aerodrome.statut_certification === 'certifie' ? 2 : aerodrome.statut_certification === 'homologue' ? 4 : 5,
+    incident_prediction_6m:  aerodrome.statut_certification === 'certifie' ? 5 : aerodrome.statut_certification === 'homologue' ? 8 : 12,
+    incident_prediction_12m: aerodrome.statut_certification === 'certifie' ? 10 : aerodrome.statut_certification === 'homologue' ? 15 : 22,
     event_frequency: 0,
     event_trend_acceleration: 0,
     days_since_last_event:  undefined,
@@ -219,7 +219,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
     bayesian_posterior: aerodrome.statut_certification === 'certifie' ? 0.15 : aerodrome.statut_certification === 'homologue' ? 0.22 : 0.30,
     bayesian_prior:     aerodrome.statut_certification === 'certifie' ? 0.15 : aerodrome.statut_certification === 'homologue' ? 0.22 : 0.30,
     bayesian_black_swan: false,
-    ensemble_confidence: aerodrome.statut_certification === 'certifie' ? 0.60 : aerodrome.statut_certification === 'homologue' ? 0.40 : 0.15,
+    ensemble_confidence: aerodrome.statut_certification === 'certifie' ? 60 : aerodrome.statut_certification === 'homologue' ? 40 : 15,
     scenarios: [
       {
         nom: 'Optimiste',

@@ -33,6 +33,7 @@ import { useAppStore } from '@/lib/store';
 import { DomaineCode } from '@/lib/domaines';
 import type { PAOELevel, EvaluationSGS } from '@/types/checklist';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
+import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -712,11 +713,17 @@ export function SurveillanceChecklistSuiviEcarts({
       if (suggestion && !item.conclusion) return { ...item, conclusion: 'SA' as const };
       return item;
     }));
+    for (const s of suggestions) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestions([]);
     addNotification({ user_id: user?.id || '', type: 'success', title: 'Suggestions appliquées', message: `${suggestions.length} suggestion(s) appliquée(s)`, canal: 'in_app' });
   };
 
   const handleIgnoreSuggestions = () => {
+    for (const s of suggestions) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestions([]);
   };
 

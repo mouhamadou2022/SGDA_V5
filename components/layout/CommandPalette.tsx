@@ -107,13 +107,13 @@ const NAVIGATION_COMMANDS: Command[] = [
 ]
 
 const IA_COMMANDS: Command[] = [
-  { id: 'ia-analyze-risk', label: 'Analyser le profil de risque', icon: <BarChart3 className="w-4 h-4" />, description: 'Analyse IA du risque pour l\'aérodrome sélectionné', module: 'ia', keywords: ['risque', 'score', 'analyse', 'tendance'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-analyze-report', label: 'Analyser le rapport', icon: <FileText className="w-4 h-4" />, description: 'Analyse IA de la qualité du rapport', module: 'ia', keywords: ['rapport', 'qualité', 'amélioration'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-find-similar', label: 'Trouver des éléments similaires', icon: <Search className="w-4 h-4" />, description: 'Recherche sémantique IA dans tout le système', module: 'ia', keywords: ['similaire', 'recherche', 'trouve'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-training-needs', label: 'Analyser les besoins formation', icon: <GraduationCap className="w-4 h-4" />, description: 'Analyse IA des besoins en formation des inspecteurs', module: 'ia', keywords: ['formation', 'besoin', 'inspecteur'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-predict-risk', label: 'Prédire l\'évolution du risque', icon: <TrendingUp className="w-4 h-4" />, description: 'Prédiction IA du score de risque à 3 et 6 mois', module: 'ia', keywords: ['prédiction', 'évolution', 'futur'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-compare', label: 'Comparer les aérodromes', icon: <Scale className="w-4 h-4" />, description: 'Comparaison IA entre aérodromes', module: 'ia', keywords: ['comparer', 'analyse', 'performance'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-summarize', label: 'Résumer le contexte actuel', icon: <Sparkles className="w-4 h-4" />, description: 'Génère un résumé IA de la situation', module: 'ia', keywords: ['résumé', 'synthèse', 'récap'], badge: { label: 'IA', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-analyze-risk', label: 'Analyser le profil de risque', icon: <BarChart3 className="w-4 h-4" />, description: 'Analyse AERORISQ du risque pour l\'aérodrome sélectionné', module: 'ia', keywords: ['risque', 'score', 'analyse', 'tendance'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-analyze-report', label: 'Analyser le rapport', icon: <FileText className="w-4 h-4" />, description: 'Analyse AERORISQ de la qualité du rapport', module: 'ia', keywords: ['rapport', 'qualité', 'amélioration'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-find-similar', label: 'Trouver des éléments similaires', icon: <Search className="w-4 h-4" />, description: 'Recherche sémantique AERORISQ dans tout le système', module: 'ia', keywords: ['similaire', 'recherche', 'trouve'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-training-needs', label: 'Analyser les besoins formation', icon: <GraduationCap className="w-4 h-4" />, description: 'Analyse AERORISQ des besoins en formation des inspecteurs', module: 'ia', keywords: ['formation', 'besoin', 'inspecteur'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-predict-risk', label: 'Prédire l\'évolution du risque', icon: <TrendingUp className="w-4 h-4" />, description: 'Prédiction AERORISQ du score de risque à 3 et 6 mois', module: 'ia', keywords: ['prédiction', 'évolution', 'futur'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-compare', label: 'Comparer les aérodromes', icon: <Scale className="w-4 h-4" />, description: 'Comparaison AERORISQ entre aérodromes', module: 'ia', keywords: ['comparer', 'analyse', 'performance'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
+  { id: 'ia-summarize', label: 'Résumer le contexte actuel', icon: <Sparkles className="w-4 h-4" />, description: 'Génère un résumé AERORISQ de la situation', module: 'ia', keywords: ['résumé', 'synthèse', 'récap'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
 ]
 
 const ACTION_COMMANDS: Command[] = [
@@ -296,7 +296,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
           title: `${event.reference} - ${event.type}`,
           subtitle: `${aerodrome?.code_oaci || ''} • ${event.date} • Gravité: ${event.gravite}`,
           icon: <AlertCircle className="w-4 h-4" />,
-          badge: event.gravite === 'CRITIQUE' ? 'CRITIQUE' : undefined,
+          badge: event.gravite === 'critique' ? 'critique' : undefined,
           badgeVariant: 'danger',
           action: () => { setActiveModule('evenements'); onNavigate?.('evenements', { id: event.id }); setOpen(false) },
           score
@@ -453,7 +453,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
           addNotification?.({
             user_id: user?.id || '',
             type: 'info',
-            title: 'Analyse IA en cours',
+            title: 'Analyse AERORISQ en cours',
             message: 'Analyse du profil de risque en cours...',
             canal: 'in_app'
           })
@@ -473,7 +473,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
         addNotification?.({
           user_id: user?.id || '',
           type: 'info',
-          title: 'Analyse IA',
+          title: 'Analyse AERORISQ',
           message: 'Analyse des besoins en formation des inspecteurs...',
           canal: 'in_app'
         })
@@ -502,7 +502,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
         addNotification?.({
           user_id: user?.id || '',
           type: 'info',
-          title: 'Génération IA',
+          title: 'Génération AERORISQ',
           message: 'Génération du résumé contextuel...',
           canal: 'in_app'
         })
@@ -554,7 +554,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
       <div className="p-4 pb-0">
         <div className="relative">
           <CommandInput 
-            placeholder="Rechercher un module, un aérodrome, une surveillance... ou posez une question à l'IA"
+            placeholder="Rechercher un module, un aérodrome, une surveillance... ou posez une question à AERORISQ"
             value={searchValue}
             onValueChange={setSearchValue}
             className="border-none focus:ring-0 pr-12 h-12 text-base"
@@ -591,7 +591,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
         {/* Suggestions IA proactives */}
         {iaSuggestions.length > 0 && (
           <>
-            <CommandGroup heading="💡 Suggestions IA" className="mb-2">
+            <CommandGroup heading="💡 Suggestions AERORISQ" className="mb-2">
               {iaSuggestions.map((sug) => (
                 <CommandItem
                   key={sug.id}
@@ -640,7 +640,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
         )}
 
         {/* Commandes IA */}
-        <CommandGroup heading="🤖 Commandes IA" className="mb-2">
+          <CommandGroup heading="🤖 Commandes AERORISQ" className="mb-2">
           {IA_COMMANDS.map((cmd) => (
             <CommandItem
               key={cmd.id}
@@ -738,7 +738,7 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-role-primary" />
-                <span>Commandes IA</span>
+                  <span>Commandes AERORISQ</span>
               </div>
               <div className="flex items-center gap-2">
                 <Command className="w-3.5 h-3.5" />

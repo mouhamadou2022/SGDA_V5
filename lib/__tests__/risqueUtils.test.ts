@@ -103,7 +103,7 @@ describe('risqueUtils', () => {
   describe('computeIncidentPrediction (gravite manquante)', () => {
     it('ne devrait pas crasher si gravite est undefined', () => {
       const evenements = [
-        { gravite: 'CRITIQUE', date: new Date().toISOString() },
+        { gravite: 'critique', date: new Date().toISOString() },
         { gravite: '', date: new Date().toISOString() },
         { date: new Date().toISOString() } as any,
       ]
@@ -112,7 +112,7 @@ describe('risqueUtils', () => {
 
     it('devrait retourner une prédiction', () => {
       const result = risqueUtils.computeIncidentPrediction([
-        { gravite: 'CRITIQUE', date: new Date().toISOString() },
+        { gravite: 'critique', date: new Date().toISOString() },
       ])
       expect(result).toHaveProperty('probability3m')
       expect(result).toHaveProperty('probability6m')

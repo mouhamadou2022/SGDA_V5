@@ -1,7 +1,7 @@
 // components/modules/dashboard/StaffOperatorDashboardModule.tsx
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   AlertCircle,
@@ -13,6 +13,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 
 interface StaffOperatorDashboardModuleProps {
@@ -50,6 +51,53 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
       </div>
     );
   }
+
+  const surveillancesPlanifiees = useMemo(() => {
+    return surveillances.filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'planifiee')
+  }, [surveillances, aerodrome])
+
+  const surveillancesTransmises = useMemo(() => {
+    return surveillances.filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'transmise')
+  }, [surveillances, aerodrome])
+
+  const [currentPage1, setCurrentPage1] = useState(1)
+  const [currentPage2, setCurrentPage2] = useState(1)
+  const PAGE_SIZE = 20
+  const paginatedPlanifiees = useMemo(() => {
+    const start = (currentPage1 - 1) * PAGE_SIZE
+    return surveillancesPlanifiees.slice(start, start + PAGE_SIZE)
+  }, [surveillancesPlanifiees, currentPage1])
+  const paginatedTransmises = useMemo(() => {
+    const start = (currentPage2 - 1) * PAGE_SIZE
+    return surveillancesTransmises.slice(start, start + PAGE_SIZE)
+  }, [surveillancesTransmises, currentPage2])
+  useEffect(() => setCurrentPage1(1), [surveillancesPlanifiees])
+  useEffect(() => setCurrentPage2(1), [surveillancesTransmises])
+
+  const colonnesPlanifiees: Column<any>[] = [
+    { key: 'date', header: 'Date', render: (item) => <span>{new Date(item.date_debut).toLocaleDateString('fr-FR')}</span> },
+    { key: 'type', header: 'Type', render: (item) => <span>{item.type}</span> },
+    { key: 'equipe', header: 'Équipe', render: (item) => <span>{item.equipe_ids.length} inspecteur(s)</span> },
+    { key: 'statut', header: 'Statut', render: () => <span className="badge primary">Planifiée</span> },
+  ]
+
+  const colonnesRapports: Column<any>[] = [
+    { key: 'date', header: 'Date', render: (item) => <span>{new Date(item.date_debut).toLocaleDateString('fr-FR')}</span> },
+    { key: 'type', header: 'Type', render: (item) => <span>{item.type}</span> },
+    { key: 'score', header: 'Score', render: (item) => (
+      <div className="flex items-center gap-2">
+        <div className="progress w-16 h-2">
+          <div className="progress-bar" style={{ width: `${item.score_global || 0}%` }} />
+        </div>
+        <span className="text-small">{item.score_global || 0}%</span>
+      </div>
+    )},
+    { key: 'actions', header: '', render: (item) => (
+      <button className="action-button" onClick={() => setActiveModule('operator-documentations')}>
+        <Eye className="w-4 h-4" />
+      </button>
+    )},
+  ]
 
   return (
     <div className="space-y-6" data-role={userRole} data-module="staff-operator-dashboard">
@@ -99,91 +147,50 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
       </div>
 
       {/* Prochaines surveillances */}
-      <div className="card border-l-4 border-l-role-primary">
-        <div className="card-header">
-          <h3 className="card-title text-base flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-role-primary" />
-            Prochaines surveillances
-          </h3>
-        </div>
-        <div className="card-content">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Équipe</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {surveillances
-                  .filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'planifiee')
-                  .slice(0, 5)
-                  .map(s => (
-                    <tr key={s.id}>
-                      <td>{new Date(s.date_debut).toLocaleDateString('fr-FR')}</td>
-                      <td>{s.type}</td>
-                      <td>{s.equipe_ids.length} inspecteur(s)</td>
-                      <td>
-                        <span className="badge primary">Planifiée</span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <DataTable
+        data={paginatedPlanifiees}
+        columns={colonnesPlanifiees}
+        keyExtractor={(item) => item.id}
+        cardProps={{
+          icon: <Calendar className="w-4 h-4 text-role-primary" />,
+          title: 'Prochaines surveillances',
+          className: 'border-l-4 border-l-role-primary',
+        }}
+        emptyState={{
+          icon: Calendar,
+          title: 'Aucune surveillance planifiée',
+        }}
+        pagination={{
+          total: surveillancesPlanifiees.length,
+          current: currentPage1,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage1,
+        }}
+        headerClassName="bg-role-primary-soft/40"
+      />
 
       {/* Derniers rapports */}
-      <div className="card border-l-4 border-l-role-primary">
-        <div className="card-header">
-          <h3 className="card-title text-base flex items-center gap-2">
-            <FileText className="w-4 h-4 text-role-primary" />
-            Derniers rapports
-          </h3>
-        </div>
-        <div className="card-content">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Score</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {surveillances
-                  .filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'transmise')
-                  .slice(0, 5)
-                  .map(s => (
-                    <tr key={s.id}>
-                      <td>{new Date(s.date_debut).toLocaleDateString('fr-FR')}</td>
-                      <td>{s.type}</td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className="progress w-16 h-2">
-                            <div className="progress-bar" style={{ width: `${s.score_global || 0}%` }} />
-                          </div>
-                          <span className="text-small">{s.score_global || 0}%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <button className="action-button" onClick={() => setActiveModule('operator-documentations')}>
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <DataTable
+        data={paginatedTransmises}
+        columns={colonnesRapports}
+        keyExtractor={(item) => item.id}
+        cardProps={{
+          icon: <FileText className="w-4 h-4 text-role-primary" />,
+          title: 'Derniers rapports',
+          className: 'border-l-4 border-l-role-primary',
+        }}
+        emptyState={{
+          icon: FileText,
+          title: 'Aucun rapport disponible',
+        }}
+        pagination={{
+          total: surveillancesTransmises.length,
+          current: currentPage2,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage2,
+        }}
+        headerClassName="bg-role-primary-soft/40"
+      />
     </div>
   );
 }

@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   AlertCircle,
@@ -27,6 +27,7 @@ import {
   Gauge,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { getDomaineLabel } from '@/lib/domaines';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 
@@ -114,6 +115,38 @@ export default function FocalOperatorDashboardModule({ user: userProp, userRole:
   };
 
   const now = new Date();
+
+  const rapportsFiltered = useMemo(() => {
+    if (!aerodrome) return []
+    return (surveillances || [])
+      .filter(s => s.aerodrome_id === aerodrome.id && (s.statut === 'transmise' || s.statut === 'archivee'))
+  }, [aerodrome, surveillances])
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+  const paginatedRapports = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return rapportsFiltered.slice(start, start + PAGE_SIZE)
+  }, [rapportsFiltered, currentPage])
+  useEffect(() => setCurrentPage(1), [rapportsFiltered])
+
+  const rapportColumns: Column<any>[] = [
+    { key: 'date', header: 'Date', render: (item) => <span className="text-small text-foreground">{new Date(item.date_debut).toLocaleDateString('fr-FR')}</span> },
+    { key: 'type', header: 'Type', render: (item) => <span className="text-small text-foreground">{item.type}</span> },
+    { key: 'score', header: 'Score', render: (item) => (
+      <div className="flex items-center gap-2">
+        <div className="progress w-16 h-1.5">
+          <div className="progress-bar" style={{ width: `${item.score_global || 0}%` }} />
+        </div>
+        <span className="text-small text-foreground">{item.score_global || 0}%</span>
+      </div>
+    )},
+    { key: 'actions', header: 'Actions', className: 'text-right', render: (item) => (
+      <button className="action-button" onClick={() => setActiveModule('surveillance')}>
+        <Eye className="w-4 h-4" />
+      </button>
+    )},
+  ]
 
   if (!aerodrome) {
     return (
@@ -396,58 +429,28 @@ export default function FocalOperatorDashboardModule({ user: userProp, userRole:
       </div>
 
       {/* ==================== DERNIERS RAPPORTS ==================== */}
-      <div className="card animate-fade-up" style={{ animationDelay: '0.45s' }}>
-        <div className="card-header">
-          <div className="card-title text-base flex items-center gap-2">
-            <FileText className="h-4 w-4 text-role-primary" />
-            Derniers rapports
-          </div>
-        </div>
-        <div className="card-content">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Score</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {surveillances
-                  ?.filter(s => s.aerodrome_id === aerodrome.id && (s.statut === 'transmise' || s.statut === 'archivee'))
-                  .slice(0, 5)
-                  .map(s => (
-                    <tr key={s.id} className="hover:bg-role-primary-soft transition-colors">
-                      <td className="text-small text-foreground">{new Date(s.date_debut).toLocaleDateString('fr-FR')}</td>
-                      <td className="text-small text-foreground">{s.type}</td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className="progress w-16 h-1.5">
-                            <div className="progress-bar" style={{ width: `${s.score_global || 0}%` }} />
-                          </div>
-                          <span className="text-small text-foreground">{s.score_global || 0}%</span>
-                        </div>
-                      </td>
-                      <td className="text-right">
-                        <button className="action-button" onClick={() => setActiveModule('surveillance')}>
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-            {(surveillances?.filter(s => s.aerodrome_id === aerodrome.id && (s.statut === 'transmise' || s.statut === 'archivee')).length || 0) === 0 && (
-              <div className="text-center py-6 text-muted">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p className="text-xs">Aucun rapport disponible</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <DataTable
+        data={paginatedRapports}
+        columns={rapportColumns}
+        keyExtractor={(item) => item.id}
+        cardProps={{
+          icon: <FileText className="h-4 w-4 text-role-primary" />,
+          title: 'Derniers rapports',
+          className: 'animate-fade-up',
+          style: { animationDelay: '0.45s' },
+        }}
+        emptyState={{
+          icon: FileText,
+          title: 'Aucun rapport disponible',
+        }}
+        pagination={{
+          total: rapportsFiltered.length,
+          current: currentPage,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage,
+        }}
+        headerClassName="bg-role-primary-soft/40"
+      />
     </div>
   );
 }

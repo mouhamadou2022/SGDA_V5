@@ -1,16 +1,17 @@
 // components/forms/FormationForm.tsx
 'use client';
-// ZÉRO @/components/ui/ import
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  GraduationCap, FileText, Upload, X, Calendar, User,
-  MapPin, Clock, DollarSign, Save, Trash2, Plus,
-  Users, Star, AlertCircle, CheckCircle2,
+  GraduationCap, FileText, Upload, X, Calendar,
+  MapPin, Clock, DollarSign, Save, Trash2,
+  Users, Star, AlertCircle,
 } from 'lucide-react';
+import { DataTable } from '@/components/ui/DataTable'
+import type { Column } from '@/components/ui/DataTable'
 import { useAppStore } from '@/lib/store';
 import { formationUtils } from '@/lib/formationUtils';
 import { useFormProgress } from '@/hooks/useFormProgress';
+import { FormProgressContext } from '@/components/ui/FormShell';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -135,10 +136,20 @@ export function FormationForm({ mode, formationId, onSuccess, onCancel, userRole
     'titre', 'date', 'duree_heures', 'lieu', 'formateur', 'domaines', 'participants',
   ])
 
+  const setProgress = React.useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
+
   const getProgressionInscription = () => {
     if (formData.participants.length === 0) return 0;
     return Math.min(100, (formData.participants.length / 20) * 100);
   };
+
+  const participantsAvecDonnees = useMemo(
+    () => formData.participants
+      .map(pId => inspecteurs?.find(i => i.id === pId))
+      .filter((i): i is NonNullable<typeof i> => i != null),
+    [formData.participants, inspecteurs]
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,13 +205,6 @@ export function FormationForm({ mode, formationId, onSuccess, onCancel, userRole
   return (
     <div className="form-container animate-fade-up" data-role={userRole} data-module="formation-form">
       <form onSubmit={handleSubmit}>
-        {/* Barre de progression */}
-        <div className="form-shell-progress-track mb-5" style={{ borderRadius: '0.5rem' }}>
-          <div className="form-shell-progress-fill" style={{ width: `${progress}%` }} />
-          <span className="form-shell-progress-label">
-            {progress < 100 ? `Complétion ${progress}%` : '✓ Formulaire complet'}
-          </span>
-        </div>
         {/* En-tête */}
         <div className="flex items-center gap-3 mb-6 p-4 bg-role-primary-soft rounded-lg border-l-4 border-l-role-primary">
           <div className="p-2 bg-role-gradient rounded-lg">
@@ -480,49 +484,37 @@ export function FormationForm({ mode, formationId, onSuccess, onCancel, userRole
                 </div>
               ) : (
                 /* Mode évaluation - présence */
-                <div className="table-container">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Participant</th>
-                        <th>Présence</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {formData.participants.map(pId => {
-                        const inspecteur = inspecteurs?.find(i => i.id === pId);
-                        if (!inspecteur) return null;
-                        return (
-                          <tr key={pId}>
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <span className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center text-white text-xs font-bold">
-                                  {getInitials(inspecteur.prenom, inspecteur.nom)}
-                                </span>
-                                <div>
-                                  <p className="font-medium text-small">{inspecteur.prenom} {inspecteur.nom}</p>
-                                  <p className="text-xs text-muted-foreground">{inspecteur.matricule}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <select
-                                value={presence[pId] || 'absent'}
-                                onChange={e => setPresence(prev => ({ ...prev, [pId]: e.target.value as any }))}
-                                className={`form-select text-sm w-[130px] ${focusClass}`}
-                                style={selectStyle}
-                              >
-                                <option value="present">Présent</option>
-                                <option value="absent">Absent</option>
-                                <option value="excusé">Excusé</option>
-                              </select>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  data={participantsAvecDonnees}
+                  columns={[
+                    { key: 'participant', header: 'Participant', render: (ins) => (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center text-white text-xs font-bold">
+                          {getInitials(ins.prenom, ins.nom)}
+                        </span>
+                        <div>
+                          <p className="font-medium text-small">{ins.prenom} {ins.nom}</p>
+                          <p className="text-xs text-muted-foreground">{ins.matricule}</p>
+                        </div>
+                      </div>
+                    )},
+                    { key: 'presence', header: 'Présence', render: (ins) => (
+                      <select
+                        value={presence[ins.id] || 'absent'}
+                        onChange={e => setPresence(prev => ({ ...prev, [ins.id]: e.target.value as any }))}
+                        className={`form-select text-sm w-[130px] ${focusClass}`}
+                        style={selectStyle}
+                      >
+                        <option value="present">Présent</option>
+                        <option value="absent">Absent</option>
+                        <option value="excusé">Excusé</option>
+                      </select>
+                    )},
+                  ]}
+                  keyExtractor={(ins) => ins.id}
+                  headerClassName="bg-role-primary-soft/40"
+                  emptyState={{ title: "Aucun participant" }}
+                />
               )}
               {errors.participants && <p className="field-error flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.participants}</p>}
             </div>
@@ -535,66 +527,56 @@ export function FormationForm({ mode, formationId, onSuccess, onCancel, userRole
             <div className="card">
               <div className="card-header"><h3 className="card-title text-base">Évaluation post-formation</h3></div>
               <div className="card-content">
-                <div className="table-container">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Participant</th>
-                        <th>Présence</th>
-                        <th>Note /5</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {formData.participants.map(pId => {
-                        const inspecteur = inspecteurs?.find(i => i.id === pId);
-                        const estPresent = presence[pId] === 'present';
-                        if (!inspecteur) return null;
-                        return (
-                          <tr key={pId}>
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <span className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center text-white text-xs font-bold">
-                                  {getInitials(inspecteur.prenom, inspecteur.nom)}
-                                </span>
-                                <div>
-                                  <p className="font-medium text-small">{inspecteur.prenom} {inspecteur.nom}</p>
-                                  <p className="text-xs text-muted-foreground">{inspecteur.matricule}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white ${estPresent ? 'bg-success' : 'bg-danger'}`}>
-                                {estPresent ? 'Présent' : (presence[pId] || 'Absent')}
-                              </span>
-                            </td>
-                            <td>
-                              {estPresent ? (
-                                <div className="flex items-center gap-1">
-                                  {[1, 2, 3, 4, 5].map(val => (
-                                    <button
-                                      key={val}
-                                      type="button"
-                                      onClick={() => setEvaluations(prev => ({ ...prev, [pId]: val }))}
-                                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                                        evaluations[pId] === val
-                                          ? 'bg-role-gradient text-white scale-110 shadow-lg'
-                                          : 'bg-background border border-border hover:border-role-primary'
-                                      }`}
-                                    >
-                                      {val}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-small">Non applicable</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  data={participantsAvecDonnees}
+                  columns={[
+                    { key: 'participant', header: 'Participant', render: (ins) => (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 h-8 rounded-full bg-role-gradient flex items-center justify-center text-white text-xs font-bold">
+                          {getInitials(ins.prenom, ins.nom)}
+                        </span>
+                        <div>
+                          <p className="font-medium text-small">{ins.prenom} {ins.nom}</p>
+                          <p className="text-xs text-muted-foreground">{ins.matricule}</p>
+                        </div>
+                      </div>
+                    )},
+                    { key: 'presence', header: 'Présence', render: (ins) => {
+                      const estPresent = presence[ins.id] === 'present';
+                      return (
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white ${estPresent ? 'bg-success' : 'bg-danger'}`}>
+                          {estPresent ? 'Présent' : (presence[ins.id] || 'Absent')}
+                        </span>
+                      );
+                    }},
+                    { key: 'note', header: 'Note /5', render: (ins) => {
+                      const estPresent = presence[ins.id] === 'present';
+                      return estPresent ? (
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map(val => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setEvaluations(prev => ({ ...prev, [ins.id]: val }))}
+                              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                                evaluations[ins.id] === val
+                                  ? 'bg-role-gradient text-white scale-110 shadow-lg'
+                                  : 'bg-background border border-border hover:border-role-primary'
+                              }`}
+                            >
+                              {val}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-small">Non applicable</span>
+                      );
+                    }},
+                  ]}
+                  keyExtractor={(ins) => ins.id}
+                  headerClassName="bg-role-primary-soft/40"
+                  emptyState={{ title: "Aucun participant" }}
+                />
 
                 {Object.values(evaluations).length > 0 && (
                   <div className="mt-6 p-4 bg-success/10 rounded-lg">

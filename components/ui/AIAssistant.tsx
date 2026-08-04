@@ -25,6 +25,8 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
   const [isDictating, setIsDictating] = useState(false);
   const user = useAppStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
+  const currentAerodrome = useAppStore(s => s.currentAerodrome);
+  const activeModule = useAppStore(s => s.activeModule);
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -153,7 +155,10 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
     try {
       const result = await assistantAgent.chat({
         message: userMessage.content,
-        contexte: { module: 'global' },
+        contexte: {
+          module: activeModule || 'global',
+          ...(currentAerodrome?.id ? { aerodromeId: currentAerodrome.id } : {}),
+        },
         userRole: user?.role || 'inspector',
       });
       setConversation(prev => [...prev, {
@@ -238,7 +243,7 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
       >
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-role-primary" />
-          <span className="font-semibold text-sm">Assistant IA</span>
+          <span className="font-semibold text-sm">Assistant AERORISQ</span>
           <span className="text-[10px] text-muted-foreground">Ctrl+K</span>
         </div>
         <div className="flex items-center gap-1">

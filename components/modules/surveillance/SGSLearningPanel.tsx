@@ -80,7 +80,7 @@ export function SGSLearningPanel({ aerodromeId }: Props) {
 
           <p className="text-[10px] text-muted-foreground italic">
             <TrendingUp className="w-3 h-3 inline mr-1" />
-            Les corrections des inspecteurs sur les niveaux PAOE améliorent progressivement les suggestions IA.
+            Les corrections des inspecteurs sur les niveaux PAOE améliorent progressivement les suggestions AERORISQ.
           </p>
         </div>
       )}

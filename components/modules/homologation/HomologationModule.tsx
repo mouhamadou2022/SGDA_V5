@@ -1175,6 +1175,34 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
   const [iaAnalysis, setIaAnalysis] = useState<CertificationAnalysisResult | null>(null);
   const [showIaAnalysis, setShowIaAnalysis] = useState(false);
 
+  const [exportLoading, setExportLoading] = useState(false);
+  const handleExport = async () => {
+    if (exportLoading) return;
+    setExportLoading(true);
+    try {
+      const { genererRapportHomologation } = await import('@/lib/services/exportHomologation');
+      await genererRapportHomologation();
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Rapport PDF généré',
+        message: "Le rapport national d'homologation a été exporté au format PDF.",
+        canal: 'in_app',
+      });
+    } catch (error) {
+      console.error('Erreur export homologation:', error);
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Erreur',
+        message: "Impossible d'exporter le rapport PDF. Veuillez réessayer.",
+        canal: 'in_app',
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const allHomologations = homologations || [];
   const nationalAerodromes = useMemo(() => {
     return aerodromes.filter(a => a.type === 'national');
@@ -1471,9 +1499,9 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
         icon={<Scale />}
         title="Homologation"
         description="Gestion des homologations des aérodromes nationaux (validité illimitée)"
-        actions={<button className="btn btn-secondary gap-2 flex items-center">
-          <Download className="w-4 h-4" />
-          Exporter
+        actions={<button className="btn btn-secondary gap-2 flex items-center" onClick={handleExport} disabled={exportLoading}>
+          {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          {exportLoading ? 'Export en cours…' : 'Exporter'}
         </button>}
       />
 

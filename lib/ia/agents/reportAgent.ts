@@ -12,6 +12,7 @@ import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { REPORT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 import { generateEquipeTableHtml, generateEcartsTableHtml, generateResultsSimpleHtml } from '@/lib/rapportHtml'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
 
 // ============================================================
 // TYPES
@@ -150,6 +151,20 @@ export class ReportAgent {
     await this.loadVersionsFromStorage()
   }
 
+  // Contexte réglementaire RAG (Kit Inspecteur) pour une surveillance donnée
+  private getReglementaireContext(surveillanceId: string, requete: string, maxChars = 3000): string {
+    const store = useAppStore.getState()
+    const surveillance = store.surveillances.find((s: Surveillance) => s.id === surveillanceId)
+    const aerodrome = store.aerodromes.find((a: Aerodrome) => a.id === surveillance?.aerodrome_id)
+    const items = store.checklistItems[surveillanceId] || []
+    return construireContexteReglementaire({
+      domaines: (items as Array<{ domaine?: string }>).map(i => i.domaine || '').filter(Boolean),
+      type_entite: aerodrome?.type_entite,
+      requete,
+      maxChars,
+    })
+  }
+
   // ============================================================
   // 1. EXÉCUTION D'INSTRUCTION EN LANGAGE NATUREL
   // ============================================================
@@ -201,6 +216,8 @@ export class ReportAgent {
     const store = useAppStore.getState()
     const surveillance = store.surveillances.find((s: Surveillance) => s.id === request.surveillanceId)
 
+    const contexteReg = this.getReglementaireContext(request.surveillanceId, request.instruction)
+
     const aiResult = await aiClient.call({
       systemPrompt: REPORT_SYSTEM_PROMPT,
       userMessage: `Instruction de l'inspecteur : "${request.instruction}"
@@ -210,7 +227,9 @@ Contexte :
 - Aérodrome : ${store.aerodromes.find((a: Aerodrome) => a.id === surveillance?.aerodrome_id)?.code_oaci ?? 'N/A'}
 - Rapport actuel (extrait) : ${request.currentContent.substring(0, 500)}...
 
-Exécute l'instruction et retourne le contenu modifié ou ta réponse directement.`,
+${contexteReg}
+
+Exécute l'instruction et retourne le contenu modifié ou ta réponse directement. Appuie chaque mention réglementaire sur les références fournies ci-dessus.`,
       temperature: 0.4,
       maxTokens: 2048,
     })
@@ -641,6 +660,8 @@ Exécute l'instruction et retourne le contenu modifié ou ta réponse directemen
     const aerodrome = store.aerodromes.find((a: Aerodrome) => a.id === surveillance?.aerodrome_id)
 
     // Amélioration par IA — reformulation complète ou ciblée
+    const contexteReg = this.getReglementaireContext(request.surveillanceId, request.instruction, 3000)
+
     const aiResult = await aiClient.call({
       systemPrompt: REPORT_SYSTEM_PROMPT,
       userMessage: `Améliore ce rapport de surveillance selon l'instruction suivante : "${request.instruction}"
@@ -650,7 +671,9 @@ Contexte : ${aerodrome?.code_oaci ?? ''} — ${surveillance?.type ?? ''} du ${su
 Rapport actuel :
 ${request.currentContent.substring(0, 3000)}
 
-Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore la qualité rédactionnelle, complète les sections incomplètes, renforce le vocabulaire réglementaire OACI/ANACIM.`,
+${contexteReg}
+
+Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore la qualité rédactionnelle, complète les sections incomplètes, renforce le vocabulaire réglementaire OACI/ANACIM en t'appuyant sur les références fournies ci-dessus.`,
       temperature: 0.4,
       maxTokens: 3000,
     })
@@ -973,13 +996,15 @@ Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore
     }
 
     // Générer les sections auto localement + section résumé/recommandations par IA
+    const contexteReg = this.getReglementaireContext(request.surveillanceId, 'rapport de surveillance', 4000)
+
     const generatedSections = await Promise.all(
       template.sections.map(async (section) => {
         if (!section.auto) return section
 
         // Sections narratives → IA
         if (['resume_executif', 'recommandations', 'conclusion', 'analyse_nc', 'preoccupations'].includes(section.id)) {
-          const sectionContent = await this.generateSectionWithAI(section.id, section.titre, reportContext, ecartsCritiques)
+          const sectionContent = await this.generateSectionWithAI(section.id, section.titre, reportContext, ecartsCritiques, contexteReg)
           return { ...section, contenu: sectionContent }
         }
 
@@ -1003,7 +1028,8 @@ Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore
     sectionId: string,
     sectionTitre: string,
     context: Record<string, any>,
-    ecartsCritiques: Ecart[]
+    ecartsCritiques: Ecart[],
+    contexteReg = ''
   ): Promise<string> {
     const sectionGuide: Record<string, string> = {
       resume_executif: 'Rédigez un résumé exécutif de 2-3 paragraphes synthétisant les résultats de la surveillance.',
@@ -1023,7 +1049,9 @@ Données de la surveillance :
 ${JSON.stringify(context, null, 2)}
 ${ecartsCritiques.length > 0 ? `\nÉcarts critiques :\n${ecartsCritiques.slice(0, 5).map((e: Ecart) => `- ${e.libelle?.substring(0, 100)}`).join('\n')}` : ''}
 
-Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li>, <strong>).`,
+${contexteReg}
+
+Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li>, <strong>). Appuie chaque mention réglementaire sur les références fournies ci-dessus.`,
       temperature: 0.4,
       maxTokens: 800,
     })

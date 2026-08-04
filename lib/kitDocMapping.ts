@@ -16,7 +16,7 @@ export const DOMAINE_DOCUMENTS: DomaineDocMapping[] = [
   {
     code: 'SGS',
     sources: [
-      { ref_pattern: /ras\s*19|annexe\s*19/i, type_oaci: 'RAS-14', priorite: 1 },
+      { ref_pattern: /ras\s*19|annexe\s*19/i, type_oaci: 'RAS-14', chapitre: ['2', '3', '4', '5'], priorite: 1 },
       { ref_pattern: /doc\s*9859/i, type_oaci: 'Guides', chapitre: ['8', '9'], priorite: 2 },
     ],
   },
@@ -33,8 +33,8 @@ export const DOMAINE_DOCUMENTS: DomaineDocMapping[] = [
   {
     code: 'OLS',
     sources: [
-      { ref_pattern: /ras\s*14.*vol.*i|ras\s*14.*volume\s*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: '4', priorite: 1 },
-      { ref_pattern: /annexe\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: '4', priorite: 1 },
+      { ref_pattern: /ras\s*14.*vol.*i|ras\s*14.*volume\s*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: ['4', '6'], priorite: 1 },
+      { ref_pattern: /annexe\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: ['4', '6'], priorite: 1 },
       { ref_pattern: /doc\s*9137.*part.*6/i, type_oaci: 'Guides', partie: '6', priorite: 2 },
       { ref_pattern: /cir\s*301/i, priorite: 3 },
     ],
@@ -51,6 +51,7 @@ export const DOMAINE_DOCUMENTS: DomaineDocMapping[] = [
       { ref_pattern: /doc\s*9137.*part.*8/i, priorite: 2 },
       { ref_pattern: /pans.*aerodromes/i, priorite: 2 },
       { ref_pattern: /grf/i, priorite: 3 },
+      { ref_pattern: /doc\s*9774/i, priorite: 3 },
     ],
   },
   {
@@ -82,8 +83,8 @@ export const DOMAINE_DOCUMENTS: DomaineDocMapping[] = [
   {
     code: 'MFP',
     sources: [
-      { ref_pattern: /ras\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: '5', priorite: 1 },
-      { ref_pattern: /annexe\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: '5', priorite: 1 },
+      { ref_pattern: /ras\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: ['5', '6', '7'], priorite: 1 },
+      { ref_pattern: /annexe\s*14.*vol.*i/i, type_oaci: 'RAS-14', volume: 'I', chapitre: ['5', '6', '7'], priorite: 1 },
       { ref_pattern: /doc\s*9157.*part.*4/i, priorite: 2 },
     ],
   },

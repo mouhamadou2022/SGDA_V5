@@ -14,6 +14,7 @@ import { evenementUtils } from '@/lib/evenementUtils'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent'
 import { useFormProgress } from '@/hooks/useFormProgress'
+import { FormProgressContext } from '@/components/ui/FormShell'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -25,19 +26,17 @@ const monoBadge = "inline-flex items-center px-2 py-0.5 rounded-md bg-role-prima
 const labelClass = "filter-label text-role-primary text-xs font-semibold uppercase tracking-wide"
 
 const GRAVITE_BADGES: Record<string, string> = {
-  CRITIQUE: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-danger animate-pulse',
-  ORANGE:   'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
-  JAUNE:    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
-  GRIS:     'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-slate-400',
-  BLEU:     'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-primary',
+  critique: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-danger animate-pulse',
+  eleve:    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
+  moyen:    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
+  faible:   'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-slate-400',
 }
 
 const GRAVITE_WEIGHTS = {
-  CRITIQUE: { valeur: 5, delaiNotification: 24, niveau: 'critique' },
-  ORANGE: { valeur: 4, delaiNotification: 48, niveau: 'eleve' },
-  JAUNE: { valeur: 3, delaiNotification: 72, niveau: 'moyen' },
-  GRIS: { valeur: 2, delaiNotification: 96, niveau: 'faible' },
-  BLEU: { valeur: 1, delaiNotification: 120, niveau: 'faible' },
+  critique: { valeur: 5, delaiNotification: 24, niveau: 'critique' },
+  eleve: { valeur: 4, delaiNotification: 48, niveau: 'eleve' },
+  moyen: { valeur: 3, delaiNotification: 72, niveau: 'moyen' },
+  faible: { valeur: 1, delaiNotification: 120, niveau: 'faible' },
 }
 
 interface EvenementFormProps {
@@ -88,7 +87,7 @@ export function EvenementForm({
     rapport_final: null as File | null,
   })
 
-  const [gravite, setGravite] = useState<EvenementSecurite['gravite']>('BLEU')
+  const [gravite, setGravite] = useState<EvenementSecurite['gravite']>('faible')
   const [activeTab, setActiveTab] = useState('informations')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -152,7 +151,7 @@ export function EvenementForm({
           inspecteur_id: ev.inspecteur_id || '',
           rapport_final: null,
         })
-        setGravite(ev.gravite || 'BLEU')
+        setGravite(ev.gravite || 'faible')
       }
     }
   }, [mode, evenementId, evenements])
@@ -173,15 +172,14 @@ export function EvenementForm({
 
   const getGraviteIcon = () => {
     switch (gravite) {
-      case 'CRITIQUE': return <Flame className="w-5 h-5 text-danger" />
-      case 'ORANGE':   return <AlertOctagon className="w-5 h-5 text-warning" />
-      case 'JAUNE':    return <AlertCircle className="w-5 h-5 text-warning" />
-      case 'GRIS':     return <Info className="w-5 h-5 text-muted-foreground" />
+      case 'critique': return <Flame className="w-5 h-5 text-danger" />
+      case 'eleve':    return <AlertOctagon className="w-5 h-5 text-warning" />
+      case 'moyen':    return <AlertCircle className="w-5 h-5 text-warning" />
       default:         return <Info className="w-5 h-5 text-role-primary" />
     }
   }
 
-  const getGraviteBadgeCls = (): string => GRAVITE_BADGES[gravite] || GRAVITE_BADGES.GRIS
+  const getGraviteBadgeCls = (): string => GRAVITE_BADGES[gravite] || GRAVITE_BADGES.faible
 
   const toggleService = (service: string) => {
     setFormData(prev => ({
@@ -231,7 +229,7 @@ export function EvenementForm({
         await addEvenement(data)
         addNotification({
           user_id: userId,
-          type: gravite === 'CRITIQUE' ? 'danger' : 'warning',
+          type: gravite === 'critique' ? 'danger' : 'warning',
           title: 'Événement déclaré',
           message: `${gravite} - ${formData.type} à ${aerodrome?.code_oaci}`,
           canal: 'in_app'
@@ -273,12 +271,15 @@ export function EvenementForm({
   onProgressRef.current = onProgressChange
   useEffect(() => { onProgressRef.current?.(progress) }, [progress])
 
+  const setProgress = React.useContext(FormProgressContext)
+  useEffect(() => { setProgress(progress) }, [progress, setProgress])
+
   const getImpactRisqueMessage = () => {
     if (!profilAerodrome) return null
-    if (gravite === 'CRITIQUE') {
+    if (gravite === 'critique') {
       return "⚠️ Événement critique - Impact majeur sur le score de risque (C5) et déclenchement automatique d'une surveillance inopinée"
     }
-    if (gravite === 'ORANGE') {
+    if (gravite === 'eleve') {
       return "⚠️ Événement grave - Risque de dégradation du score de résilience (C5)"
     }
     if (profilAerodrome.c5 < 50) {
@@ -342,7 +343,7 @@ export function EvenementForm({
           <div className={`alert ${profilAerodrome.c5 < 50 ? 'alert-warning' : 'alert-info'} mb-6 animate-fade-in`}>
             <Sparkles className="alert-icon w-4 h-4" />
             <div className="alert-content flex-1">
-              <div className="alert-title">🤖 Analyse IA du profil de risque</div>
+              <div className="alert-title">🤖 Analyse AERORISQ du profil de risque</div>
               <div className="alert-description">
                 Score actuel: {profilAerodrome.score_global}/100 • Résilience (C5): {profilAerodrome.c5}/100
                 {profilAerodrome.c5 < 50 && (
@@ -366,7 +367,7 @@ export function EvenementForm({
         {isLoadingIA && (
           <div className="text-center py-2 mb-4">
             <div className="spinner spinner-sm inline-block mr-2" />
-            <span className="text-xs text-muted-foreground">Analyse IA du contexte...</span>
+            <span className="text-xs text-muted-foreground">Analyse AERORISQ du contexte...</span>
           </div>
         )}
 
@@ -484,7 +485,7 @@ export function EvenementForm({
                       {iaSuggestLoading ? (
                         <><div className="spinner spinner-xs inline-block mr-1" />Analyse...</>
                       ) : (
-                        <><Wand2 className="w-3.5 h-3.5" />Suggestion IA</>
+                        <><Wand2 className="w-3.5 h-3.5" />Suggestion AERORISQ</>
                       )}
                     </button>
                   )}
@@ -494,11 +495,11 @@ export function EvenementForm({
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 space-y-2">
                         <p className="text-xs font-semibold text-role-primary uppercase tracking-wide flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5" />Suggestion IA — validez avant application
+                          <Sparkles className="w-3.5 h-3.5" />Suggestion AERORISQ — validez avant application
                         </p>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                           <div><span className="text-muted-foreground">Type :</span> <span className="font-medium">{iaSuggestion.type}</span></div>
-                          <div><span className="text-muted-foreground">Gravité :</span> <span className={`font-medium ${iaSuggestion.gravite === 'CRITIQUE' ? 'text-danger' : iaSuggestion.gravite === 'ORANGE' ? 'text-warning' : ''}`}>{iaSuggestion.gravite}</span></div>
+                          <div><span className="text-muted-foreground">Gravité :</span> <span className={`font-medium ${iaSuggestion.gravite === 'critique' ? 'text-danger' : iaSuggestion.gravite === 'eleve' ? 'text-warning' : ''}`}>{iaSuggestion.gravite}</span></div>
                           <div><span className="text-muted-foreground">Classification :</span> <span className="font-medium capitalize">{iaSuggestion.classification === 'incident_grave' ? 'incident grave' : iaSuggestion.classification}</span></div>
                           <div><span className="text-muted-foreground">Services :</span> <span className="font-medium">{iaSuggestion.services_alertes.join(', ') || '—'}</span></div>
                         </div>
@@ -700,10 +701,10 @@ export function EvenementForm({
 
         {/* Impact sur le profil de risque */}
         {getImpactRisqueMessage() && (
-          <div className={`p-3 rounded-lg mt-4 ${gravite === 'CRITIQUE' ? 'bg-danger/10 border border-danger/30' : 'bg-warning/10 border border-warning/30'}`}>
+          <div className={`p-3 rounded-lg mt-4 ${gravite === 'critique' ? 'bg-danger/10 border border-danger/30' : 'bg-warning/10 border border-warning/30'}`}>
             <div className="flex items-center gap-2 text-sm">
-              <AlertCircle className={`w-4 h-4 ${gravite === 'CRITIQUE' ? 'text-danger' : 'text-warning'}`} />
-              <span className={gravite === 'CRITIQUE' ? 'text-danger' : 'text-warning'}>{getImpactRisqueMessage()}</span>
+              <AlertCircle className={`w-4 h-4 ${gravite === 'critique' ? 'text-danger' : 'text-warning'}`} />
+              <span className={gravite === 'critique' ? 'text-danger' : 'text-warning'}>{getImpactRisqueMessage()}</span>
             </div>
             {graviteConfig && (
               <p className="text-xs text-muted-foreground mt-2">
@@ -714,7 +715,7 @@ export function EvenementForm({
         )}
 
         {/* Alerte critique */}
-        {gravite === 'CRITIQUE' && (
+        {gravite === 'critique' && (
           <div className="alert alert-error mt-4 flex items-center gap-2">
             <Flame className="w-4 h-4 animate-pulse flex-shrink-0" />
             <span>Événement critique - Notification requise dans les 24h</span>

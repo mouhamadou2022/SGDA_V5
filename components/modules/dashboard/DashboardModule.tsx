@@ -1,7 +1,7 @@
 // components/modules/dashboard/DashboardModule.tsx
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   BarChart3,
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { useAppStore } from '@/lib/store';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { getNiveauFromScore, getLabelFromScore, getBadgeClassFromScore } from '@/lib/config';
 import { AlertCard } from './AlertCard';
 import { BarChart } from '@/components/ui/charts/BarChart';
@@ -151,6 +152,77 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
       .sort((a, b) => new Date(a.date_debut).getTime() - new Date(b.date_debut).getTime())
       .slice(0, 3);
   }, [surveillances, userId]);
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+  const paginatedAlerteData = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return aerodromesEnAlerte.slice(start, start + PAGE_SIZE)
+  }, [aerodromesEnAlerte, currentPage])
+  useEffect(() => setCurrentPage(1), [aerodromesEnAlerte])
+
+  const columnsAlerte: Column<any>[] = [
+    { key: 'aerodrome', header: 'Aérodrome', render: (item) => (
+      <div className="flex items-center gap-2">
+        <span className="code-oaci-badge">{item.code_oaci}</span>
+        <span className="text-small font-medium text-foreground">{item.nom}</span>
+      </div>
+    )},
+    { key: 'score', header: 'Score risque', render: (item) => {
+      const profil = item.profil
+      return (
+        <div className="flex items-center gap-2">
+          <div className="progress w-20"><div className="progress-bar" style={{ width: `${profil?.score_global || 0}%` }} /></div>
+          <span className="text-small font-mono">{profil?.score_global || 0}%</span>
+        </div>
+      )
+    }},
+    { key: 'niveau', header: 'Niveau', render: (item) => (
+      <span className={getBadgeClassFromScore(item.profil?.score_global || 0)}>
+        {getLabelFromScore(item.profil?.score_global || 0)}
+      </span>
+    )},
+    { key: 'etat', header: 'État', render: (item) => {
+      const vx = item.profil?.velocity_metrics?.vitesse ?? 0
+      const tend = item.profil?.tendance
+      if (tend === 'baisse' && vx < -1.5) return <span className="badge danger text-[10px]">Critique</span>
+      if (tend === 'baisse') return <span className="badge warning text-[10px]">Dégradé</span>
+      if (tend === 'hausse') return <span className="badge success text-[10px]">Stable</span>
+      return <span className="badge primary text-[10px]">Stable</span>
+    }},
+    { key: 'ecarts', header: 'Écarts critiques', render: (item) => {
+      const ecartsCritiquesAero = ecarts.filter(e =>
+        e.aerodrome_id === item.id &&
+        e.niveau_risque === 'critique' &&
+        e.statut !== 'cloture'
+      ).length
+      return ecartsCritiquesAero > 0 ? (
+        <span className="badge danger pulse">{ecartsCritiquesAero} critique(s)</span>
+      ) : (
+        <span className="text-muted text-small">0</span>
+      )
+    }},
+    { key: 'derniere_surv', header: 'Dernière surveillance', render: (item) => {
+      const derniereSurv = surveillances
+        .filter(s => s.aerodrome_id === item.id && s.statut === 'transmise')
+        .sort((a, b) => new Date(b.date_fin).getTime() - new Date(a.date_fin).getTime())[0]
+      return derniereSurv ? (
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-muted" />
+          <span className="text-small text-muted">{new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR')}</span>
+        </div>
+      ) : (
+        <span className="text-muted text-small">-</span>
+      )
+    }},
+    { key: 'actions', header: 'Actions', className: 'text-right', render: () => (
+      <div className="action-buttons">
+        <button className="action-button transition-transform hover:scale-110">
+          <Eye className="w-4 h-4" />
+        </button>
+      </div>
+    )},
+  ]
 
   return (
     <div className="space-y-6 animate-fade-in" data-role={userRole} data-module="dashboard">
@@ -356,105 +428,28 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
 
       {/* Aérodromes en alerte */}
       {aerodromesEnAlerte.length > 0 && (
-        <div className="card animate-fade-up" style={{ animationDelay: '0.37s' }}>
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-danger animate-pulse" />
-              Aérodromes en alerte
-            </div>
-          </div>
-          <div className="card-content">
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Aérodrome</th>
-                    <th>Score risque</th>
-                    <th>Niveau</th>
-                    <th>État</th>
-                    <th>Écarts critiques</th>
-                    <th>Dernière surveillance</th>
-                    <th className="text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aerodromesEnAlerte.map(aero => {
-                    const profil = aero.profil;
-                    const ecartsCritiquesAero = ecarts.filter(e =>
-                      e.aerodrome_id === aero.id &&
-                      e.niveau_risque === 'critique' &&
-                      e.statut !== 'cloture'
-                    ).length;
-                    const derniereSurv = surveillances
-                      .filter(s => s.aerodrome_id === aero.id && s.statut === 'transmise')
-                      .sort((a, b) => new Date(b.date_fin).getTime() - new Date(a.date_fin).getTime())[0];
-
-                    return (
-                      <tr key={aero.id} className="cursor-pointer hover:bg-role-primary-soft group">
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <span className="code-oaci-badge">{aero.code_oaci}</span>
-                            <span className="text-small font-medium text-foreground">{aero.nom}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <div className="progress w-20"><div className="progress-bar" style={{ width: `${profil?.score_global || 0}%` }} /></div>
-                            <span className="text-small font-mono">{profil?.score_global || 0}%</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={getBadgeClassFromScore(profil?.score_global || 0)}>
-                            {getLabelFromScore(profil?.score_global || 0)}
-                          </span>
-                        </td>
-                        <td>
-                          {(() => {
-                            const v = aero.profil;
-                            const vx = v?.velocity_metrics?.vitesse ?? 0;
-                            const tend = v?.tendance;
-                            if (tend === 'baisse' && vx < -1.5) return <span className="badge danger text-[10px]">Critique</span>;
-                            if (tend === 'baisse') return <span className="badge warning text-[10px]">Dégradé</span>;
-                            if (tend === 'hausse') return <span className="badge success text-[10px]">Stable</span>;
-                            return <span className="badge primary text-[10px]">Stable</span>;
-                          })()}
-                        </td>
-                        <td>
-                          {ecartsCritiquesAero > 0 ? (
-                            <span className="badge danger pulse">
-                              {ecartsCritiquesAero} critique(s)
-                            </span>
-                          ) : (
-                            <span className="text-muted text-small">0</span>
-                          )}
-                        </td>
-                        <td>
-                          {derniereSurv ? (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-muted" />
-                              <span className="text-small text-muted">
-                                {new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR')}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-muted text-small">-</span>
-                          )}
-                        </td>
-                        <td className="text-right">
-                          <div className="action-buttons">
-                            <button className="action-button group-hover:scale-110 transition-transform">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <DataTable
+          data={paginatedAlerteData}
+          columns={columnsAlerte}
+          keyExtractor={(item) => item.id}
+          cardProps={{
+            icon: <AlertTriangle className="h-5 w-5 text-danger animate-pulse" />,
+            title: 'Aérodromes en alerte',
+            className: 'animate-fade-up',
+            style: { animationDelay: '0.37s' },
+          }}
+          emptyState={{
+            icon: AlertTriangle,
+            title: 'Aucun aérodrome en alerte',
+          }}
+          pagination={{
+            total: aerodromesEnAlerte.length,
+            current: currentPage,
+            pageSize: PAGE_SIZE,
+            onPageChange: setCurrentPage,
+          }}
+          headerClassName="bg-role-primary-soft/40"
+        />
       )}
 
       {/* Activité récente */}

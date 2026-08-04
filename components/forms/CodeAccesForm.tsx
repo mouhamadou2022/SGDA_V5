@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { codeAccesUtils, CODE_TYPES } from '@/lib/codeAccesUtils';
+import { FormProgressContext } from '@/components/ui/FormShell';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = {
@@ -96,10 +97,13 @@ export function CodeAccesForm({
 
   const onProgressRef = useRef(onProgressChange)
   onProgressRef.current = onProgressChange
+  const setProgress = React.useContext(FormProgressContext)
   useEffect(() => {
     const filled = [formData.aerodrome_id, formData.code_type, formData.code_genere].filter(Boolean).length
-    onProgressRef.current?.(Math.round((filled / 3) * 100))
-  }, [formData.aerodrome_id, formData.code_type, formData.code_genere])
+    const pct = Math.round((filled / 3) * 100)
+    onProgressRef.current?.(pct)
+    setProgress(pct)
+  }, [formData.aerodrome_id, formData.code_type, formData.code_genere, setProgress])
 
   const validerFormulaire = (): boolean => {
     const newErrors: Record<string, string> = {};

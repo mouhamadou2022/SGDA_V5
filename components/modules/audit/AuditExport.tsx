@@ -3,8 +3,9 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Download, FileSpreadsheet, FileJson, Calendar, Users, Filter } from 'lucide-react'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -24,6 +25,8 @@ export function AuditExport({ entries }: Props) {
   const [format, setFormat] = useState<'csv' | 'json'>('csv')
   const [dateDe, setDateDe] = useState('')
   const [dateA, setDateA] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
 
   const filtrees = entries.filter(e => {
     const d = new Date(e.date)
@@ -150,46 +153,25 @@ export function AuditExport({ entries }: Props) {
               {Math.min(apercu.length, 5)} / {filtrees.length}
             </span>
           </p>
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr className="bg-muted/30">
-                  <th className="px-3 py-2 text-left text-xs">Date</th>
-                  <th className="px-3 py-2 text-left text-xs">Module</th>
-                  <th className="px-3 py-2 text-left text-xs">Action</th>
-                  <th className="px-3 py-2 text-left text-xs">Utilisateur</th>
-                  <th className="px-3 py-2 text-left text-xs">Détails</th>
-                </tr>
-              </thead>
-              <tbody>
-                {apercu.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-muted">
-                      <Download className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                      Aucune entrée pour cette période
-                    </td>
-                  </tr>
-                )}
-                {apercu.map((e, i) => (
-                  <tr key={i} className="even:bg-muted/10 hover:bg-role-primary-soft transition-colors">
-                    <td className="px-3 py-2 text-xs font-mono whitespace-nowrap">{e.date}</td>
-                    <td className="px-3 py-2 text-xs">{e.module}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <span className={`badge ${
-                        e.action === 'suppression' ? 'danger' :
-                        e.action === 'modification' ? 'warning' :
-                        e.action === 'creation' ? 'primary' : 'neutral'
-                      } text-[10px]`}>
-                        {e.action}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-xs whitespace-nowrap">{e.utilisateur}</td>
-                    <td className="px-3 py-2 text-xs max-w-xs truncate text-muted">{e.details}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {(() => {
+            const columns: Column<EntreeAudit>[] = [
+              { key: 'date', header: 'Date', render: (e) => <span className="text-xs font-mono whitespace-nowrap">{e.date}</span> },
+              { key: 'module', header: 'Module', render: (e) => <span className="text-xs">{e.module}</span> },
+              { key: 'action', header: 'Action', render: (e) => <span className={`badge ${e.action === 'suppression' ? 'danger' : e.action === 'modification' ? 'warning' : e.action === 'creation' ? 'primary' : 'neutral'} text-[10px]`}>{e.action}</span> },
+              { key: 'utilisateur', header: 'Utilisateur', render: (e) => <span className="text-xs whitespace-nowrap">{e.utilisateur}</span> },
+              { key: 'details', header: 'Détails', render: (e) => <span className="text-xs max-w-xs truncate text-muted">{e.details}</span> },
+            ]
+            const paginatedData = filtrees.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+            return (
+              <DataTable
+                data={paginatedData}
+                columns={columns}
+                keyExtractor={(e) => `${e.date}_${e.module}_${e.action}_${e.utilisateur}`}
+                emptyState={{ icon: Download, title: 'Aucune entrée pour cette période' }}
+                pagination={{ total: filtrees.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+              />
+            )
+          })()}
         </div>
 
         {/* Bouton d'export */}

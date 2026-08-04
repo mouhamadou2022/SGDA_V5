@@ -1,7 +1,7 @@
 ﻿// components/modules/utilisateurs/UtilisateursModule.tsx
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   UserPlus,
@@ -31,6 +31,7 @@ import { ROLES } from '@/lib/config';
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { UtilisateurForm } from '@/components/forms/UtilisateurForm';
 import { FormShell } from '@/components/ui/FormShell';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -83,9 +84,9 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   const [selectedUtilisateur, setSelectedUtilisateur] = useState<Utilisateur | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showForm, setShowForm] = useState(false);
-
   const [activeTab, setActiveTab] = useState<'informations' | 'securite'>('informations');
-
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const listeUtilisateurs = utilisateurs ?? [];
 
@@ -108,6 +109,12 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
       return true;
     });
   }, [listeUtilisateurs, searchTerm, filters]);
+
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredUtilisateurs.slice(start, start + PAGE_SIZE);
+  }, [filteredUtilisateurs, currentPage]);
+  useEffect(() => { setCurrentPage(1); }, [filters, searchTerm]);
 
   // Statistiques
   const stats = useMemo(() => ({
@@ -166,6 +173,114 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   const handleResetPassword = (userId: string) => {
     alert('Fonctionnalité de réinitialisation de mot de passe à implémenter');
   };
+
+  const columns: Column<Utilisateur>[] = [
+    {
+      key: 'utilisateur',
+      header: 'Utilisateur',
+      render: (user) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center text-white font-bold text-sm shrink-0">
+            {getInitials(user.prenom, user.nom)}
+          </div>
+          <div>
+            <p className="font-medium text-small">{user.prenom} {user.nom}</p>
+            <p className="text-xs text-gray-500">{(user as any).matricule || 'Sans matricule'}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'contact',
+      header: 'Contact',
+      render: (user) => (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1 text-small">
+            <Mail className="w-3 h-3 text-gray-400" />
+            <span>{user.email}</span>
+          </div>
+          {user.telephone && (
+            <div className="flex items-center gap-1 text-small">
+              <Phone className="w-3 h-3 text-gray-400" />
+              <span>{user.telephone}</span>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'role',
+      header: 'Rôle',
+      render: (user) => {
+        const aerodrome = aerodromes.find(a => a.id === user.aerodrome_id);
+        return (
+          <div className="space-y-1">
+            {getRoleBadge(user.role)}
+            {aerodrome && <div className="text-xs text-gray-500">{aerodrome.code_oaci}</div>}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'service',
+      header: 'Service',
+      render: (user) => (
+        user.service ? (
+          <span className="badge outline">
+            {SERVICES.find(s => s.id === user.service)?.label || user.service}
+          </span>
+        ) : (
+          <span className="text-gray-400">-</span>
+        )
+      ),
+    },
+    {
+      key: 'statut',
+      header: 'Statut',
+      render: (user) => getStatutBadge(user.statut),
+    },
+    {
+      key: 'derniere_connexion',
+      header: 'Dernière connexion',
+      render: (user) => (
+        <div className="flex items-center gap-1 text-small">
+          <Clock className="w-3 h-3 text-gray-400" />
+          {getLastLoginText((user as any).last_login)}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'text-right',
+      headerClassName: 'text-right',
+      render: (user) => (
+        <div className="action-buttons justify-end">
+          <button
+            className="action-button"
+            onClick={() => { setSelectedUtilisateur(user); setShowDetails(true); }}
+            title="Voir détails"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
+            className="action-button"
+            onClick={() => { setSelectedUtilisateur(user); setShowForm(true); }}
+            title="Modifier"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+          <button
+            className="action-button danger hover:bg-danger/10"
+            onClick={() => handleDelete(user.id)}
+            title="Supprimer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="utilisateurs">
@@ -322,109 +437,14 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
 
       {/* Vue Liste */}
       {viewMode === 'liste' && (
-        <Card>
-          <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Utilisateur</th>
-                    <th>Contact</th>
-                    <th>Rôle</th>
-                    <th>Service</th>
-                    <th>Statut</th>
-                    <th>Dernière connexion</th>
-                    <th className="text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUtilisateurs.map(user => {
-                    const aerodrome = aerodromes.find(a => a.id === user.aerodrome_id);
-
-                    return (
-                      <tr key={user.id} className="cursor-pointer hover:bg-role-primary-soft">
-                        <td>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-role-gradient flex items-center justify-center text-white font-bold text-sm shrink-0">
-                              {getInitials(user.prenom, user.nom)}
-                            </div>
-                            <div>
-                              <p className="font-medium text-small">{user.prenom} {user.nom}</p>
-                              <p className="text-xs text-gray-500">{(user as any).matricule || 'Sans matricule'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1 text-small">
-                              <Mail className="w-3 h-3 text-gray-400" />
-                              <span>{user.email}</span>
-                            </div>
-                            {user.telephone && (
-                              <div className="flex items-center gap-1 text-small">
-                                <Phone className="w-3 h-3 text-gray-400" />
-                                <span>{user.telephone}</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="space-y-1">
-                            {getRoleBadge(user.role)}
-                            {aerodrome && (
-                              <div className="text-xs text-gray-500">
-                                {aerodrome.code_oaci}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          {user.service ? (
-                            <span className="badge outline">
-                              {SERVICES.find(s => s.id === user.service)?.label || user.service}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td>{getStatutBadge(user.statut)}</td>
-                        <td>
-                          <div className="flex items-center gap-1 text-small">
-                            <Clock className="w-3 h-3 text-gray-400" />
-                            {getLastLoginText((user as any).last_login)}
-                          </div>
-                        </td>
-                        <td className="text-right">
-                          <div className="action-buttons justify-end">
-                            <button
-                              className="action-button"
-                              onClick={() => { setSelectedUtilisateur(user); setShowDetails(true); }}
-                              title="Voir détails"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="action-button"
-                              onClick={() => { setSelectedUtilisateur(user); setShowForm(true); }}
-                              title="Modifier"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="action-button danger hover:bg-danger/10"
-                              onClick={() => handleDelete(user.id)}
-                              title="Supprimer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+        <DataTable
+          data={paginatedData}
+          columns={columns}
+          keyExtractor={(user) => user.id}
+          emptyState={{ icon: Users, title: 'Aucun utilisateur trouvé', description: 'Essayez de modifier vos filtres ou votre recherche.' }}
+          pagination={{ total: filteredUtilisateurs.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+          headerClassName="bg-role-primary-soft/40"
+        />
       )}
 
       {/* Vue Grille */}

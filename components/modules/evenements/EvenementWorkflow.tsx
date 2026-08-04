@@ -6,6 +6,9 @@ import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { Card } from '@/components/ui/card'
 import { X, CheckCircle2, AlertTriangle, FileText, User, Calendar, MapPin, Clock, ChevronDown, ChevronRight, AlertCircle, Sparkles, Loader2, Send, RotateCcw, MessageSquare } from 'lucide-react'
+import { getGraviteRisque, getGraviteRisqueLabel } from '@/lib/evenementUtils'
+import { FtaEvenementPanel } from './FtaEvenementPanel'
+import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
 
 interface EvenementWorkflowProps {
   evenementId: string
@@ -17,7 +20,7 @@ const FALLBACK_EVT = {
   id: 'evt-demo',
   reference: 'EVT-2024-001',
   type: 'Incursion sur piste',
-  gravite: 'ORANGE' as const,
+  gravite: 'eleve' as const,
   date: '2024-04-20',
   heure: '14:35',
   localisation: 'Piste 01/19 — Aérodrome GOBD',
@@ -27,16 +30,11 @@ const FALLBACK_EVT = {
 }
 
 const getBadgeGravite = (gravite: string) => {
-  const styles: Record<string, string> = {
-    'CRITIQUE': 'badge danger pulse', 'ORANGE': 'badge warning', 'JAUNE': 'badge warning', 'GRIS': 'badge neutral', 'BLEU': 'badge primary',
-  }
-  return styles[gravite] || 'badge neutral'
+  const niveau = getGraviteRisque(gravite)
+  return niveau.classe + (gravite === 'critique' ? ' pulse' : '')
 }
 
-const getLabelGravite = (gravite: string) => {
-  const labels: Record<string, string> = { 'CRITIQUE': 'Critique', 'ORANGE': 'Élevé', 'JAUNE': 'Moyen', 'BLEU': 'Faible', 'GRIS': 'Faible' }
-  return labels[gravite] || gravite
-}
+const getLabelGravite = (gravite: string) => getGraviteRisqueLabel(gravite)
 
 const ETAPES = ['Réception', 'Analyse', 'Investigation / Impact', 'Écart', 'Rapport', 'Validation']
 
@@ -61,6 +59,8 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
   const addRegistreEntry = useAppStore((s) => s.addRegistreEntry)
   const user = useAppStore((s) => s.user)
   const utilisateurs = useAppStore((s) => s.utilisateurs)
+  const amdecAnalyses = useAppStore((s) => s.amdecAnalyses)
+  const ftaAnalyses = useAppStore((s) => s.ftaAnalyses)
   const evt = (evenements?.find((e) => e.id === evenementId) ?? FALLBACK_EVT) as EvenementSecurite
   const profilAerodrome = getProfilRisque(evt.aerodrome_id || '')
 
@@ -98,6 +98,7 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
   const [demandeComplement, setDemandeComplement] = useState('')
   const [reponseOperateur, setReponseOperateur] = useState('')
   const [commentaireRetour, setCommentaireRetour] = useState('')
+  const [modeleAnalyse, setModeleAnalyse] = useState<'fta' | 'bowtie'>('fta')
 
   // Déterminer l'étape active selon le statut
   useEffect(() => {
@@ -307,7 +308,7 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
     creerEcartLie(evt.id, {
       aerodrome_id: evt.aerodrome_id || '',
       libelle: ecartLibelle.trim() || evt.description,
-      niveau_risque: evt.gravite === 'CRITIQUE' ? 'critique' : evt.gravite === 'ORANGE' ? 'eleve' : 'moyen',
+      niveau_risque: evt.gravite === 'critique' ? 'critique' : evt.gravite === 'eleve' ? 'eleve' : 'moyen',
       ref_reglementaire: `Événement ${evt.reference}`,
       inspecteur_ref_id: user?.id || inspecteurId,
     })
@@ -733,6 +734,40 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
                 <label key={f} className="form-checkbox cursor-pointer"><input type="checkbox" checked={facteursContributifs[f]} onChange={(e) => setFacteursContributifs((prev: typeof facteursContributifs) => ({ ...prev, [f]: e.target.checked }))} /><span className="text-small capitalize">{f}</span></label>
               ))}</div>
             </div>
+
+            {/* Sélecteur de modèle d'analyse — FTA ancré ici */}
+            <ModeleAnalyseSelector
+              input={{
+                profil: profilAerodrome,
+                evenement: evt,
+                ecarts: [],
+                surveillances: [],
+                amdecAnalyses,
+                ftaAnalyses,
+              }}
+              selected={modeleAnalyse}
+              onSelect={(m) => setModeleAnalyse(m as 'fta' | 'bowtie')}
+              modelesDisponibles={['fta', 'bowtie']}
+            />
+
+            {/* FTA — Analyse causale top-down de l'événement */}
+            {modeleAnalyse === 'fta' && <FtaEvenementPanel evenement={evt} />}
+
+            {/* BowTie — renvoi vers le profil de risque de l'aérodrome */}
+            {modeleAnalyse === 'bowtie' && profilAerodrome && (
+              <Card variant="level" levelColor="primary" heading="Analyse Bow-Tie de l'aérodrome" icon={<AlertTriangle className="w-4 h-4" />}>
+                <p className="text-sm text-foreground leading-relaxed">
+                  L'analyse Bow-Tie systémique de <strong>{evt.aerodrome_id}</strong> est disponible dans l'onglet
+                  <span className="font-medium"> Profil de risque → Diagnostic</span>. Elle cartographie les dangers,
+                  barrières préventives/correctives et conséquences sur l'ensemble des domaines réglementaires.
+                </p>
+                <div className="flex gap-4 mt-3 text-small">
+                  <span>Score global: <strong>{profilAerodrome.score_global}</strong>/100</span>
+                  <span>C3 (Conformité): <strong>{profilAerodrome.c3}</strong>/100</span>
+                  <span>C5 (Résilience): <strong>{profilAerodrome.c5}</strong>/100</span>
+                </div>
+              </Card>
+            )}
           </div>
         )}
         {etape === 2 && isInspector && isMonEvenement && !isAccidentGrave && (

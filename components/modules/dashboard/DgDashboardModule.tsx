@@ -23,6 +23,7 @@ import {
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { RiskPrediction } from '@/lib/risque';
 
 interface RegionStat {
@@ -154,6 +155,47 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
       setPrediction(p);
     });
   }, [stats?.scoreNationalParMois]);
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+  const exploitants = stats?.exploitants || []
+  const paginatedExploitants = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return exploitants.slice(start, start + PAGE_SIZE)
+  }, [exploitants, currentPage])
+  useEffect(() => setCurrentPage(1), [exploitants])
+
+  const exploitantColumns: Column<ExploitantStat>[] = [
+    { key: 'nom', header: 'Exploitant', render: (item) => <span className="font-medium">{item.nom}</span> },
+    { key: 'nb', header: 'Aérodromes', render: (item) => <span>{item.aerodromes}</span> },
+    { key: 'score', header: 'Score moyen', render: (item) => (
+      <div className="flex items-center gap-2">
+        <div className="progress w-12">
+          <div className={`progress-bar ${item.scoreMoyen >= 80 ? 'bg-success' : item.scoreMoyen >= 60 ? 'bg-warning' : 'bg-danger'}`}
+            style={{ width: `${item.scoreMoyen}%` }} />
+        </div>
+        <span className={`text-xs font-bold ${item.scoreMoyen >= 80 ? 'text-success' : item.scoreMoyen >= 60 ? 'text-warning' : 'text-danger'}`}>
+          {item.scoreMoyen}
+        </span>
+      </div>
+    )},
+    { key: 'alertes', header: 'Alertes', render: (item) =>
+      item.critiques > 0
+        ? <span className="badge danger text-[10px]">{item.critiques}</span>
+        : <span className="text-xs text-muted-foreground">—</span>
+    },
+    { key: 'pac', header: 'PAC retard', render: (item) =>
+      item.pacRetard > 0
+        ? <span className="badge warning text-[10px]">{item.pacRetard}</span>
+        : <span className="text-xs text-muted-foreground">0</span>
+    },
+    { key: 'action', header: 'Action', render: (item) => (
+      <button className="btn btn-secondary btn-xs"
+        onClick={() => setActiveModule('dg-pilotage-securite')}>
+        Voir <ChevronRight className="w-3 h-3 inline ml-1" />
+      </button>
+    )},
+  ]
 
   return (
     <div className="space-y-6 animate-fade-in" data-role={user?.role || 'dg_anacim'} data-module="dg-dashboard">
@@ -407,60 +449,27 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
       </div>
 
       {/* Classement exploitants */}
-      <Card
-        icon={<Building2 className="h-5 w-5 text-role-primary" />}
-        title="Classement des exploitants"
-        subtitle="Performance comparée par opérateur d'aérodrome"
-      >
-        {stats?.exploitants && stats.exploitants.length > 0 ? (
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Exploitant</th>
-                  <th>Aérodromes</th>
-                  <th>Score moyen</th>
-                  <th>Alertes</th>
-                  <th>PAC retard</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.exploitants.map(e => (
-                  <tr key={e.nom} className="hover:bg-muted/10">
-                    <td className="font-medium">{e.nom}</td>
-                    <td>{e.aerodromes}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="progress w-12">
-                          <div className={`progress-bar ${e.scoreMoyen >= 80 ? 'bg-success' : e.scoreMoyen >= 60 ? 'bg-warning' : 'bg-danger'}`}
-                            style={{ width: `${e.scoreMoyen}%` }} />
-                        </div>
-                        <span className={`text-xs font-bold ${e.scoreMoyen >= 80 ? 'text-success' : e.scoreMoyen >= 60 ? 'text-warning' : 'text-danger'}`}>
-                          {e.scoreMoyen}
-                        </span>
-                      </div>
-                    </td>
-                    <td>{e.critiques > 0 ? <span className="badge danger text-[10px]">{e.critiques}</span> : <span className="text-xs text-muted-foreground">—</span>}</td>
-                    <td>{e.pacRetard > 0 ? <span className="badge warning text-[10px]">{e.pacRetard}</span> : <span className="text-xs text-muted-foreground">0</span>}</td>
-                    <td>
-                      <button className="btn btn-secondary btn-xs"
-                        onClick={() => setActiveModule('dg-pilotage-securite')}>
-                        Voir <ChevronRight className="w-3 h-3 inline ml-1" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="py-6 text-center text-muted-foreground text-sm">
-            <Building2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
-            <p>Aucun exploitant</p>
-          </div>
-        )}
-      </Card>
+      <DataTable
+        data={paginatedExploitants}
+        columns={exploitantColumns}
+        keyExtractor={(item) => item.nom}
+        cardProps={{
+          icon: <Building2 className="h-5 w-5 text-role-primary" />,
+          title: 'Classement des exploitants',
+          subtitle: 'Performance comparée par opérateur d\'aérodrome',
+        }}
+        emptyState={{
+          icon: Building2,
+          title: 'Aucun exploitant',
+        }}
+        pagination={exploitants.length > PAGE_SIZE ? {
+          total: exploitants.length,
+          current: currentPage,
+          pageSize: PAGE_SIZE,
+          onPageChange: setCurrentPage,
+        } : undefined}
+        headerClassName="bg-role-primary-soft/40"
+      />
 
     </div>
   );

@@ -291,7 +291,7 @@ export function EcartCard({
                     type="button"
                     onClick={() => onIaEvaluate(ecart.pac)}
                     className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
-                    title="Évaluer avec IA"
+                    title="Évaluer avec AERORISQ"
                   >
                     <Brain className="w-4 h-4" />
                   </button>

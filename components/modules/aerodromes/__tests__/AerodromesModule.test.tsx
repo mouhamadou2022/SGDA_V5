@@ -102,6 +102,7 @@ const MOCK_AERODROMES = [
 
 const MOCK_STATE = {
   user: { id: 'u1', role: 'inspector', aerodrome_id: undefined } as any,
+  activeDepartement: 'DNSA',
   aerodromes: MOCK_AERODROMES,
   profilsRisque: {
     a1: { id: 'p1', aerodrome_id: 'a1', score_global: 82, niveau: 'faible', tendance: 'stable' },

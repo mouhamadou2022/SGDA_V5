@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { LogOut, User, Settings, Shield, Sun, Moon, Monitor, Brain, Sparkles } from 'lucide-react';
+import { LogOut, User, Settings, Shield, Sun, Moon, Monitor, Brain, Sparkles, Plane, TowerControl } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AuthUser } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,9 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
   const aerodromes = useAppStore(s => s.aerodromes);
   const [isHovered, setIsHovered] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [departementOpen, setDepartementOpen] = useState(false);
+  const activeDepartement = useAppStore(s => s.activeDepartement);
+  const setActiveDepartement = useAppStore(s => s.setActiveDepartement);
   
   const aerodrome = React.useMemo(
     () => aerodromes.find(a => a.id === user?.aerodrome_id),
@@ -117,7 +120,7 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
           <span className="relative z-10" style={logoSyle}>
             SGDA · <Brain className="w-3 h-3 inline -mt-0.5" style={{color: 'inherit', opacity: 0.6}} /> AERORISQ<sup className="text-[9px] -top-2 ml-0.5 font-semibold inline-flex items-center gap-0.5" style={{WebkitTextFillColor: 'currentColor', color: 'inherit'}}>IA<Sparkles className="w-2.5 h-2.5 ml-0.5 text-yellow-400 inline" /><Sparkles className="w-2 h-2 text-yellow-400 -ml-1 inline" /></sup>
           </span>
-          <div className="text-[8px] tracking-widest text-muted-foreground/50 font-medium -mt-1 leading-tight">IA DÉCISIONNEL</div>
+          <div className="text-[8px] tracking-widest text-muted-foreground/50 font-medium -mt-1 leading-tight">AERORISQ DÉCISIONNEL</div>
           {isHovered && (
             <div className="absolute -top-6 -right-8 w-5 h-5 opacity-70 animate-takeoff">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getRolePrimaryColor(user.role) }} />
@@ -131,6 +134,39 @@ export function AppHeader({ user, onLogout }: AppHeaderProps) {
       </div>
 
       <div className="user-menu">
+        {/* Sélecteur de département (admin uniquement) */}
+        {user.role === 'admin' && (
+          <DropdownMenu open={departementOpen} onOpenChange={setDepartementOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="action-button"
+                aria-label="Changer de département"
+                title={`Département : ${activeDepartement}`}
+              >
+                {activeDepartement === 'DNSA' ? <Plane className="h-4 w-4" /> : <TowerControl className="h-4 w-4" />}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="dropdown-menu animate-scale" align="end">
+              <DropdownMenuLabel className="text-small font-semibold text-role-primary">Département</DropdownMenuLabel>
+              <DropdownMenuSeparator className="dropdown-divider" />
+              <DropdownMenuItem
+                className={`dropdown-item cursor-pointer ${activeDepartement === 'DNSA' ? 'text-role-primary' : ''}`}
+                onClick={() => { setActiveDepartement('DNSA'); setDepartementOpen(false) }}
+              >
+                <Plane className="w-4 h-4 mr-2" />
+                DNSA — Aérodromes
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={`dropdown-item cursor-pointer ${activeDepartement === 'DNA' ? 'text-role-primary' : ''}`}
+                onClick={() => { setActiveDepartement('DNA'); setDepartementOpen(false) }}
+              >
+                <TowerControl className="w-4 h-4 mr-2" />
+                DNA — Navigation
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         {/* Command Palette Trigger */}
         <CommandPaletteTrigger />
         {aerodrome && (

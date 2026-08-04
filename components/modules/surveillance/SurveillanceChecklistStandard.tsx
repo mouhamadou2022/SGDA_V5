@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Save, PenLine, Calendar, Users, MapPin,
   Target, Brain, Sparkles, Shield,
   Zap, Check, ChevronDown, Eye, X,
+  FileDown, FileSpreadsheet,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
@@ -21,8 +22,12 @@ import {
 import { SGSEvaluationModal } from './SGSEvaluation';
 import { ChecklistLearningPanel } from './ChecklistLearningPanel';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
+import { getMappingForDomaine } from '@/lib/kitDocMapping';
 import { recordTextModification, type TextModification } from '@/lib/checklistMemory';
 import { uploadPreuveFile } from '@/lib/preuves';
+import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
+import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 
 function getProgressBarColor(taux: number): string {
@@ -115,7 +120,7 @@ export function SurveillanceChecklistStandard({
   modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
-  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: string; date_debut: string; equipe_ids: string[]; chef_id: string; statut?: string; };
+  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: import('@/lib/checklistMemory').TypeInspection; date_debut: string; equipe_ids: string[]; chef_id: string; statut?: string; };
   onSave?: (checklistState: any) => void;
   onComplete?: () => void;
   readOnly?: boolean;
@@ -145,6 +150,8 @@ export function SurveillanceChecklistStandard({
   const [sgsEvaluationOpen, setSgsEvaluationOpen] = useState(autoOpenSGS);
   const [sgsEvaluation, setSgsEvaluation] = useState<EvaluationSGS | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
 
   const effectiveExclude = useMemo(() => {
     const ex = [...excludeDomaines];
@@ -159,6 +166,11 @@ export function SurveillanceChecklistStandard({
   const exemptionsActives = getExemptionsActives(aerodromeId);
 
   const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === aerodromeId) || s.aerodromes.find(a => a.code_oaci === aerodromeId));
+  const masterChecklists = useAppStore(s => s.masterChecklists);
+  const sgsTemplate = useMemo(
+    () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
+    [masterChecklists, aerodrome?.sgs_checklist_template],
+  );
   const previousSGSMaturite = aerodrome?.maturite_sgs_detaille || null;
 
   const previousEvaluation = useMemo(() => {
@@ -226,22 +238,21 @@ export function SurveillanceChecklistStandard({
         hierarchy = hierarchy.filter(d => !excludeUpper.some(e => (d.nom || d.id || '').toUpperCase().includes(e)));
       }
       mergeItemsIntoHierarchy(hierarchy, flatItems);
-      // Filtrer par délégation pour les inspecteurs (pas le chef)
-      const delegKey2 = `sgda_delegations_${(surveillanceObj as any).planning_id || surveillanceId}`
-      try {
-        const raw = localStorage.getItem(delegKey2)
-        if (raw) {
-          const delegations: Record<string, string> = JSON.parse(raw)
-          const hasDelegations = Object.values(delegations).some(Boolean)
-          const isChef = user?.id === (surveillanceObj as any).chef_id || user?.role === 'admin'
-          if (hasDelegations && !isChef && user?.id) {
-            hierarchy = hierarchy.filter(d => {
-              const code = (d.id || d.nom || '').toUpperCase()
-              return delegations[code] === user?.id || !delegations[code]
-            })
-          }
+      // Filtrer par délégation (store) pour les inspecteurs (pas le chef)
+      const storeDel = useAppStore.getState()
+      const delegs = storeDel.getDelegationsBySurveillance(surveillanceId)
+      if (delegs.length > 0) {
+        const isChef = user?.id === (surveillanceObj as any).chef_id || user?.role === 'admin'
+        if (!isChef && user?.id) {
+          const mesDomaines = new Set(delegs.filter(d => d.assigne_a === user?.id).map(d => d.domaine.toUpperCase()))
+          const tousDomainesDelegues = new Set(delegs.map(d => d.domaine.toUpperCase()))
+          hierarchy = hierarchy.filter(d => {
+            const code = (d.nom || d.id || '').toUpperCase()
+            // Garder si c'est mon domaine OU si le domaine n'est délégué à personne
+            return mesDomaines.has(code) || !tousDomainesDelegues.has(code)
+          })
         }
-      } catch { /* ignore */ }
+      }
       setDomaines(hierarchy);
       let count = 0;
       const countItems = (d: DomaineChecklist) => {
@@ -292,27 +303,35 @@ export function SurveillanceChecklistStandard({
         const portee = surv?.portee || [];
         const aerodromeStore = store.aerodromes.find(a => surv && a.id === surv.aerodrome_id);
         const profil = store.profilsRisque?.[surv?.aerodrome_id || ''] || undefined;
-        const typeSurv: 'periodique' | 'inopine' | 'maintien' =
+        const typeSurv: import('@/lib/checklistMemory').TypeInspection =
           surv?.type === 'inopine' || surv?.type === 'inopinee' ? 'inopine' :
-          surv?.type === 'maintien' ? 'maintien' : 'periodique';
+          surv?.type === 'maintien' ? 'maintien' :
+          surv?.type === 'certification' ? 'certification' :
+          surv?.type === 'homologation' ? 'homologation' :
+          surv?.type === 'suivi_ecarts' ? 'suivi_ecarts' :
+          surv?.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
         const checklistPrefix = surv?.type === 'certification' ? 'CERT'
           : surv?.type === 'homologation' ? 'HMG' : 'QSC';
         let generated: DomaineChecklist[];
-        // Template sauvegardé (apprentissage IA) — prioritaire sur master/IA génération
-        const template = aerodromeStore?.checklist_template;
-        if (template && Array.isArray(template) && template.length > 0) {
-          const snapshot = JSON.parse(JSON.stringify(template));
-          const enriched = kitDocAgent.applyRiskProfileToChecklist(snapshot, {
+        // Source maîtresse : Kit Inspecteur (master) — puis template sauvegardé
+        // (apprentissage IA), puis génération IA.
+        const templateTypes = surv?.type === 'certification' || surv?.type === 'homologation'
+          ? ['IT', 'SOP', 'SGS']
+          : (surv?.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'])
+        const master = store.findMasterChecklistForPortee(portee, templateTypes);
+        if (master) {
+          const snapshot = JSON.parse(JSON.stringify(master.checklist));
+          const filtered = aerodromeStore ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodromeStore) : snapshot;
+          const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
             entite_id: surv?.aerodrome_id || '', type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
             type_surveillance: typeSurv, portee, profil_risque: profil,
           });
           generated = enriched as unknown as DomaineChecklist[];
         } else {
-          const master = store.findMasterChecklistForPortee(portee);
-          if (master) {
-            const snapshot = JSON.parse(JSON.stringify(master.checklist));
-            const filtered = aerodromeStore ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodromeStore) : snapshot;
-            const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
+          const template = aerodromeStore?.checklist_template;
+          if (template && Array.isArray(template) && template.length > 0) {
+            const snapshot = JSON.parse(JSON.stringify(template));
+            const enriched = kitDocAgent.applyRiskProfileToChecklist(snapshot, {
               entite_id: surv?.aerodrome_id || '', type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
               type_surveillance: typeSurv, portee, profil_risque: profil,
             });
@@ -344,6 +363,91 @@ export function SurveillanceChecklistStandard({
       setIsGenerating(false);
     }, 100);
     return () => clearTimeout(timer);
+  }, [surveillanceId]);
+
+  // Vérification silencieuse : si un document source a évolué, régénération auto
+  const autoRegenRef = useRef(false);
+  useEffect(() => {
+    if (!surveillanceId || autoRegenRef.current) return;
+    const store = useAppStore.getState();
+    const surv = store.surveillances.find(s => s.id === surveillanceId);
+    if (!surv?.checklist_hierarchy?.length) return;
+
+    // Collecter les IDs de documents depuis les items
+    const docIds = new Set<string>();
+    const walk = (items: any[] | undefined) => {
+      (items || []).forEach((i: any) => {
+        if (i.id) docIds.add(i.id.split('_')[0]);
+      });
+    };
+    for (const d of surv.checklist_hierarchy) {
+      walk(d.items);
+      for (const sd of (d as any).sousDomaines || []) {
+        walk(sd.items);
+        for (const ssd of sd.sousSousDomaines || []) walk(ssd.items);
+      }
+    }
+
+    // Vérifier si un document a évolué ou a trop peu d'items pour couvrir tous les chapitres
+    const ITEMS_PER_CHAPTER = 3
+    const docsAVerifier = store.kitDocuments.filter(k => docIds.has(k.id) && k.items_generes?.length)
+    const docsEvolues = docsAVerifier.filter(k => k.items_generes_version && k.items_generes_version !== k.version)
+    const docsInsuffisants = docsAVerifier.filter(k => {
+      if (docsEvolues.includes(k)) return false
+      const counts = new Map<string, number>()
+      ;(k.items_generes || []).forEach(i => counts.set(i.domaine, (counts.get(i.domaine) || 0) + 1))
+      return [...counts.entries()].some(([domaine, count]) => {
+        const mapping = getMappingForDomaine(domaine, 'aerodrome')
+        if (!mapping) return count < 4
+        const chapitresAttendus = new Set<string>()
+        mapping.sources.forEach(s => {
+          const chaps = Array.isArray(s.chapitre) ? s.chapitre : s.chapitre ? [s.chapitre] : []
+          chaps.forEach(c => chapitresAttendus.add(c))
+        })
+        if (chapitresAttendus.size === 0) return count < 4
+        return count < chapitresAttendus.size * ITEMS_PER_CHAPTER
+      })
+    })
+
+    if (docsEvolues.length === 0 && docsInsuffisants.length === 0) return;
+
+    const docsConcernes = [...new Set([...docsEvolues, ...docsInsuffisants])]
+    console.log(`[SurveillanceChecklistStandard] ${docsConcernes.length} document(s) nécessitent régénération (${docsEvolues.length} évolués, ${docsInsuffisants.length} items insuffisants)`)
+
+    console.log(`[SurveillanceChecklistStandard] ${docsEvolues.length} document(s) ont évolué — régénération silencieuse`);
+    autoRegenRef.current = true;
+
+    const portee = surv.portee || [];
+    const aerodromeStore = store.aerodromes.find(a => a.id === surv.aerodrome_id);
+    const profil = store.profilsRisque?.[surv.aerodrome_id || ''] || undefined;
+    const typeSurv: import('@/lib/checklistMemory').TypeInspection =
+      surv.type === 'inopine' || surv.type === 'inopinee' ? 'inopine' :
+      surv.type === 'maintien' ? 'maintien' :
+      surv.type === 'certification' ? 'certification' :
+      surv.type === 'homologation' ? 'homologation' :
+      surv.type === 'suivi_ecarts' ? 'suivi_ecarts' :
+      surv.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
+
+    (async () => {
+      try {
+        const result = await kitDocAgent.generateChecklist({
+          surveillance_id: surveillanceId,
+          entite_id: surv.aerodrome_id || '',
+          type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
+          type_surveillance: typeSurv,
+          portee, profil_risque: profil,
+          prefix_numero: surv.type === 'certification' ? 'CERT' : surv.type === 'homologation' ? 'HMG' : 'QSC',
+        });
+        const generated = toDomaineChecklistArray(result) as unknown as DomaineChecklist[];
+        const storeNow = useAppStore.getState();
+        kitDocAgent.injectIntoStore(surveillanceId, result);
+        storeNow.updateSurveillance(surveillanceId, { checklist_hierarchy: generated as any });
+        setDomaines(generated);
+        console.log(`[SurveillanceChecklistStandard] Régénération silencieuse terminée — ${generated.length} domaine(s)`);
+      } catch (err) {
+        console.warn('[SurveillanceChecklistStandard] Échec régénération silencieuse:', err);
+      }
+    })();
   }, [surveillanceId]);
 
   const stats = useMemo(() => {
@@ -428,11 +532,48 @@ export function SurveillanceChecklistStandard({
       ...d, items: apply(d.items),
       sousDomaines: d.sousDomaines.map(sd => ({ ...sd, items: apply(sd.items), sousSousDomaines: sd.sousSousDomaines.map(ssd => ({ ...ssd, items: apply(ssd.items) })) })),
     })));
+    for (const s of suggestions) {
+      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestions([]);
     addNotification({ user_id: user?.id || '', type: 'success', title: 'Suggestions appliquées', message: 'Toutes les suggestions ont été appliquées', canal: 'in_app' });
   };
 
-  const handleIgnoreSuggestions = () => setSuggestions([]);
+  const handleIgnoreSuggestions = () => {
+    for (const s of suggestions) {
+      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
+    setSuggestions([]);
+  };
+
+  const handleExportPDF = useCallback(async () => {
+    setExportingPdf(true)
+    try {
+      const { exportChecklistPDF } = await import('@/lib/services/exportChecklist')
+      await exportChecklistPDF(domaines, {
+        titre: `Surveillance - ${surveillance.aerodrome?.code_oaci || ''}`,
+        code: surveillanceId?.slice(0, 12) || 'checklist',
+        portee: domaines.map(d => d.nom),
+      })
+    } finally {
+      setExportingPdf(false)
+    }
+  }, [domaines, surveillanceId, surveillance])
+
+  const handleExportDOCX = useCallback(async () => {
+    setExportingDocx(true)
+    try {
+      const { exportChecklistDOCX } = await import('@/lib/services/documentTemplater')
+      await exportChecklistDOCX(domaines, {
+        titre: `Surveillance - ${surveillance.aerodrome?.code_oaci || ''}`,
+        code: surveillanceId?.slice(0, 12) || 'checklist',
+        portee: domaines.map(d => d.nom),
+        aerodrome: surveillance.aerodrome?.nom || '',
+      })
+    } finally {
+      setExportingDocx(false)
+    }
+  }, [domaines, surveillanceId, surveillance])
 
   const updateItem = useCallback((updated: ChecklistItem) => {
     setDomaines(prev => {
@@ -463,6 +604,10 @@ export function SurveillanceChecklistStandard({
         }, surveillanceId);
         if (oldItem.prediction && oldItem.prediction !== 'NV' && oldItem.prediction !== updated.resultat) {
           recordCorrection(aerodromeId, surveillance.type, dNom, sdNom, ssdNom, updated.id, oldItem.prediction, updated.resultat ?? '', updated.observation);
+          inspecteurMonitoring.enregistrer({
+            capacite: 'checklist', action: 'corrigee', aerodromeId, surveillanceId,
+            confiance: oldItem.confiance || undefined,
+          })
         }
       }
 
@@ -519,7 +664,7 @@ export function SurveillanceChecklistStandard({
     const aerodrome = useAppStore.getState().aerodromes.find(a => a.id === aerodromeId || a.code_oaci === aerodromeId);
     const docsActifs = (useAppStore.getState().kitDocuments || []).filter(d => d.etat === 'a_jour' && d.domaines.includes('SGS'));
     try {
-      const result = await kitDocAgent.generateSGSQuestions({
+      const result = await inspecteurVirtuel.generateSGSEvaluation({
         aerodromeType: aerodrome?.type || 'national',
         maturiteInitiale: aerodrome?.maturite_sgs,
         composanteId: composanteId as 1 | 2 | 3 | 4 | 5,
@@ -558,14 +703,12 @@ export function SurveillanceChecklistStandard({
 
     // Vérifier si TOUS les délégués ont signé
     let allDelegatedSigned = true
-    const delegationRaw = localStorage.getItem(`sgda_delegations_${fullSurv?.planning_id || surveillanceId}`)
-    if (delegationRaw) {
-      try {
-        const delegations: Record<string, string> = JSON.parse(delegationRaw)
-        const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
-        const signedIds = new Set(allSigs.map(s => s.signataire_id))
-        allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
-      } catch { /* ignoré */ }
+    const storeSig = useAppStore.getState()
+    const delegsSig = storeSig.getDelegationsBySurveillance(surveillanceId)
+    if (delegsSig.length > 0) {
+      const delegatedIds = new Set(delegsSig.map(d => d.assigne_a).filter(Boolean))
+      const signedIds = new Set(allSigs.map(s => s.signataire_id))
+      allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
     }
 
     updateSurveillance(surveillanceId, {
@@ -646,7 +789,7 @@ export function SurveillanceChecklistStandard({
       <div className="flex items-center justify-center py-20">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground animate-pulse">Génération de la checklist par IA...</p>
+          <p className="text-sm text-muted-foreground animate-pulse">Génération de la checklist par AERORISQ...</p>
         </div>
       </div>
     );
@@ -750,10 +893,10 @@ export function SurveillanceChecklistStandard({
             <div className="flex items-start gap-3">
               <div className="rounded-full bg-purple-100 dark:bg-purple-900/50 p-1.5 flex-shrink-0"><Brain className="w-4 h-4 text-purple-600" /></div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Pré-remplissage IA actif — Kit Inspecteur</p>
+                <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Pré-remplissage AERORISQ actif — Kit Inspecteur</p>
                 <p className="text-[12px] text-purple-600 dark:text-purple-400 mt-0.5">{iaPrefilledCount} item{iaPrefilledCount > 1 ? 's' : ''} pré-rempli{iaPrefilledCount > 1 ? 's' : ''} à partir des documents réglementaires analysés. Vous restez maître de chaque évaluation — acceptez, corrigez ou ignorez les propositions.</p>
               </div>
-              <span className="badge text-[12px] bg-purple-100 text-purple-700 border-purple-200 flex-shrink-0">Suggestions IA</span>
+              <span className="badge text-[12px] bg-purple-100 text-purple-700 border-purple-200 flex-shrink-0">Suggestions AERORISQ</span>
             </div>
         </Card>
       )}
@@ -796,6 +939,16 @@ export function SurveillanceChecklistStandard({
             <div className="flex items-center gap-2 flex-shrink-0">
               {lastSaved && <span className="text-[11px] text-muted-foreground hidden sm:block">✓ {lastSaved.toLocaleTimeString()}</span>}
               <BatchValidationButton itemsSA={stats.itemsSA} onValidateAll={handleBatchValidate} tempsEstime={Math.round(stats.itemsSA.length * 0.5)} />
+              <button type="button" onClick={handleExportPDF} disabled={exportingPdf || domaines.length === 0}
+                className="btn btn-sm btn-secondary gap-1.5 disabled:opacity-50" title="Exporter en PDF">
+                {exportingPdf ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                PDF
+              </button>
+              <button type="button" onClick={handleExportDOCX} disabled={exportingDocx || domaines.length === 0}
+                className="btn btn-sm btn-secondary gap-1.5 disabled:opacity-50" title="Exporter en Word">
+                {exportingDocx ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                Word
+              </button>
               <button type="button" onClick={() => onSave?.(domaines)} className="btn btn-sm btn-primary gap-2">
                 <Save className="w-4 h-4" /> Sauvegarder
               </button>
@@ -813,6 +966,7 @@ export function SurveillanceChecklistStandard({
         readOnly={actualReadOnly}
         structureReadOnly={structureReadOnly}
         onUploadPreuve={surveillanceId ? (file, itemId) => uploadPreuveFile(file, surveillanceId, itemId) : undefined}
+        aerodromeId={aerodromeId}
       />
 
       {/* Signature */}
@@ -848,6 +1002,7 @@ export function SurveillanceChecklistStandard({
         previousEvaluation={previousEvaluation}
         riskTrend={riskTrend}
         onGenerateByIA={handleGenerateSGSByIA}
+        sgsTemplate={sgsTemplate as any}
         readOnly={actualReadOnly}
         structureReadOnly={structureReadOnly}
       />

@@ -88,7 +88,8 @@ export async function GET(request: Request) {
         }))
 
         // 3. Calculer C1-C5
-        const maturiteSGS = aerodrome.statut_sgs === 'non_applicable' ? 100 : (aerodrome.maturite_sgs ?? 50)
+        const sgsNonApplicable = aerodrome.statut_sgs === 'non_applicable'
+        const maturiteSGS = sgsNonApplicable ? 0 : (aerodrome.maturite_sgs ?? 50)
         const c1 = risqueUtils.calculateC1(maturiteSGS, undefined, aerodrome.statut_sgs)
         const c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome || [])
         const c3 = surveillancesAerodrome.length > 0
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
           : 70
         const c4 = risqueUtils.calculateC4FromEcarts(ecartsAerodrome || [])
         const c5 = risqueUtils.calculateC5(evenementsAerodrome || [])
-        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights)
+        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights, sgsNonApplicable)
 
         // 4. Prédictions et tendances
         const incidentPred = computeIncidentPrediction(evenementsAerodrome || [])

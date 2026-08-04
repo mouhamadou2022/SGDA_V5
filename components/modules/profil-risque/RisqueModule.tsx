@@ -14,12 +14,15 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { Card } from '@/components/ui/card'
 
+import { OngletExplicationCard } from './OngletExplicationCard'
+import { BulletinMensuelButton } from './BulletinMensuelButton'
 import { SyntheseTab } from './SyntheseTab'
 import { DiagnosticTab } from './DiagnosticTab'
 import AnticipationTab from './AnticipationTab'
 import { ActionsTab } from './ActionsTab'
 import DecisionTab from './DecisionTab'
 import ExploitantRiskView from './ExploitantRiskView'
+import { HealthIndexLangageClair } from './HealthIndexLangageClair'
 import { RiskCard } from '@/components/cards/RiskCard'
 import { ComparativeAnalysis } from './ComparativeAnalysis'
 
@@ -35,7 +38,7 @@ const ONGLETS: { id: OngletId; label: string; icon: React.ElementType }[] = [
 
 const HELP_SECTIONS: HelpSection[] = [
   { id: 'overview', title: 'Profil de Risque', icon: Activity, content: 'Vue d\'ensemble des profils de risque par aérodrome. Score global, C1-C5, tendance, prédictions, recommandations.' },
-  { id: 'models', title: 'Modèles IA', icon: Brain, content: 'HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling — intégrés dans le pipeline de calcul du profil.' },
+  { id: 'models', title: 'Modèles AERORISQ', icon: Brain, content: 'HMM, Survival, EVT, Negative Binomial, Copulas, Thompson Sampling — intégrés dans le pipeline de calcul du profil.' },
 ]
 
 function getScoreColor(score: number): string {
@@ -85,10 +88,16 @@ export function RisqueModule({ userRole }: Props) {
   const aerodrome = selected?.aerodrome ?? null
 
   const healthIndices = useMemo(() => {
-    const entries = Object.values(profilsRisque).filter(Boolean) as ProfilRisque[]
-    if (entries.length < 2) return null
-    return computeAllHealthIndices(profilsRisque)
-  }, [profilsRisque])
+    const ids = new Set(aerodromesActifs.map(a => a.id))
+    const filtered: Record<string, ProfilRisque> = {}
+    for (const [id, p] of Object.entries(profilsRisque)) {
+      if (ids.has(id) && p) filtered[id] = p
+    }
+    const entries = Object.values(filtered)
+    // L'exploitant voit son propre aérodrome (1 profil suffit) ; inspecteur/admin ≥ 2.
+    if (entries.length < (isExploitant ? 1 : 2)) return null
+    return computeAllHealthIndices(filtered)
+  }, [profilsRisque, aerodromesActifs, isExploitant])
 
   const stats = useMemo(() => {
     const profils = aerodromesActifs.map(a => profilsRisque[a.id]).filter(Boolean) as ProfilRisque[]
@@ -107,7 +116,7 @@ export function RisqueModule({ userRole }: Props) {
 
   const evenementsAerodrome = useMemo(() => {
     if (!aerodrome) return []
-    return evenements.filter(e => (e as any).aerodrome_id === aerodrome.id).slice(-20)
+    return evenements.filter(e => (e as any).aerodrome_id === aerodrome.id)
   }, [evenements, aerodrome])
 
   const handleRecalculer = useCallback(async () => {
@@ -132,16 +141,17 @@ export function RisqueModule({ userRole }: Props) {
       <ModuleHeader
         icon={<Activity />}
         title="Profil de Risque"
-        description={selectedAerodromeId ? `Détail — ${aerodrome?.nom || ''}` : 'Analyse multicritère — Modèles IA intégrés'}
+        description={selectedAerodromeId ? `Détail — ${aerodrome?.nom || ''}` : 'Analyse multicritère — Modèles AERORISQ intégrés'}
         actions={<div className="flex items-center gap-2">
           {selectedAerodromeId && (
             <button onClick={handleBack} className="btn btn-sm btn-secondary gap-1.5"><ArrowLeft className="w-3.5 h-3.5" />Retour</button>
           )}
+          <BulletinMensuelButton />
           <button onClick={() => setShowHelp(true)} className="btn btn-sm btn-secondary gap-1.5"><BookOpen className="w-3.5 h-3.5" />Aide</button>
         </div>}
       />
 
-      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Profil de Risque" subtitle="Analyse multicritère et modèles IA" sections={HELP_SECTIONS} />
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Profil de Risque" subtitle="Analyse multicritère et modèles AERORISQ" sections={HELP_SECTIONS} />
 
       {/* Vue d'ensemble — KPIs puis Health Index */}
       {stats && !selectedAerodromeId && (
@@ -216,6 +226,7 @@ export function RisqueModule({ userRole }: Props) {
                       </div>
                     </>
                   )}
+                  {p && <HealthIndexLangageClair profil={p} />}
                 </div>
               </Card>
             )
@@ -235,11 +246,9 @@ export function RisqueModule({ userRole }: Props) {
             profil={aerodromesAvecProfil[0].profil}
             aerodromeCode={aerodromesAvecProfil[0].aerodrome.code_oaci}
             aerodromeName={aerodromesAvecProfil[0].aerodrome.nom}
-            nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
             userRole={userRole}
             onRecalculate={handleRecalculer}
-            prochainesSurveillances={surveillances.filter(s => s.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && s.statut !== 'archivee').slice(0, 5)}
-            ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture').slice(0, 10)}
+            ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodromesAvecProfil[0].aerodrome.id && e.statut !== 'cloture')}
             evenements={evenementsAerodrome}
           />
         ) : (
@@ -316,12 +325,14 @@ export function RisqueModule({ userRole }: Props) {
             ))}
           </div>
 
+          <OngletExplicationCard ongletId={activeOnglet} profil={profil} historiqueScores={historiqueScores} />
+
           <div className="tab-content">
             {activeOnglet === 'synthese' && (
               <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} evenements={evenementsAerodrome} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} />
             )}
             {activeOnglet === 'diagnostic' && (
-              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} />
+              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} userRole={userRole} />
             )}
             {activeOnglet === 'anticipation' && (
               <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} aerodromeCode={aerodrome.code_oaci} />

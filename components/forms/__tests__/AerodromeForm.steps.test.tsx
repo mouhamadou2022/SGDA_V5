@@ -31,6 +31,7 @@ jest.mock('@/lib/store', () => ({ useAppStore: jest.fn() }))
 jest.mock('@/lib/ia/agents/assistantAgent', () => ({
   assistantAgent: {
     chat: jest.fn().mockResolvedValue({ message: '{}' }),
+    isLLMAvailable: jest.fn().mockReturnValue(false),
   },
 }))
 
@@ -156,11 +157,11 @@ describe('AerodromeForm — navigation par étapes', () => {
   describe('Indicateur étapes (nouveau formulaire)', () => {
     it('affiche 6 étapes dans l\'indicateur', () => {
       renderNewForm()
-      // 6 boutons : Localisation, Validation IA, Général, Exploitant, Infrastructure, SGS & Statut
+      // 6 boutons : Localisation, Validation AERORISQ, Général, Exploitant, Infrastructure, SGS & Statut
       const stepDivs = document.querySelectorAll('[class*="flex-col"][class*="items-center"][class*="min-w"]')
       // Au moins les étiquettes des 6 étapes doivent être présentes
       expect(screen.getByText('Localisation')).toBeInTheDocument()
-      expect(screen.getByText('Validation IA')).toBeInTheDocument()
+      expect(screen.getByText('Validation AERORISQ')).toBeInTheDocument()
       expect(screen.getByText('Général')).toBeInTheDocument()
       expect(screen.getByText('Exploitant')).toBeInTheDocument()
       expect(screen.getByText('SGS & Statut')).toBeInTheDocument()
@@ -184,7 +185,7 @@ describe('AerodromeForm — navigation par étapes', () => {
       const allButtons = screen.getAllByRole('button')
       const stepIndicatorButtons = allButtons.filter(btn =>
         btn.hasAttribute('disabled') &&
-        (btn.textContent?.includes('Validation IA') ||
+        (btn.textContent?.includes('Validation AERORISQ') ||
          btn.textContent?.includes('Général') ||
          btn.textContent?.includes('Exploitant') ||
          btn.textContent?.includes('SGS'))
@@ -195,7 +196,7 @@ describe('AerodromeForm — navigation par étapes', () => {
 
     it('affiche le bouton "Suivant" (pas "Créer") à l\'étape 1', () => {
       renderNewForm()
-      expect(screen.getByText(/suivant/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /suivant/i })).toBeInTheDocument()
       expect(screen.queryByText(/^créer$/i)).not.toBeInTheDocument()
     })
 
@@ -212,7 +213,7 @@ describe('AerodromeForm — navigation par étapes', () => {
       renderNewForm()
       // Cliquer "Suivant" sans renseigner les coordonnées déclenche la validation
       await act(async () => {
-        fireEvent.click(screen.getByText(/suivant/i))
+        fireEvent.click(screen.getByRole('button', { name: /suivant/i }))
       })
       // Le formulaire doit soit rester à l'étape 1, soit afficher une erreur
       await waitFor(() => {
@@ -297,7 +298,7 @@ describe('AerodromeForm — navigation par étapes', () => {
 
     it("l'étape 2 est inaccessible depuis l'étape 1 (sans avoir cliqué Suivant)", () => {
       renderNewForm()
-      const iaLabel = screen.getByText('Validation IA')
+      const iaLabel = screen.getByText('Validation AERORISQ')
       const iaBtn   = iaLabel.closest('button')
       expect(iaBtn).toBeDisabled()
     })

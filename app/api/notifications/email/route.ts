@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { to, subject, message, link } = await request.json();
+    const { to, subject, message, link, attachments } = await request.json();
 
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json({ success: false, reason: 'Email non configuré (pas de clé Resend)' });
@@ -25,6 +25,12 @@ export async function POST(request: Request) {
       to: Array.isArray(to) ? to : [to],
       subject,
       html,
+      ...(Array.isArray(attachments) && attachments.length > 0
+        ? { attachments: attachments.map((a: { filename?: string; content?: string }) => ({
+            filename: a.filename || 'document.pdf',
+            content: a.content || '',
+          })) }
+        : {}),
     });
 
     if (error) {

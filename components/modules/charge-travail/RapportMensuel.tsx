@@ -7,6 +7,7 @@ import {
 import { useAppStore } from '@/lib/store';
 import { Printer, Download, TrendingUp, TrendingDown, Calendar, Users, CheckCircle2, AlertCircle, Filter } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { DataTable } from '@/components/ui/DataTable';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -198,37 +199,22 @@ export function RapportMensuel({ userRole }: RapportMensuelProps) {
 
       <hr className="border-border" />
 
-      <div className="table-container animate-fade-up" style={{ animationDelay: '0.25s' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Inspecteur</th>
-              <th className="text-center">Planifiés (j)</th>
-              <th className="text-center">Réalisés (j)</th>
-              <th className="text-center">Taux</th>
-              <th className="text-center">Missions</th>
-              <th className="text-center">Écarts traités</th>
-            </tr>
-          </thead>
-          <tbody>
-            {donnees.map((row, i) => (
-              <tr key={i} className="hover:bg-role-primary-soft transition-colors">
-                <td className="font-medium text-foreground">{row.inspecteur}</td>
-                <td className="text-center text-foreground">{row.planifies}</td>
-                <td className="text-center text-foreground">{row.realises}</td>
-                <td className="text-center">
-                  <span className={`badge ${row.taux >= 80 ? 'success' : row.taux >= 60 ? 'warning' : 'danger'}`}>{row.taux}%</span>
-                </td>
-                <td className="text-center text-foreground">{row.missions}</td>
-                <td className="text-center text-foreground">{row.ecarts}</td>
-              </tr>
-            ))}
-            {donnees.length === 0 && (
-              <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Aucune donnée pour cette période</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        data={donnees}
+        columns={[
+          { key: 'inspecteur', header: 'Inspecteur', render: (row) => <span className="font-medium text-foreground">{row.inspecteur}</span> },
+          { key: 'planifies', header: 'Planifiés (j)', headerClassName: 'text-center', render: (row) => <span className="text-foreground">{row.planifies}</span> },
+          { key: 'realises', header: 'Réalisés (j)', headerClassName: 'text-center', render: (row) => <span className="text-foreground">{row.realises}</span> },
+          { key: 'taux', header: 'Taux', headerClassName: 'text-center', render: (row) => (
+            <span className={`badge ${row.taux >= 80 ? 'success' : row.taux >= 60 ? 'warning' : 'danger'}`}>{row.taux}%</span>
+          )},
+          { key: 'missions', header: 'Missions', headerClassName: 'text-center', render: (row) => <span className="text-foreground">{row.missions}</span> },
+          { key: 'ecarts', header: 'Écarts traités', headerClassName: 'text-center', render: (row) => <span className="text-foreground">{row.ecarts}</span> },
+        ]}
+        keyExtractor={(row) => row.inspecteur}
+        emptyState={{ title: 'Aucune donnée pour cette période' }}
+        cardProps={{ className: 'animate-fade-up', style: { animationDelay: '0.25s' } as React.CSSProperties }}
+      />
 
       <div className="grid grid-cols-1 gap-6">
         <div className="card animate-fade-up" style={{ animationDelay: '0.3s' }}>

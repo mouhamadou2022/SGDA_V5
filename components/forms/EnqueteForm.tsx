@@ -1,13 +1,15 @@
 // components/forms/EnqueteForm.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ClipboardList, Save, X, AlertCircle,
   Plane, Target, Shield, TrendingUp, Sparkles, Users,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { TYPES_ENQUETE } from '@/lib/config';
+import { useFormProgress } from '@/hooks/useFormProgress';
+import { FormProgressContext } from '@/components/ui/FormShell';
 import { riskAgent } from '@/lib/ia/agents/riskAgent';
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent';
 
@@ -88,6 +90,15 @@ export function EnqueteForm({
   const [iaAnalysis, setIaAnalysis] = useState<IaAnalysis | null>(null);
   const [isLoadingIA, setIsLoadingIA] = useState(false);
   const [showIaSuggestion, setShowIaSuggestion] = useState(true);
+
+  const progress = useFormProgress(formData as Record<string, unknown>, [
+    'titre', 'description', 'date_debut', 'date_fin', 'aerodrome_ids',
+  ]);
+  const setProgress = React.useContext(FormProgressContext);
+  useEffect(() => { setProgress(progress); }, [progress, setProgress]);
+  const onProgressRef = useRef(onProgressChange);
+  onProgressRef.current = onProgressChange;
+  useEffect(() => { onProgressRef.current?.(progress); }, [progress]);
 
   // Analyse IA des aérodromes ciblés
   useEffect(() => {
@@ -243,12 +254,12 @@ export function EnqueteForm({
     <form onSubmit={handleSubmit}>
       <div className="space-y-6">
 
-        {/* Suggestion IA */}
+        {/* Suggestion AERORISQ */}
         {showIaSuggestion && iaAnalysis && mode === 'creation' && (
           <div className={`alert ${iaAnalysis.priorite === 'critique' ? 'alert-warning' : 'alert-info'} animate-fade-in`}>
             <Sparkles className="alert-icon w-4 h-4" />
             <div className="alert-content flex-1">
-              <div className="alert-title">🤖 Suggestion IA</div>
+              <div className="alert-title">🤖 Suggestion AERORISQ</div>
               <div className="alert-description">{iaAnalysis.message}</div>
             </div>
             <button type="button" onClick={() => setShowIaSuggestion(false)} className="btn btn-ghost btn-sm">

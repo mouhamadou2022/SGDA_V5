@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ListTodo,
   Clock,
@@ -33,6 +33,7 @@ import {
 
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore } from '@/lib/store';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
@@ -331,6 +332,48 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
 
   const selectedCharge = charges.find(c => c.inspecteur_id === selectedInspecteur);
   const nomConnecte    = `${user.prenom} ${user.nom}`.trim();
+
+  // ─── Tableau de performance ──────────────────────────────────────────────────
+  interface PerfRow {
+    id: string; nom: string; poste: string; surveillancesCount: number;
+    traites: number; enRetard: number; formationsCount: number; perfScore: number;
+  }
+  const [perfPage, setPerfPage] = useState(1)
+  const PERF_PAGE_SIZE = 20
+  const perfData = useMemo(() => {
+    return (utilisateurs || [])
+      .filter(u => ['inspector', 'admin'].includes(u.role) && u.statut === 'actif')
+      .map(ins => {
+        const dossiersIns = (dossiers || []).filter(d => d.inspecteur_id === ins.id)
+        const traites = dossiersIns.filter(d => d.statut === 'termine').length
+        const enRetard = dossiersIns.filter(d => d.statut === 'en_cours' && new Date(d.date_limite) < new Date()).length
+        const surveillancesIns = (surveillances || []).filter(s => (s.equipe_ids || []).includes(ins.id) && s.statut === 'transmise')
+        const formationsIns = (formations || []).filter(f => (f.participants || []).includes(ins.id))
+        const perfScore = dossiersIns.length > 0 ? Math.round((traites / (traites + enRetard || 1)) * 50 + Math.min(surveillancesIns.length * 10, 30) + Math.min(formationsIns.length * 5, 20)) : 50
+        return { id: ins.id, nom: `${ins.prenom} ${ins.nom}`, poste: ins.poste || 'inspecteur', surveillancesCount: surveillancesIns.length, traites, enRetard, formationsCount: formationsIns.length, perfScore }
+      })
+  }, [utilisateurs, dossiers, surveillances, formations])
+  const perfPaginated = useMemo(() => {
+    const start = (perfPage - 1) * PERF_PAGE_SIZE
+    return perfData.slice(start, start + PERF_PAGE_SIZE)
+  }, [perfData, perfPage])
+  useEffect(() => setPerfPage(1), [searchEq, filtersEq])
+  const perfColumns: Column<PerfRow>[] = [
+    { key: 'nom', header: 'Inspecteur', render: (r) => <span className="font-medium">{r.nom}</span> },
+    { key: 'poste', header: 'Poste', render: (r) => <span className="text-xs capitalize">{r.poste}</span> },
+    { key: 'surveillances', header: 'Surveillances', render: (r) => <span>{r.surveillancesCount}</span> },
+    { key: 'traites', header: 'Dossiers traités', render: (r) => <span>{r.traites}</span> },
+    { key: 'enRetard', header: 'En retard', render: (r) => <span className={r.enRetard > 0 ? 'badge danger' : 'badge success'}>{r.enRetard}</span> },
+    { key: 'formations', header: 'Formations', render: (r) => <span>{r.formationsCount}</span> },
+    { key: 'perfScore', header: 'Score', render: (r) => (
+      <div className="flex items-center gap-2">
+        <div className="progress w-16 h-1.5">
+          <div className={`progress-bar ${r.perfScore >= 70 ? '' : r.perfScore >= 40 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${r.perfScore}%` }} />
+        </div>
+        <span className="text-xs">{r.perfScore}%</span>
+      </div>
+    )},
+  ]
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -826,59 +869,14 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
 
           {/* Performance des inspecteurs (admin seulement) */}
           {isAdminRole && (
-            <div className="card border-l-4 border-l-role-primary">
-              <div className="card-header">
-                <h3 className="card-title flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-role-primary" />
-                  Performance des inspecteurs
-                </h3>
-              </div>
-              <div className="card-content">
-                <div className="table-container">
-                  <table className="table table-compact">
-                    <thead>
-                      <tr>
-                        <th>Inspecteur</th>
-                        <th>Poste</th>
-                        <th>Surveillances</th>
-                        <th>Dossiers traités</th>
-                        <th>En retard</th>
-                        <th>Formations</th>
-                        <th>Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {utilisateurs.filter(u => ['inspector', 'admin'].includes(u.role) && u.statut === 'actif').map(ins => {
-                        const dossiersIns = (dossiers || []).filter(d => d.inspecteur_id === ins.id)
-                        const traites = dossiersIns.filter(d => d.statut === 'termine').length
-                        const enRetard = dossiersIns.filter(d => d.statut === 'en_cours' && new Date(d.date_limite) < new Date()).length
-                        const surveillancesIns = (surveillances || []).filter(s => (s.equipe_ids || []).includes(ins.id) && s.statut === 'transmise')
-                        const formationsIns = (formations || []).filter(f => (f.participants || []).includes(ins.id))
-                        const perfScore = dossiersIns.length > 0 ? Math.round((traites / (traites + enRetard || 1)) * 50 + Math.min(surveillancesIns.length * 10, 30) + Math.min(formationsIns.length * 5, 20)) : 50
-                        return (
-                          <tr key={ins.id}>
-                            <td className="font-medium">{ins.prenom} {ins.nom}</td>
-                            <td className="text-xs capitalize">{ins.poste || 'inspecteur'}</td>
-                            <td>{surveillancesIns.length}</td>
-                            <td>{traites}</td>
-                            <td><span className={enRetard > 0 ? 'badge danger' : 'badge success'}>{enRetard}</span></td>
-                            <td>{formationsIns.length}</td>
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <div className="progress w-16 h-1.5">
-                                  <div className={`progress-bar ${perfScore >= 70 ? '' : perfScore >= 40 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${perfScore}%` }} />
-                                </div>
-                                <span className="text-xs">{perfScore}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <DataTable
+              data={perfPaginated}
+              columns={perfColumns}
+              keyExtractor={(r) => r.id}
+              cardProps={{ icon: <BarChart3 className="w-4 h-4 text-role-primary" />, title: 'Performance des inspecteurs', className: 'border-l-4 border-l-role-primary' }}
+              headerClassName="bg-role-primary-soft/40"
+              pagination={{ total: perfData.length, current: perfPage, pageSize: PERF_PAGE_SIZE, onPageChange: setPerfPage }}
+            />
           )}
         </div>
       )}

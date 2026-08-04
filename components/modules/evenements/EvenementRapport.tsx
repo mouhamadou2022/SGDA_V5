@@ -4,7 +4,7 @@
 import { useState, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Download, Printer, FileText, X, Loader2 } from 'lucide-react'
-import { generatePDFFromHTMLString } from '@/lib/pdfGenerator'
+import { downloadBlob } from '@/lib/pdfGenerator'
 
 interface EvenementRapportProps {
   evenementId: string
@@ -15,7 +15,7 @@ const FALLBACK = {
   id: 'evt-demo',
   reference: 'EVT-2024-001',
   type: 'Incident de piste',
-  gravite: 'ORANGE',
+  gravite: 'eleve',
   date: '2024-04-20',
   heure: '14:35',
   localisation: 'Piste 01/19 — Aérodrome GOBD (Dakar-Blaise Diagne)',
@@ -165,16 +165,90 @@ ${ecartLie?.pac?.observations ? `<p>${ecartLie.pac.observations}</p>` : '<p styl
   const handleDownload = async () => {
     setIsExporting(true)
     try {
-      const html = genererRapportHTML()
-      const result = await generatePDFFromHTMLString(html)
-      if (result.success && result.blob) {
-        const url = URL.createObjectURL(result.blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `rapport-${evt.reference}.pdf`
-        a.click()
-        URL.revokeObjectURL(url)
+      const { creerRapportPdf } = await import('@/lib/services/pdfRapport')
+      const graviteLabel = GRAVITE_LABELS[evt.gravite] || evt.gravite
+      const pdf = await creerRapportPdf()
+
+      pdf.coverPage({
+        titre: "RAPPORT D'ÉVÉNEMENT DE SÉCURITÉ",
+        sousTitre: aerodromeNom,
+        ref: evt.reference,
+        meta: [
+          ['Référence', evt.reference],
+          ['Type d\'événement', evt.type],
+          ['Niveau de gravité', graviteLabel],
+          ['Date', `${evt.date} à ${evt.heure} UTC`],
+        ],
+      })
+      pdf.addPage()
+
+      pdf.sectionTitle('1. IDENTIFICATION DE L\'ÉVÉNEMENT')
+      pdf.kvTable([
+        ['Type d\'événement', evt.type],
+        ['Niveau de gravité', graviteLabel],
+        ['Aérodrome', aerodromeNom],
+        ['Date et heure', `${evt.date} à ${evt.heure} UTC`],
+        ['Localisation précise', evt.localisation],
+        ['Référence rapport', evt.reference],
+      ])
+
+      pdf.sectionTitle('2. DESCRIPTION DES FAITS')
+      pdf.paragraph(evt.description)
+
+      pdf.sectionTitle('3. PARTIES IMPLIQUÉES')
+      if (evt.aeronef) {
+        pdf.subHeading('Aéronef impliqué')
+        pdf.kvTable([
+          ['Immatriculation', evt.aeronef.immatriculation],
+          ['Type', evt.aeronef.type],
+          ['Exploitant', evt.aeronef.exploitant],
+        ])
       }
+      if (evt.blesses) {
+        pdf.subHeading('Bilan humain')
+        pdf.kvTable([
+          ['Décès', String(evt.blesses.mortels)],
+          ['Graves', String(evt.blesses.graves)],
+          ['Légers', String(evt.blesses.legers)],
+          ['Indemnes', String(evt.blesses.indemnes)],
+        ])
+      }
+      pdf.subHeading('Services alertés')
+      pdf.bulletList(evt.services_alertes)
+
+      pdf.sectionTitle('4. ACTIONS IMMÉDIATES')
+      pdf.paragraph(evt.actions_immediates)
+
+      pdf.sectionTitle('5. ANALYSE DES CAUSES')
+      if (ecartLie) {
+        pdf.paragraph(`Écart lié : ${ecartLie.reference}`, 9.5, { bold: true })
+        pdf.paragraph(ecartLie.libelle)
+        if (ecartLie.pac?.actions?.length) {
+          pdf.subHeading('Actions correctives')
+          pdf.bulletList(
+            ecartLie.pac.actions.map((a: any) => `${a.description} — Resp : ${a.responsable}`),
+          )
+        }
+      } else {
+        pdf.paragraph('Analyse en cours — rapport d\'investigation à joindre après clôture de l\'enquête.', 9.5, { italic: true })
+      }
+
+      pdf.sectionTitle('6. RECOMMANDATIONS')
+      if (ecartLie?.pac?.observations) {
+        pdf.paragraph(ecartLie.pac.observations)
+      } else {
+        pdf.paragraph('Recommandations en cours d\'élaboration.', 9.5, { italic: true })
+      }
+
+      pdf.sectionTitle('7. SIGNATURE DE L\'INSPECTEUR RESPONSABLE')
+      pdf.signatureBlock([
+        { label: 'Nom', value: inspecteur ? `${inspecteur.prenom} ${inspecteur.nom}` : 'Inspecteur non assigné' },
+        { label: 'Qualité', value: 'Inspecteur — ANACIM' },
+        { label: 'Date', value: new Date().toLocaleDateString('fr-FR') },
+      ])
+
+      pdf.drawFooter(`ANACIM — Rapport d'événement ${evt.reference} — Document officiel`)
+      downloadBlob(pdf.blob(), `rapport-${evt.reference}.pdf`)
     } catch (err) {
       console.error('[EvenementRapport] Échec export PDF:', err)
     } finally {

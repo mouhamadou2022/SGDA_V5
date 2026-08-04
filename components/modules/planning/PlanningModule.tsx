@@ -59,6 +59,17 @@ import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, genererSuggesti
 
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 
+const PLANNING_TERMINES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'annulee']
+
+// Un planning est « en retard » si son statut l'indique explicitement (en_retard)
+// ou si sa date de fin est dépassée sans qu'il soit clôturé/terminé.
+function estPlanningEnRetard(p: Planning, now = Date.now()): boolean {
+  if (p.statut === 'en_retard') return true
+  if (p.est_proposition || PLANNING_TERMINES.includes(p.statut)) return false
+  const dFin = new Date(p.date_fin || p.date_debut).getTime()
+  return !Number.isNaN(dFin) && dFin < now
+}
+
 // Composants du module
 import { PlanningCalendarView } from './PlanningCalendarView';
 import PlanningGanttView from './PlanningGanttView';
@@ -79,9 +90,12 @@ import {
   computeVelocityMetrics, 
   computeProactiveAlert, 
   computeFinalFrequency,
+  isSGSApplicable,
 } from '@/lib/risque';
 import { riskEngine, getEcartTriggers, type EcartTrigger } from '@/lib/riskEngine';
+import { synthetiserModeles } from '@/lib/risque/modelSynthesis';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { predictHMM } from '@/lib/risque/hmm'
 import { SuggestionFeedback } from '@/lib/store';
 import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
@@ -132,7 +146,15 @@ interface AerodromeRisque extends Aerodrome {
   nbTriggersCritiques: number;
   nbTriggersHautes: number;
   hasPacAccepteEnAttente: boolean;
+  syntheseConfiance: number;
   suggestionsMaintien: Array<{ domaines: string[]; typesChecklist: string[]; raison: string; source: string; confiance: number }>;
+}
+
+interface TablePlanning extends Planning {
+  aerodromeCode: string
+  aerodromeNom: string
+  profilScore?: number
+  nomsEquipe: string[]
 }
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -157,6 +179,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const surveillances      = useOptimizedStore(s => s.surveillances);
   const utilisateurs       = useOptimizedStore(s => s.utilisateurs);
   const ecarts             = useOptimizedStore(s => s.ecarts);
+  const evenements         = useOptimizedStore(s => s.evenements || []);
   const user               = useOptimizedStore(s => s.user);
   const addNotification    = useAppStore(s => s.addNotification);
 
@@ -307,8 +330,20 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       } catch { /* HMM indisponible */ }
       const decision = riskEngine.determineTypeSurveillanceContinue(
         profil, urgents, degradations,
-        ecartsAerodrome, undefined, undefined, undefined, aero.statut_sgs as 'complet' | 'simplifie' | 'non_applicable' | undefined,
+        ecartsAerodrome,
+        (evenements || [])
+          .filter(e => e.aerodrome_id === aero.id)
+          .map(e => ({ domaine: '', type: e.type || 'événement', gravite: e.gravite || 'moyen', date: e.date, statut: e.statut })),
+        surveillances
+          .filter(s => s.aerodrome_id === aero.id && s.statut === 'archivee')
+          .reduce<Record<string, string>>((acc, s) => {
+            (s.portee || []).forEach(d => { acc[d] = s.date_debut })
+            return acc
+          }, {}),
+        undefined,
+        aero.statut_sgs as 'complet' | 'simplifie' | 'non_applicable' | undefined,
         hmmState,
+        aero.maturite_sgs as number | undefined,
       );
 
       const decisionSurveillance = {
@@ -359,6 +394,10 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         profilRisque: profil,
       });
 
+      // Confiance du consensus multi-modèles (data-aware) — pondère la suggestion
+      let syntheseConfiance = 70
+      try { syntheseConfiance = synthetiserModeles(profil).confianceGlobale } catch { /* profil partiel */ }
+
       return {
         ...aero,
         niveauAlerte,
@@ -375,36 +414,51 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         nbTriggersCritiques,
         nbTriggersHautes,
         hasPacAccepteEnAttente,
+        syntheseConfiance,
         suggestionsMaintien,
       };
     }).filter(a => a !== null && (a.niveauAlerte !== null || (a as any).ecartTriggers?.length > 0)) as AerodromeRisque[];
-  }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts, suggestionFeedbacks]);
+  }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts, suggestionFeedbacks, surveillances, evenements]);
 
-  // Pont : aerodromesRisque → iaSuggestions — alimente le bouton "Suggestions IA"
+  // Pont : aerodromesRisque → iaSuggestions — alimente le bouton "Suggestions AERORISQ"
   useEffect(() => {
     const planningsAerodromeIds = new Set(filteredPlannings.map(p => p.aerodrome_id))
-    const suggestionAerodromeIds = new Set(iaSuggestions.map(s => s.aerodrome_id))
+    // Lire l'état LIVE du store (et non la closure) : évite le double-ajout du
+    // même aérodrome lors du double-appel de l'effet en React StrictMode.
+    const suggestionAerodromeIds = new Set(useAppStore.getState().iaSuggestions.map(s => s.aerodrome_id))
     const maintenant = new Date().toISOString()
 
     for (const aero of aerodromesRisque) {
-      if (aero.niveauAlerte !== 'critique' && aero.niveauAlerte !== 'haute') continue
+      // Déclenchement : alerte risque élevée OU décision du moteur critique/haute
+      // (ex. inopinée suite à événement de sécurité même si le score global est bon)
+      const prioriteDecision = aero.decisionSurveillance?.priorite
+      const decisionTrigger = prioriteDecision === 'critique' || prioriteDecision === 'haute'
+      if (aero.niveauAlerte !== 'critique' && aero.niveauAlerte !== 'haute' && !decisionTrigger) continue
       if (suggestionAerodromeIds.has(aero.id)) continue
       if (planningsAerodromeIds.has(aero.id)) continue
 
       const newSuggestion: IaSuggestion = {
-        id: `ia-sug-${Date.now()}-${aero.id}`,
+        id: `ia-sug-${crypto.randomUUID()}`,
         aerodrome_id: aero.id,
-        type: aero.decisionSurveillance.type === 'inopinee' ? 'programmee' as const : 'programmee' as const,
-        portee: aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean),
+        type: (aero.decisionSurveillance.type === 'inopine' ? 'inopine'
+          : aero.decisionSurveillance.type === 'maintien' ? 'maintien'
+          : aero.decisionSurveillance.type === 'periodique' ? 'periodique'
+          : 'programmee') as Planning['type'],
+        portee: (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean))
+          .filter(d => d !== 'SGS' || isSGSApplicable(aero as any)),
         date_debut: new Date(Date.now() + 7 * 86400000).toISOString(),
         date_fin: new Date(Date.now() + 9 * 86400000).toISOString(),
         equipe_ids: [],
         chef_id: '',
-        priorite: (aero.niveauAlerte === 'critique' ? 'critique' : 'haute') as Planning['priorite'],
+        priorite: (aero.niveauAlerte === 'critique' || prioriteDecision === 'critique' ? 'critique' : 'haute') as Planning['priorite'],
         objectifs: `Surveillance ${aero.decisionSurveillance.type} — ${aero.decisionSurveillance.raison}`,
         raison: aero.decisionSurveillance.raison,
-        confiance: aero.niveauAlerte === 'critique' ? 85 : 70,
-        source: aero.niveauAlerte === 'critique' ? 'risque_critique' : 'sgs_faible',
+        confiance: Math.round(
+          ((aero.niveauAlerte === 'critique' || prioriteDecision === 'critique' ? 85 : 70) * 0.6 + (aero.syntheseConfiance || 0) * 0.4)
+        ),
+        source: (aero.decisionSurveillance?.raison || '').includes('Événement')
+          ? 'evenement'
+          : aero.niveauAlerte === 'critique' ? 'risque_critique' : 'sgs_faible',
         created_at: maintenant,
       }
       addIaSuggestion(newSuggestion)
@@ -436,6 +490,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         aDesMesuresEnRetard: risqueData?.aDesMesuresEnRetard || false,
         isLancee,
         surveillanceId,
+        estRetard: estPlanningEnRetard(planning),
       };
     });
   }, [filteredPlannings, aerodromes, aerodromesActifs, profilsRisque, aerodromesRisque, surveillances, exemptionsActivesParAerodrome]);
@@ -463,7 +518,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       group.stats.total++;
       
       if (['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(planning.statut)) group.stats.realisees++;
-      if (planning.statut === 'en_retard') group.stats.enRetard++;
+      if (planning.statut === 'en_retard' || estPlanningEnRetard(planning)) group.stats.enRetard++;
       if (planning.statut === 'planifiee') group.stats.planifiees++;
       
       if (planning.aDesExemptions) group.aDesExemptions = true;
@@ -480,10 +535,32 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     const planifiees = filteredPlannings.filter(p => p.statut === 'planifiee').length;
     const enCours = filteredPlannings.filter(p => p.statut === 'en_cours').length;
     const realisees = filteredPlannings.filter(p => p.statut === 'realisee').length;
-    const enRetard = filteredPlannings.filter(p => p.statut === 'en_retard').length;
+    const enRetard = filteredPlannings.filter(p => estPlanningEnRetard(p)).length;
     const executionRate = total > 0 ? Math.round((realisees / total) * 100) : 0;
     return { total, planifiees, enCours, realisees, enRetard, executionRate };
   }, [filteredPlannings]);
+
+  // Données pour la vue Tableau (flat list enrichie)
+  const tablePlannings = useMemo(() => {
+    const result: TablePlanning[] = []
+    for (const group of planningsByAerodrome) {
+      const profil = profilsRisque[group.aerodrome.id]
+      for (const planning of group.plannings) {
+        const nomsEquipe = (planning.equipe_ids || []).map((id: string) => {
+          const u = utilisateurs.find(x => x.id === id)
+          return u ? `${u.prenom} ${u.nom}`.split(' ').map(w => w[0]).join('') : '?'
+        })
+        result.push({
+          ...planning,
+          aerodromeCode: group.aerodrome.code_oaci,
+          aerodromeNom: group.aerodrome.nom,
+          profilScore: profil?.score_global,
+          nomsEquipe,
+        })
+      }
+    }
+    return result
+  }, [planningsByAerodrome, profilsRisque, utilisateurs])
 
   // Fonction de feedback
   const enregistrerFeedbackPlanning = useCallback((
@@ -566,12 +643,18 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
     enregistrerFeedbackPlanning(planning, true, 'Planning validé et lancé');
 
-    // Certification : tous les domaines techniques + SGS
-    const porteeComplete = planning.type === 'certification'
-      ? ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']
-      : planning.type === 'homologation'
-        ? ['SGS', ...(planning.portee || [])]
-        : (planning.portee || [])
+    const planningAerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
+    const sgsApplicable = isSGSApplicable(planningAerodrome);
+
+    // Certification : tous les domaines techniques + SGS (si applicable)
+    let porteeComplete: string[];
+    if (planning.type === 'certification') {
+      porteeComplete = sgsApplicable ? ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'] : ['SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']
+    } else if (planning.type === 'homologation') {
+      porteeComplete = sgsApplicable ? ['SGS', ...(planning.portee || [])] : (planning.portee || [])
+    } else {
+      porteeComplete = (planning.portee || [])
+    }
 
     // Vérifier la composition de l'équipe avant de lancer
     const equipeIds = planning.equipe_ids || [];
@@ -620,15 +703,53 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         updateSurveillance(surveillance.id, { sgs_evaluation_prepa: planning.sgs_evaluation_prepa });
         console.debug('[Planning] Évaluation SGS préparée transférée:', planning.id);
       }
+
+      // Convertir les délégations planning → store Delegation[]
+      if (planning.delegations && Object.keys(planning.delegations).length > 0) {
+        const now = new Date().toISOString()
+        const hierarchy = surveillance.checklist_hierarchy || planning.checklist_hierarchy || []
+        for (const [domaine, inspecteurId] of Object.entries(planning.delegations)) {
+          if (!inspecteurId) continue
+          const itemsIds = hierarchy.flatMap(d =>
+            d.nom?.toUpperCase() === domaine.toUpperCase()
+              ? (d.items || []).map(i => i.id)
+              : []
+          )
+          store.addDelegation({
+            surveillance_id: surveillance.id,
+            aerodrome_id: planning.aerodrome_id,
+            chef_id: planning.chef_id || surveillance.chef_id || '',
+            domaine: domaine.toUpperCase(),
+            domaine_nom: domaine.toUpperCase(),
+            assigne_a: inspecteurId,
+            assigne_par: user?.id || planning.chef_id || '',
+            items_ids: itemsIds,
+            progression: 0,
+            statut: 'assigne',
+            assigne_le: now,
+            derniere_activite: now,
+            derniere_sync: now,
+          })
+        }
+        console.debug('[Planning] Délégations converties pour la surveillance:', surveillance.id);
+      }
+
       if (!(planning.checklist_hierarchy && planning.checklist_hierarchy.length > 0)) {
         // Fallback : générer la checklist si aucune n'a été préparée
         const profil = profilsRisque?.[planning.aerodrome_id] || undefined;
         const aerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
-        const typeSurv: 'periodique' | 'inopine' | 'maintien' =
+        const typeSurv: import('@/lib/checklistMemory').TypeInspection =
           (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine' :
-          planning.type === 'maintien' ? 'maintien' : 'periodique';
+          planning.type === 'maintien' ? 'maintien' :
+          planning.type === 'certification' ? 'certification' :
+          planning.type === 'homologation' ? 'homologation' :
+          planning.type === 'suivi_ecarts' ? 'suivi_ecarts' :
+          planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
 
-        const master = store.findMasterChecklistForPortee(planning.portee || []);
+        const master = store.findMasterChecklistForPortee(planning.portee || [],
+          planning.type === 'certification' || planning.type === 'homologation'
+            ? ['IT', 'SOP', 'SGS']
+            : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC']);
         if (master) {
           const snapshot = JSON.parse(JSON.stringify(master.checklist));
           const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
@@ -661,7 +782,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
               console.error('[Planning] Erreur génération IA checklist:', err);
               addNotification({
                 user_id: user?.id || '', type: 'danger',
-                title: 'Erreur IA',
+                title: 'Erreur AERORISQ',
                 message: 'La génération automatique de la checklist a échoué. Vous pourrez la générer depuis la page checklist.',
                 canal: 'in_app',
               });
@@ -846,7 +967,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         user_id: user?.id || '',
         type: 'success',
         title: 'Planning créé',
-        message: `Planning ${suggestion.type.replace(/_/g, ' ')} créé à partir de la suggestion IA.`,
+        message: `Planning ${suggestion.type.replace(/_/g, ' ')} créé à partir de la suggestion AERORISQ.`,
         canal: 'in_app',
       })
     } catch (e) {
@@ -1017,7 +1138,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     addNotification({
       user_id: user?.id || '',
       type: 'success',
-      title: 'Suggestion IA & Profil appliquée',
+      title: 'Suggestion AERORISQ & Profil appliquée',
       message: `Domaines: ${domaines.join(', ')} | Type: ${type} | Priorité: ${priorite} | Équipe: ${equipeSuggeree.length} inspecteur(s) suggérés selon leur spécialité AGA`,
       canal: 'in_app',
     });
@@ -1200,6 +1321,103 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   const hasExemptionsAnywhere = Array.from(exemptionsActivesParAerodrome.values()).some(arr => arr.length > 0);
   const hasMesuresEnRetard = aerodromesRisque.some(a => a.aDesMesuresEnRetard);
+
+/* ───────── Colonnes DataTable pour la vue Tableau ───────── */
+
+const tableColumns: Column<TablePlanning>[] = [
+  {
+    key: 'aerodrome',
+    header: 'Aérodrome',
+    render: (item) => (
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="code-oaci-badge">{item.aerodromeCode}</span>
+          <span className="font-semibold text-sm text-foreground">{item.aerodromeNom}</span>
+          {item.profilScore !== undefined && (
+            <span className={`badge text-xs ${item.profilScore < 30 ? 'danger' : item.profilScore < 60 ? 'warning' : 'success'}`}>
+              Score {item.profilScore}/100
+            </span>
+          )}
+        </div>
+        {item.nomsEquipe.length > 0 && (
+          <span className="text-xs text-muted-foreground">{item.nomsEquipe.join(', ')}</span>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (item) => <span className="capitalize text-sm">{item.type?.replace(/_/g, ' ') || '—'}</span>,
+  },
+  {
+    key: 'periode',
+    header: 'Période',
+    render: (item) => (
+      <span className="text-xs text-muted-foreground">
+        {item.date_debut ? new Date(item.date_debut).toLocaleDateString('fr-FR') : '?'} → {item.date_fin ? new Date(item.date_fin).toLocaleDateString('fr-FR') : '?'}
+      </span>
+    ),
+  },
+  {
+    key: 'domaines',
+    header: 'Domaines',
+    render: (item) => <span className="text-xs">{item.portee?.length ? item.portee.slice(0, 4).join(', ') : '—'}</span>,
+  },
+  {
+    key: 'statut',
+    header: 'Statut',
+    render: (item) => {
+      const statutMap: Record<string, { cls: string; label: string }> = {
+        planifiee: { cls: 'badge primary', label: 'Planifiée' },
+        en_cours: { cls: 'badge warning', label: 'En cours' },
+        realisee: { cls: 'badge success', label: 'Réalisée' },
+        annulee: { cls: 'badge neutral', label: 'Annulée' },
+        en_retard: { cls: 'badge danger', label: 'En retard' },
+      }
+      const s = statutMap[item.statut] || { cls: 'badge outline', label: item.statut }
+      return <span className={`badge text-xs ${s.cls}`}>{s.label}</span>
+    },
+  },
+  {
+    key: 'priorite',
+    header: 'Priorité',
+    render: (item) => {
+      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+      const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
+      return item.priorite ? <span className={`badge text-xs ${pBadge[item.priorite] || 'badge neutral'}`}>{pLabel[item.priorite] || item.priorite}</span> : null
+    },
+  },
+  {
+    key: 'actions',
+    header: 'Actions',
+    headerClassName: 'text-right',
+    className: 'text-right',
+    render: (item) => (
+      <div className="flex justify-end gap-2">
+        {!item.est_proposition && (
+          <button className="action-button" onClick={(e) => { e.stopPropagation(); handlePrepare(item); }} title="Préparer">
+            <PlayCircle className="w-4 h-4" />
+          </button>
+        )}
+        {!item.est_proposition && (
+          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleRequestExecute(item); }} title="Exécuter">
+            <CheckCircle2 className="w-4 h-4" />
+          </button>
+        )}
+        <button className="action-button" onClick={(e) => { e.stopPropagation(); handleView(item); }} title="Voir">
+          <Info className="w-4 h-4" />
+        </button>
+        <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEdit(item); }} title="Modifier">
+          <Edit2 className="w-4 h-4" />
+        </button>
+        <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Supprimer">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    ),
+  },
+]
 
 /* ───────── Composants extraits (hors du corps du composant parent) ───────── */
 
@@ -1406,6 +1624,22 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         </div>
       </div>
 
+      {/* Alerte plannings dépassés */}
+      {stats.enRetard > 0 && (
+        <div className="p-3 rounded-lg border border-danger/40 bg-danger-soft/20 flex flex-wrap items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
+          <p className="text-xs font-semibold text-danger">
+            {stats.enRetard} planning(s) en retard — date de fin dépassée sans clôture
+          </p>
+          <button
+            onClick={() => setVisibilityFilter('retards')}
+            className="btn btn-sm btn-danger gap-1 ml-auto"
+          >
+            <AlertCircle className="w-3.5 h-3.5" /> Voir les retards
+          </button>
+        </div>
+      )}
+
       {/* Barre d'outils */}
       <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-2">
@@ -1455,7 +1689,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
               })()}
             </div>
             
-            {/* Bouton Suggestions IA — badge des suggestions en attente */}
+            {/* Bouton Suggestions AERORISQ — badge des suggestions en attente */}
             {(() => {
               const badgeCount = iaSuggestions.length;
               const aDesNouvelles = badgeCount > 0;
@@ -1466,10 +1700,10 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                   <button
                     onClick={() => setShowIaSuggestionModal(true)}
                     className="btn btn-primary gap-2 animate-pulse relative"
-                    title={`${badgeCount} suggestion(s) IA en attente de validation`}
+                    title={`${badgeCount} suggestion(s) AERORISQ en attente de validation`}
                   >
                     <Brain className="w-4 h-4" />
-                    <span>Suggestions IA</span>
+                    <span>Suggestions AERORISQ</span>
                     <span className="badge text-xs danger">{badgeCount}</span>
                   </button>
                 </div>
@@ -1482,7 +1716,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                   title="Aucune suggestion en attente"
                 >
                   <Brain className="w-4 h-4" />
-                  <span>Suggestions IA</span>
+                  <span>Suggestions AERORISQ</span>
                 </button>
               );
             })()}
@@ -1598,7 +1832,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
               type="text"
               value={iaQuestion}
               onChange={(e) => setIaQuestion(e.target.value)}
-              placeholder="Demandez conseil à l'IA pour la planification..."
+              placeholder="Demandez conseil à AERORISQ pour la planification..."
               className={`flex-1 form-input text-sm ${focusClass}`}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAskAssistant(); }}
             />
@@ -1617,7 +1851,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
             <div className="mt-2 p-3 bg-primary-soft/50 rounded-lg border border-primary/20">
               <div className="flex items-start justify-between gap-2 mb-1">
                 <span className="flex items-center gap-1 text-xs font-medium text-role-primary">
-                  <Brain className="w-3 h-3" /> Réponse IA
+                  <Brain className="w-3 h-3" /> Réponse AERORISQ
                 </span>
                 <div className="flex items-center gap-1">
                   <button onClick={() => { setIaAnswer(''); setIaQuestion(''); }}
@@ -1664,6 +1898,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                         aerodrome={aero}
                         isLancee={!!survLiee}
                         surveillanceId={survLiee?.id}
+                        estRetard={estPlanningEnRetard(planning)}
                         onPrepare={() => handlePrepare(planning)}
                         onExecute={() => handleRequestExecute(planning)}
                         onView={() => handleView(planning)}
@@ -1798,7 +2033,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                 {aeroPlannings.filter((p: any) => {
                   if (visibilityFilter === 'all') return true
                   if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                  if (visibilityFilter === 'retards') return p.statut === 'en_retard' || (p.statut === 'planifiee' && p.date_debut && new Date(p.date_debut) < new Date())
+                  if (visibilityFilter === 'retards') return estPlanningEnRetard(p as Planning)
                   if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
                   return true
                 }).length === 0 ? (
@@ -1809,7 +2044,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                   aeroPlannings.filter((p: any) => {
                     if (visibilityFilter === 'all') return true
                     if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                    if (visibilityFilter === 'retards') return p.statut === 'en_retard' || (p.statut === 'planifiee' && p.date_debut && new Date(p.date_debut) < new Date())
+                    if (visibilityFilter === 'retards') return estPlanningEnRetard(p as Planning)
                     if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
                   return true
                 }).map((planning: any) => (
@@ -1818,6 +2053,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                      key={planning.id}
                      planning={planning}
                      aerodrome={aerodrome}
+                     estRetard={estPlanningEnRetard(planning)}
                      onPrepare={() => handlePrepare(planning)}
                      onExecute={() => handleRequestExecute(planning)}
                      onView={() => handleView(planning)}
@@ -1852,7 +2088,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         </div>
       )}
 
-      {/* Modal Suggestions IA — propositions de surveillance à valider */}
+      {/* Modal Suggestions AERORISQ — propositions de surveillance à valider */}
       {showIaSuggestionModal && createPortal(
         <div className="modal-overlay" data-role={userRole} onClick={() => setShowIaSuggestionModal(false)}>
           <div className="modal-content max-w-4xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
@@ -1863,7 +2099,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                     <Brain className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-foreground">Suggestions IA</h2>
+                    <h2 className="text-lg font-bold text-foreground">Suggestions AERORISQ</h2>
                     <p className="text-xs text-muted-foreground">{iaSuggestions.length} proposition(s) de surveillance en attente de validation</p>
                   </div>
                 </div>
@@ -1875,7 +2111,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                 {iaSuggestions.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p>Aucune suggestion IA en attente.</p>
+                    <p>Aucune suggestion AERORISQ en attente.</p>
                   </div>
                 )}
                 {iaSuggestions.map((s) => {
@@ -1886,7 +2122,12 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                     : s.source === 'certification_fraiche' ? 'Certification obtenue'
                     : s.source === 'homologation_fraiche' ? 'Homologation obtenue'
                     : s.source
-                  const prioriteColor = s.priorite === 'critique' ? 'danger' : s.priorite === 'haute' ? 'warning' : 'primary'
+                  const profil = profilsRisque?.[s.aerodrome_id]
+                  const niveauKey = profil && typeof profil.score_global === 'number'
+                    ? getRiskLevel(profil.score_global)
+                    : null
+                  const niveauLabel = niveauKey ? RISK_LEVELS[niveauKey].label : null
+                  const niveauColor = niveauKey ? RISK_LEVELS[niveauKey].color : null
 
                   return (
                     <div key={s.id} className="border border-border rounded-xl p-4 hover:shadow-md transition-shadow">
@@ -1894,8 +2135,12 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="code-oaci-badge">{aerodrome?.code_oaci || s.aerodrome_id}</span>
                           <span className="badge text-xs capitalize">{s.type.replace(/_/g, ' ')}</span>
-                          <span className={`badge text-xs ${prioriteColor}`}>{s.priorite}</span>
-                          <span className="badge outline text-xs">{Math.round(s.confiance * 100)}% confiance</span>
+                          {niveauLabel && niveauColor && (
+                            <span className={`badge text-xs ${niveauColor}`} title="Niveau de risque de l'aérodrome">
+                              {niveauLabel}
+                            </span>
+                          )}
+                          <span className="badge outline text-xs">{Math.round(s.confiance)}% confiance</span>
                         </div>
                         <span className="badge neutral text-xs shrink-0">{sourceLabel}</span>
                       </div>
@@ -2000,97 +2245,15 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         document.body
       )}
 
-      {/* Vue Tableau — groupé par aérodrome */}
+      {/* Vue Tableau */}
       {viewMode === 'table' && (
-        <Card className="overflow-hidden">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Aérodrome</th>
-                <th>Type</th>
-                <th>Période</th>
-                <th>Domaines</th>
-                <th>Statut</th>
-                <th>Priorité</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {planningsByAerodrome.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-muted-foreground"><Calendar className="w-8 h-8 mx-auto mb-2 opacity-20" />Aucun planning</td></tr>
-              ) : planningsByAerodrome.map(group => {
-                const profil = profilsRisque[group.aerodrome.id]
-                const scoreCls = !profil ? 'neutral' : profil.score_global < 30 ? 'danger' : profil.score_global < 60 ? 'warning' : 'success'
-                return (
-                  <React.Fragment key={group.aerodrome.id}>
-                    {/* Header groupe aérodrome */}
-                    <tr className="bg-muted/20 border-b-2 border-border">
-                      <td colSpan={7} className="py-2 px-3">
-                        <div className="flex items-center gap-3">
-                          <span className="code-oaci-badge">{group.aerodrome.code_oaci}</span>
-                          <span className="font-semibold text-sm text-foreground">{group.aerodrome.nom}</span>
-                          {profil && (
-                            <span className={`badge text-xs ${scoreCls}`}>
-                              Score {profil.score_global}/100
-                            </span>
-                          )}
-                          <span className="text-xs text-muted-foreground ml-auto">{group.plannings.length} planning(s)</span>
-                        </div>
-                      </td>
-                    </tr>
-                    {/* Lignes plannings */}
-                    {group.plannings.map((planning: Planning) => {
-                      const statutMap: Record<string, { cls: string; label: string }> = {
-                        planifiee: { cls: 'badge primary', label: 'Planifiée' },
-                        en_cours: { cls: 'badge warning', label: 'En cours' },
-                        realisee: { cls: 'badge success', label: 'Réalisée' },
-                        annulee: { cls: 'badge neutral', label: 'Annulée' },
-                        en_retard: { cls: 'badge danger', label: 'En retard' },
-                      }
-                      const s = statutMap[planning.statut] || { cls: 'badge outline', label: planning.statut }
-                      const nomsEquipe = (planning.equipe_ids || []).map(id => {
-                        const u = utilisateurs.find(x => x.id === id)
-                        return u ? `${u.prenom} ${u.nom}`.split(' ').map(w => w[0]).join('') : '?'
-                      })
-                      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
-                      const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
-                      return (
-                        <tr key={planning.id} className="hover:bg-role-primary-soft transition-colors cursor-pointer"
-                          onClick={() => handleView(planning)}>
-                          <td className="pl-6 text-xs text-muted-foreground">{nomsEquipe.length > 0 ? nomsEquipe.join(', ') : '—'}</td>
-                          <td><span className="capitalize text-sm">{planning.type?.replace(/_/g, ' ') || '—'}</span></td>
-                          <td className="text-xs text-muted-foreground">
-                            {planning.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → {planning.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
-                          </td>
-                          <td className="text-xs">{planning.portee?.length ? planning.portee.slice(0, 4).join(', ') : '—'}</td>
-                          <td><span className={`badge text-xs ${s.cls}`}>{s.label}</span></td>
-                          <td>
-                            {planning.priorite && <span className={`badge text-xs ${pBadge[planning.priorite] || 'badge neutral'}`}>{pLabel[planning.priorite] || planning.priorite}</span>}
-                          </td>
-                          <td className="text-right">
-                            <div className="flex justify-end gap-2">
-                              {!planning.est_proposition && (
-                                <button className="action-button" onClick={e => { e.stopPropagation(); handlePrepare(planning); }} title="Préparer"><PlayCircle className="w-4 h-4" />
-                                </button>
-                              )}
-                              {!planning.est_proposition && (
-                                <button className="action-button" onClick={e => { e.stopPropagation(); handleRequestExecute(planning); }} title="Exécuter"><CheckCircle2 className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button className="action-button" onClick={e => { e.stopPropagation(); handleView(planning); }} title="Voir"><Info className="w-4 h-4" /></button>
-                              <button className="action-button" onClick={e => { e.stopPropagation(); handleEdit(planning); }} title="Modifier"><Edit2 className="w-4 h-4" /></button>
-                              <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDelete(planning); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </Card>
+        <DataTable<TablePlanning>
+          data={tablePlannings}
+          columns={tableColumns}
+          keyExtractor={(item) => item.id}
+          emptyState={{ icon: Calendar, title: 'Aucun planning' }}
+          onRowClick={handleView}
+        />
       )}
 
       {/* Vues modales */}

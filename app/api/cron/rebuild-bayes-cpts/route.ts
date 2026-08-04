@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
     for (const aerodrome of aerodromes) {
       const aerodromeId = aerodrome.id
-      const maturiteSGS = aerodrome.statut_sgs === 'non_applicable' ? 100 : (aerodrome.maturite_sgs ?? 50)
+      const maturiteSGS = aerodrome.statut_sgs === 'non_applicable' ? 0 : (aerodrome.maturite_sgs ?? 50)
       const c1 = calculateC1(maturiteSGS, undefined, aerodrome.statut_sgs)
 
       const { data: ecarts } = await supabase.from('ecarts').select('*').eq('aerodrome_id', aerodromeId)

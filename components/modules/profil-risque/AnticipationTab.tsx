@@ -1,15 +1,23 @@
 // components/modules/profil-risque/AnticipationTab.tsx
-// Points de vigilance inspecteur generes par IA (Groq) à partir des donnees brutes du profil
-// Aucune regle hardcodee — chaque point est analyse formule par le LLM
+// Points de vigilance inspecteur partagés avec l'onglet « Actions » :
+// l'appel /api/ai/actions est réalisé UNE SEULE FOIS par l'onglet Actions,
+// cet onglet relit le résultat depuis le store partagé (pas de double appel).
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap, Brain, Activity, Target, Shield, Clock, ArrowRight, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Brain, Target, Shield, Clock, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
 import type { ActionConcrete } from '@/lib/risque/recommendations'
+import { useActionsIAStore } from '@/lib/state/actionsIAStore'
+import {
+  expliquerPredictionsEnClair,
+  expliquerRisquesIncidentsEnClair,
+  fallbackPredictions,
+  fallbackIncidents,
+} from '@/lib/ia/anticipationIA'
 
 interface AnticipationTabProps {
   profil: ProfilRisque
@@ -25,34 +33,78 @@ const PRIORITE_LABEL: Record<string, { label: string; badge: string }> = {
   basse: { label: 'Secondaire', badge: 'badge neutral' },
 }
 
-export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode }: AnticipationTabProps) {
-  const [actions, setActions] = useState<ActionConcrete[]>([])
-  const [iaLoading, setIaLoading] = useState(true)
-  const [iaError, setIaError] = useState(false)
+// Normalise une valeur vers un pourcentage 0-100 (accepte 0-1 ou 0-100)
+function pct(v?: number | null): number | null {
+  if (v === undefined || v === null || Number.isNaN(v)) return null
+  const p = v <= 1 ? v * 100 : v
+  return Math.min(100, Math.max(0, Math.round(p)))
+}
 
-  const fetchActions = useCallback(async () => {
-    setIaLoading(true)
-    setIaError(false)
-    try {
-      const res = await fetch('/api/ai/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profil }),
-      })
-      const data = await res.json()
-      if (data.actions && Array.isArray(data.actions)) {
-        setActions(data.actions)
-      } else {
-        setIaError(true)
-      }
-    } catch {
-      setIaError(true)
-    } finally {
-      setIaLoading(false)
-    }
+// ── Sous-composant : interprétation en langage clair d'une carte ──
+function LangageClair({ texte, iaEnCours, iaActif }: { texte: string; iaEnCours: boolean; iaActif: boolean }) {
+  if (iaEnCours) {
+    return (
+      <p className="flex items-center gap-1.5 text-[11px] text-primary mt-3 pt-2 border-t border-border">
+        <Loader2 className="w-3 h-3 animate-spin" /> Interprétation en cours…
+      </p>
+    )
+  }
+  return (
+    <div className="mt-3 pt-2 border-t border-border">
+      <p className="text-xs text-foreground leading-relaxed">{texte}</p>
+      {iaActif && (
+        <p className="flex items-center gap-1.5 text-[10px] text-primary mt-1">
+          <Sparkles className="w-3 h-3" /> Langage clair IA
+        </p>
+      )}
+    </div>
+  )
+}
+
+export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode }: AnticipationTabProps) {
+  const actionsPartagees = useActionsIAStore((s) => s.parAerodrome[profil.aerodrome_id])
+  const actions = actionsPartagees ?? []
+
+  // Interprétation en langage clair — fallback déterministe affiché immédiatement
+  const [predTexte, setPredTexte] = useState(() => fallbackPredictions(profil).texte)
+  const [predEnCours, setPredEnCours] = useState(true)
+  const [predIA, setPredIA] = useState(false)
+
+  const [incidentTexte, setIncidentTexte] = useState(() => fallbackIncidents(profil).texte)
+  const [incidentEnCours, setIncidentEnCours] = useState(true)
+  const [incidentIA, setIncidentIA] = useState(false)
+
+  useEffect(() => {
+    let actif = true
+    setPredEnCours(true)
+    setPredTexte(fallbackPredictions(profil).texte)
+    expliquerPredictionsEnClair(profil).then((res) => {
+      if (!actif) return
+      setPredTexte(res.texte)
+      setPredIA(!res.fallbackIA)
+      setPredEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setPredEnCours(false)
+    })
+    return () => { actif = false }
   }, [profil])
 
-  useEffect(() => { fetchActions() }, [fetchActions])
+  useEffect(() => {
+    let actif = true
+    setIncidentEnCours(true)
+    setIncidentTexte(fallbackIncidents(profil).texte)
+    expliquerRisquesIncidentsEnClair(profil).then((res) => {
+      if (!actif) return
+      setIncidentTexte(res.texte)
+      setIncidentIA(!res.fallbackIA)
+      setIncidentEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setIncidentEnCours(false)
+    })
+    return () => { actif = false }
+  }, [profil])
 
   return (
     <div className="space-y-8 animate-fade-up" data-module="anticipation-tab">
@@ -71,79 +123,73 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
                 <div key={p.label} className="text-center">
                   <div className={`text-2xl font-bold ${cls}`}>{Math.round(p.val)}</div>
                   <div className="text-xs text-foreground">{p.label}</div>
-                  {p.ic && <div className="text-[10px] text-foreground italic">IC95 [{Math.round(p.ic.lower)}–{Math.round(p.ic.upper)}]</div>}
+                  {p.ic && <div className="text-[10px] text-foreground italic">IC95 [{pct(p.ic.lower)}–{pct(p.ic.upper)}]</div>}
                 </div>
               )
             })}
           </div>
-          {profil.ensemble_confidence !== undefined && (
-            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border text-xs text-foreground">
-              <span>Confiance ensemble</span>
-              <div className="progress flex-1 h-1.5">
-                <div className="progress-bar" style={{ width: `${Math.round(profil.ensemble_confidence * 100)}%`, background: `var(--color-${profil.ensemble_confidence >= 0.7 ? 'success' : profil.ensemble_confidence >= 0.4 ? 'warning' : 'danger'})` }} />
+          {profil.ensemble_confidence !== undefined && (() => {
+            const conf = pct(profil.ensemble_confidence)
+            if (conf === null) return null
+            return (
+              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border text-xs text-foreground">
+                <span>Fiabilité des modèles</span>
+                <div className="progress flex-1 h-1.5">
+                  <div className="progress-bar" style={{ width: `${conf}%`, background: `var(--color-${conf >= 70 ? 'success' : conf >= 40 ? 'warning' : 'danger'})` }} />
+                </div>
+                <span className="font-mono">{conf}%</span>
               </div>
-              <span className="font-mono">{Math.round(profil.ensemble_confidence * 100)}%</span>
-            </div>
-          )}
+            )
+          })()}
+          <LangageClair texte={predTexte} iaEnCours={predEnCours} iaActif={predIA} />
         </Card>
 
         <Card variant="role" title="Risques incidents & extrêmes" icon={<AlertTriangle className="w-4 h-4" />} size="sm">
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 rounded-lg bg-danger/5">
-              <div className="text-xs text-foreground">Incident 3m</div>
-              <div className="text-lg font-bold text-danger">{profil.incident_prediction_3m ?? '—'}</div>
-            </div>
-            <div className="p-2 rounded-lg bg-warning/5">
-              <div className="text-xs text-foreground">Incident 6m</div>
-              <div className="text-lg font-bold text-warning">{profil.incident_prediction_6m ?? '—'}</div>
-            </div>
-            <div className="p-2 rounded-lg bg-role-primary-soft">
-              <div className="text-xs text-foreground">Incident 12m</div>
-              <div className="text-lg font-bold text-role-primary">{profil.incident_prediction_12m ?? '—'}</div>
-            </div>
+            {([
+              { label: 'Incident 3m', val: profil.incident_prediction_3m, cls: 'text-danger', bg: 'bg-danger/5' },
+              { label: 'Incident 6m', val: profil.incident_prediction_6m, cls: 'text-warning', bg: 'bg-warning/5' },
+              { label: 'Incident 12m', val: profil.incident_prediction_12m, cls: 'text-role-primary', bg: 'bg-role-primary-soft' },
+            ]).map(({ label, val, cls, bg }) => {
+              const v = pct(val)
+              return (
+                <div key={label} className={`p-2 rounded-lg ${bg}`}>
+                  <div className="text-xs text-foreground">{label}</div>
+                  <div className={`text-lg font-bold ${cls}`}>{v !== null ? `${v}%` : '—'}</div>
+                </div>
+              )
+            })}
           </div>
-          {profil.extreme_risk && (
-            <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border text-xs text-foreground">
-              <span className={`badge ${profil.extreme_risk.isHeavyTailed ? 'danger' : 'success'}`}>{profil.extreme_risk.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}</span>
-              <span>Risque extrême: {(profil.extreme_risk.tailRisk * 100).toFixed(0)}%</span>
-              <span>Max 12m: {profil.extreme_risk.maxExpected12m}</span>
-            </div>
-          )}
+          {profil.extreme_risk && (() => {
+            const tailPct = pct(profil.extreme_risk!.tailRisk)
+            return (
+              <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-border text-xs text-foreground">
+                <span className={`badge ${profil.extreme_risk!.isHeavyTailed ? 'danger' : 'success'}`}>{profil.extreme_risk!.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}</span>
+                {tailPct !== null && <span>Risque extrême: {tailPct}%</span>}
+                {profil.extreme_risk!.maxExpected12m !== undefined && <span>Max 12m: {profil.extreme_risk!.maxExpected12m} incidents</span>}
+              </div>
+            )
+          })()}
+          <LangageClair texte={incidentTexte} iaEnCours={incidentEnCours} iaActif={incidentIA} />
         </Card>
       </div>
 
-      {/* ═══ ROW 2 — Points de vigilance inspecteur (IA) ═══ */}
+      {/* ═══ ROW 2 — Points de vigilance inspecteur (partagés avec l'onglet Actions) ═══ */}
       <Card
         title="Points de vigilance — inspecteur"
-        icon={iaLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+        icon={<Shield className="w-4 h-4" />}
         variant="level"
         levelColor={
-          iaLoading ? 'none' :
-          iaError ? 'none' :
+          actions.length === 0 ? 'none' :
           actions.some(a => a.priorite === 'immediate') ? 'danger' :
           actions.some(a => a.priorite === 'haute') ? 'warning' : 'primary'
         }
       >
-        {iaLoading ? (
-          <div className="flex flex-col items-center gap-4 py-8">
-            <div className="w-10 h-10 rounded-full border-2 border-role-primary border-t-transparent animate-spin" />
-            <p className="text-sm text-foreground">Analyse des signaux profil par IA...</p>
-            <p className="text-xs text-foreground">Génération des points de vigilance personnalisés</p>
-          </div>
-        ) : iaError ? (
-          <div className="flex flex-col items-center gap-4 py-8">
-            <AlertCircle className="w-10 h-10 text-warning" />
-            <p className="text-sm text-foreground">Service IA momentanément indisponible</p>
-            <p className="text-xs text-foreground text-center max-w-md">Les points de vigilance n'ont pas pu être générés. Vérifiez que la clé API Groq est configurée.</p>
-            <button onClick={fetchActions} className="btn btn-sm btn-primary gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" />
-              Réessayer
-            </button>
-          </div>
-        ) : actions.length === 0 ? (
+        {actions.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-10 h-10 text-success" />
-            <p className="text-sm text-foreground">Aucun point de vigilance — l'IA n'a identifié aucun signal necessitant une attention particulière.</p>
+            <p className="text-sm text-foreground">Aucun point de vigilance enregistré pour le moment.</p>
+            <p className="text-xs text-foreground text-center max-w-md">Le plan d'action détaillé (avec suivi, filtres et export) est généré dans l'onglet « Actions » — ouvrez-le pour lancer l'analyse AERORISQ et retrouver ici les points de vigilance.</p>
           </div>
         ) : (
           <div className="space-y-4">

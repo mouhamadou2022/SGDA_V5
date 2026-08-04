@@ -98,11 +98,11 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold text-foreground">Simulateur de Scénarios</h2><p className="text-xs text-foreground">{aerodromeName} — Analyse what-if</p></div></div>
-        <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions IA</button>
+        <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions AERORISQ</button>
       </div>
 
       {showSuggestions && (
-        <Card heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Scénarios IA</div><button className="btn btn-ghost btn-sm p-0 w-7 h-7" onClick={() => setShowSuggestions(false)}><X className="w-4 h-4" /></button></div>}>
+        <Card heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Scénarios AERORISQ</div><button className="btn btn-ghost btn-sm p-0 w-7 h-7" onClick={() => setShowSuggestions(false)}><X className="w-4 h-4" /></button></div>}>
           <div className="space-y-2">
             {suggestions.map(s => (
               <div key={s.id} className="p-3 rounded-xl border border-border hover:border-role-primary/30 cursor-pointer" onClick={() => handleApplySuggestion(s)}>

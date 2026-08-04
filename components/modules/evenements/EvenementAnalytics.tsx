@@ -5,7 +5,7 @@
 'use client'
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import {
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
   BarChart3, PieChart, Activity, Target, Calendar, Zap, Shield,
@@ -15,8 +15,10 @@ import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
 import { computeSaisonStats } from '@/lib/risque/predictions'
 import { computeICaoMatrix, getICaoLabels } from '@/lib/risque/icaoMatrix'
-import type { NiveauRisqueICAO } from '@/lib/risque/icaoMatrix'
+import { calculateC5 } from '@/lib/risque'
+import type { NiveauRisqueICAO, ICaoCell } from '@/lib/risque/icaoMatrix'
 import { Card } from '@/components/ui/card'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 interface Props {
   aerodromeId?: string
   userRole?: string
@@ -27,13 +29,20 @@ const MOIS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep'
 const MOIS_COMPLET = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
 
 const GRAVITE_LABELS: Record<string, string> = {
-  CRITIQUE: 'Critique', ORANGE: 'Orange', JAUNE: 'Jaune', GRIS: 'Gris', BLEU: 'Bleu'
+  CRITIQUE: 'Critique', ORANGE: 'Élevé', JAUNE: 'Moyen', GRIS: 'Faible', BLEU: 'Faible'
+}
+
+const GRAVITE_RISK: Record<string, { label: string; classe: string }> = {
+  CRITIQUE: { label: 'Critique', classe: 'danger' },
+  ORANGE:   { label: 'Élevé',    classe: 'warning' },
+  JAUNE:    { label: 'Moyen',    classe: 'primary' },
+  GRIS:     { label: 'Faible',   classe: 'success' },
+  BLEU:     { label: 'Faible',   classe: 'success' },
 }
 
 export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector' }: Props) {
   const evenements = useAppStore(s => s.evenements)
   const aerodromes = useAppStore(s => s.aerodromes)
-  const profilsRisque = useAppStore(s => s.profilsRisque)
 
   // Filtrer
   const filtered = useMemo(() => {
@@ -50,15 +59,16 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
   const stats = useMemo(() => {
     const cetteAnneeEvts = filtered.filter(e => new Date(e.date).getFullYear() === cetteAnnee)
     const anneePasseeEvts = filtered.filter(e => new Date(e.date).getFullYear() === anneePassee)
-    const critiquess = cetteAnneeEvts.filter(e => e.gravite === 'CRITIQUE').length
+    const critiquess = cetteAnneeEvts.filter(e => e.gravite === 'critique').length
     const clotures = cetteAnneeEvts.filter(e => e.statut === 'cloture').length
     const total = cetteAnneeEvts.length
     const totalPassee = anneePasseeEvts.length
     const variation = totalPassee > 0 ? Math.round(((total - totalPassee) / totalPassee) * 100) : 0
     const tauxCloture = total > 0 ? Math.round((clotures / total) * 100) : 0
+    const c5Calcule = aerodromeId ? calculateC5(cetteAnneeEvts.map(e => ({ gravite: e.gravite, date: e.date }))) : 0
 
-    return { total, critiquess, clotures, variation, tauxCloture, totalPassee }
-  }, [filtered, cetteAnnee, anneePassee])
+    return { total, critiquess, clotures, variation, tauxCloture, totalPassee, c5Calcule }
+  }, [filtered, cetteAnnee, anneePassee, aerodromeId])
 
   // ── Courbe tendance 12 mois ──
   const trendData = useMemo(() => {
@@ -72,9 +82,9 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
       })
       return {
         mois: MOIS[m],
-        Critiques: moisEvts.filter(e => e.gravite === 'CRITIQUE').length,
-        Élevés: moisEvts.filter(e => e.gravite === 'ORANGE').length,
-        Autres: moisEvts.filter(e => !['CRITIQUE', 'ORANGE'].includes(e.gravite || '')).length,
+        Critiques: moisEvts.filter(e => e.gravite === 'critique').length,
+        Élevés: moisEvts.filter(e => e.gravite === 'eleve').length,
+        Autres: moisEvts.filter(e => !['critique', 'eleve'].includes(e.gravite || '')).length,
       }
     })
   }, [filtered, now])
@@ -141,6 +151,21 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
     return map[niveau]
   }
 
+  type IcaoMatrixRow = ICaoCell & { type: string }
+
+  const icaoMatrixData = useMemo<IcaoMatrixRow[]>(
+    () => Array.from(icaoMatrix.entries()).map(([type, cell]) => ({ type, ...cell })),
+    [icaoMatrix]
+  )
+
+  const icaoMatrixColumns: Column<IcaoMatrixRow>[] = [
+    { key: 'type', header: "Type d'événement", render: (item) => <span className="font-medium">{item.type.replace(/_/g, ' ')}</span> },
+    { key: 'freqObservee', header: 'Fréquence/an', render: (item) => <span className="block text-center">{item.freqObservee}/an</span> },
+    { key: 'probabilite', header: 'Probabilité', render: (item) => <span className="block text-center text-muted-foreground">{icaoLabels.probabilite.find(p => p.value === item.probabilite)?.label || item.probabilite}</span> },
+    { key: 'severite', header: 'Sévérité', render: (item) => <span className="block text-center text-muted-foreground">{icaoLabels.severite.find(s => s.value === item.severite)?.label || item.severite}</span> },
+    { key: 'niveau', header: 'Niveau risque', render: (item) => <span className="block text-center"><span className={getBadgeNiveau(item.niveau)}>{icaoLabels.niveaux.find(n => n.value === item.niveau)?.label || item.niveau}</span></span> },
+  ]
+
   const chargePredictionsIA = useCallback(async () => {
     const evts = filtered.map(e => ({ date: e.date || e.created_at, gravite: e.gravite, type: e.type }))
     if (evts.length === 0) { setIaPredictions([]); setIaNoteGlobale(''); return }
@@ -168,11 +193,35 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
   // ── Top événements récents ──
   const recents = useMemo(() =>
     filtered
-      .filter(e => e.gravite === 'CRITIQUE' || e.gravite === 'ORANGE')
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 5),
+      .filter(e => e.gravite === 'critique' || e.gravite === 'eleve')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [filtered]
   )
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+  const paginatedRecents = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return recents.slice(start, start + PAGE_SIZE)
+  }, [recents, currentPage])
+
+  const columns: Column<EvenementSecurite>[] = [
+    { key: 'date', header: 'Date', render: (e) => <span>{new Date(e.date).toLocaleDateString('fr-FR')}</span> },
+    { key: 'reference', header: 'Référence', render: (e) => <span className="font-mono">{e.reference}</span> },
+    { key: 'type', header: 'Type', render: (e) => <span>{e.type?.replace(/_/g, ' ') || '-'}</span> },
+    { key: 'gravite', header: 'Gravité', render: (e) => (
+      <span className={`badge ${GRAVITE_RISK[e.gravite || '']?.classe || 'neutral'} text-[10px]`}>
+        {GRAVITE_RISK[e.gravite || '']?.label || e.gravite}
+      </span>
+    )},
+    { key: 'aerodrome', header: 'Aérodrome', render: (e) => {
+      const aero = aerodromes?.find(a => a.id === e.aerodrome_id)
+      return <span className="code-oaci-badge text-[10px]">{aero?.code_oaci || '?'}</span>
+    }},
+    { key: 'statut', header: 'Statut', render: (e) => (
+      <span className={`badge ${e.statut === 'cloture' ? 'success' : 'warning'} text-[10px]`}>{e.statut}</span>
+    )},
+  ]
 
   return (
     <div className="space-y-6 animate-fade-up" data-role={userRole} data-module="evenement-analytics">
@@ -207,8 +256,8 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
         <div className="kpi-card">
           <div className="kpi-icon bg-warning-soft"><Zap className="w-5 h-5 text-warning" /></div>
           <div className="kpi-content">
-            <div className="kpi-label">C5 (Profil)</div>
-            <div className="kpi-value">{aerodromeId && profilsRisque?.[aerodromeId]?.c5 || 'N/A'}/100</div>
+            <div className="kpi-label">C5 (Événements)</div>
+            <div className="kpi-value">{stats.c5Calcule}/100</div>
             <div className="kpi-trend down">Impact 25% score global</div>
           </div>
         </div>
@@ -317,66 +366,25 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
         {icaoMatrix.size === 0 ? (
           <p className="text-muted-foreground text-sm py-4 text-center">Aucun événement — pas de matrice disponible</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="table text-xs w-full">
-              <thead>
-                <tr>
-                  <th className="text-left">Type d'événement</th>
-                  <th className="text-center">Fréquence/an</th>
-                  <th className="text-center">Probabilité</th>
-                  <th className="text-center">Sévérité</th>
-                  <th className="text-center">Niveau risque</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(icaoMatrix.entries()).map(([type, cell]) => (
-                  <tr key={type}>
-                    <td className="font-medium">{type.replace(/_/g, ' ')}</td>
-                    <td className="text-center">{cell.freqObservee}/an</td>
-                    <td className="text-center text-muted-foreground">{icaoLabels.probabilite.find(p => p.value === cell.probabilite)?.label || cell.probabilite}</td>
-                    <td className="text-center text-muted-foreground">{icaoLabels.severite.find(s => s.value === cell.severite)?.label || cell.severite}</td>
-                    <td className="text-center"><span className={getBadgeNiveau(cell.niveau)}>{icaoLabels.niveaux.find(n => n.value === cell.niveau)?.label || cell.niveau}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={icaoMatrixData}
+            columns={icaoMatrixColumns}
+            keyExtractor={(item) => item.type}
+            headerClassName="bg-role-primary-soft/40"
+          />
         )}
       </Card>
 
       {/* Événements critiquess récents */}
       {recents.length > 0 && (
-        <Card icon={<AlertTriangle className="text-danger" />} title="Événements critiquess récents">
-            <div className="table-container">
-              <table className="table text-xs">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Référence</th>
-                    <th>Type</th>
-                    <th>Gravité</th>
-                    <th>Aérodrome</th>
-                    <th>Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recents.map(e => {
-                    const aero = aerodromes?.find(a => a.id === e.aerodrome_id)
-                    return (
-                      <tr key={e.id}>
-                        <td>{new Date(e.date).toLocaleDateString('fr-FR')}</td>
-                        <td className="font-mono">{e.reference}</td>
-                        <td>{e.type?.replace(/_/g, ' ') || '-'}</td>
-                        <td><span className={`badge ${e.gravite === 'CRITIQUE' ? 'danger' : 'warning'} text-[10px]`}>{GRAVITE_LABELS[e.gravite || ''] || e.gravite}</span></td>
-                        <td><span className="code-oaci-badge text-[10px]">{aero?.code_oaci || '?'}</span></td>
-                        <td><span className={`badge ${e.statut === 'cloture' ? 'success' : 'warning'} text-[10px]`}>{e.statut}</span></td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-        </Card>
+        <DataTable
+          data={paginatedRecents}
+          columns={columns}
+          keyExtractor={(e) => e.id}
+          cardProps={{ icon: <AlertTriangle className="text-danger" />, title: 'Événements critiquess récents' }}
+          headerClassName="bg-role-primary-soft/40"
+          pagination={{ total: recents.length, current: currentPage, pageSize: PAGE_SIZE, onPageChange: setCurrentPage }}
+        />
       )}
     </div>
   )

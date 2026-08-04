@@ -4,7 +4,7 @@
 
 import { iaStorage, mergeArrayById } from '@/lib/persistence/iaStorage'
 
-export type EngineType = 'riskProfile' | 'compliance' | 'recommendation' | 'certificate' | 'team'
+export type EngineType = 'riskProfile' | 'compliance' | 'recommendation' | 'certificate' | 'team' | 'aerodromeEnrichment'
 export type FeedbackVote = 'pertinent' | 'non_pertinent' | 'partiellement'
 
 export interface EngineFeedbackRecord {
@@ -102,6 +102,7 @@ class EngineFeedbackStore {
       recommendation: { total: 0, pertinents: 0, taux: 0 },
       certificate: { total: 0, pertinents: 0, taux: 0 },
       team: { total: 0, pertinents: 0, taux: 0 },
+      aerodromeEnrichment: { total: 0, pertinents: 0, taux: 0 },
     }
     for (const f of this.feedbacks) {
       const e = parEngine[f.engineType]

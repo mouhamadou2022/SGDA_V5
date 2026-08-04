@@ -9,7 +9,7 @@ import { useAppStore } from '@/lib/store'
 import { generateBowTieModels, generateAIBowTieDomain, DOMAINES_BT } from '@/lib/risque/bowTieEngine'
 import type { BowTieModele, Barriere } from '@/lib/risque/types'
 import type { AIBowTieResult } from '@/lib/risque/bowTieEngine'
-import { computeBarrierEfficacite, getConfianceLabel, getConfianceDot } from '@/lib/risque/bayesianNetwork'
+import { computeBarrierEfficacite, computeBarrierEfficaciteAvecApprentissage, getConfianceLabel, getConfianceDot } from '@/lib/risque/bayesianNetwork'
 import { Card } from '@/components/ui/card'
 import { Shield, AlertTriangle, CheckCircle2, XCircle, Target, Zap, TrendingUp, Clock, BarChart3, ExternalLink, Sparkles, Users } from 'lucide-react'
 
@@ -32,6 +32,12 @@ function getNiveauLabel(n: string): string {
 }
 function getNiveauColor(v: number): string {
   if (v >= 80) return 'text-success'; if (v >= 60) return 'text-primary'; if (v >= 30) return 'text-warning'; return 'text-danger'
+}
+function getBayesBadge(p: number): string {
+  return p >= 50 ? 'badge danger' : p >= 30 ? 'badge warning' : p >= 15 ? 'badge primary' : 'badge success'
+}
+function getNiveauLabelForScore(v: number): string {
+  if (v >= 70) return 'faible'; if (v >= 50) return 'moyen'; if (v >= 30) return 'eleve'; return 'critique'
 }
 
 function aiResultToBowTieModele(result: AIBowTieResult, original: BowTieModele): BowTieModele {
@@ -95,10 +101,27 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
   const isAiCurrent = current ? !!aiEnriched[current.domaine] : false
 
   // Enrichissement bayésien : remplace les efficacités recopiées par des valeurs causales
-  const bayesianEnrich = useMemo(() => {
-    if (!current || isAiCurrent) return null
-    return computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5)
-  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5])
+  // Version dynamique : recharge les observations persistées (Supabase/IndexedDB) puis recalibre les CPT
+  const [bayesianEnrich, setBayesianEnrich] = useState<{
+    barrieresPreventives: Barriere[]
+    barrieresCorrectives: Barriere[]
+    probabiliteResiduelle: number
+    confiance: number
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!current || isAiCurrent) {
+      setBayesianEnrich(null)
+      return
+    }
+    computeBarrierEfficaciteAvecApprentissage(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5, profil.aerodrome_id)
+      .then(r => { if (!cancelled) setBayesianEnrich(r) })
+      .catch(() => {
+        if (!cancelled) setBayesianEnrich(computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5))
+      })
+    return () => { cancelled = true }
+  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5, profil.aerodrome_id])
 
   // Modèle affiché : déterministe enrichi par bayésien, ou IA enrichi
   const displayModel = useMemo(() => {
@@ -173,7 +196,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
             <thead>
               <tr className="border-b border-border">
                 <th className="p-2 text-left text-foreground font-medium">Domaine</th>
-                <th className="p-2 text-center text-foreground font-medium">IA</th>
+                <th className="p-2 text-center text-foreground font-medium">AERORISQ</th>
                 <th className="p-2 text-center text-foreground font-medium">Écarts</th>
                 <th className="p-2 text-center text-foreground font-medium">Risque résiduel</th>
                 <th className="p-2 text-center text-foreground font-medium">Barrière prév. faible</th>
@@ -225,7 +248,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                 {!isAiCurrent ? (
                   <button onClick={handleAIEnrich} disabled={loadingAi === displayModel.domaine}
                     className="btn btn-sm btn-primary gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5" />{loadingAi === displayModel.domaine ? 'Analyse IA en cours...' : 'Enrichir avec IA (Groq)'}
+                    <Sparkles className="w-3.5 h-3.5" />{loadingAi === displayModel.domaine ? 'Analyse AERORISQ en cours...' : 'Enrichir avec AERORISQ (Groq)'}
                   </button>
                 ) : (
                   <button onClick={handleResetAI}
@@ -254,7 +277,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                 ))}
               </div>
               {isAiCurrent && (
-                <p className="text-xs text-primary text-center">Analyse générée par IA (Groq — llama-3.3-70b) à partir des données réelles</p>
+                <p className="text-xs text-primary text-center">Analyse générée par AERORISQ (Groq — llama-3.3-70b) à partir des données réelles</p>
               )}
 
               {/* Facteur d'escalation — barrière la plus faible */}
@@ -407,6 +430,49 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                   </div>
                 </div>
               </div>
+
+              {/* Analyse bayésienne — dynamique du réseau branchée au Bow-Tie */}
+              {(profil.bayesian_prior != null || profil.bayesian_posterior != null || confianceReseau > 0) && (
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BarChart3 className="w-4 h-4 text-role-primary" />
+                    <span className="text-sm font-semibold text-foreground">Dynamique bayésienne du réseau de barrières</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {profil.bayesian_prior != null && (
+                      <div className="p-3 rounded-lg border border-border bg-card">
+                        <span className="text-xs text-foreground/60">Probabilité a priori</span>
+                        <p className={`text-lg font-bold mt-1 ${getNiveauColor(profil.bayesian_prior)}`}>{profil.bayesian_prior} %</p>
+                        <span className={getBayesBadge(profil.bayesian_prior)}>{getNiveauLabel(getNiveauLabelForScore(profil.bayesian_prior))}</span>
+                        <p className="text-[11px] text-foreground/60 mt-2">Estimation initiale basée sur le profil type</p>
+                      </div>
+                    )}
+                    {profil.bayesian_posterior != null && (
+                      <div className="p-3 rounded-lg border border-border bg-card">
+                        <span className="text-xs text-foreground/60">Probabilité a posteriori</span>
+                        <p className={`text-lg font-bold mt-1 ${getNiveauColor(profil.bayesian_posterior)}`}>{profil.bayesian_posterior} %</p>
+                        <span className={getBayesBadge(profil.bayesian_posterior)}>{getNiveauLabel(getNiveauLabelForScore(profil.bayesian_posterior))}</span>
+                        <p className="text-[11px] text-foreground/60 mt-2">Mise à jour avec les données observées</p>
+                      </div>
+                    )}
+                    <div className="p-3 rounded-lg border border-border bg-card">
+                      <span className="text-xs text-foreground/60">Confiance réseau</span>
+                      <p className="text-lg font-bold mt-1 text-role-primary">{confianceReseau}%</p>
+                      <span className={getBayesBadge(confianceReseau)}>{getConfianceLabel(confianceReseau)}</span>
+                      <p className="text-[11px] text-foreground/60 mt-2">Observations apprises recalculant les CPT des barrières</p>
+                    </div>
+                  </div>
+                  {profil.bayesian_prior != null && profil.bayesian_posterior != null && (
+                    <p className="text-xs text-foreground leading-relaxed mt-3">
+                      {profil.bayesian_posterior > profil.bayesian_prior
+                        ? `La probabilité a posteriori (${profil.bayesian_posterior} %) est supérieure à l'a priori (${profil.bayesian_prior} %) : les observations récentes indiquent une dégradation des barrières de défense.`
+                        : profil.bayesian_posterior < profil.bayesian_prior
+                          ? `La probabilité a posteriori (${profil.bayesian_posterior} %) est inférieure à l'a priori (${profil.bayesian_prior} %) : les observations récentes sont rassurantes pour ce domaine.`
+                          : `La probabilité est stable entre l'a priori et l'a posteriori (${profil.bayesian_posterior} %).`}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Footer */}
               <div className="flex items-center justify-between text-xs text-foreground pt-2 border-t border-border">

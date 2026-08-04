@@ -5,6 +5,15 @@ import { advancedModels } from './models'
 import type { ModelTrainingConfig, ModelPerformanceMetrics, RandomForestModelStored, RiskGraphStored, TrainingHistoryEntry, TrainingStats } from './models'
 import type { AppStore, ProfilRisque } from '../store'
 import type { PropagationResult, recommendActionsFromGraph } from '../risque/graphNetwork'
+import { runBenchmark, persisterSelection, lireSelection, toBenchmarkSamples, MODELE_LABELS } from '../ia/benchmark'
+import {
+  DEFAULT_BENCHMARK_CONFIG,
+  lireBenchmarkConfig,
+  persisterBenchmarkConfig,
+  validerBenchmarkConfig,
+} from '../ia/benchmark'
+import type { BenchmarkConfig } from '../ia/benchmark'
+import type { BenchmarkOutcome, ModeleBenchmarkId } from '../ia/benchmark'
 
 type RiskPropagationResult = {
   propagation: PropagationResult;
@@ -67,6 +76,19 @@ export interface AdvancedModelsSlice {
   // Nouveau : Corrélation ML ↔ Profil de Risque
   getMLRiskCorrelation: () => MLRiskCorrelationData
 
+  // Benchmark ML — comparaison RF / XGBoost / LightGBM / CatBoost / MLP
+  isBenchmarking: boolean
+  benchmarkOutcome: BenchmarkOutcome | null
+  activeModelId: ModeleBenchmarkId | null
+  activeModelName: string | null
+  activeModelTrainedAt: string | null
+  /** Hyperparamètres par modèle, modifiables depuis l'interface. */
+  benchmarkConfig: BenchmarkConfig
+  runBenchmarkModels: () => Promise<BenchmarkOutcome | null>
+  selectActiveModel: (modelId: ModeleBenchmarkId) => Promise<void>
+  loadBenchmarkState: () => void
+  setBenchmarkConfig: (config: BenchmarkConfig) => void
+
   // Cache interne pour getMLRiskCorrelation (évite infinite loop React)
   _mlCorrelationCache: MLRiskCorrelationData | null
   _mlCorrelationCacheKey: Record<string, ProfilRisque> | null
@@ -98,6 +120,75 @@ export const createAdvancedModelsSlice = (
   _mlCorrelationCache: null,
   _mlCorrelationCacheKey: null,
   _clearMLCorrelationCache: () => set({ _mlCorrelationCache: null, _mlCorrelationCacheKey: null }),
+
+  isBenchmarking: false,
+  benchmarkOutcome: null,
+  activeModelId: lireSelection(),
+  activeModelName: lireSelection() ? MODELE_LABELS[lireSelection()!] : null,
+  activeModelTrainedAt: null,
+  benchmarkConfig: lireBenchmarkConfig() ?? DEFAULT_BENCHMARK_CONFIG,
+
+  runBenchmarkModels: async () => {
+    const samples = advancedModels.getSamples()
+    if (samples.length < 10) return null
+    const config = get().benchmarkConfig
+    set({ isBenchmarking: true })
+    try {
+      const outcome = await runBenchmark(toBenchmarkSamples(samples), { config })
+      set({ benchmarkOutcome: outcome, isBenchmarking: false })
+      // Sélection automatique du meilleur modèle + entraînement sur tout le dataset
+      if (outcome.bestModelId) {
+        await advancedModels.trainActiveModel(outcome.bestModelId, config)
+        persisterSelection(outcome.bestModelId)
+        const active = advancedModels.getActiveModelInfo()
+        set({
+          activeModelId: outcome.bestModelId,
+          activeModelName: MODELE_LABELS[outcome.bestModelId],
+          activeModelTrainedAt: active?.trainedAt ?? null,
+        })
+      }
+      return outcome
+    } catch (error) {
+      console.error('[AdvancedModels] Benchmark error:', error)
+      set({ isBenchmarking: false })
+      return null
+    }
+  },
+
+  selectActiveModel: async (modelId) => {
+    set({ isBenchmarking: true })
+    try {
+      const config = get().benchmarkConfig
+      await advancedModels.trainActiveModel(modelId, config)
+      persisterSelection(modelId)
+      const active = advancedModels.getActiveModelInfo()
+      set({
+        activeModelId: modelId,
+        activeModelName: MODELE_LABELS[modelId],
+        activeModelTrainedAt: active?.trainedAt ?? null,
+        isBenchmarking: false,
+      })
+    } catch (error) {
+      console.error('[AdvancedModels] selectActiveModel error:', error)
+      set({ isBenchmarking: false })
+    }
+  },
+
+  loadBenchmarkState: () => {
+    const selected = lireSelection()
+    set({
+      activeModelId: selected,
+      activeModelName: selected ? MODELE_LABELS[selected] : null,
+      activeModelTrainedAt: advancedModels.getActiveModelInfo()?.trainedAt ?? null,
+      benchmarkConfig: lireBenchmarkConfig() ?? get().benchmarkConfig,
+    })
+  },
+
+  setBenchmarkConfig: (config) => {
+    const valid = validerBenchmarkConfig(config)
+    persisterBenchmarkConfig(valid)
+    set({ benchmarkConfig: valid })
+  },
 
   trainRandomForestModel: async (nTrees = 10, maxDepth = 4) => {
     set({ isTraining: true })

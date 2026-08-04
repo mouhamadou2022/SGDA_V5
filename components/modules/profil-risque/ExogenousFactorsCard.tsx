@@ -1,31 +1,15 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { CloudRain, Calendar, Sun, AlertTriangle, Shield } from 'lucide-react'
+import { CloudRain, Calendar, Sun, Shield, Sparkles, Loader2 } from 'lucide-react'
 import { detectAllTriggers } from '@/lib/risque/triggers'
+import { expliquerRisquesSaisoniersEnClair, MOIS_LABELS, RISQUES_SAISONNIERS } from '@/lib/ia/facteursExplicationIA'
 
 interface Props {
   profil: ProfilRisque
   nbEcartsCritiques: number
-}
-
-const MOIS_LABELS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-
-const RISQUES_SAISONNIERS: Record<number, string[]> = {
-  0: ['Harmattan — visibilité réduite', 'Poussière et FOD sur piste'],
-  1: ['Pic harmattan — poussière', 'Vents secs — FOD'],
-  2: ['Transition saisonnière', 'Début vents de sable'],
-  3: ['Orages isolés', 'Birdstrike modéré'],
-  4: ['Conditions stables', 'FOD modéré'],
-  5: ['Début saison des pluies', 'Piste glissante'],
-  6: ['Pic pluies — contamination piste', 'Risque foudre', 'FOD très élevé'],
-  7: ['Pluies — inondations localisées', 'Birdstrike accru (migration)'],
-  8: ['Fin pluies — herbes hautes', 'Pic birdstrike', 'Risque animalier'],
-  9: ['Vérification drainage', 'Birdstrike en baisse'],
-  10: ['Saison sèche — FOD sable', 'Brume sèche'],
-  11: ['Conditions stables', 'Risque modéré'],
 }
 
 function getSeasonIcon(month: number): React.ElementType {
@@ -39,7 +23,7 @@ export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
   const month = now.getMonth()
   const SeasonIcon = getSeasonIcon(month)
 
-  const triggers = useMemo(() => {
+  const saisonActive = useMemo(() => {
     const t = detectAllTriggers({
       nbEcartsCritiques,
       nbDelaisDepasses: 0,
@@ -47,11 +31,28 @@ export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
       moisDepuisChangement: null,
       joursDepuisDerniereInspection: null,
     })
-    return t
+    return t.find(x => x.type === 'saison_pluies')?.actif ?? false
   }, [nbEcartsCritiques])
 
-  const saisonActive = triggers.find(t => t.type === 'saison_pluies')?.actif ?? false
-  const risquesMois = RISQUES_SAISONNIERS[month] || []
+  // Risques saisonniers expliqués par IA (fallback déterministe immédiat sinon)
+  const [risques, setRisques] = useState<string[]>(() => RISQUES_SAISONNIERS[month] ?? [])
+  const [iaEnCours, setIaEnCours] = useState(true)
+  const [iaActif, setIaActif] = useState(false)
+
+  useEffect(() => {
+    let actif = true
+    setIaEnCours(true)
+    expliquerRisquesSaisoniersEnClair(month, profil).then((res) => {
+      if (!actif) return
+      setRisques(res.risques)
+      setIaActif(!res.fallbackIA)
+      setIaEnCours(false)
+    }).catch(() => {
+      if (!actif) return
+      setIaEnCours(false)
+    })
+    return () => { actif = false }
+  }, [month, profil])
 
   return (
     <Card variant="role" title="Facteurs exogènes" icon={<Calendar className="w-4 h-4" />}>
@@ -66,29 +67,26 @@ export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
               <span className="text-sm font-semibold text-foreground">{MOIS_LABELS[month]}</span>
               {saisonActive && <span className="badge danger text-[10px] animate-pulse">Saison des pluies</span>}
             </div>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {risquesMois.map((r, i) => (
-                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-muted/30 text-foreground border border-border/50">
-                  {r}
-                </span>
-              ))}
-            </div>
+            {iaEnCours ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-primary mt-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Risques saisonniers en analyse…
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {risques.map((r, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-muted/30 text-foreground border border-border/50">
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
+            {!iaEnCours && iaActif && risques.length > 0 && (
+              <p className="flex items-center gap-1.5 text-[10px] text-primary mt-1">
+                <Sparkles className="w-3 h-3" /> Langage clair IA
+              </p>
+            )}
           </div>
         </div>
-
-        {/* Triggers actifs */}
-        {triggers.filter(t => t.actif).length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-[10px] text-foreground uppercase tracking-wide font-semibold">Facteurs actifs</p>
-            {triggers.filter(t => t.actif).map(t => (
-              <div key={t.type} className="flex items-center gap-2 text-xs text-foreground py-1">
-                <AlertTriangle className={`w-3 h-3 shrink-0 ${t.type === 'ecart_critique' ? 'text-danger' : 'text-warning'}`} />
-                <span>{t.description}</span>
-                <span className="ml-auto text-[10px] font-mono text-muted-foreground">×{t.poids.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Profil infrastructure */}
         {profil.infrastructure && (

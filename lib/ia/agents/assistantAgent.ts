@@ -269,9 +269,8 @@ export class AssistantAgent {
 
       throw new Error(`API ${apiResponse.status}`)
     } catch (error) {
-      // Fallback local si l'API est indisponible
+      // Fallback local si l'API est indisponible (ne marque pas comme définitivement indisponible — retry possible)
       console.warn('[AssistantAgent] LLM indisponible, fallback local:', error)
-      this.llmAvailable = false
       return this.localFallback(request.message, contexte, {
         aerodrome: aerodromeCtx,
         profil: profilCtx,

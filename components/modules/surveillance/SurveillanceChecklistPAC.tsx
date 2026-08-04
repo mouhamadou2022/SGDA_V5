@@ -44,6 +44,7 @@ import { DomaineCode, getDomaineInfo, getDomaineLabel, getDomaineCode, grouperPa
 import { EvaluationAction, computeEvaluationActionScore, EcartClosureStatus, computeEcartClosureStatus } from '@/types/checklist';
 import { getCellColor } from '@/lib/risque';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
+import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -1285,6 +1286,9 @@ export function SurveillanceChecklistPAC({
       updateProgression(newItems);
       return { ...prev, items: newItems };
     });
+    for (const s of suggestionsPAC) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestionsPAC([]);
     addNotification({
       user_id: user?.id || '',
@@ -1309,6 +1313,9 @@ export function SurveillanceChecklistPAC({
       updateProgression(newItems);
       return { ...prev, items: newItems };
     });
+    for (const s of suggestionsMesures) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestionsMesures([]);
     addNotification({
       user_id: user?.id || '',
@@ -1320,10 +1327,16 @@ export function SurveillanceChecklistPAC({
   };
   
   const handleIgnoreSuggestionsPAC = () => {
+    for (const s of suggestionsPAC) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestionsPAC([]);
   };
   
   const handleIgnoreSuggestionsMesures = () => {
+    for (const s of suggestionsMesures) {
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+    }
     setSuggestionsMesures([]);
   };
   

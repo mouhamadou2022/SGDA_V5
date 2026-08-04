@@ -20,6 +20,7 @@ import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { safeParseJSON } from '@/lib/safeParseJSON';
+import { engineFeedback } from '@/lib/ia/engines/engineFeedback';
 import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
 
@@ -60,7 +61,7 @@ const selectStyle = {
 // ── Étapes du wizard ─────────────────────────────────────────────────────────
 const BASE_STEPS = [
   { id: 1, key: 'localisation',   label: 'Localisation',  icon: MapPin },
-  { id: 2, key: 'ia',             label: 'Validation IA', icon: Sparkles },
+  { id: 2, key: 'ia',             label: 'Validation AERORISQ', icon: Sparkles },
   { id: 3, key: 'general',        label: 'Général',       icon: Plane },
   { id: 4, key: 'exploitant',     label: 'Exploitant',    icon: Building2 },
   { id: 5, key: 'infrastructure', label: 'Infrastructure',icon: Ruler },
@@ -160,26 +161,90 @@ function mapNominatimToRegion(state: string): string {
   return '';
 }
 
-// ── WebSearch OurAirports ────────────────────────────────────────────────────
-async function searchOurAirports(codeOACI: string): Promise<Record<string, string> | null> {
+// ── WebSearch OurAirports (Afrique de l'Ouest) ──────────────────────────────
+interface OurAirportsRecord {
+  oaci: string;
+  type: string;
+  nom: string;
+  municipality: string;
+  region_iso: string;
+  latitude: number | null;
+  longitude: number | null;
+  altitude: number | null;
+}
+
+const WEST_AFRICA_ICAO = /^(DB|DG|DI|DN|DR|DX|GA|GB|GG|GL|GO|GU|GV|GX)/i;
+let ourAirportsCache: OurAirportsRecord[] | null = null;
+
+async function loadOurAirports(): Promise<OurAirportsRecord[]> {
+  if (ourAirportsCache) return ourAirportsCache;
   try {
     const res = await fetch('https://ourairports.com/data/airports.csv');
+    if (!res.ok) return [];
     const csv = await res.text();
+    const rows: OurAirportsRecord[] = [];
     for (const line of csv.split('\n')) {
       const cols = line.split(',');
-      if (cols[1]?.replace(/"/g, '').toUpperCase() === codeOACI.toUpperCase()) {
-        return {
-          oaci: cols[1]?.replace(/"/g, '') || '',
-          type: cols[2]?.replace(/"/g, '') || '',
-          nom: cols[3]?.replace(/"/g, '') || '',
-          latitude: cols[4]?.replace(/"/g, '') || '',
-          longitude: cols[5]?.replace(/"/g, '') || '',
-          altitude: cols[8]?.replace(/"/g, '') || '',
-          region_iso: cols[7]?.replace(/"/g, '') || '',
-        };
-      }
+      const oaci = (cols[1]?.replace(/"/g, '') || '').trim();
+      if (!WEST_AFRICA_ICAO.test(oaci)) continue;
+      rows.push({
+        oaci,
+        type: cols[2]?.replace(/"/g, '') || '',
+        nom: cols[3]?.replace(/"/g, '') || '',
+        municipality: cols[10]?.replace(/"/g, '') || '',
+        region_iso: cols[9]?.replace(/"/g, '') || '',
+        latitude: parseFloat(cols[4]) || null,
+        longitude: parseFloat(cols[5]) || null,
+        altitude: parseFloat(cols[8]) || null,
+      });
     }
-    return null;
+    ourAirportsCache = rows;
+    return rows;
+  } catch { return []; }
+}
+
+async function searchOurAirportsByCode(codeOACI: string): Promise<OurAirportsRecord | null> {
+  const rows = await loadOurAirports();
+  const code = codeOACI.toUpperCase();
+  return rows.find(r => r.oaci === code) || null;
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Recherche par nom / municipalité, sinon aérodrome le plus proche des coordonnées (rayon 20 km)
+async function searchOurAirportsByName(nom: string, lat: number, lon: number): Promise<OurAirportsRecord | null> {
+  const rows = await loadOurAirports();
+  const q = nom.toLowerCase().trim();
+  const byName = rows.filter(r => r.nom.toLowerCase().includes(q) || r.municipality.toLowerCase().includes(q));
+  if (byName.length > 0) return byName[0];
+  const nearest = rows
+    .filter(r => r.latitude != null && r.longitude != null)
+    .map(r => ({ r, d: haversineKm(lat, lon, r.latitude as number, r.longitude as number) }))
+    .filter(x => x.d <= 20)
+    .sort((a, b) => a.d - b.d);
+  return nearest[0]?.r || null;
+}
+
+// ── WebSearch Wikipédia (résumé de l'article) ───────────────────────────────
+async function searchWikipedia(nom: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(nom)}%20a%C3%A9roport&format=json&origin=*&srlimit=1`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const title = data?.query?.search?.[0]?.title;
+    if (!title) return null;
+    const sumRes = await fetch(`https://fr.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    if (!sumRes.ok) return null;
+    const sum = await sumRes.json();
+    const extract: string = sum?.extract || '';
+    return extract.slice(0, 1600) || null;
   } catch { return null; }
 }
 
@@ -187,17 +252,59 @@ function emptyField(): AiSuggestionField {
   return { value: '', confidence: 0, source: '' };
 }
 
-async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>): Promise<AiSuggestion | null | 'LLM_UNAVAILABLE'> {
+// ── Apprentissage AERORISQ : feedback sur l'enrichissement d'aérodrome ──────
+// Chaque acceptation/correction/rejet de suggestion est enregistré dans le
+// moteur de feedback (persisté + synchronisé Supabase) pour que l'IA maison
+// ne répète pas les mêmes erreurs sur les mêmes champs/coordonnées.
+type SuggestionFeedback = { field: string; predicted: unknown; actual: unknown; action: 'accept' | 'modify' | 'reject' };
+
+function enregistrerFeedbackEnrichissement(opts: { aerodromeId?: string; coordonnees: string; field: string; predicted: unknown; actual: unknown; action: 'accept' | 'modify' | 'reject' }) {
   try {
-    // Tentative d'extraire un code OACI
-    const oaciMatch = nom.match(/\bGO[A-Z]{2}\b/i);
-    let ourAirports = null;
-    if (oaciMatch) ourAirports = await searchOurAirports(oaciMatch[0].toUpperCase());
+    engineFeedback.enregistrer({
+      engineType: 'aerodromeEnrichment',
+      aerodromeId: opts.aerodromeId || '',
+      contexte: {},
+      decision: {
+        type: `enrichissement:${opts.field}`,
+        donnees: {
+          champ: opts.field,
+          coordonnees: opts.coordonnees,
+          valeur_suggeree: opts.predicted,
+          valeur_utilisateur: opts.actual,
+        },
+      },
+      vote: opts.action === 'accept' ? 'pertinent' : opts.action === 'modify' ? 'partiellement' : 'non_pertinent',
+      commentaire: opts.action === 'modify' ? 'Valeur corrigée par l\'utilisateur dans l\'étape Validation AERORISQ' : undefined,
+      correctionUtilisateur: opts.action === 'modify' ? JSON.stringify(opts.actual) : undefined,
+    });
+  } catch {
+    // best-effort : l'apprentissage ne bloque jamais l'UI
+  }
+}
+
+async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>, nomSaisi?: string, regionHint?: string): Promise<AiSuggestion | null | 'LLM_UNAVAILABLE'> {
+  try {
+    // Nom : priorité au nom saisi dans le formulaire, sinon au reverse geocoding
+    const searchName = (nomSaisi || nom || '').trim();
+    // Code OACI : détecté dans le nom saisi puis dans le nom du reverse geocoding
+    const oaciMatch = (searchName + ' ' + nom).match(/\bGO[A-Z]{2}\b/i);
+    const codeOACI = oaciMatch ? oaciMatch[0].toUpperCase() : '';
+
+    // Recherches sur le net : OurAirports (code OACI → nom → plus proche des coordonnées)
+    let ourAirports = codeOACI ? await searchOurAirportsByCode(codeOACI) : null;
+    if (!ourAirports) ourAirports = await searchOurAirportsByName(searchName || nom, lat, lon);
+    const oaciFinal = codeOACI || ourAirports?.oaci || '';
+    // Wikipédia : résumé de l'article fourni à l'IA
+    const wiki = await searchWikipedia(searchName || ourAirports?.nom || oaciFinal);
 
     const prompt = `Tu es un expert ICAO spécialiste des aérodromes d'Afrique de l'Ouest.
-Aérodrome recherché : "${nom}"
+Aérodrome recherché : "${searchName || nom}"
+Nom saisi par l'utilisateur : "${searchName}"
 Coordonnées : ${lat.toFixed(4)}, ${lon.toFixed(4)}
-${ourAirports ? `Données OurAirports trouvées : ${JSON.stringify(ourAirports)}` : ''}
+Région (reverse geocoding) : ${regionHint || 'inconnue'}
+Code OACI : ${oaciFinal || 'non détecté'}
+${ourAirports ? `Données OurAirports trouvées (source web) : ${JSON.stringify(ourAirports)}` : 'Aucune donnée OurAirports trouvée'}
+${wiki ? `Résumé Wikipédia trouvé (source web) : ${wiki}` : 'Aucun article Wikipédia trouvé'}
 ${existingData ? `Données déjà renseignées (ne suggère que les champs vides ou à améliorer) :\n${JSON.stringify(existingData, null, 2)}` : ''}
 
 Retourne UNIQUEMENT un objet JSON valide, sans texte avant ni après.
@@ -262,56 +369,107 @@ Ne mets JAMAIS de valeur pour un champ qui ne correspond pas au type_entite.`;
     // Détecter si le LLM n'est pas disponible (fallback local)
     if (assistantAgent.isLLMAvailable() === false || aiResult.message.includes('GROQ_API_KEY')) return 'LLM_UNAVAILABLE'
     const parsed = safeParseJSON<Record<string, any>>(aiResult.message);
-    if (parsed) {
-      const suggestion: AiSuggestion = {
-        nom: parsed.nom ?? emptyField(),
-        code_oaci: parsed.code_oaci ?? emptyField(),
-        region: parsed.region ?? emptyField(),
-        type: parsed.type ?? emptyField(),
-        type_entite: parsed.type_entite ?? emptyField(),
-        categorie_sslia: parsed.categorie_sslia ?? emptyField(),
-        exploitant_nom: parsed.exploitant_nom ?? emptyField(),
-        exploitant_adresse: parsed.exploitant_adresse ?? emptyField(),
-        exploitant_telephone: parsed.exploitant_telephone ?? emptyField(),
-        piste_longueur: parsed.piste_longueur ?? emptyField(),
-        piste_largeur: parsed.piste_largeur ?? emptyField(),
-        piste_orientation: parsed.piste_orientation ?? emptyField(),
-        piste_revetement: parsed.piste_revetement ?? emptyField(),
-        piste_pcr: parsed.piste_pcr ?? emptyField(),
-        piste_code_reference: parsed.piste_code_reference ?? emptyField(),
-        piste_avion_reference: parsed.piste_avion_reference ?? emptyField(),
-        piste_type_approche: parsed.piste_type_approche ?? emptyField(),
-        heli_valeur_d: parsed.heli_valeur_d ?? emptyField(),
-        heli_cap: parsed.heli_cap ?? emptyField(),
-        heli_altitude_ft: parsed.heli_altitude_ft ?? emptyField(),
-        heli_mtom: parsed.heli_mtom ?? emptyField(),
-        heli_moyen_com: parsed.heli_moyen_com ?? emptyField(),
-        heli_frequence_com: parsed.heli_frequence_com ?? emptyField(),
-        heli_indicatif_rt: parsed.heli_indicatif_rt ?? emptyField(),
-        heli_identification: parsed.heli_identification ?? emptyField(),
-        heli_marque_distinctive: parsed.heli_marque_distinctive ?? emptyField(),
-        heli_type_installation: parsed.heli_type_installation ?? emptyField(),
-        heli_hauteur_maximale_ft: parsed.heli_hauteur_maximale_ft ?? emptyField(),
-        heli_hauteur_obstacle_ft: parsed.heli_hauteur_obstacle_ft ?? emptyField(),
-        heli_avitaillement: parsed.heli_avitaillement ?? emptyField(),
-        heli_gpu: parsed.heli_gpu ?? emptyField(),
-        heli_equipement_incendie: parsed.heli_equipement_incendie ?? emptyField(),
-        heli_date_revision: parsed.heli_date_revision ?? emptyField(),
-        altitude: parsed.altitude ?? emptyField(),
-        horaires: parsed.horaires ?? emptyField(),
-        maturite_sgs_suggered: parsed.maturite_sgs_suggered ?? emptyField(),
-        statut: parsed.statut ?? emptyField(),
-        statut_sgs: parsed.statut_sgs ?? emptyField(),
-        statut_certification: parsed.statut_certification ?? emptyField(),
-        aides_visuelles: parsed.aides_visuelles ?? emptyField(),
-        notes: parsed.notes || '',
-      };
-      return suggestion;
-    }
+    if (parsed) return enrichFromSources(buildSuggestionFromParsed(parsed), ourAirports, regionHint || '');
+    // Fallback déterministe : le LLM n'a rien renvoyé mais on a des sources web fiables
+    if (ourAirports || regionHint) return suggestionFromSources(ourAirports, regionHint || '');
     return null;
   } catch {
     return null;
   }
+}
+
+function buildSuggestionFromParsed(parsed: Record<string, any>): AiSuggestion {
+  return {
+    nom: parsed.nom ?? emptyField(),
+    code_oaci: parsed.code_oaci ?? emptyField(),
+    region: parsed.region ?? emptyField(),
+    type: parsed.type ?? emptyField(),
+    type_entite: parsed.type_entite ?? emptyField(),
+    categorie_sslia: parsed.categorie_sslia ?? emptyField(),
+    exploitant_nom: parsed.exploitant_nom ?? emptyField(),
+    exploitant_adresse: parsed.exploitant_adresse ?? emptyField(),
+    exploitant_telephone: parsed.exploitant_telephone ?? emptyField(),
+    piste_longueur: parsed.piste_longueur ?? emptyField(),
+    piste_largeur: parsed.piste_largeur ?? emptyField(),
+    piste_orientation: parsed.piste_orientation ?? emptyField(),
+    piste_revetement: parsed.piste_revetement ?? emptyField(),
+    piste_pcr: parsed.piste_pcr ?? emptyField(),
+    piste_code_reference: parsed.piste_code_reference ?? emptyField(),
+    piste_avion_reference: parsed.piste_avion_reference ?? emptyField(),
+    piste_type_approche: parsed.piste_type_approche ?? emptyField(),
+    heli_valeur_d: parsed.heli_valeur_d ?? emptyField(),
+    heli_cap: parsed.heli_cap ?? emptyField(),
+    heli_altitude_ft: parsed.heli_altitude_ft ?? emptyField(),
+    heli_mtom: parsed.heli_mtom ?? emptyField(),
+    heli_moyen_com: parsed.heli_moyen_com ?? emptyField(),
+    heli_frequence_com: parsed.heli_frequence_com ?? emptyField(),
+    heli_indicatif_rt: parsed.heli_indicatif_rt ?? emptyField(),
+    heli_identification: parsed.heli_identification ?? emptyField(),
+    heli_marque_distinctive: parsed.heli_marque_distinctive ?? emptyField(),
+    heli_type_installation: parsed.heli_type_installation ?? emptyField(),
+    heli_hauteur_maximale_ft: parsed.heli_hauteur_maximale_ft ?? emptyField(),
+    heli_hauteur_obstacle_ft: parsed.heli_hauteur_obstacle_ft ?? emptyField(),
+    heli_avitaillement: parsed.heli_avitaillement ?? emptyField(),
+    heli_gpu: parsed.heli_gpu ?? emptyField(),
+    heli_equipement_incendie: parsed.heli_equipement_incendie ?? emptyField(),
+    heli_date_revision: parsed.heli_date_revision ?? emptyField(),
+    altitude: parsed.altitude ?? emptyField(),
+    horaires: parsed.horaires ?? emptyField(),
+    maturite_sgs_suggered: parsed.maturite_sgs_suggered ?? emptyField(),
+    statut: parsed.statut ?? emptyField(),
+    statut_sgs: parsed.statut_sgs ?? emptyField(),
+    statut_certification: parsed.statut_certification ?? emptyField(),
+    aides_visuelles: parsed.aides_visuelles ?? emptyField(),
+    notes: parsed.notes || '',
+  };
+}
+
+// Complète les champs restés vides avec les sources web (OurAirports, région Nominatim)
+function enrichFromSources(s: AiSuggestion, oa: OurAirportsRecord | null, regionHint: string): AiSuggestion {
+  const fill = (field: keyof AiSuggestion, value: string | number, confidence: number, source: AiSuggestionField['source']) => {
+    const cur = s[field] as AiSuggestionField | undefined;
+    if (!cur || cur.value === '' || cur.value === undefined || cur.value === null) {
+      (s as any)[field] = { value, confidence, source };
+    }
+  };
+  if (oa) {
+    if (oa.nom) fill('nom', oa.nom, 85, 'websearch');
+    if (oa.oaci) fill('code_oaci', oa.oaci, 95, 'websearch');
+    if (oa.altitude != null) fill('altitude', oa.altitude, 90, 'websearch');
+    if (oa.type === 'heliport') fill('type_entite', 'helistation', 80, 'websearch');
+    else if (oa.type) fill('type_entite', 'aerodrome', 75, 'websearch');
+  }
+  if (regionHint) fill('region', regionHint, 80, 'nominatim');
+  return s;
+}
+
+// Suggestion déterministe quand le LLM n'a rien renvoyé mais que les sources web sont fiables
+function suggestionFromSources(oa: OurAirportsRecord | null, regionHint: string): AiSuggestion {
+  const empty = (): AiSuggestion => ({
+    nom: emptyField(), code_oaci: emptyField(), region: emptyField(), type: emptyField(),
+    type_entite: emptyField(), categorie_sslia: emptyField(),
+    exploitant_nom: emptyField(), exploitant_adresse: emptyField(), exploitant_telephone: emptyField(),
+    piste_longueur: emptyField(), piste_largeur: emptyField(), piste_orientation: emptyField(),
+    piste_revetement: emptyField(), piste_pcr: emptyField(), piste_code_reference: emptyField(),
+    piste_avion_reference: emptyField(), piste_type_approche: emptyField(),
+    heli_valeur_d: emptyField(), heli_cap: emptyField(), heli_altitude_ft: emptyField(), heli_mtom: emptyField(),
+    heli_moyen_com: emptyField(), heli_frequence_com: emptyField(), heli_indicatif_rt: emptyField(),
+    heli_identification: emptyField(), heli_marque_distinctive: emptyField(), heli_type_installation: emptyField(),
+    heli_hauteur_maximale_ft: emptyField(), heli_hauteur_obstacle_ft: emptyField(), heli_avitaillement: emptyField(),
+    heli_gpu: emptyField(), heli_equipement_incendie: emptyField(), heli_date_revision: emptyField(),
+    altitude: emptyField(), horaires: emptyField(), maturite_sgs_suggered: emptyField(),
+    statut: emptyField(), statut_sgs: emptyField(), statut_certification: emptyField(),
+    aides_visuelles: emptyField(), notes: '',
+  });
+  const s = empty();
+  if (oa) {
+    s.nom = { value: oa.nom, confidence: 85, source: 'websearch' };
+    s.code_oaci = { value: oa.oaci, confidence: 95, source: 'websearch' };
+    if (oa.altitude != null) s.altitude = { value: oa.altitude, confidence: 90, source: 'websearch' };
+    s.type_entite = { value: oa.type === 'heliport' ? 'helistation' : 'aerodrome', confidence: 80, source: 'websearch' };
+  }
+  if (regionHint) s.region = { value: regionHint, confidence: 80, source: 'nominatim' };
+  return s;
 }
 
 // ── Utilitaires coordonnées ──────────────────────────────────────────────────
@@ -336,7 +494,11 @@ const coordinateUtils = {
     return null;
   },
   async searchByName(q: string): Promise<{lat:number;lon:number}|null> {
-    try { const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`); const d = await r.json(); if (d?.length>0) return {lat:+d[0].lat,lon:+d[0].lon}; return null; } catch { return null; }
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (d?.length>0) return {lat:+d[0].lat,lon:+d[0].lon};
+    return null;
   },
 };
 
@@ -385,20 +547,33 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
   const [inputValue,  setInputValue]  = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [showHelper,  setShowHelper]  = useState(false);
   const [mode,        setMode]        = useState<'coords'|'search'>('coords');
 
   useEffect(() => {
-    if (latitude && longitude && !isNaN(latitude) && !isNaN(longitude))
+    if (!isNaN(latitude) && !isNaN(longitude))
       setInputValue(coordinateUtils.toDMS(latitude, longitude));
   }, [latitude, longitude]);
 
+  const confirmCoords = useCallback((raw: string) => {
+    const r = coordinateUtils.detectAndConvert(raw);
+    if (r) { onCoordinatesChange(r.latitude, r.longitude); setInputValue(coordinateUtils.toDMS(r.latitude, r.longitude)); }
+  }, [onCoordinatesChange]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
+    setSearchError('');
     setIsSearching(true);
-    const r = await coordinateUtils.searchByName(searchQuery);
-    if (r) { onCoordinatesChange(r.lat, r.lon); setInputValue(coordinateUtils.toDMS(r.lat, r.lon)); }
-    setIsSearching(false);
+    try {
+      const r = await coordinateUtils.searchByName(searchQuery);
+      if (r) { onCoordinatesChange(r.lat, r.lon); setInputValue(coordinateUtils.toDMS(r.lat, r.lon)); }
+      else { setSearchError('Aucun lieu trouvé. Essayez un autre nom ou utilisez les coordonnées.'); }
+    } catch {
+      setSearchError('Erreur réseau. Vérifiez votre connexion.');
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   return (
@@ -417,6 +592,7 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
         ))}
       </div>
       {mode === 'search' ? (
+        <>
         <div className="flex gap-3 p-4 bg-role-primary-soft/30 rounded-xl">
           <div className="flex-1 relative">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -428,18 +604,21 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
             {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <SearchIcon className="w-4 h-4" />}Localiser
           </button>
         </div>
+        {searchError && <p className="text-xs text-danger flex items-center gap-1"><AlertCircle className="w-3 h-3" />{searchError}</p>}
+        </>
       ) : (
         <div className="space-y-4">
           <div className="relative">
             <Globe className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-4 h-4 text-role-primary" />
-            <input type="text" value={inputValue} onChange={e=>{setInputValue(e.target.value);const r=coordinateUtils.detectAndConvert(e.target.value);if(r)onCoordinatesChange(r.latitude,r.longitude);}}
+            <input type="text" value={inputValue} onChange={e=>setInputValue(e.target.value)}
+              onBlur={e=>confirmCoords(e.target.value)} onKeyDown={e=>e.key==='Enter'&&confirmCoords(e.currentTarget.value)}
               placeholder="14.7168, -17.4675 ou 14°43'0.5 N 17°28'3.5 W"
               className={`form-input w-full pl-10 pr-12 py-3 text-sm font-mono ${focusClass} ${error?'border-danger':'border-border'}`} />
             <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 action-button p-1.5" onClick={()=>setShowHelper(!showHelper)}>
               <HelpCircle className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
-          {latitude&&longitude&&!isNaN(latitude)&&!isNaN(longitude)&&(
+          {!isNaN(latitude)&&!isNaN(longitude)&&(
             <div className="p-3 bg-role-primary-soft/30 rounded-lg space-y-1 text-[11px] font-mono text-muted-foreground">
               <div className="flex gap-2"><Compass className="w-3.5 h-3.5 text-role-primary"/>{coordinateUtils.toDMS(latitude, longitude)}</div>
               <div className="flex gap-2"><Globe className="w-3.5 h-3.5 text-role-primary"/>{latitude.toFixed(6)}°, {longitude.toFixed(6)}°</div>
@@ -612,13 +791,38 @@ function formatFieldValue(key: string, value: string | number): string {
   return String(value);
 }
 
-function AiSuggestionFieldRow({ field, value, onAccept, isAccepted }: {
-  field: SectionField; value: AiSuggestionField; onAccept: () => void; isAccepted: boolean;
+function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, onFeedback }: {
+  field: SectionField; value: AiSuggestionField; onAccept: () => void; isAccepted: boolean; onFeedback?: (fb: SuggestionFeedback) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
   const hasValue = value?.value !== '' && value?.value !== undefined && value?.value !== null && value?.value !== 0;
   const badge = hasValue ? getConfidenceBadge(value.confidence) : { cls: 'badge neutral', label: '?' };
   const isHigh = value?.confidence >= 80;
   const isLow = value?.confidence < 50 && hasValue;
+  const displayVal = formatFieldValue(field.key, value.value);
+
+  const handleEdit = () => {
+    setEditValue(String(value.value ?? ''));
+    setEditing(true);
+  };
+
+  const handleSave = () => {
+    const original = value.value;
+    const changed = editValue !== String(original ?? '');
+    if (changed) {
+      value.value = isNaN(Number(editValue)) ? editValue : Number(editValue);
+      value.confidence = 100;
+    }
+    setEditing(false);
+    onFeedback?.({ field: field.key, predicted: original, actual: value.value, action: changed ? 'modify' : 'accept' });
+    onAccept();
+  };
+
+  const handleAcceptSimple = () => {
+    onFeedback?.({ field: field.key, predicted: value.value, actual: value.value, action: 'accept' });
+    onAccept();
+  };
 
   return (
     <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 ${
@@ -641,46 +845,64 @@ function AiSuggestionFieldRow({ field, value, onAccept, isAccepted }: {
             <span className={`badge text-[9px] h-4 px-1.5 shrink-0 ${badge.cls}`}>{badge.label}</span>
           )}
         </div>
-        {hasValue ? (
-          <p className="text-sm font-semibold text-foreground truncate">
-            {formatFieldValue(field.key, value.value)}
-          </p>
+        {editing ? (
+          <div className="flex gap-2">
+            <input type={field.key.startsWith('heli_')||field.key==='piste_longueur'||field.key==='piste_largeur'||field.key==='altitude'||field.key==='piste_pcr'||field.key==='maturite_sgs_suggered' ? 'number' : 'text'}
+              value={editValue} onChange={e=>setEditValue(e.target.value)}
+              className="form-input flex-1 py-1 px-2 text-sm bg-background border-border rounded-lg"
+              autoFocus onKeyDown={e=>e.key==='Enter'&&handleSave()}
+            />
+            <button onClick={handleSave} className="btn btn-primary btn-sm gap-1"><Check className="w-3 h-3"/>OK</button>
+          </div>
         ) : (
-          <p className="text-sm italic text-muted-foreground">Non trouvé</p>
+          <button onClick={handleEdit} className="text-left w-full">
+            {hasValue ? (
+              <p className="text-sm font-semibold text-foreground truncate">{displayVal}</p>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">Non trouvé — cliquer pour saisir</p>
+            )}
+          </button>
         )}
       </div>
-      <button onClick={onAccept}
+      <button onClick={editing ? handleSave : handleAcceptSimple}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 transition-all ${
           isAccepted ? 'bg-success/10 text-success' : 'bg-role-primary/10 text-role-primary hover:bg-role-primary/20'
         }`}>
-        {isAccepted ? <><Check className="w-3.5 h-3.5"/>Accepté</> : <><Plus className="w-3.5 h-3.5"/>Accepter</>}
+        {isAccepted ? <><Check className="w-3.5 h-3.5"/>Accepté</> : <><Plus className="w-3.5 h-3.5"/>{editing ? 'Valider' : 'Accepter'}</>}
       </button>
     </div>
   );
 }
 
-function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, onAcceptField, onAcceptAll, onSkip, onToggle }: {
+function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, onAcceptField, onAcceptAll, onSkip, onToggle, onRetry, onFeedback }: {
   suggestion: AiSuggestion|null; isLoading: boolean; llmError: string|null; acceptedFields: Set<string>;
-  onAcceptField:(f: string, v: string | number) => void; onAcceptAll:()=>void; onSkip:()=>void; onToggle:(f: string)=>void;
+  onAcceptField:(f: string, v: string | number) => void; onAcceptAll:()=>void; onSkip:()=>void; onToggle:(f: string)=>void; onRetry?:()=>void;
+  onFeedback?: (fb: SuggestionFeedback) => void;
 }) {
   if (isLoading) return (
     <div className="flex flex-col items-center justify-center py-20 gap-5 text-center">
       <div className="relative"><Brain className="w-14 h-14 text-role-primary"/><Loader2 className="w-5 h-5 text-role-primary animate-spin absolute -bottom-1 -right-1"/></div>
-      <p className="font-semibold text-foreground text-lg">Analyse IA en cours…</p>
+      <p className="font-semibold text-foreground text-lg">Analyse AERORISQ en cours…</p>
     </div>
   );
   if (llmError) return (
     <div className="flex flex-col items-center justify-center py-20 gap-4 text-center text-muted-foreground">
       <Brain className="w-14 h-14 opacity-20"/>
-      <div><p className="font-medium text-foreground">Enrichissement IA indisponible</p><p className="text-sm mt-1">{llmError}</p></div>
-      <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans IA</button>
+      <div><p className="font-medium text-foreground">Enrichissement AERORISQ indisponible</p><p className="text-sm mt-1">{llmError}</p></div>
+      <div className="flex gap-2">
+        {onRetry && <button onClick={onRetry} className="btn btn-primary mt-2 gap-2"><Sparkles className="w-4 h-4"/>Réessayer</button>}
+        <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans AERORISQ</button>
+      </div>
     </div>
   );
   if (!suggestion) return (
     <div className="flex flex-col items-center justify-center py-20 gap-4 text-center text-muted-foreground">
       <MapPin className="w-14 h-14 opacity-20"/>
-      <div><p className="font-medium text-foreground">Aucune suggestion IA</p><p className="text-sm mt-1">Positionnez l'infrastructure sur la carte à l'étape précédente.</p></div>
-      <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans IA</button>
+      <div><p className="font-medium text-foreground">Aucune suggestion AERORISQ</p><p className="text-sm mt-1">Analyse impossible pour ces coordonnées.</p></div>
+      <div className="flex gap-2">
+        {onRetry && <button onClick={onRetry} className="btn btn-primary mt-2 gap-2"><Sparkles className="w-4 h-4"/>Réessayer</button>}
+        <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans AERORISQ</button>
+      </div>
     </div>
   );
 
@@ -713,7 +935,7 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
       {!hasAnyField ? (
         <div className="flex flex-col items-center justify-center py-12 gap-3 text-center text-muted-foreground">
           <Brain className="w-10 h-10 opacity-20"/>
-          <p className="text-sm">L'IA n'a pas trouvé de données pour cet aérodrome.</p>
+          <p className="text-sm">AERORISQ n'a pas trouvé de données pour cet aérodrome.</p>
           <p className="text-xs">Vous pouvez remplir le formulaire manuellement ou réessayer avec un nom plus précis.</p>
         </div>
       ) : (
@@ -735,6 +957,7 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
                     field={f}
                     value={(suggestion as any)[f.key] as AiSuggestionField}
                     isAccepted={acceptedFields.has(f.key)}
+                    onFeedback={onFeedback}
                     onAccept={() => { onToggle(f.key); onAcceptField(f.key, (suggestion as any)[f.key]?.value); }}
                   />
                 ))}
@@ -994,27 +1217,30 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     return () => clearTimeout(progressDebounce.current);
   }, [progress, onProgressChange]);
 
-  // ── Enrichissement IA ────────────────────────────────────────────────────
+  // ── Enrichissement IA (explicite — déclenché au passage étape 1→2) ──────
   const enrichedKey = useRef<string>('')
-  useEffect(() => {
-    if (!currentLatitude||!currentLongitude||isNaN(currentLatitude)||isNaN(currentLongitude)) return;
-    const key = `${currentLatitude.toFixed(4)},${currentLongitude.toFixed(4)}`
-    if (enrichedKey.current === key) return
-    // Vérifier si le LLM est disponible (ne pas réessayer si déjà marqué indisponible)
+  const requestSeq = useRef(0)
+  const handleRunAnalysis = useCallback(async (lat: number, lon: number) => {
+    if (!lat||!lon||isNaN(lat)||isNaN(lon)) return;
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
+    if (enrichedKey.current === key) return;
     if (assistantAgent.isLLMAvailable() === false) {
-      setLlmError('L\'assistant IA n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+      setLlmError('L\'assistant AERORISQ n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
       return
     }
     setLlmError(null)
-    clearTimeout(enrichDebounce.current);
     setIsEnriching(true);
-    enrichDebounce.current = setTimeout(async () => {
-      try {
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLatitude}&lon=${currentLongitude}&accept-language=fr&namedetails=1&zoom=14`);
-        const geoData = await geoRes.json();
-        const address = geoData.address || {};
-        const name = geoData.namedetails?.name || address.aerodrome || address.airport || geoData.display_name?.split(',')[0]?.trim() || '';
-        const result = await suggestAerodrome(name, currentLatitude, currentLongitude, aerodrome ? {
+    const mySeq = ++requestSeq.current
+    try {
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=fr&namedetails=1&zoom=14`);
+      if (mySeq !== requestSeq.current) return;
+      const geoData = await geoRes.json();
+      const address = geoData.address || {};
+      const name = geoData.namedetails?.name || address.aerodrome || address.airport || geoData.display_name?.split(',')[0]?.trim() || '';
+      const regionHint = address.state ? mapNominatimToRegion(String(address.state)) : '';
+      const result = await suggestAerodrome(
+        name, lat, lon,
+        aerodrome ? {
           nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, region: aerodrome.region,
           type: aerodrome.type, type_entite: aerodrome.type_entite,
           categorie_sslia: aerodrome.categorie_sslia,
@@ -1022,21 +1248,25 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
           altitude: aerodrome.altitude, horaires: aerodrome.horaires,
           maturite_sgs: aerodrome.maturite_sgs, statut_sgs: aerodrome.statut_sgs,
           statut_certification: aerodrome.statut_certification,
-        } : undefined)
-        if (result === 'LLM_UNAVAILABLE') {
-          setLlmError('L\'assistant IA n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
-          setAiSuggestion(null)
-        } else {
-          setAiSuggestion(result as AiSuggestion | null)
-        }
-        enrichedKey.current = key
-      } catch {
-        setAiSuggestion(null);
+        } : undefined,
+        (form.getValues('nom') || '').trim(),
+        regionHint,
+      )
+      if (mySeq !== requestSeq.current) return;
+      if (result === 'LLM_UNAVAILABLE') {
+        setLlmError('L\'assistant AERORISQ n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+        setAiSuggestion(null)
+      } else {
+        setAiSuggestion(result as AiSuggestion | null)
+        // Ne marquer les coordonnées comme traitées qu'en cas de succès :
+        // sinon le guard enrichedKey bloque « Réessayer » après un échec.
+        if (result) enrichedKey.current = key
       }
-      setIsEnriching(false);
-    }, 1500);
-    return () => clearTimeout(enrichDebounce.current);
-  }, [currentLatitude, currentLongitude, currentStep]);
+    } catch {
+      if (mySeq === requestSeq.current) setAiSuggestion(null);
+    }
+    if (mySeq === requestSeq.current) setIsEnriching(false);
+  }, [aerodrome, form]);
 
   // Reset statut_certification quand le type change
   useEffect(() => {
@@ -1088,6 +1318,19 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     setAcceptedFields(prev => { const n = new Set(prev); n.has(f)?n.delete(f):n.add(f); return n; });
   }, []);
 
+  // ── Feedback d'apprentissage AERORISQ (étape Validation AERORISQ) ───────
+  const coordonneesCourantes = `${currentLatitude != null ? currentLatitude.toFixed(4) : ''},${currentLongitude != null ? currentLongitude.toFixed(4) : ''}`;
+  const handleSuggestionFeedback = useCallback((fb: SuggestionFeedback) => {
+    enregistrerFeedbackEnrichissement({
+      aerodromeId: aerodrome?.id,
+      coordonnees: coordonneesCourantes,
+      field: fb.field,
+      predicted: fb.predicted,
+      actual: fb.actual,
+      action: fb.action,
+    });
+  }, [aerodrome, coordonneesCourantes]);
+
   const handleAcceptAll = useCallback(() => {
     if (!aiSuggestion) return;
     const accepted: string[] = [];
@@ -1097,21 +1340,59 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         if (v.value !== '' && v.value !== undefined && v.value !== null) {
           handleAcceptField(key, v.value);
           accepted.push(key);
+          enregistrerFeedbackEnrichissement({
+            aerodromeId: aerodrome?.id,
+            coordonnees: coordonneesCourantes,
+            field: key,
+            predicted: v.value,
+            actual: v.value,
+            action: 'accept',
+          });
         }
       }
     });
     setAcceptedFields(new Set(accepted));
     setIaValidated(true);
-  }, [aiSuggestion, handleAcceptField]);
+    setCompletedSteps(prev => new Set([...prev, 2]));
+    setCurrentStep(3);
+    scrollToTop();
+  }, [aiSuggestion, handleAcceptField, aerodrome, coordonneesCourantes]);
 
   // ── Navigation ───────────────────────────────────────────────────────────
   const handleNext = async () => {
     if (isSubmitting) return;
+    // Étape 1 → 2 : déclencher l'analyse IA
+    if (currentStep === 1) {
+      if (!currentLatitude||!currentLongitude||isNaN(currentLatitude)||isNaN(currentLongitude)) return;
+      setCompletedSteps(prev => new Set([...prev, 1]));
+      setCurrentStep(2);
+      handleRunAnalysis(currentLatitude, currentLongitude);
+      scrollToTop();
+      return;
+    }
     // Étape 2 (IA) — passage direct sans validation
     if (currentStep === 2) {
       setCompletedSteps(prev => new Set([...prev, 2]));
       setCurrentStep(3);
       scrollToTop();
+      // Feedback AERORISQ : les suggestions non validées sont marquées comme rejetées
+      if (aiSuggestion) {
+        Object.entries(aiSuggestion).forEach(([key, val]) => {
+          if (val && typeof val === 'object' && 'value' in val) {
+            const v = val as AiSuggestionField;
+            if (v.value !== '' && v.value !== undefined && v.value !== null) {
+              enregistrerFeedbackEnrichissement({
+                aerodromeId: aerodrome?.id,
+                coordonnees: coordonneesCourantes,
+                field: key,
+                predicted: v.value,
+                actual: null,
+                action: 'reject',
+              });
+            }
+          }
+        });
+      }
       return;
     }
 
@@ -1234,24 +1515,30 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
   <LocationPicker latitude={currentLatitude} longitude={currentLongitude}
     onPositionChange={(lat:number,lon:number)=>{ form.setValue('latitude',lat); form.setValue('longitude',lon); }}/>
 </div>
-            <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1"><Info className="w-3 h-3" />Cliquez sur la carte — l'IA analysera la localisation automatiquement</p>
-            {!aerodrome && (isEnriching||aiSuggestion) && (
-              <div className={`flex items-center gap-3 p-3 rounded-xl border ${isEnriching?'border-role-primary/30 bg-role-primary-soft/30':'border-success/30 bg-success/5'}`}>
-                {isEnriching?<><Loader2 className="w-4 h-4 text-role-primary animate-spin"/><span className="text-sm text-role-primary">Analyse IA en cours…</span></>
-                            :<><Check className="w-4 h-4 text-success"/><span className="text-sm text-success">Données IA prêtes — validez à l'étape suivante</span></>}
-              </div>
-            )}
+            <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1"><Info className="w-3 h-3" />Cliquez sur la carte ou saisissez les coordonnées, puis cliquez « Suivant » pour lancer l'analyse AERORISQ</p>
           </div>
         )}
 
         {/* ═══ ÉTAPE 2 : VALIDATION IA ══════════════════════════════════ */}
         {currentStep===2 && (
           <div className="animate-fade-up">
-            <SectionTitle icon={Sparkles}>Validation des suggestions IA</SectionTitle>
+            <SectionTitle icon={Sparkles}>Validation des suggestions AERORISQ</SectionTitle>
             <AiSuggestionPanel suggestion={aiSuggestion} isLoading={isEnriching} llmError={llmError} acceptedFields={acceptedFields}
               onAcceptField={handleAcceptField} onAcceptAll={handleAcceptAll}
-              onSkip={()=>{ setIaValidated(true); setCompletedSteps(prev=>new Set([...prev,2])); setCurrentStep(3); }}
-              onToggle={handleToggle}/>
+              onFeedback={handleSuggestionFeedback}
+              onSkip={()=>{
+                setIaValidated(true); setCompletedSteps(prev=>new Set([...prev,2])); setCurrentStep(3);
+                if (aiSuggestion) Object.entries(aiSuggestion).forEach(([key, val]) => {
+                  if (val && typeof val === 'object' && 'value' in val) {
+                    const v = val as AiSuggestionField;
+                    if (v.value !== '' && v.value !== undefined && v.value !== null) {
+                      enregistrerFeedbackEnrichissement({ aerodromeId: aerodrome?.id, coordonnees: coordonneesCourantes, field: key, predicted: v.value, actual: null, action: 'reject' });
+                    }
+                  }
+                });
+              }}
+              onToggle={handleToggle}
+              onRetry={()=> handleRunAnalysis(currentLatitude, currentLongitude)}/>
           </div>
         )}
 
@@ -1510,12 +1797,12 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
               <div className="alert alert-info border-l-4 border-l-role-primary">
                 <Sparkles className="alert-icon"/>
                 <div className="alert-content flex-1">
-                  <div className="alert-title">Suggestion IA</div>
+                  <div className="alert-title">Suggestion AERORISQ</div>
                   <div className="alert-description">
                     {maturiteMoyenne && <span>SGS moyen des infrastructures similaires: <strong>N{maturiteMoyenne}</strong></span>}
                     {aiSuggestion?.maturite_sgs_suggered?.value && maturiteMoyenne && <span> · </span>}
                     {aiSuggestion?.maturite_sgs_suggered?.value && (
-                      <span>Suggestion IA: <strong>N{aiSuggestion.maturite_sgs_suggered.value}</strong>
+                      <span>Suggestion AERORISQ: <strong>N{aiSuggestion.maturite_sgs_suggered.value}</strong>
                       {aiSuggestion.maturite_sgs_suggered.confidence > 0 && (
                         <span className={`badge text-[9px] ml-1.5 ${aiSuggestion.maturite_sgs_suggered.confidence >= 80 ? 'success' : aiSuggestion.maturite_sgs_suggered.confidence >= 50 ? 'warning' : 'danger'}`}>
                           {aiSuggestion.maturite_sgs_suggered.confidence}%
@@ -1538,7 +1825,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
                   <div className="mt-2 p-2 bg-role-primary-soft/20 rounded-lg text-xs flex items-center justify-between border-l-4 border-l-role-primary">
                     <span className="flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5 text-role-primary"/>
-                      Suggestion IA: <strong>N{aiSuggestion.maturite_sgs_suggered.value}</strong>
+Suggestion AERORISQ: <strong>N{aiSuggestion.maturite_sgs_suggered.value}</strong>
                       <span className={`badge text-[9px] ${aiSuggestion.maturite_sgs_suggered.confidence >= 80 ? 'success' : aiSuggestion.maturite_sgs_suggered.confidence >= 50 ? 'warning' : 'danger'}`}>
                         {aiSuggestion.maturite_sgs_suggered.confidence}%
                       </span>

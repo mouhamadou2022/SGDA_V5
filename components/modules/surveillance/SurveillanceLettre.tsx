@@ -303,6 +303,7 @@ export default function SurveillanceLettre({
                   onRemove={undefined}
                   disabled={false}
                   required
+                  storagePrefix={`lettres/${surveillanceId}`}
                 />
               </div>
 

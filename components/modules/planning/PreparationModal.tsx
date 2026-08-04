@@ -470,7 +470,7 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                   ) : (
                     surveillancesPrecedentes.map(s => {
                       const ecartsSurv = ecarts.filter(e => e.surveillance_id === s.id && e.statut !== 'cloture')
-                      const aUnRapport = !!(s.rapport_sig_url || s.rapport_fichier_url)
+                      const aUnRapport = !!(s.rapport_pdf_url || s.rapport_sig_url || s.rapport_fichier_url)
                       const aChecklistSignee = !!(s.signatures_checklist?.length && s.signatures_checklist.length >= 1)
                       const statutIcon = s.statut === 'rapport_signe' ? <CheckCircle2 className="w-3 h-3 text-success" /> :
                         s.statut === 'checklist_signee' ? <CheckCircle2 className="w-3 h-3 text-warning" /> :
@@ -496,18 +496,12 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                           {/* Boutons consultation rapports et checklists */}
                           {(aUnRapport || aChecklistSignee) && (
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {s.rapport_sig_url && (
-                                <a href={s.rapport_sig_url} target="_blank" rel="noopener noreferrer"
+                              {s.rapport_pdf_url || s.rapport_sig_url || s.rapport_fichier_url ? (
+                                <a href={s.rapport_pdf_url || s.rapport_fichier_url || s.rapport_sig_url} target="_blank" rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-role-primary-soft text-role-primary hover:bg-role-primary-soft/80 transition-colors">
-                                  <FileText className="w-3 h-3" /> Rapport signé
+                                  <FileText className="w-3 h-3" /> {s.rapport_pdf_url ? 'Rapport signé (PDF)' : 'Rapport signé'}
                                 </a>
-                              )}
-                              {s.rapport_fichier_url && !s.rapport_sig_url && (
-                                <a href={s.rapport_fichier_url} target="_blank" rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-role-primary-soft text-role-primary hover:bg-role-primary-soft/80 transition-colors">
-                                  <FileText className="w-3 h-3" /> Rapport
-                                </a>
-                              )}
+                              ) : null}
                               {s.rapport_signe_par && (
                                 <span className="text-[9px] text-muted-foreground">
                                   Signé par {utilisateurs.find(u => u.id === s.rapport_signe_par)?.prenom || ''} {utilisateurs.find(u => u.id === s.rapport_signe_par)?.nom || ''}

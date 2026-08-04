@@ -133,7 +133,7 @@ class AIClientClass {
     // Paliers de maxTokens progressifs pour retry
     const tokenTiers = options.maxTokens
       ? [...new Set([options.maxTokens, Math.floor(options.maxTokens / 2), Math.floor(options.maxTokens / 4)])]
-      : [24000, 12000, 6000]
+      : [32768, 16000, 8000]
 
     for (const maxTokens of tokenTiers) {
       const result = await this._call({ ...options, maxTokens, responseFormat: 'json_object' })
@@ -155,21 +155,24 @@ class AIClientClass {
   }
 
   private _tryParseJSON<T>(content: string): T | null {
+    // Prétraitement : apostrophes échappées (courant en sortie LLM française) — `\'` est invalide en JSON.
+    const cleaned = content.replace(/\\'/g, "'")
+    const tryParse = (s: string): T => JSON.parse(s) as T
     const tentatives = [
-      () => JSON.parse(content),
+      () => tryParse(cleaned),
       // Bloc markdown ```json ... ```
       () => {
-        const m = content.match(/```(?:json)?\s*([\s\S]*?)```/)
-        return m ? JSON.parse(m[1]) : null
+        const m = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
+        return m ? tryParse(m[1]) : null
       },
       // Premier objet JSON { ... } — extraction par comptage d'accolades (supporte l'imbrication)
       () => {
-        const json = extractBalancedJSON(content)
-        return json ? JSON.parse(json) : null
+        const json = extractBalancedJSON(cleaned)
+        return json ? tryParse(json) : null
       },
       // Réparation JSON tronqué : ferme les guillemets/accolades/crochets manquants
       () => {
-        let fixed = content.trim()
+        let fixed = cleaned.trim()
         const stack: string[] = []
         let inString = false
         let escape = false
@@ -185,7 +188,15 @@ class AIClientClass {
         }
         if (inString) fixed += '"'
         for (let i = stack.length - 1; i >= 0; i--) fixed += stack[i]
-        return JSON.parse(fixed)
+        return tryParse(fixed)
+      },
+      // Très robuste : supprime les caractères non-JSON hors des chaînes, puis retente
+      () => {
+        let fixed = cleaned.trim()
+        if (fixed.startsWith('{') && !fixed.endsWith('}')) {
+          fixed = fixed.slice(0, fixed.lastIndexOf('}') + 1)
+        }
+        return tryParse(fixed)
       },
     ]
 

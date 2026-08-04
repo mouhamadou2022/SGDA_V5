@@ -2,6 +2,46 @@
 import { EvenementSecurite } from './store'
 import { GRAVITE_EVENEMENT } from './config'
 
+/**
+ * Niveaux de gravité d'un événement alignés sur les niveaux de risque
+ * standard de l'app (critique / eleve / moyen / faible).
+ */
+type NiveauGraviteEvenement = 'critique' | 'eleve' | 'moyen' | 'faible'
+
+const GRAVITE_RISQUE: Record<string, { label: string; classe: string }> = {
+  critique: { label: 'Critique', classe: 'badge danger' },
+  eleve:    { label: 'Élevé',    classe: 'badge warning' },
+  moyen:    { label: 'Moyen',    classe: 'badge primary' },
+  faible:   { label: 'Faible',   classe: 'badge success' },
+}
+
+// Ancienne échelle OACI 5 niveaux (CRITIQUE/ORANGE/JAUNE/GRIS/BLEU) → 4 niveaux de risque
+const GRAVITE_LEGACY: Record<string, NiveauGraviteEvenement> = {
+  CRITIQUE: 'critique', ORANGE: 'eleve', JAUNE: 'moyen', GRIS: 'faible', BLEU: 'faible',
+}
+
+/**
+ * Normalise la gravité d'un événement vers les 4 niveaux de risque.
+ * Gère les anciennes valeurs OACI 5 niveaux persistées ou reçues de l'API.
+ */
+export function normaliserGravite(gravite: string | undefined | null): NiveauGraviteEvenement {
+  const g = (gravite || '').trim().toLowerCase()
+  if (g === 'critique' || g === 'eleve' || g === 'moyen' || g === 'faible') return g
+  return GRAVITE_LEGACY[g.toUpperCase()] || 'moyen'
+}
+
+export function getGraviteRisque(gravite: string): { label: string; classe: string } {
+  return GRAVITE_RISQUE[normaliserGravite(gravite)] || { label: gravite, classe: 'badge neutral' }
+}
+
+export function getGraviteRisqueLabel(gravite: string): string {
+  return getGraviteRisque(gravite).label
+}
+
+export function getGraviteRisqueClasse(gravite: string): string {
+  return getGraviteRisque(gravite).classe
+}
+
 export const evenementUtils = {
   /**
    * Génère une référence unique pour un événement
@@ -13,38 +53,38 @@ export const evenementUtils = {
   /**
    * Détermine la gravité d'un événement basé sur son type
    */
-  determinerGravite(type: string): 'CRITIQUE' | 'ORANGE' | 'JAUNE' | 'GRIS' | 'BLEU' {
+  determinerGravite(type: string): 'critique' | 'eleve' | 'moyen' | 'faible' {
     const mapping: Record<string, any> = {
-      'Incursion sur piste': 'CRITIQUE',
-      'Événement lié à des travaux/maintenance sur ou à proximité d\'une piste': 'CRITIQUE',
-      'Événement de sûreté pouvant avoir un impact sur la sécurité': 'CRITIQUE',
-      'Émission lasers ou feux non aéronautiques': 'ORANGE',
-      'Non mise en oeuvre des procédures': 'ORANGE',
-      'Marchandises dangereuses': 'ORANGE',
-      'Avitaillement en carburant de l\'avion': 'ORANGE',
-      'Utilisation des matériels de piste (choc avion…)': 'ORANGE',
-      'Mise en route des moteurs et/ou roulage non conformes': 'ORANGE',
-      'Présence indésirable sur une aire': 'ORANGE',
-      'Défaillance des interfaces sol-bord (incompréhension, inadaptation des infos transmises,…)': 'ORANGE',
-      'Contamination de la piste': 'ORANGE',
-      'Péril animalier': 'ORANGE',
-      'Facteurs humains': 'JAUNE',
-      'Travaux en cours sur l\'aire de mouvement': 'JAUNE',
-      'Travaux de maintenance': 'JAUNE',
-      'FOD': 'JAUNE',
-      'Placement et stationnement de l\'avion': 'JAUNE',
-      'Infrastructures inadaptées': 'JAUNE',
-      'Souffle causé par un aéronef': 'JAUNE',
-      'Autre, précisez': 'BLEU',
+      'Incursion sur piste': 'critique',
+      'Événement lié à des travaux/maintenance sur ou à proximité d\'une piste': 'critique',
+      'Événement de sûreté pouvant avoir un impact sur la sécurité': 'critique',
+      'Émission lasers ou feux non aéronautiques': 'eleve',
+      'Non mise en oeuvre des procédures': 'eleve',
+      'Marchandises dangereuses': 'eleve',
+      'Avitaillement en carburant de l\'avion': 'eleve',
+      'Utilisation des matériels de piste (choc avion…)': 'eleve',
+      'Mise en route des moteurs et/ou roulage non conformes': 'eleve',
+      'Présence indésirable sur une aire': 'eleve',
+      'Défaillance des interfaces sol-bord (incompréhension, inadaptation des infos transmises,…)': 'eleve',
+      'Contamination de la piste': 'eleve',
+      'Péril animalier': 'eleve',
+      'Facteurs humains': 'moyen',
+      'Travaux en cours sur l\'aire de mouvement': 'moyen',
+      'Travaux de maintenance': 'moyen',
+      'FOD': 'moyen',
+      'Placement et stationnement de l\'avion': 'moyen',
+      'Infrastructures inadaptées': 'moyen',
+      'Souffle causé par un aéronef': 'moyen',
+      'Autre, précisez': 'faible',
     }
-    return mapping[type] || 'BLEU'
+    return mapping[type] || 'faible'
   },
 
   /**
    * Calcule le délai de notification en heures
    */
   getDelaiNotification(gravite: string): number {
-    const configs = Object.values(GRAVITE_EVENEMENT).filter(g => g.niveau === gravite)
+    const configs = Object.values(GRAVITE_EVENEMENT).filter(g => g.niveau === normaliserGravite(gravite))
     if (configs.length === 0) return 48
     return Math.min(...configs.map(c => c.delai_notification))
   },
@@ -53,7 +93,7 @@ export const evenementUtils = {
    * Vérifie si un événement nécessite une notification SMS d'urgence
    */
   necessiteSMSUrgent(gravite: string): boolean {
-    const config = Object.values(GRAVITE_EVENEMENT).find(g => g.niveau === gravite)
+    const config = Object.values(GRAVITE_EVENEMENT).find(g => g.niveau === normaliserGravite(gravite))
     return config?.sms || false
   },
 
@@ -64,11 +104,10 @@ export const evenementUtils = {
     if (evenements.length === 0) return 100
 
     const poids: Record<string, number> = {
-      'CRITIQUE': 40,
-      'ORANGE': 20,
-      'JAUNE': 10,
-      'GRIS': 5,
-      'BLEU': 2
+      'critique': 40,
+      'eleve': 20,
+      'moyen': 10,
+      'faible': 5
     }
 
     const douzeMois = new Date()
@@ -76,7 +115,7 @@ export const evenementUtils = {
 
     const penalite = evenements.reduce((acc, evt) => {
       const dateOk = evt.date ? new Date(evt.date) >= douzeMois : true
-      return dateOk && evt.statut !== 'cloture' ? acc + (poids[evt.gravite] || 0) : acc
+      return dateOk && evt.statut !== 'cloture' ? acc + (poids[normaliserGravite(evt.gravite)] || 0) : acc
     }, 0)
 
     return Math.max(0, Math.min(100, 100 - penalite))

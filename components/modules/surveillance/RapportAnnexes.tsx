@@ -6,7 +6,6 @@ import {
   FileText,
   Download,
   Eye,
-  X,
   ChevronDown,
   ChevronRight,
   Users,
@@ -16,21 +15,18 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Printer,
   Copy,
   BarChart3,
   FolderTree,
   Target,
-  Brain,
-  Sparkles,
-  Loader2,
-  Shield,
   Calendar,
   MapPin,
   UserCheck,
-  Clock,
+  FileArchive,
+  Loader2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Ecart, ProfilRisque, type PresenceEntry } from '@/lib/store';
 import { getCellColor, getRiskLevelClass } from '@/lib/risque';
@@ -169,64 +165,37 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
             </div>
           </div>
 
-          {presences.length > 0 ? (
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th>Nom complet</th>
-                    <th>Structure</th>
-                    <th>Fonction</th>
-                    <th>Téléphone</th>
-                    <th>Email</th>
-                    <th>Signature</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {presences.map(presence => (
-                    <tr key={presence.id} className="border-b border-border hover:bg-role-primary-soft">
-                      <td className="font-medium text-foreground">{presence.prenom_nom || '-'}</td>
-                      <td>
-                        <span className={`badge ${presence.structure === 'ANACIM' ? 'primary' : presence.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
-                          {presence.structure}
-                        </span>
-                      </td>
-                      <td className="text-muted-foreground">{presence.fonction || '-'}</td>
-                      <td className="text-muted-foreground">{presence.telephone || '-'}</td>
-                      <td className="text-muted-foreground">{presence.email || '-'}</td>
-                      <td>
-                        {presence.signature_url ? (
-                          <div className="flex items-center gap-1">
-                            <CheckCircle2 className="w-4 h-4 text-success" />
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(presence.signature_date).toLocaleDateString('fr-FR')}
-                            </span>
-                            {!readOnly && (
-                              <button
-                                className="action-button"
-                                onClick={() => window.open(presence.signature_url, '_blank')}
-                                title="Voir signature"
-                              >
-                                <Eye className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-danger text-xs">Non signé</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Aucune fiche de présence disponible</p>
-              <p className="text-xs mt-1">Utilisez le composant PresenceSheet pour ajouter des participants</p>
-            </div>
-          )}
+          <DataTable
+            data={presences}
+            columns={[
+              { key: 'nom', header: 'Nom complet', render: (p) => <span className="font-medium text-foreground">{p.prenom_nom || '-'}</span> },
+              { key: 'structure', header: 'Structure', render: (p) => (
+                <span className={`badge ${p.structure === 'ANACIM' ? 'primary' : p.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
+                  {p.structure}
+                </span>
+              )},
+              { key: 'fonction', header: 'Fonction', render: (p) => <span className="text-muted-foreground">{p.fonction || '-'}</span> },
+              { key: 'telephone', header: 'Téléphone', render: (p) => <span className="text-muted-foreground">{p.telephone || '-'}</span> },
+              { key: 'email', header: 'Email', render: (p) => <span className="text-muted-foreground">{p.email || '-'}</span> },
+              { key: 'signature', header: 'Signature', render: (p) => p.signature_url ? (
+                <div className="flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4 text-success" />
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(p.signature_date).toLocaleDateString('fr-FR')}
+                  </span>
+                  {!readOnly && (
+                    <button className="action-button" onClick={() => window.open(p.signature_url, '_blank')} title="Voir signature">
+                      <Eye className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <span className="text-danger text-xs">Non signé</span>
+              )},
+            ]}
+            keyExtractor={(p) => p.id}
+            emptyState={{ icon: Users, title: 'Aucune fiche de présence disponible', description: 'Utilisez le composant PresenceSheet pour ajouter des participants' }}
+          />
 
           {!readOnly && (
             <div className="mt-4 pt-4 border-t border-border">
@@ -956,11 +925,107 @@ export function RapportAnnexes({
   userRole = 'inspector',
 }: RapportAnnexesProps) {
   const surveillances = useAppStore(s => s.surveillances);
+  const ecarts = useAppStore(s => s.ecarts);
+  const profilsRisque = useAppStore(s => s.profilsRisque);
+  const aerodromes = useAppStore(s => s.aerodromes);
+  const addNotification = useAppStore(s => s.addNotification);
+  const user = useAppStore(s => s.user);
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodromeId = surveillance?.aerodrome_id;
+  const aerodrome = aerodromes.find(a => a.id === aerodromeId);
+  const profil = aerodromeId ? profilsRisque[aerodromeId] : undefined;
 
   const [expandedSections, setExpandedSections] = useState<string[]>(['A1', 'A2', 'A3', 'A4']);
   const [expandedAll, setExpandedAll] = useState(true);
+  const [exportingAnnexes, setExportingAnnexes] = useState(false);
+
+  const handleExportDocx = async () => {
+    setExportingAnnexes(true);
+    try {
+      const { exportAnnexeDOCX } = await import('@/lib/services/rapportAnnexeService');
+      const realEcarts = ecarts.filter(e => e.surveillance_id === surveillanceId);
+      const items = useAppStore.getState().checklistItems[surveillanceId] || [];
+      const saCount = items.filter(i => i.resultat === 'SA').length;
+      const nsCount = items.filter(i => i.resultat === 'NS').length;
+      const nvCount = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
+      const totalItems = items.length;
+      const byDomaine = new Map<string, { sa: number; ns: number; nv: number }>();
+      items.forEach((item: any) => {
+        const d = item.domaine || 'Général';
+        if (!byDomaine.has(d)) byDomaine.set(d, { sa: 0, ns: 0, nv: 0 });
+        const stats = byDomaine.get(d)!;
+        if (item.resultat === 'SA') stats.sa++;
+        else if (item.resultat === 'NS') stats.ns++;
+        else if (item.resultat === 'NV' || !item.resultat) stats.nv++;
+      });
+      const niveauLabel = (s: number) => s >= 80 ? 'Bon' : s >= 60 ? 'Moyen' : s >= 30 ? 'Faible' : 'Critique';
+
+      await exportAnnexeDOCX({
+        aerodrome_nom: aerodrome?.nom || '',
+        aerodrome_code: aerodrome?.code_oaci || '',
+        reference: `${aerodrome?.code_oaci || 'XXX'}_${new Date().getFullYear()}_ANNEXES`,
+        date_debut: surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A',
+        date_fin: surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A',
+        date_profil: new Date().toLocaleDateString('fr-FR'),
+        presences: [],
+        nb_ecarts: realEcarts.length,
+        ecarts_liste: realEcarts.map(e => ({
+          ref_ecart: e.reference,
+          domaine_ecart: e.domaine,
+          constat_ecart: e.libelle,
+          niveau_ecart: e.niveau_risque,
+          statut_ecart: e.statut,
+        })),
+        score_global: profil ? `${profil.score_global}/100` : 'N/A',
+        tendance: profil?.tendance || 'N/A',
+        prediction_3m: profil?.prediction_3m != null ? `${profil.prediction_3m}/100` : 'N/A',
+        prediction_6m: profil?.prediction_6m != null ? `${profil.prediction_6m}/100` : 'N/A',
+        c1_score: profil ? `${profil.c1}/100` : 'N/A',
+        c1_niveau: profil ? niveauLabel(profil.c1) : 'N/A',
+        c2_score: profil ? `${profil.c2}/100` : 'N/A',
+        c2_niveau: profil ? niveauLabel(profil.c2) : 'N/A',
+        c3_score: profil ? `${profil.c3}/100` : 'N/A',
+        c3_niveau: profil ? niveauLabel(profil.c3) : 'N/A',
+        c4_score: profil ? `${profil.c4}/100` : 'N/A',
+        c4_niveau: profil ? niveauLabel(profil.c4) : 'N/A',
+        c5_score: profil ? `${profil.c5}/100` : 'N/A',
+        c5_niveau: profil ? niveauLabel(profil.c5) : 'N/A',
+        analyse_profil: profil
+          ? `Score global: ${profil.score_global}/100 (${profil.niveau}). C1: ${profil.c1}/100, C2: ${profil.c2}/100, C3: ${profil.c3}/100, C4: ${profil.c4}/100, C5: ${profil.c5}/100. Tendance: ${profil.tendance}.`
+          : 'Non disponible.',
+        domaines_checklist: Array.from(byDomaine.entries()).map(([nom, st]) => ({
+          nom_domaine: nom,
+          sa_domaine: st.sa,
+          ns_domaine: st.ns,
+          nv_domaine: st.nv,
+          taux_domaine: (st.sa + st.ns + st.nv) > 0 ? `${Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100)}%` : '0%',
+        })),
+        taux_global: totalItems > 0 ? `${Math.round((saCount / totalItems) * 100)}%` : '0%',
+        sa_total: saCount,
+        ns_total: nsCount,
+        nv_total: nvCount,
+        total_items: totalItems,
+      });
+
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Annexes exportées',
+        message: 'Le document des annexes a été généré au format Word.',
+        canal: 'in_app',
+      });
+    } catch (err) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Erreur',
+        message: err instanceof Error ? err.message : 'Erreur lors de l\'export des annexes',
+        canal: 'in_app',
+      });
+    } finally {
+      setExportingAnnexes(false);
+    }
+  };
 
   const toggleAll = () => {
     setExpandedAll(!expandedAll);
@@ -1002,9 +1067,12 @@ export function RapportAnnexes({
           <button onClick={toggleAll} className="btn btn-secondary btn-sm gap-1">
             {expandedAll ? 'Tout réduire' : 'Tout déployer'}
           </button>
-          <button onClick={handleExportZip} className="btn btn-primary btn-sm gap-1">
-            <Download className="w-4 h-4" />
-            Exporter tout
+          <button onClick={handleExportZip} className="btn btn-secondary btn-sm gap-1">
+            Télécharger
+          </button>
+          <button onClick={handleExportDocx} disabled={exportingAnnexes} className="btn btn-primary btn-sm gap-1">
+            {exportingAnnexes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Exporter DOCX
           </button>
         </div>
       </div>

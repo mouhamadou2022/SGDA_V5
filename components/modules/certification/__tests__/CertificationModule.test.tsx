@@ -1,6 +1,6 @@
 // components/modules/certification/__tests__/CertificationModule.test.tsx
 // Tests fonctionnels — CertificationModule
-// Couvre : rendu, onglets, filtrage, accordéon, phases, actions
+// Couvre : rendu, KPIs, filtrage, accordéon, phases, modal, état vide
 
 import '@testing-library/jest-dom'
 import React from 'react'
@@ -11,6 +11,12 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 jest.mock('react-dom', () => ({
   ...jest.requireActual('react-dom'),
   createPortal: (children: React.ReactNode) => children,
+}))
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('@/lib/store', () => ({ useAppStore: jest.fn() }))
@@ -151,6 +157,11 @@ const MOCK_STATE = {
   addNotification: jest.fn(),
   setActiveModule: mockSetActiveModule,
   utilisateurs: [],
+  surveillances: [],
+  ecarts: [],
+  exemptions: [],
+  checklistItems: {},
+  plannings: [],
 }
 
 function setupMocks(overrides?: Partial<typeof MOCK_STATE>) {
@@ -167,16 +178,16 @@ function renderModule() {
   return render(<CertificationModule userRole="inspector" />)
 }
 
-// Helper : passe en onglet "Liste des certifications"
-async function goToListTab() {
-  fireEvent.click(screen.getByText(/liste des certifications/i))
-}
-
 // Helper : ouvre l'accordéon d'un aérodrome donné
 function openAccordion(codeOaci: string) {
   const badge = screen.getByText(codeOaci)
   const trigger = badge.closest('button')!
   fireEvent.click(trigger)
+}
+
+// Helper : le select de statut est le 3e combobox (aérodrome, phase, statut)
+function getStatutSelect() {
+  return screen.getAllByRole('combobox')[2]
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -196,93 +207,77 @@ describe('CertificationModule', () => {
       expect(screen.getByTestId('module-title')).toHaveTextContent('Certification')
     })
 
-    it('affiche les KPIs et la liste des certifications', () => {
+    it('affiche les KPIs et les filtres', () => {
       renderModule()
-      expect(screen.getByText(/liste des certifications/i)).toBeInTheDocument()
       expect(screen.getByText(/filtres/i)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/rechercher un aérodrome/i)).toBeInTheDocument()
     })
   })
 
-  // ── 2. Navigation ─────────────────────────────────────────────────────────
-
-  describe('Navigation', () => {
-    it('affiche le bouton Archives qui redirige vers Registres', () => {
-      renderModule()
-      fireEvent.click(screen.getByText(/archives/i))
-      expect(mockSetActiveModule).toHaveBeenCalledWith('registres')
-    })
-  })
-
-  // ── 3. Filtrage par type d'aérodrome ─────────────────────────────────────
+  // ── 2. Affichage des aérodromes internationaux uniquement ────────────────
 
   describe('Affichage des aérodromes internationaux uniquement', () => {
-    beforeEach(async () => {
-      renderModule()
-      await goToListTab()
-    })
-
     it('affiche les aérodromes internationaux (GOOY, GOBD)', () => {
+      renderModule()
       expect(screen.getByText('GOOY')).toBeInTheDocument()
       expect(screen.getByText('GOBD')).toBeInTheDocument()
     })
 
     it("n'affiche pas les aérodromes nationaux (GOGG)", () => {
+      renderModule()
       expect(screen.queryByText('GOGG')).not.toBeInTheDocument()
     })
 
     it('affiche le nom de chaque aérodrome international', () => {
+      renderModule()
       expect(screen.getByText('Aéroport Léopold Sédar Senghor')).toBeInTheDocument()
       expect(screen.getByText('Aéroport Blaise Diagne')).toBeInTheDocument()
     })
   })
 
-  // ── 4. Filtrage par statut ────────────────────────────────────────────────
+  // ── 3. Filtrage par statut ────────────────────────────────────────────────
 
   describe('Filtrage par statut', () => {
-    beforeEach(async () => {
-      renderModule()
-      await goToListTab()
-    })
-
     it('affiche tous les aérodromes internationaux par défaut (filtre=all)', () => {
+      renderModule()
       expect(screen.getByText('GOOY')).toBeInTheDocument()
       expect(screen.getByText('GOBD')).toBeInTheDocument()
     })
 
     it('filtre par statut "en_cours" → affiche GOOY seulement', () => {
-      const select = screen.getByRole('combobox')
+      renderModule()
+      const select = getStatutSelect()
       fireEvent.change(select, { target: { value: 'en_cours' } })
       expect(screen.getByText('GOOY')).toBeInTheDocument()
       expect(screen.queryByText('GOBD')).not.toBeInTheDocument()
     })
 
     it('filtre par statut "certifie" → affiche GOBD seulement', () => {
-      const select = screen.getByRole('combobox')
+      renderModule()
+      const select = getStatutSelect()
       fireEvent.change(select, { target: { value: 'certifie' } })
       expect(screen.getByText('GOBD')).toBeInTheDocument()
       expect(screen.queryByText('GOOY')).not.toBeInTheDocument()
     })
 
     it('filtre "expire" → aucun résultat → message vide', () => {
-      const select = screen.getByRole('combobox')
+      renderModule()
+      const select = getStatutSelect()
       fireEvent.change(select, { target: { value: 'expire' } })
       expect(screen.getByText(/aucun aérodrome international trouvé/i)).toBeInTheDocument()
     })
   })
 
-  // ── 5. Accordéon et phases ────────────────────────────────────────────────
+  // ── 4. Accordéon et phases ────────────────────────────────────────────────
 
   describe('Accordéon et affichage des phases', () => {
-    beforeEach(async () => {
-      renderModule()
-      await goToListTab()
-    })
-
     it('les phases ne sont pas visibles avant l\'ouverture de l\'accordéon', () => {
+      renderModule()
       expect(screen.queryByText(/expression d'intérêt/i)).not.toBeInTheDocument()
     })
 
     it('ouvre l\'accordéon GOOY et affiche les 5 phases', () => {
+      renderModule()
       openAccordion('GOOY')
       expect(screen.getByText(/expression d'intérêt/i)).toBeInTheDocument()
       // "Demande Formelle" et "Vérification" peuvent apparaître plusieurs fois (h4 + p description)
@@ -293,12 +288,14 @@ describe('CertificationModule', () => {
     })
 
     it('affiche le badge "En cours" pour la phase active (phase 3)', () => {
+      renderModule()
       openAccordion('GOOY')
       const enCoursBadges = screen.getAllByText('En cours')
       expect(enCoursBadges.length).toBeGreaterThan(0)
     })
 
     it('affiche les badges "Complété" pour les phases terminées (1 et 2)', () => {
+      renderModule()
       openAccordion('GOOY')
       const completedBadges = screen.getAllByText('Complété')
       // phases 1 et 2 sont complétées (phase_active = 3)
@@ -306,6 +303,7 @@ describe('CertificationModule', () => {
     })
 
     it('affiche "Verrouillé" pour les phases futures (4 et 5)', () => {
+      renderModule()
       openAccordion('GOOY')
       const lockedBadges = screen.getAllByText('Verrouillé')
       // phases 4 et 5 sont verrouillées
@@ -313,6 +311,7 @@ describe('CertificationModule', () => {
     })
 
     it('ferme l\'accordéon au second clic', () => {
+      renderModule()
       openAccordion('GOOY')
       expect(screen.getByText(/expression d'intérêt/i)).toBeInTheDocument()
       openAccordion('GOOY')
@@ -320,31 +319,31 @@ describe('CertificationModule', () => {
     })
 
     it('affiche le badge "Phase 3/5" dans l\'accordéon GOOY', () => {
+      renderModule()
       expect(screen.getByText('Phase 3/5')).toBeInTheDocument()
     })
 
     it("affiche le badge statut 'En cours' dans l'accordéon de GOOY", () => {
+      renderModule()
+      openAccordion('GOOY')
       // "En cours" apparaît aussi comme option du select → utiliser getAllByText
       const matches = screen.getAllByText('En cours')
       expect(matches.some(el => el.classList.contains('badge'))).toBe(true)
     })
 
     it("affiche le badge statut 'Certifié' dans l'accordéon de GOBD", () => {
+      renderModule()
       const matches = screen.getAllByText('Certifié')
       expect(matches.some(el => el.classList.contains('badge'))).toBe(true)
     })
   })
 
-  // ── 6. Modal de phase ─────────────────────────────────────────────────────
+  // ── 5. Modal de phase ─────────────────────────────────────────────────────
 
   describe('Modal de phase (édition / vue)', () => {
-    beforeEach(async () => {
-      renderModule()
-      await goToListTab()
-      openAccordion('GOOY')
-    })
-
     it('ouvre le modal au clic sur Modifier la phase active (phase 3)', async () => {
+      renderModule()
+      openAccordion('GOOY')
       // Phase 3 est active (not locked, not completed) → boutons action visibles
       const editButtons = screen.getAllByTitle('Modifier')
       // Le premier bouton Modifier non verrouillé concerne la phase 3
@@ -357,6 +356,8 @@ describe('CertificationModule', () => {
     })
 
     it('le titre du modal contient "Phase" et le numéro', async () => {
+      renderModule()
+      openAccordion('GOOY')
       const editButtons = screen.getAllByTitle('Modifier')
       await act(async () => {
         fireEvent.click(editButtons[0])
@@ -366,41 +367,27 @@ describe('CertificationModule', () => {
       })
     })
 
-    it('le modal se ferme au clic sur Annuler', async () => {
+    it('le modal se ferme au clic sur Fermer', async () => {
+      renderModule()
+      openAccordion('GOOY')
       const editButtons = screen.getAllByTitle('Modifier')
       await act(async () => {
         fireEvent.click(editButtons[0])
       })
       await waitFor(() => screen.getByTestId('form-shell'))
-      fireEvent.click(screen.getByText('Annuler'))
+      fireEvent.click(screen.getByText('Fermer'))
       await waitFor(() => {
         expect(screen.queryByTestId('form-shell')).not.toBeInTheDocument()
       })
     })
   })
 
-  // ── 7. Archives ───────────────────────────────────────────────────────────
-
-  describe('Onglet Archives', () => {
-    it("affiche le libellé 'Archives → Registres' dans l'onglet", () => {
-      renderModule()
-      expect(screen.getByText(/archives.*registres/i)).toBeInTheDocument()
-    })
-
-    it('redirige vers le module Registres au clic', () => {
-      renderModule()
-      fireEvent.click(screen.getByText(/archives/i))
-      expect(mockSetActiveModule).toHaveBeenCalledWith('registres')
-    })
-  })
-
-  // ── 8. État vide ──────────────────────────────────────────────────────────
+  // ── 6. État vide ──────────────────────────────────────────────────────────
 
   describe('État vide', () => {
-    it('affiche le message vide quand aucun aérodrome international', async () => {
+    it('affiche le message vide quand aucun aérodrome international', () => {
       setupMocks({ aerodromes: MOCK_AERODROMES.filter(a => a.type === 'national') })
       renderModule()
-      await goToListTab()
       expect(screen.getByText(/aucun aérodrome international trouvé/i)).toBeInTheDocument()
     })
   })
