@@ -35,6 +35,11 @@ export * from './shapExplainer'
 export * from './oaciGraph'
 
 // ============================================================
+// SIMULATION DE SURVEILLANCE
+// ============================================================
+export * from './simulationSurveillance'
+
+// ============================================================
 // ENTRAÎNEMENT ET FEEDBACK
 // ============================================================
 export { ModelCalibrator, calibrator } from './training/calibrator'

@@ -29,6 +29,7 @@ import type { ResultatOrchestrateur } from '@/lib/ia/orchestrateur'
 import DigitalTwinCard from './DigitalTwinCard'
 import ShapExplainerCard from './ShapExplainerCard'
 import OaciGraphCard from './OaciGraphCard'
+import SimulationSurveillanceCard from './SimulationSurveillanceCard'
 import type { ModeleBenchmarkId } from '@/lib/ia/benchmark'
 import { MODELE_LABELS, DEFAULT_BENCHMARK_CONFIG, MODEL_HYPERPARAMS, configEstPersonnalisee } from '@/lib/ia/benchmark'
 import type { BenchmarkConfig } from '@/lib/ia/benchmark'
@@ -150,7 +151,7 @@ export default function MLMonitoringModule({ user }: Props) {
           <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>
         </div>} />
 
-      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Dix cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI" sections={HELP_SECTIONS} />
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Onze cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI, simulation de surveillance" sections={HELP_SECTIONS} />
 
       {importError && <div className="alert alert-danger animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{importError}</div></div>}
       {benchmarkError && <div className="alert alert-warning animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{benchmarkError}</div></div>}
@@ -256,6 +257,13 @@ export default function MLMonitoringModule({ user }: Props) {
         profil={premierProfil}
         ecarts={ecarts}
         surveillances={surveillances}
+        evenements={evenementsSecurite}
+      />
+
+      {/* ══════════════════ CARTE 11 : SIMULATION DE SURVEILLANCE ══════════════════ */}
+      <SimulationSurveillanceCard
+        profilsRisque={profilsRisque}
+        ecarts={ecarts}
         evenements={evenementsSecurite}
       />
     </div>
@@ -1175,4 +1183,5 @@ const HELP_SECTIONS: HelpSection[] = [
   { id: 'jumeau', title: '8. Jumeau numérique interactif', content: 'Miroir interactif du système de risque : ajustez les critères C1-C5, l\'horizon, les facteurs aggravants, le cygne noir et les actions correctives. Le score projeté, les 4 scénarios, la trajectoire et la propagation des écarts dans le graphe se recalculent en temps réel. Lecture seule — aucune donnée n\'est modifiée.' },
   { id: 'shap', title: '9. Explicabilité SHAP-like', content: 'Attribution additive exacte du score : chaque critère C1-C5 reçoit une contribution φ = poids × (valeur − référence)/100, et baseline + Σφ = score (exactitude vérifiée). Trois références possibles : neutre (50), moyenne historique ou mois précédent. Aucune approximation.' },
   { id: 'oaci', title: '10. Graphe unifié OACI → risques → écarts', content: 'Chaîne causale Critère OACI (C1-C5) → Barrière Bow-Tie → Domaine → Écart. Sélectionnez un critère pour tracer la propagation de son impact (décroissante le long du graphe), et consultez par domaine l\'efficacité des barrières et les écarts rattachés.' },
+  { id: 'simulation', title: '11. Simulation de surveillance', content: 'Simule une surveillance sur un aérodrome à partir de ses données réelles : profil C1-C5, écarts ouverts, historique et items du Kit Inspecteur. Choisissez l\'aérodrome, le type de surveillance et la portée, puis lancez la simulation pour obtenir une checklist pré-remplie SA/NS/NA/NV avec confiance, les écarts probables et le rapport PDF (gabarit ANACIM existant). Lecture seule — aucune donnée créée ni modifiée.' },
 ]
