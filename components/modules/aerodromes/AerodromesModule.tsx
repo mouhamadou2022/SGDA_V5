@@ -138,6 +138,9 @@ const activeDepartement = useAppStore(s => s.activeDepartement)
   const [showQrDialog,      setShowQrDialog]      = useState(false);
   const [mapLoaded,         setMapLoaded]         = useState(false);
 
+  const [showExportModal,   setShowExportModal]   = useState(false);
+  const [exportSearch,      setExportSearch]      = useState('');
+
   const [mounted,           setMounted]           = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1)
@@ -177,6 +180,17 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
     const start = (currentPage - 1) * PAGE_SIZE
     return filteredAerodromes.slice(start, start + PAGE_SIZE)
   }, [filteredAerodromes, currentPage])
+
+  // Liste pour la modale d'export (recherche dédiée, non bornée par les filtres)
+  const exportList = useMemo(() => {
+    const term = exportSearch.trim().toLowerCase();
+    return aerodromes.filter(a => !a.deleted_at && (a.departement ?? 'DNSA') === activeDepartement)
+      .filter(a => {
+        if (!term) return true;
+        return a.nom.toLowerCase().includes(term) || a.code_oaci.toLowerCase().includes(term);
+      })
+      .sort((x, y) => x.nom.localeCompare(y.nom, 'fr'));
+  }, [aerodromes, exportSearch, activeDepartement]);
 
   // ── Statistiques ──────────────────────────────────────────────────────────
   const actifs = useMemo(() => {
@@ -309,65 +323,199 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
 
   const handleExportFichePDF = async (aero: Aerodrome) => {
     setExportingPdf(true);
+    setShowExportModal(false);
     try {
       const profil = profilsRisque[aero.id];
       const risqueLabel = profil?.niveau ? profil.niveau.charAt(0).toUpperCase() + profil.niveau.slice(1) : '—';
-      const certif = certifications?.find(c => c.aerodrome_id === aero.id && c.statut_global === 'certifie');
-      const homolog = homologations?.find(h => h.aerodrome_id === aero.id && h.statut_global === 'homologue');
-      const ecartsOuverts = ecarts?.filter(e => e.aerodrome_id === aero.id && e.statut !== 'cloture').length || 0;
-      const surveillancesCount = surveillances?.filter(s => s.aerodrome_id === aero.id).length || 0;
+      const certif = certifications?.find(c => c.aerodrome_id === aero.id);
+      const homolog = homologations?.find(h => h.aerodrome_id === aero.id);
+      const ecartsAero = (ecarts || []).filter(e => e.aerodrome_id === aero.id);
+      const ecartsOuverts = ecartsAero.filter(e => e.statut !== 'cloture');
+      const surveillancesAero = (surveillances || []).filter(s => s.aerodrome_id === aero.id)
+        .sort((x, y) => new Date(y.date_fin).getTime() - new Date(x.date_fin).getTime());
+      const derniereSurv = surveillancesAero.find(s => s.statut === 'transmise');
+
       const ligne = (label: string, value: string) => `
         <tr>
           <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;color:#475569;width:38%;">${label}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;font-weight:600;">${value}</td>
         </tr>`;
 
+      const section = (titre: string, contenu: string) => `
+        <h2 style="font-size:13px;color:#0f766e;margin:14px 0 6px;border-bottom:1px solid #ccfbf1;padding-bottom:3px;">${titre}</h2>
+        <table style="width:100%;border-collapse:collapse;">${contenu}</table>`;
+
+      // Contacts exploitant
+      const contactsRows = aero.contacts && aero.contacts.length > 0
+        ? aero.contacts.map((c, i) => `<tr>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;color:#475569;width:38%;">Contact ${i + 1}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${c.nom}${c.poste ? ' — ' + c.poste : ''}${c.email ? '<br/>' + c.email : ''}${c.telephone ? '<br/>' + c.telephone : ''}</td>
+          </tr>`).join('')
+        : '';
+
+      // Piste principale détaillée
+      const piste = aero.piste_principale;
+      const pisteRows = piste ? `
+        ${ligne('Longueur', `${piste.longueur} m`)}
+        ${ligne('Largeur', `${piste.largeur} m`)}
+        ${ligne('Orientation', piste.orientation || '—')}
+        ${ligne('Revêtement', piste.revetement || '—')}
+        ${ligne('PCR (classification)', piste.pcr ? `${piste.pcr}` : '—')}
+        ${ligne('Code de référence OACI', piste.code_reference || '—')}
+        ${ligne('Type d\'approche', piste.type_approche ? ({ a_vue: 'À vue', classique: 'Classique', cat1: 'CAT I', cat2: 'CAT II' } as Record<string, string>)[piste.type_approche] || piste.type_approche : '—')}
+        ${ligne('Avion de référence', piste.avion_reference || '—')}
+      ` : ligne('Piste principale', 'Aucune donnée');
+
+      // Hélistation détaillée
+      const heli = aero.helistation;
+      const heliRows = heli ? `
+        ${ligne('Indicatif radio (RT)', heli.indicatif_rt || '—')}
+        ${ligne('Identification', heli.identification || '—')}
+        ${ligne('Marque distinctive', heli.marque_distinctive || '—')}
+        ${ligne('Type d\'installation', heli.type_installation ? ({ plateforme_autoelevee: 'Plate-forme auto-élévatrice', plateforme_fixe: 'Plate-forme fixe', plateforme_flottante: 'Plate-forme flottante', terrestre: 'Terrestre', navire: 'Navire', autre: 'Autre' } as Record<string, string>)[heli.type_installation] || heli.type_installation : '—')}
+        ${ligne('Valeur D (diamètre max admis)', heli.valeur_d ? `${heli.valeur_d} m` : '—')}
+        ${ligne('Altitude plate-forme', heli.altitude_ft ? `${heli.altitude_ft} ft` : '—')}
+        ${ligne('Cap magnétique (FATO)', heli.cap ? `${heli.cap}°` : '—')}
+        ${ligne('MTOW max admis', heli.mtom ? `${heli.mtom} t` : '—')}
+        ${ligne('Moyen de communication', heli.moyen_com ? ({ VHF: 'VHF', UHF: 'UHF', HF: 'HF', SATCOM: 'SATCOM' } as Record<string, string>)[heli.moyen_com] || heli.moyen_com : '—')}
+        ${ligne('Fréquence COM', heli.frequence_com || '—')}
+        ${ligne('Avitaillement', heli.avitaillement ? 'Oui' : 'Non')}
+        ${ligne('GPU (groupe de puissance)', heli.gpu ? 'Oui' : 'Non')}
+        ${ligne('Équipement incendie', heli.equipement_incendie || '—')}
+      ` : '';
+
+      // Certification détaillée
+      const certifDelivrance = certif?.date_delivrance || certif?.phases_data?.phase4?.date_delivrance;
+      const certifExpiration = certif?.date_expiration || certif?.phases_data?.phase4?.date_expiration;
+      const certifRows = certif ? `
+        ${ligne('Statut global', certif.statut_global)}
+        ${ligne('Type', certif.type_certification === 'initiale' ? 'Initiale' : certif.type_certification === 'renouvellement' ? 'Renouvellement' : '—')}
+        ${ligne('N° certificat', certif.numero_cert || certif.phases_data?.phase4?.numero_certificat || '—')}
+        ${ligne('Date de délivrance', certifDelivrance ? new Date(certifDelivrance).toLocaleDateString('fr-FR') : '—')}
+        ${ligne('Date d\'expiration', certifExpiration ? new Date(certifExpiration).toLocaleDateString('fr-FR') : '—')}
+        ${ligne('Conditions / limitations', certif.phases_data?.phase4?.conditions_exploitation || certif.phases_data?.phase4?.limitations || '—')}
+        ${ligne('Statut officiel AIP', certif.phases_data?.phase5?.statut_officiel || '—')}
+        ${ligne('Référence AIP', certif.phases_data?.phase5?.reference_aip || '—')}
+      ` : ligne('Certification', 'Non certifié');
+
+      const homologDelivrance = homolog?.date_delivrance || homolog?.phases_data?.phase3?.date_delivrance;
+      const homologExpiration = homolog?.date_expiration || homolog?.phases_data?.phase3?.date_expiration;
+      const homologRows = homolog ? `
+        ${ligne('Statut global', homolog.statut_global)}
+        ${ligne('Type', homolog.type_homologation === 'initiale' ? 'Initiale' : homolog.type_homologation === 'renouvellement' ? 'Renouvellement' : '—')}
+        ${ligne('N° décision', homolog.numero_decision || homolog.phases_data?.phase3?.numero_decision || '—')}
+        ${ligne('Date de délivrance', homologDelivrance ? new Date(homologDelivrance).toLocaleDateString('fr-FR') : '—')}
+        ${ligne('Date d\'expiration', homologExpiration ? new Date(homologExpiration).toLocaleDateString('fr-FR') : '—')}
+        ${ligne('Conditions d\'exploitation', homolog.phases_data?.phase3?.conditions_exploitation || '—')}
+        ${ligne('Décision finale', homolog.phases_data?.phase3?.nature_decision || '—')}
+      ` : ligne('Homologation', 'Non homologué');
+
+      // Écarts ouverts détaillés
+      const ecartsRows = ecartsOuverts.length > 0
+        ? ecartsOuverts.map((e, i) => `<tr>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;width:4%;">${i + 1}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;width:12%;">${e.reference || '—'}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${e.libelle}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;width:12%;text-transform:capitalize;">${e.niveau_risque}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;width:12%;">${e.delai_pac ? new Date(e.delai_pac).toLocaleDateString('fr-FR') : '—'}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="5" style="padding:5px 8px;font-size:11px;color:#64748b;">Aucun écart ouvert.</td></tr>';
+
+      // Surveillances récentes
+      const survRows = surveillancesAero.length > 0
+        ? surveillancesAero.slice(0, 10).map((s, i) => `<tr>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;width:4%;">${i + 1}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${s.type}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${s.date_debut ? new Date(s.date_debut).toLocaleDateString('fr-FR') : '—'}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${s.date_fin ? new Date(s.date_fin).toLocaleDateString('fr-FR') : '—'}</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;text-transform:capitalize;">${s.statut}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="5" style="padding:5px 8px;font-size:11px;color:#64748b;">Aucune surveillance enregistrée.</td></tr>';
+
+      const typeApp = aero.type_entite === 'helistation' ? 'Hélistation' : aero.type_entite === 'mixte' ? 'Site mixte' : 'Aérodrome';
+
       const html = `
         <html><head><meta charset="utf-8" /></head>
         <body style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:0;">
           <div style="padding:0 4px;">
-            <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:16px;">
-              <h1 style="font-size:20px;margin:0;color:#0f766e;">${aero.nom} (${aero.code_oaci})</h1>
-              <div style="font-size:11px;color:#475569;margin-top:4px;">Fiche aérodrome — généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+            <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end;">
+              <div>
+                <h1 style="font-size:19px;margin:0;color:#0f766e;">${aero.nom} (${aero.code_oaci})</h1>
+                <div style="font-size:11px;color:#475569;margin-top:4px;">${typeApp} — ${aero.region} — Fiche d'information aérodrome</div>
+              </div>
+              <div style="text-align:right;font-size:10px;color:#94a3b8;">Généré le ${new Date().toLocaleDateString('fr-FR')}<br/>SGDA V5 — ANACIM</div>
             </div>
 
-            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Identification</h2>
-            <table style="width:100%;border-collapse:collapse;">
+            ${section('1. Identification', `
+              ${ligne('Nom', aero.nom)}
+              ${ligne('Code OACI', aero.code_oaci)}
               ${ligne('Département', aero.departement || 'DNSA')}
               ${ligne('Type', aero.type === 'international' ? 'International' : 'National')}
-              ${ligne('Type d\'entité', aero.type_entite === 'helistation' ? 'Hélistation' : aero.type_entite === 'mixte' ? 'Site mixte' : 'Aérodrome')}
+              ${ligne('Nature', typeApp)}
               ${ligne('Région', aero.region)}
               ${ligne('Catégorie SSLLA', aero.categorie_sslia || '—')}
-              ${ligne('Exploitant', aero.exploitant_nom || '—')}
               ${ligne('Statut', aero.statut)}
-            </table>
+              ${ligne('Coordonnées', `${aero.lat.toFixed(5)}, ${aero.lon.toFixed(5)}`)}
+              ${ligne('Altitude', aero.altitude ? `${aero.altitude} m` : '—')}
+              ${ligne('Horaires', aero.horaires === 'h24' ? '24h/24' : aero.horaires === 'jour' ? 'Jour' : '—')}
+            `)}
 
-            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Sécurité et risque</h2>
-            <table style="width:100%;border-collapse:collapse;">
+            ${section('2. Exploitant', `
+              ${ligne('Nom', aero.exploitant_nom || '—')}
+              ${ligne('Adresse', aero.exploitant_adresse || '—')}
+              ${ligne('Téléphone', aero.exploitant_telephone || '—')}
+              ${contactsRows || ligne('Contacts', '—')}
+            `)}
+
+            ${section('3. Infrastructure — Piste principale', pisteRows)}
+
+            ${heli ? section('3bis. Hélistation / Plate-forme', heliRows) : ''}
+
+            ${section('4. Sécurité et risque', `
               ${ligne('Score global', profil ? `${Math.round(profil.score_global)}/100` : '—')}
               ${ligne('Niveau de risque', risqueLabel)}
-              ${ligne('Maturité SGS', profil ? `${profil.c1}/100` : '—')}
+              ${ligne('Composante C1 (SGS)', profil ? `${Math.round(profil.c1)}/100` : '—')}
+              ${ligne('Composante C2 (Sécurité opérationnelle)', profil ? `${Math.round(profil.c2)}/100` : '—')}
+              ${ligne('Composante C3 (Surveillance)', profil ? `${Math.round(profil.c3)}/100` : '—')}
+              ${ligne('Composante C4 (Conformité)', profil ? `${Math.round(profil.c4)}/100` : '—')}
+              ${ligne('Composante C5 (Maturité SGS)', profil ? `${Math.round(profil.c5)}/100` : '—')}
               ${ligne('Tendance', profil?.tendance === 'hausse' ? 'Hausse' : profil?.tendance === 'baisse' ? 'Baisse' : 'Stable')}
-              ${ligne('Écarts ouverts', `${ecartsOuverts}`)}
-              ${ligne('Surveillances', `${surveillancesCount}`)}
+              ${ligne('Prédiction 3 mois', profil?.prediction_3m ? `${Math.round(profil.prediction_3m)}` : '—')}
+              ${ligne('Prédiction 6 mois', profil?.prediction_6m ? `${Math.round(profil.prediction_6m)}` : '—')}
+            `)}
+
+            ${section('5. Certification / Homologation', `
+              ${certifRows}
+              ${homologRows}
+            `)}
+
+            <h2 style="font-size:13px;color:#0f766e;margin:14px 0 6px;border-bottom:1px solid #ccfbf1;padding-bottom:3px;">6. Écarts ouverts (${ecartsOuverts.length})</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              <tr style="background:#f1f5f9;">
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">#</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Réf.</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Libellé</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Risque</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Échéance PAC</th>
+              </tr>
+              ${ecartsRows}
             </table>
 
-            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Certification / Homologation</h2>
+            <h2 style="font-size:13px;color:#0f766e;margin:14px 0 6px;border-bottom:1px solid #ccfbf1;padding-bottom:3px;">7. Historique des surveillances (${surveillancesAero.length})</h2>
             <table style="width:100%;border-collapse:collapse;">
-              ${ligne('Certification', certif ? `Certifié le ${certif.date_delivrance ? new Date(certif.date_delivrance).toLocaleDateString('fr-FR') : '—'}` : aero.certifie_le ? `Certifié le ${new Date(aero.certifie_le).toLocaleDateString('fr-FR')}` : 'Non certifié')}
-              ${ligne('Homologation', homolog?.phases_data?.phase3?.date_delivrance ? `Homologué le ${new Date(homolog.phases_data.phase3.date_delivrance).toLocaleDateString('fr-FR')}` : aero.homologue_le ? `Homologué le ${new Date(aero.homologue_le).toLocaleDateString('fr-FR')}` : 'Non homologué')}
-            </table>
-
-            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Infrastructure</h2>
-            <table style="width:100%;border-collapse:collapse;">
-              ${ligne('Altitude', aero.altitude ? `${aero.altitude} m` : '—')}
-              ${ligne('Coordonnées', `${aero.lat.toFixed(4)}, ${aero.lon.toFixed(4)}`)}
-              ${aero.piste_principale ? ligne('Piste principale', `${aero.piste_principale.longueur} m × ${aero.piste_principale.largeur} m — ${aero.piste_principale.revetement}`) : ligne('Piste principale', '—')}
-              ${ligne('Horaires', aero.horaires === 'h24' ? '24h/24' : aero.horaires === 'jour' ? 'Jour' : '—')}
+              <tr style="background:#f1f5f9;">
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">#</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Type</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Début</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Fin</th>
+                <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Statut</th>
+              </tr>
+              ${survRows}
             </table>
 
             <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8;">
-              Fiche générée par SGDA V5 à partir des données locales du poste.
+              Fiche d'information aérodrome générée par SGDA V5 à partir des données locales du poste (consultable hors ligne).
+              ${derniereSurv ? `Dernière surveillance transmise : ${new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR')}.` : ''}
             </div>
           </div>
         </body></html>`;
@@ -376,7 +524,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
         title: `Fiche ${aero.code_oaci} — ${new Date().toISOString().slice(0, 10)}`,
         author: 'SGDA V5',
         subject: `Fiche aérodrome ${aero.nom}`,
-        keywords: ['SGDA', 'aérodrome', 'fiche'],
+        keywords: ['SGDA', 'aérodrome', 'fiche', 'inspection'],
         header: { text: 'SGDA V5 — Aérodromes', height: 10 },
         footer: { text: 'Rapport généré par le module Aérodromes', height: 10 },
       });
@@ -667,7 +815,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
               <button className={viewMode==='carte'  ? 'active' : ''} onClick={() => setViewMode('carte')}  title="Vue carte"><Map      className="w-4 h-4"/></button>
             </div>
 
-            <button className="action-button" onClick={handleExportListePDF} title="Exporter la liste en PDF" disabled={exportingPdf}><Download className="w-4 h-4"/></button>
+            <button className="action-button" onClick={() => { setExportSearch(''); setShowExportModal(true); }} title="Exporter une fiche ou la liste en PDF" disabled={exportingPdf}><Download className="w-4 h-4"/></button>
           </div>
         </Card>
       )}
@@ -748,6 +896,79 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
             </div>
             <div className="modal-body p-5">
               <QrCodeGenerator aerodrome={selectedAerodrome} />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Modale Sélection Export ── */}
+      {showExportModal && createPortal(
+        <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
+          <div className="modal-content max-w-2xl max-h-[85vh] rounded-2xl overflow-hidden border-t-4 border-t-role-primary flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent">
+              <div className="modal-title">
+                <Download className="w-5 h-5 text-role-primary" />
+                Exporter une fiche aérodrome
+              </div>
+              <button className="modal-close" onClick={() => setShowExportModal(false)}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="modal-body p-5 flex flex-col gap-4 min-h-0 overflow-hidden">
+              <p className="text-small text-muted-foreground">
+                Sélectionnez une infrastructure pour générer sa <span className="font-semibold text-foreground">fiche descriptive complète</span> (identification, exploitant, infrastructure, risque, certification, écarts, surveillances) — consultable hors ligne lors des inspections.
+              </p>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/>
+                <input type="text" placeholder="Rechercher par nom ou code OACI…" value={exportSearch}
+                  onChange={e => setExportSearch(e.target.value)}
+                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-role-primary"/>
+              </div>
+              <div className="overflow-y-auto border border-border rounded-xl divide-y divide-border min-h-[220px] max-h-[40vh]">
+                {exportList.length === 0 ? (
+                  <div className="py-10 text-center text-muted-foreground text-sm">
+                    <MapPin className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                    Aucune infrastructure correspondante
+                  </div>
+                ) : exportList.map(a => {
+                  const p = profilsRisque[a.id];
+                  const ecartsN = ecarts.filter(e => e.aerodrome_id === a.id && e.statut !== 'cloture').length;
+                  return (
+                    <button key={a.id} onClick={() => handleExportFichePDF(a)} disabled={exportingPdf}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-role-primary-soft/60 transition-colors text-left disabled:opacity-60">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0">
+                          <EntiteIcon typeEntite={a.type_entite} className="w-4 h-4 text-role-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="code-oaci-badge">{a.code_oaci}</span>
+                            <span className="font-medium text-sm truncate">{a.nom}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {a.region}
+                            {p && <span className={`ml-2 ${getRiskBadgeClass(p.niveau)}`}>{p.score_global}%</span>}
+                            {ecartsN > 0 && <span className="badge warning ml-2 text-[10px]">{ecartsN} écarts</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-xs text-role-primary whitespace-nowrap shrink-0">
+                        <Download className="w-4 h-4" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-3">
+                <span className="text-xs text-muted-foreground">
+                  {exportList.length} infrastructure{exportList.length !== 1 ? 's' : ''}
+                </span>
+                <button className="btn btn-secondary gap-2" onClick={() => { setShowExportModal(false); handleExportListePDF(); }} disabled={exportingPdf}>
+                  {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Exporter la liste ({filteredAerodromes.length})
+                </button>
+              </div>
             </div>
           </div>
         </div>,
