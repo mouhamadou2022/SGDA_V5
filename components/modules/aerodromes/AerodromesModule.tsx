@@ -17,6 +17,7 @@ import {
 import { useAppStore, type Aerodrome } from '@/lib/store';
 import { toast } from '@/lib/toast';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
+import { generatePDFFromHTMLString } from '@/lib/pdfGenerator';
 import { REGIONS } from '@/lib/config';
 import AerodromeForm from '@/components/forms/AerodromeForm';
 import AerodromeDetail from './AerodromeDetail';
@@ -234,6 +235,164 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
 
   const closeForm = () => { setShowFormDialog(false); setSelectedAerodrome(null); };
 
+  // ── Export PDF ────────────────────────────────────────────────────────────
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleExportListePDF = async () => {
+    if (filteredAerodromes.length === 0) {
+      toast('warning', 'Aucun aérodrome à exporter', 'La liste filtrée est vide');
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const rows = filteredAerodromes.map((a, i) => {
+        const profil = profilsRisque[a.id];
+        const risque = profil?.niveau || '—';
+        return `
+          <tr>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${i + 1}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;">${a.nom}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${a.code_oaci}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${a.region}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${a.type === 'international' ? 'International' : 'National'} · ${a.type_entite === 'helistation' ? 'Hélistation' : a.type_entite === 'mixte' ? 'Mixte' : 'Aérodrome'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-transform:capitalize;">${a.statut}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-transform:capitalize;">${risque}</td>
+          </tr>`;
+      }).join('');
+
+      const html = `
+        <html><head><meta charset="utf-8" /></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:0;">
+          <div style="padding:0 4px;">
+            <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:16px;">
+              <h1 style="font-size:20px;margin:0;color:#0f766e;">Liste des aérodromes</h1>
+              <div style="font-size:11px;color:#475569;margin-top:4px;">SGDA V5 — ${filteredAerodromes.length} aérodrome${filteredAerodromes.length > 1 ? 's' : ''} — généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;">
+              <tr style="background:#f1f5f9;">
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">#</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Nom</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Code OACI</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Région</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Type</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Statut</th>
+                <th style="padding:5px 8px;font-size:10px;text-align:left;color:#475569;">Risque</th>
+              </tr>
+              ${rows}
+            </table>
+            <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8;">
+              Ce rapport reflète les filtres actifs au moment de l'export (recherche, région, type, statut, niveau de risque).
+            </div>
+          </div>
+        </body></html>`;
+
+      const result = await generatePDFFromHTMLString(html, {
+        title: `Liste des aérodromes — ${new Date().toISOString().slice(0, 10)}`,
+        author: 'SGDA V5',
+        subject: 'Liste des aérodromes',
+        keywords: ['SGDA', 'aérodromes', 'liste'],
+        header: { text: 'SGDA V5 — Aérodromes', height: 10 },
+        footer: { text: 'Rapport généré par le module Aérodromes', height: 10 },
+      });
+      if (!result.success || !result.blob) throw new Error(result.error || 'Génération impossible');
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a'); a.href = url; a.download = `aerodromes-liste-${new Date().toISOString().split('T')[0]}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+      toast('success', 'Rapport PDF généré', `${filteredAerodromes.length} aérodromes`);
+    } catch (error) {
+      console.error('Erreur export liste PDF:', error);
+      toast('error', 'Échec export PDF', error instanceof Error ? error.message : 'Erreur inconnue');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportFichePDF = async (aero: Aerodrome) => {
+    setExportingPdf(true);
+    try {
+      const profil = profilsRisque[aero.id];
+      const risqueLabel = profil?.niveau ? profil.niveau.charAt(0).toUpperCase() + profil.niveau.slice(1) : '—';
+      const certif = certifications?.find(c => c.aerodrome_id === aero.id && c.statut_global === 'certifie');
+      const homolog = homologations?.find(h => h.aerodrome_id === aero.id && h.statut_global === 'homologue');
+      const ecartsOuverts = ecarts?.filter(e => e.aerodrome_id === aero.id && e.statut !== 'cloture').length || 0;
+      const surveillancesCount = surveillances?.filter(s => s.aerodrome_id === aero.id).length || 0;
+      const ligne = (label: string, value: string) => `
+        <tr>
+          <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;color:#475569;width:38%;">${label}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #eef2f7;font-size:11px;font-weight:600;">${value}</td>
+        </tr>`;
+
+      const html = `
+        <html><head><meta charset="utf-8" /></head>
+        <body style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:0;">
+          <div style="padding:0 4px;">
+            <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:16px;">
+              <h1 style="font-size:20px;margin:0;color:#0f766e;">${aero.nom} (${aero.code_oaci})</h1>
+              <div style="font-size:11px;color:#475569;margin-top:4px;">Fiche aérodrome — généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+            </div>
+
+            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Identification</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              ${ligne('Département', aero.departement || 'DNSA')}
+              ${ligne('Type', aero.type === 'international' ? 'International' : 'National')}
+              ${ligne('Type d\'entité', aero.type_entite === 'helistation' ? 'Hélistation' : aero.type_entite === 'mixte' ? 'Site mixte' : 'Aérodrome')}
+              ${ligne('Région', aero.region)}
+              ${ligne('Catégorie SSLLA', aero.categorie_sslia || '—')}
+              ${ligne('Exploitant', aero.exploitant_nom || '—')}
+              ${ligne('Statut', aero.statut)}
+            </table>
+
+            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Sécurité et risque</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              ${ligne('Score global', profil ? `${Math.round(profil.score_global)}/100` : '—')}
+              ${ligne('Niveau de risque', risqueLabel)}
+              ${ligne('Maturité SGS', profil ? `${profil.c1}/100` : '—')}
+              ${ligne('Tendance', profil?.tendance === 'hausse' ? 'Hausse' : profil?.tendance === 'baisse' ? 'Baisse' : 'Stable')}
+              ${ligne('Écarts ouverts', `${ecartsOuverts}`)}
+              ${ligne('Surveillances', `${surveillancesCount}`)}
+            </table>
+
+            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Certification / Homologation</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              ${ligne('Certification', certif ? `Certifié le ${certif.date_delivrance ? new Date(certif.date_delivrance).toLocaleDateString('fr-FR') : '—'}` : aero.certifie_le ? `Certifié le ${new Date(aero.certifie_le).toLocaleDateString('fr-FR')}` : 'Non certifié')}
+              ${ligne('Homologation', homolog?.phases_data?.phase3?.date_delivrance ? `Homologué le ${new Date(homolog.phases_data.phase3.date_delivrance).toLocaleDateString('fr-FR')}` : aero.homologue_le ? `Homologué le ${new Date(aero.homologue_le).toLocaleDateString('fr-FR')}` : 'Non homologué')}
+            </table>
+
+            <h2 style="font-size:13px;color:#0f766e;margin:12px 0 6px;">Infrastructure</h2>
+            <table style="width:100%;border-collapse:collapse;">
+              ${ligne('Altitude', aero.altitude ? `${aero.altitude} m` : '—')}
+              ${ligne('Coordonnées', `${aero.lat.toFixed(4)}, ${aero.lon.toFixed(4)}`)}
+              ${aero.piste_principale ? ligne('Piste principale', `${aero.piste_principale.longueur} m × ${aero.piste_principale.largeur} m — ${aero.piste_principale.revetement}`) : ligne('Piste principale', '—')}
+              ${ligne('Horaires', aero.horaires === 'h24' ? '24h/24' : aero.horaires === 'jour' ? 'Jour' : '—')}
+            </table>
+
+            <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8;">
+              Fiche générée par SGDA V5 à partir des données locales du poste.
+            </div>
+          </div>
+        </body></html>`;
+
+      const result = await generatePDFFromHTMLString(html, {
+        title: `Fiche ${aero.code_oaci} — ${new Date().toISOString().slice(0, 10)}`,
+        author: 'SGDA V5',
+        subject: `Fiche aérodrome ${aero.nom}`,
+        keywords: ['SGDA', 'aérodrome', 'fiche'],
+        header: { text: 'SGDA V5 — Aérodromes', height: 10 },
+        footer: { text: 'Rapport généré par le module Aérodromes', height: 10 },
+      });
+      if (!result.success || !result.blob) throw new Error(result.error || 'Génération impossible');
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a'); a.href = url; a.download = `fiche-${aero.code_oaci}-${new Date().toISOString().split('T')[0]}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+      toast('success', 'Fiche PDF générée', aero.code_oaci);
+    } catch (error) {
+      console.error('Erreur export fiche PDF:', error);
+      toast('error', 'Échec export PDF', error instanceof Error ? error.message : 'Erreur inconnue');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   // ── Vue Liste ─────────────────────────────────────────────────────────────
   const renderListView = () => {
     const columns: Column<Aerodrome>[] = [
@@ -364,7 +523,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
                 <div className="flex gap-1">
                   <button className="action-button" onClick={e => { e.stopPropagation(); setSelectedAerodrome(aerodrome); setShowQrDialog(true); }} title="QR Code"><QrCode className="w-4 h-4"/></button>
                   <button className="action-button" onClick={e => { e.stopPropagation(); handleDirectEdit(aerodrome); }}><PenSquare className="w-4 h-4"/></button>
-                  <button className="action-button" onClick={e => e.stopPropagation()}><Download className="w-4 h-4"/></button>
+                  <button className="action-button" onClick={e => { e.stopPropagation(); handleExportFichePDF(aerodrome); }} title="Exporter la fiche PDF"><Download className="w-4 h-4"/></button>
                 </div>
               )}
             </div>
@@ -508,7 +667,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
               <button className={viewMode==='carte'  ? 'active' : ''} onClick={() => setViewMode('carte')}  title="Vue carte"><Map      className="w-4 h-4"/></button>
             </div>
 
-            <button className="action-button" title="Exporter"><Download className="w-4 h-4"/></button>
+            <button className="action-button" onClick={handleExportListePDF} title="Exporter la liste en PDF" disabled={exportingPdf}><Download className="w-4 h-4"/></button>
           </div>
         </Card>
       )}

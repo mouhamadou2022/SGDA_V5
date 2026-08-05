@@ -649,8 +649,21 @@ export async function envoyerBulletinMensuelParEmail(
   })
 
   const body = await res.json().catch(() => ({ success: false, reason: 'Réponse serveur invalide' }))
-  if (!res.ok || body.error) {
-    throw new Error(body.reason || body.error || `Échec de l'envoi (${res.status})`)
+  if (!res.ok || body.error || body.success === false) {
+    const erreurBrute = body.reason || body.error
+    let message: string
+    if (typeof erreurBrute === 'string') {
+      message = erreurBrute
+    } else if (erreurBrute && typeof erreurBrute.message === 'string') {
+      message = erreurBrute.message
+    } else {
+      try {
+        message = JSON.stringify(erreurBrute) || `Échec de l'envoi (${res.status})`
+      } catch {
+        message = `Échec de l'envoi (${res.status})`
+      }
+    }
+    throw new Error(message)
   }
   return { envoye: body.data?.ids?.length ?? adresses.length, total: adresses.length }
 }

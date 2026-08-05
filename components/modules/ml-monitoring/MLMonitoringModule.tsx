@@ -38,11 +38,12 @@ import type { BenchmarkConfig } from '@/lib/ia/benchmark'
 import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
 } from 'recharts'
+import { generatePDFFromHTMLString } from '@/lib/pdfGenerator'
 import {
   Brain, Target, TrendingUp, AlertTriangle, CheckCircle2, RefreshCw,
   Database, Download, Upload, RotateCcw,
   BookOpen, FlaskConical, Network, Users, Cpu, Calculator,
-  Play, Trophy, Sparkles, Settings, SlidersHorizontal, Workflow, History,
+  Play, Trophy, Sparkles, Settings, SlidersHorizontal, Workflow, History, FileText,
 } from 'lucide-react'
 
 interface Props { user: AuthUser }
@@ -68,7 +69,6 @@ export default function MLMonitoringModule({ user }: Props) {
   const calculatePerformance = useAppStore(s => s.calculatePerformance)
   const getDetailedLearningStats = useAppStore(s => s.getDetailedLearningStats)
   const recalibrateModel = useAppStore(s => s.recalibrateModel)
-  const exportLearningData = useAppStore(s => s.exportLearningData)
   const importLearningData = useAppStore(s => s.importLearningData)
   const resetLearningData = useAppStore(s => s.resetLearningData)
   const getLearningStatsPAC = useAppStore(s => s.getLearningStatsPAC)
@@ -97,8 +97,13 @@ export default function MLMonitoringModule({ user }: Props) {
   const benchmarkConfig = useAppStore(s => s.benchmarkConfig)
   const setBenchmarkConfig = useAppStore(s => s.setBenchmarkConfig)
 
+  const aerodromes = useAppStore(s => s.aerodromes)
+
   const [showHelp, setShowHelp] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [importSuccess, setImportSuccess] = useState<string | null>(null)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [pdfExportError, setPdfExportError] = useState<string | null>(null)
   const [engineStats] = useState<EngineLearningStats | null>(() => engineFeedback.getStats())
   const [inspecteurStats] = useState<InspecteurMonitoringStats | null>(() => inspecteurMonitoring.getStats())
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
@@ -109,7 +114,7 @@ export default function MLMonitoringModule({ user }: Props) {
   const stats = learningFeedbacks.length > 0 ? calculatePerformance() : null
   const detailedStats = learningFeedbacks.length > 0 ? getDetailedLearningStats() : null
   const pacStats = getLearningStatsPAC()
-  const pendingAlerts = recalibrationAlerts?.filter(a => !a.traitee) || []
+  const pendingAlerts = useMemo(() => recalibrationAlerts?.filter(a => !a.traitee) || [], [recalibrationAlerts])
   const mlRiskCorrelation: MLRiskCorrelationData = useMemo(() => getMLRiskCorrelation(), [getMLRiskCorrelation])
   const premierProfil = useMemo(() => {
     const arr = profilsRisque ? Object.values(profilsRisque) : []
@@ -117,19 +122,155 @@ export default function MLMonitoringModule({ user }: Props) {
   }, [profilsRisque])
 
   const handleRecalibrate = () => recalibrateModel('manuel', user?.prenom && user?.nom ? `${user.prenom} ${user.nom}` : 'admin')
-  const handleExport = () => {
-    const data = exportLearningData()
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `learning-data-${new Date().toISOString().split('T')[0]}.json`; a.click()
-    URL.revokeObjectURL(url)
+
+  const construireHTMLRapport = useCallback(() => {
+    const aerodromeNom = premierProfil?.aerodrome_id
+      ? aerodromes.find(a => a.id === premierProfil.aerodrome_id)?.nom || premierProfil.aerodrome_id
+      : '—'
+    const diag = premierProfil ? synthetiserModeles(premierProfil) : null
+    const tendanceLabel = diag?.tendance === 'amelioration' ? 'Amélioration' : diag?.tendance === 'degradation_rapide' ? 'Dégradation rapide' : diag?.tendance === 'degradation_legere' ? 'Dégradation légère' : 'Stable'
+
+    const kpi = (label: string, value: string, sub?: string) => `
+      <div style="flex:1;min-width:130px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin:4px;">
+        <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.3px;">${label}</div>
+        <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:2px;">${value}</div>
+        ${sub ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${sub}</div>` : ''}
+      </div>`
+
+    const voteRows = diag && diag.votes.length > 0
+      ? diag.votes.map(v => `
+        <tr>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${v.nom}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;font-weight:600;">${v.indiceDegradation}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${v.confiance}%</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${v.interpretation}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="4" style="padding:6px 8px;font-size:11px;color:#64748b;">Aucun profil de risque disponible pour la synthèse.</td></tr>'
+
+    const benchRows = benchmarkOutcome && benchmarkOutcome.ranked.length > 0
+      ? benchmarkOutcome.ranked.map((r, i) => `
+        <tr>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${i + 1}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;">${r.nom}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${r.score.toFixed(1)}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.accuracy * 100).toFixed(1)}%</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.f1Score * 100).toFixed(1)}%</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.rocAuc * 100).toFixed(1)}%</td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" style="padding:6px 8px;font-size:11px;color:#64748b;">Benchmark non réalisé (il faut au moins 10 échantillons d\'entraînement).</td></tr>'
+
+    const alertLines = pendingAlerts.length > 0
+      ? pendingAlerts.slice(0, 10).map(a => `<li style="font-size:11px;margin:3px 0;">${a.niveau.toUpperCase()} — ${a.message}</li>`).join('')
+      : '<li style="font-size:11px;color:#64748b;">Aucune alerte de recalibrage en attente.</li>'
+
+    const dom = (nom: string, prec: number) =>
+      `<tr><td style="padding:3px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${nom}</td><td style="padding:3px 8px;border-bottom:1px solid #eef2f7;font-size:11px;text-align:right;font-weight:600;">${prec.toFixed(1)}%</td></tr>`
+
+    const domainesRows = detailedStats && Object.keys(detailedStats.precision_par_domaine).length > 0
+      ? Object.entries(detailedStats.precision_par_domaine).map(([d, p]) => dom(d, p)).join('')
+      : '<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#64748b;">Pas encore de données par domaine.</td></tr>'
+
+    return `
+      <html><head><meta charset="utf-8" /></head>
+      <body style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:0;">
+        <div style="padding:0 4px;">
+          <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:16px;">
+            <h1 style="font-size:20px;margin:0;color:#0f766e;">Rapport de monitoring ML</h1>
+            <div style="font-size:11px;color:#475569;margin-top:4px;">SGDA V5 — ${aerodromeNom} — généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+          </div>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">1. Synthèse en langage clair</h2>
+          <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:10px 12px;">
+            ${diag ? `
+              <p style="font-size:12px;margin:2px 0;"><b>Tendance :</b> ${tendanceLabel} — indice global ${Math.round(diag.indiceGlobal)}/100 (confiance ${Math.round(diag.confianceGlobale)}%)</p>
+              <p style="font-size:12px;margin:2px 0;"><b>Interprétation :</b> ${diag.interpretation}</p>
+              <p style="font-size:12px;margin:2px 0;"><b>Recommandation :</b> ${diag.recommandation}</p>
+              ${diag.elementsClefs.length > 0 ? `<p style="font-size:12px;margin:2px 0;"><b>Éléments clés :</b> ${diag.elementsClefs.join(' · ')}</p>` : ''}
+            ` : '<p style="font-size:12px;margin:2px 0;">Aucun profil de risque chargé — la synthèse IA n\'est pas disponible.</p>'}
+          </div>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">2. Indicateurs clés</h2>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            ${kpi('Précision apprentissage', detailedStats ? `${detailedStats.taux_justesse.toFixed(1)}%` : '—', detailedStats ? `${detailedStats.total_feedbacks} feedbacks · v${detailedStats.version_modele}` : 'aucun feedback')}
+            ${kpi('Modèle actif', activeModelName || 'aucun', activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : '')}
+            ${kpi('Maturité inspecteur', inspecteurStats ? `${inspecteurStats.maturiteGlobale.toFixed(0)}/100` : '—', inspecteurStats?.maturiteGlobaleLabel || '')}
+            ${kpi('Pertinence AERORISQ', engineStats ? `${(engineStats.pertinenceRate * 100).toFixed(0)}%` : '—', engineStats ? `${engineStats.totalFeedbacks} retours` : '')}
+            ${kpi('Corrélation ML/risque', `${mlRiskCorrelation.convergenceScore}%`, mlRiskCorrelation.aerodromeCount > 0 ? `${mlRiskCorrelation.aerodromeCount} aérodromes` : '')}
+            ${kpi('Alertes en attente', `${pendingAlerts.length}`, '')}
+          </div>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">3. Détail des modèles mathématiques</h2>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr style="background:#f1f5f9;">
+              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;text-transform:uppercase;">Modèle</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;text-transform:uppercase;">Indice</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;text-transform:uppercase;">Confiance</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;text-transform:uppercase;">Interprétation</th>
+            </tr>
+            ${voteRows}
+          </table>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">4. Benchmark des modèles ML</h2>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr style="background:#f1f5f9;">
+              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">#</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Modèle</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">Score</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">Accuracy</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">F1</th>
+              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">ROC-AUC</th>
+            </tr>
+            ${benchRows}
+          </table>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">5. Précision par domaine</h2>
+          <table style="width:100%;border-collapse:collapse;">
+            ${domainesRows}
+          </table>
+
+          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">6. Alertes de recalibrage</h2>
+          <ul style="padding-left:18px;margin:4px 0;">${alertLines}</ul>
+
+          <div style="margin-top:18px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8;">
+            Ce rapport est généré par le module Monitoring ML de SGDA V5 à partir des données locales du poste. Les modèles mathématiques fournissent une interprétation automatique ; la décision finale reste de la responsabilité de l'inspecteur.
+          </div>
+        </div>
+      </body></html>`
+  }, [premierProfil, aerodromes, detailedStats, activeModelName, activeModelTrainedAt, inspecteurStats, engineStats, mlRiskCorrelation, pendingAlerts, benchmarkOutcome])
+
+  const handleExportPDF = async () => {
+    setPdfExportError(null)
+    setExportingPdf(true)
+    try {
+      const result = await generatePDFFromHTMLString(construireHTMLRapport(), {
+        title: `Rapport monitoring ML — ${new Date().toISOString().slice(0, 10)}`,
+        author: user?.prenom && user?.nom ? `${user.prenom} ${user.nom}` : 'SGDA V5',
+        subject: `Rapport de monitoring des modèles d'intelligence artificielle`,
+        keywords: ['SGDA', 'IA', 'monitoring', 'apprentissage'],
+        header: { text: 'SGDA V5 — Monitoring ML', height: 10 },
+        footer: { text: 'Rapport généré par le module Monitoring ML', height: 10 },
+      })
+      if (!result.success || !result.blob) throw new Error(result.error || 'Génération impossible')
+      const url = URL.createObjectURL(result.blob)
+      const a = document.createElement('a'); a.href = url; a.download = `rapport-monitoring-ml-${new Date().toISOString().split('T')[0]}.pdf`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: unknown) {
+      setPdfExportError(err instanceof Error ? err.message : "Erreur d'export PDF")
+    } finally {
+      setExportingPdf(false)
+    }
   }
+
   const handleImport = () => {
     const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'
     input.onchange = async (e: Event) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (!file) return
-      try { setImportError(null); importLearningData(await file.text()) }
+      try {
+        setImportError(null); setImportSuccess(null)
+        importLearningData(await file.text())
+        setImportSuccess("Données d'apprentissage importées avec succès (feedbacks, alertes, modèle).")
+      }
       catch (err: unknown) { setImportError(err instanceof Error ? err.message : "Erreur d'import") }
     }
     input.click()
@@ -149,13 +290,15 @@ export default function MLMonitoringModule({ user }: Props) {
       <ModuleHeader icon={<Brain className="h-8 w-8 text-role-primary" />} title="Monitoring ML" description="Performance, entraînement et calibration des modèles d'intelligence artificielle"
         actions={<div className="flex items-center gap-2">
           <button onClick={() => setShowHelp(true)} className="btn btn-sm btn-secondary gap-1.5"><BookOpen className="w-3.5 h-3.5" />Aide</button>
-          <button onClick={handleExport} className="btn btn-sm btn-secondary gap-1.5"><Download className="h-4 w-4" />Exporter</button>
+          <button onClick={handleExportPDF} disabled={exportingPdf} className="btn btn-sm btn-primary gap-1.5"><FileText className="h-4 w-4" />{exportingPdf ? 'Génération…' : 'Rapport PDF'}</button>
           <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>
         </div>} />
 
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Onze cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI, simulation de surveillance" sections={HELP_SECTIONS} />
 
       {importError && <div className="alert alert-danger animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{importError}</div></div>}
+      {importSuccess && <div className="alert alert-success animate-fade-up"><CheckCircle2 className="alert-icon" /><div className="alert-content">{importSuccess}</div></div>}
+      {pdfExportError && <div className="alert alert-danger animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">Échec du rapport PDF — {pdfExportError}</div></div>}
       {benchmarkError && <div className="alert alert-warning animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{benchmarkError}</div></div>}
 
       {/* ══════════════════ CARTE 1 : MODÈLES ML ══════════════════ */}
@@ -210,7 +353,7 @@ export default function MLMonitoringModule({ user }: Props) {
         modelTrainingConfig={modelTrainingConfig}
         onRecalibrate={handleRecalibrate}
         onReset={resetLearningData}
-        onExport={handleExport}
+        onExport={handleExportPDF}
         onImport={handleImport}
         onSetAutoTrain={setAutoTrainEnabled}
         onSetInterval={setTrainInterval}
@@ -863,7 +1006,7 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
               <button onClick={onResetModels} className="btn btn-sm btn-danger gap-1.5"><RotateCcw className="h-4 w-4" />Réinitialiser</button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={onExport} className="btn btn-sm btn-secondary gap-1.5"><Download className="h-3.5 w-3.5" />Exporter</button>
+              <button onClick={onExport} className="btn btn-sm btn-primary gap-1.5"><FileText className="h-3.5 w-3.5" />Rapport PDF</button>
               <button onClick={onImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-3.5 w-3.5" />Importer</button>
             </div>
           </div>

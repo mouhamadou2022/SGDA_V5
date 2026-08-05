@@ -35,7 +35,12 @@ export async function POST(request: Request) {
 
     if (error) {
       console.error('[Email] Erreur Resend:', error)
-      return NextResponse.json({ error }, { status: 400 });
+      const message = typeof error === 'string'
+        ? error
+        : (error as { message?: string })?.message
+          || (error as { name?: string })?.name
+          || 'Erreur inconnue du service email'
+      return NextResponse.json({ success: false, error: message, detail: error }, { status: 400 });
     }
     console.log('[Email] Succès — ID:', data?.id)
     return NextResponse.json({ data });
