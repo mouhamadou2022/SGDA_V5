@@ -12,8 +12,8 @@ export async function POST(request: Request) {
       ? `<p>${message}</p><p><a href="${link}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px">Voir les détails</a></p>`
       : `<p>${message}</p>`;
 
-    let ResendClient: any
-    try { ResendClient = (await import('resend')).Resend } catch { /* not found */ }
+    let ResendClient: { new(apiKey: string): { emails: { send: (payload: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> } } } | undefined
+    try { ResendClient = (await import('resend')).Resend as never } catch { /* not found */ }
     if (!ResendClient) {
       return NextResponse.json({ error: 'Service email indisponible' }, { status: 503 });
     }
@@ -35,14 +35,18 @@ export async function POST(request: Request) {
 
     if (error) {
       console.error('[Email] Erreur Resend:', error)
+      const detail = error as { message?: string; name?: string; statusCode?: number }
       const message = typeof error === 'string'
         ? error
-        : (error as { message?: string })?.message
-          || (error as { name?: string })?.name
-          || 'Erreur inconnue du service email'
-      return NextResponse.json({ success: false, error: message, detail: error }, { status: 400 });
+        : detail?.message || detail?.name || 'Erreur inconnue du service email'
+      const aide = message.match(/only send testing emails|restricted to only send emails/i)
+        ? ' La clé Resend est en mode test (sandbox) : elle ne peut envoyer qu\'à votre propre adresse. Pour envoyer aux inspecteurs, vérifiez un domaine sur https://resend.com/domains puis utilisez une clé de production et mettez à jour EMAIL_DOMAIN.'
+        : message.match(/verify a domain/i)
+          ? ' Le domaine de l\'expéditeur n\'est pas vérifié sur Resend. Ajoutez un domaine sur https://resend.com/domains et renseignez EMAIL_DOMAIN avec ce domaine.'
+          : ''
+      return NextResponse.json({ success: false, error: message + aide, detail: error }, { status: 400 });
     }
-    console.log('[Email] Succès — ID:', data?.id)
+    console.log('[Email] Succès — ID:', (data as { id?: string } | null)?.id)
     return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json({ error }, { status: 500 });
