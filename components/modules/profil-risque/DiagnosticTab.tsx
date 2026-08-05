@@ -10,6 +10,7 @@ import { expliquerCriteresEnClair, type ExplicationCritere } from '@/lib/ia/crit
 import { expliquerCygneNoirEnClair, type CygneNoirExplication } from '@/lib/ia/cygneNoirIA'
 import BowTieAnalyzer from './BowTieAnalyzer'
 import { OACIMatrixSection } from './OACIMatrixSection'
+import OaciGraphSection from './OaciGraphSection'
 import { CorrelationSection } from './CorrelationSection'
 import { AmdecModule } from '@/components/modules/amdec/AmdecModule'
 import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
@@ -491,6 +492,9 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
 
       {/* Matrice OACI 5×5 */}
       <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
+
+      {/* Graphe unifié OACI → risques → écarts */}
+      <OaciGraphSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
 
       {/* Corrélations C1-C5 + Copulas */}
       <CorrelationSection profil={profil} />

@@ -21,6 +21,7 @@ import { ResilienceScoreCard } from './ResilienceScoreCard'
 import { computeICaoMatrix, getICaoLabels } from '@/lib/risque'
 import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
 import RecommandationDuJourCard from './RecommandationDuJourCard'
+import ShapExplicationCard from './ShapExplicationCard'
 
 interface SyntheseTabProps {
   profil: ProfilRisque
@@ -564,6 +565,9 @@ export function SyntheseTab({
         <TriggersSection profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
         <ExogenousFactorsCard profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
       </div>
+
+      {/* ═══ ROW 5 — Explication SHAP-like du score global ═══ */}
+      <ShapExplicationCard profil={profil} />
 
       {/* Tableau de synthèse multicritère */}
       <TendanceTable profil={profil} />

@@ -15,6 +15,8 @@ import { DOMAINES_SURVEILLANCE, getDomaineLabel, SPECIALITES_INSPECTEUR } from '
 import { getRiskLevelBgVariant, getRiskLevelClass } from '@/lib/risque'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine'
 import AerorisqAnalyse from '@/components/ia/AerorisqAnalyse'
+import SimulationSurveillancePrepa from './SimulationSurveillancePrepa'
+import OrchestrateurDiagnosticPrepa from './OrchestrateurDiagnosticPrepa'
 import {
   Calendar, CheckCircle2, ClipboardList, Clock, FileText, History, LayoutGrid,
   MapPin, PlayCircle, Send, Shield, Target, TrendingDown, TrendingUp, Users,
@@ -45,10 +47,13 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
   const user = useAppStore(s => s.user)
   const addNotification = useAppStore(s => s.addNotification)
   const updatePlanning = useAppStore(s => s.updatePlanning)
+  const kitDocuments = useAppStore(s => s.kitDocuments)
+  const evenements = useAppStore(s => s.evenements)
+  const getHistoricalScoresForAerodrome = useAppStore(s => s.getHistoricalScoresForAerodrome)
 
   const decisionData = useDecisionEngine(planning?.aerodrome_id ?? null)
 
-  const [activeTab, setActiveTab] = useState<'profil' | 'historique' | 'aerorisq' | 'checklist' | 'delegation'>('profil')
+  const [activeTab, setActiveTab] = useState<'profil' | 'historique' | 'aerorisq' | 'simulation' | 'checklist' | 'delegation'>('profil')
   const [delegations, setDelegations] = useState<Record<string, string>>({})
   const [showTypeChoice, setShowTypeChoice] = useState(false)
   const [sendingChecklist, setSendingChecklist] = useState(false)
@@ -88,6 +93,16 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
         return { ...u, _insp: linkedInsp }
       })
   }, [utilisateurs, inspecteurs])
+
+  const kitItems = useMemo(() => {
+    const actifs = (kitDocuments ?? []).filter(d => d.etat === 'a_jour' || d.etat === 'en_revision')
+    return actifs.flatMap(d => d.items_generes ?? [])
+  }, [kitDocuments])
+
+  const historiqueScores = useMemo(
+    () => (planning?.aerodrome_id ? getHistoricalScoresForAerodrome(planning.aerodrome_id) : []),
+    [planning?.aerodrome_id, getHistoricalScoresForAerodrome],
+  )
 
   if (!open || !planning) return null
 
@@ -313,6 +328,7 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                 <button onClick={() => setActiveTab('profil')} className={`tab ${activeTab === 'profil' ? 'active' : ''}`}><TrendingUp className="w-4 h-4 inline mr-2" />Profil de risque</button>
                 <button onClick={() => setActiveTab('historique')} className={`tab ${activeTab === 'historique' ? 'active' : ''}`}><History className="w-4 h-4 inline mr-2" />Historique</button>
                 <button onClick={() => setActiveTab('aerorisq')} className={`tab ${activeTab === 'aerorisq' ? 'active' : ''}`}><Brain className="w-4 h-4 inline mr-2" />AERORISQ</button>
+                <button onClick={() => setActiveTab('simulation')} className={`tab ${activeTab === 'simulation' ? 'active' : ''}`}><ClipboardList className="w-4 h-4 inline mr-2" />Simulation</button>
                 <button onClick={() => setActiveTab('checklist')} className={`tab ${activeTab === 'checklist' ? 'active' : ''}`}><ClipboardList className="w-4 h-4 inline mr-2" />Checklist</button>
                 <button onClick={() => setActiveTab('delegation')} className={`tab ${activeTab === 'delegation' ? 'active' : ''}`}><UserCheck className="w-4 h-4 inline mr-2" />Délégation</button>
               </div>
@@ -368,6 +384,16 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
               {activeTab === 'aerorisq' && (
                 <div className="tab-content space-y-4">
                   <AerorisqAnalyse aerodromeId={planning.aerodrome_id} />
+
+                  {profil && (
+                    <OrchestrateurDiagnosticPrepa
+                      aerodromeId={planning.aerodrome_id}
+                      aerodromeNom={aerodrome?.nom}
+                      profil={profil}
+                      ecarts={ecartsActifs}
+                      surveillances={surveillances}
+                    />
+                  )}
 
                   {/* Points d'attention */}
                   <div className="p-3 rounded-lg border border-border bg-role-primary-soft/30">
@@ -459,6 +485,22 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* ========== ONGLET SIMULATION ========== */}
+              {activeTab === 'simulation' && (
+                <div className="tab-content">
+                  <SimulationSurveillancePrepa
+                    planning={planning}
+                    aerodrome={aerodrome}
+                    profil={profil}
+                    ecarts={ecarts}
+                    evenements={evenements}
+                    historique={historiqueScores}
+                    kitItems={kitItems}
+                    utilisateurs={utilisateurs}
+                  />
                 </div>
               )}
 

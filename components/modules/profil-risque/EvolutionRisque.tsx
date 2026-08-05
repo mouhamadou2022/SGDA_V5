@@ -15,6 +15,8 @@ import { Card } from '@/components/ui/card'
 import { expliquerEvolutionRisque, fallbackEvolutionRisque } from '@/lib/ia/exploitantIA'
 import { LangageClairFeedback } from '@/components/modules/profil-risque/LangageClairFeedback'
 import { Brain, Sparkles, Loader2, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react'
+import type { Ecart } from '@/lib/store'
+import JumeauNumeriqueCard from './JumeauNumeriqueCard'
 
 interface Props {
   profil: ProfilRisque
@@ -97,7 +99,8 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
   const gainPotentiel = scorePotentiel - scoreActuel
 
   return (
-    <Card variant="role" title="Évolution du risque (modèle bayésien)" icon={<TrendingUp className="w-4 h-4" />}>
+    <div className="space-y-4">
+      <Card variant="role" title="Évolution du risque (modèle bayésien)" icon={<TrendingUp className="w-4 h-4" />}>
       <div className="space-y-4">
         {/* ── 1. Trajectoire du score projeté ── */}
         <div>
@@ -201,6 +204,10 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
           )}
         </div>
       </div>
-    </Card>
+      </Card>
+
+      {/* ── Jumeau numérique — projection what-if ── */}
+      <JumeauNumeriqueCard profil={profil} ecarts={ecartsActifs as Ecart[]} />
+    </div>
   )
 }
