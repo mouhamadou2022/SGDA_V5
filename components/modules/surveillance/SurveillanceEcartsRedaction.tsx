@@ -37,6 +37,7 @@ import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { recordRiskIndexFeedback } from '@/lib/riskIndex';
 import { getRiskLevelFromCell, getCellColor, getRiskLevelClass, getRiskLevelVariant } from '@/lib/risque';
+import { classifyEcartTexte, suggestGraviteFromTexte } from '@/lib/risque/ecartClassifier';
 import { generateEcartReference, computeNextEcartCounter, getTypeAbbr } from '@/lib/surveillanceUtils';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
@@ -537,6 +538,17 @@ export default function SurveillanceEcartsRedaction({
 
   const profilAerodrome = profilsRisque?.[aerodromeId] || null;
 
+  // Classification du libellé → suggestion domaine/niveau (moteur ecartClassifier, 100% local)
+  const classificationLibelle = useMemo(() => {
+    const libelle = formEcart.libelle?.trim() || '';
+    if (libelle.length < 10) return null;
+    try {
+      const cls = classifyEcartTexte(libelle);
+      const grav = suggestGraviteFromTexte(libelle);
+      return { domaine: cls.domaine, confiance: Math.round(cls.score * 100), keywords: cls.keywords, gravite: grav.gravite, scoreGravite: grav.score };
+    } catch { return null; }
+  }, [formEcart.libelle]);
+
   // Sync ecarts existants when prop changes
   useEffect(() => {
     if (ecartsExistants && ecartsExistants.length > 0) {
@@ -775,7 +787,7 @@ export default function SurveillanceEcartsRedaction({
     const domaineItems = selectedItems
       .map(id => itemsNSNV.find(i => i.id === id)?.domaine)
       .filter(Boolean);
-    const domaineDeduit = domaineItems[0] || formEcart.domaine || '';
+    const domaineDeduit = domaineItems[0] || formEcart.domaine || classificationLibelle?.domaine || '';
     const newEcart: EcartRedaction = {
       id: editingId || crypto.randomUUID(),
       reference: formEcart.reference || getNouvelleReference(),
@@ -1322,6 +1334,40 @@ export default function SurveillanceEcartsRedaction({
                   <AlertCircle className="w-3 h-3" />
                   {errors.libelle}
                 </p>
+              )}
+              {classificationLibelle && selectedItems.length === 0 && (
+                <div className="mt-2 p-2.5 rounded-lg border border-role-primary/30 bg-role-primary-soft/40">
+                  <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-role-primary" />
+                    Classification AERORISQ (libellé)
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <span className="text-xs text-foreground">
+                      Domaine suggéré : <strong className="font-mono">{classificationLibelle.domaine}</strong> (confiance {classificationLibelle.confiance}%)
+                    </span>
+                    <span className="text-xs text-foreground">
+                      Niveau suggéré : <strong>{classificationLibelle.gravite}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEcart(prev => ({
+                          ...prev,
+                          domaine: classificationLibelle.domaine,
+                          niveau: classificationLibelle.gravite as EcartRedaction['niveau'],
+                        }));
+                      }}
+                      className="btn btn-primary btn-sm gap-1 !py-1 !px-2 text-[11px]"
+                    >
+                      <Zap className="w-3 h-3" /> Appliquer
+                    </button>
+                  </div>
+                  {classificationLibelle.keywords.length > 0 && (
+                    <p className="text-[10px] text-foreground mt-1.5">
+                      Mots-clés détectés : {classificationLibelle.keywords.map((k: string) => `«${k}»`).join(', ')}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 

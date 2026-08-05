@@ -10,6 +10,7 @@ import {
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 import { getCellColor, getRiskLevelBgColor } from '@/lib/risque';
+import { evaluatePreuves, type OACICell } from '@/lib/risque/bowTieEngine';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -826,6 +827,45 @@ export function EvaluationPreuvesForm({
               Je confirme que les preuves soumises démontrent la réalisation des actions correctives et permettent d'atteindre le niveau de risque résiduel cible (<strong>{residuelChoisi.niveau === 'eleve' ? 'Élevé' : residuelChoisi.niveau.charAt(0).toUpperCase() + residuelChoisi.niveau.slice(1)} – {residuelChoisi.cellule}</strong>).
             </span>
           </label>
+
+          {/* Simulation Bow-Tie du risque après preuves (moteur evaluatePreuves, aide à la décision) */}
+          {(() => {
+            try {
+              const cellMatch = residuelChoisi.cellule?.match(/^([1-5])([A-E])$/);
+              if (!cellMatch || nbFichiers <= 0) return null;
+              const cellEntree: OACICell = {
+                probabilite: parseInt(cellMatch[1]) as 1 | 2 | 3 | 4 | 5,
+                gravite: cellMatch[2] as 'A' | 'B' | 'C' | 'D' | 'E',
+                cellule: residuelChoisi.cellule,
+                niveau: residuelChoisi.niveau as 'critique' | 'eleve' | 'moyen' | 'faible',
+                couleur: getCellColor(residuelChoisi.cellule),
+              };
+              const preuvesConformes = Math.round((scorePourcentage / 100) * nbFichiers);
+              const sim = evaluatePreuves(cellEntree, nbFichiers, preuvesConformes);
+              if (!sim.celluleApresPreuves) return null;
+              const apres = sim.celluleApresPreuves;
+              return (
+                <div className="mt-2 p-2.5 rounded-lg border border-role-primary/30 bg-role-primary-soft/40">
+                  <p className="text-[10px] font-semibold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-role-primary" />
+                    Simulation Bow-Tie AERORISQ (moteur evaluatePreuves)
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-foreground">
+                    <span>Résiduel cible : <strong className="font-mono">{sim.celluleInitiale.cellule}</strong></span>
+                    <span className="text-muted-foreground">→</span>
+                    <span className={`inline-flex items-center justify-center rounded font-bold px-1.5 py-0.5 font-mono ${getCellColor(apres.cellule)}`}>{apres.cellule}</span>
+                    <span>({apres.niveau === 'eleve' ? 'Élevé' : apres.niveau.charAt(0).toUpperCase() + apres.niveau.slice(1)})</span>
+                    <span className="text-muted-foreground">· {sim.gainPreuves || 'Évaluation neutre'}</span>
+                  </div>
+                  {apres.cellule !== residuelChoisi.cellule && (
+                    <p className="text-[10px] text-foreground mt-1">
+                      La cellule résiduelle {residuelChoisi.cellule} pourrait être ajustée à <strong className="font-mono">{apres.cellule}</strong> selon le ratio de preuves conformes ({preuvesConformes}/{nbFichiers}). La décision finale reste à l&apos;inspecteur.
+                    </p>
+                  )}
+                </div>
+              );
+            } catch { return null; }
+          })()}
         </div>
 
         <hr className="border-border" />
