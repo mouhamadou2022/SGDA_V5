@@ -185,6 +185,16 @@ export function computeBayesianPrediction(
 }
 
 /**
+ * Normalise une probabilité bayésienne en pourcentage arrondi.
+ * Accepte les deux échelles en circulation : fraction (0-1, ex. initialProfile)
+ * ou pourcentage (0-100, ex. computeBayesianPosterior).
+ */
+export function pctBayes(v: number | undefined | null): number | null {
+  if (v == null) return null
+  return v < 1 ? Math.round(v * 100) : Math.round(v)
+}
+
+/**
  * Met à jour les probabilités a priori après un incident
  */
 export function updatePriorAfterIncident(

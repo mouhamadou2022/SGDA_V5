@@ -2,6 +2,7 @@
 'use client';
 
 import { ProfilRisque, Ecart, Surveillance, ChecklistItem } from './store';
+import { pctBayes } from './risque/bayesian';
 
 // Types
 
@@ -714,7 +715,7 @@ export function generateAnnexesHTML(
           ${profil.bayesian_posterior != null ? `
           <tr>
             <td style="padding: 6px;"><strong>Probabilité a posteriori (bayésien):</strong></td>
-            <td style="padding: 6px;">${(profil.bayesian_posterior * 100).toFixed(1)}% ${profil.bayesian_black_swan ? '⚠️ Risque cygne noir' : ''}</td>
+            <td style="padding: 6px;">${pctBayes(profil.bayesian_posterior)}% ${profil.bayesian_black_swan ? '⚠️ Risque cygne noir' : ''}</td>
           </tr>
           ` : ''}
           ${profil.effectiveness_score != null ? `

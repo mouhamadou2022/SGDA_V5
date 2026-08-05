@@ -23,6 +23,8 @@ import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engin
 import { inspecteurMonitoring, type CapaciteInspecteur, CAPACITES_INSPECTEUR, type InspecteurMonitoringStats } from '@/lib/ia/engines/inspecteurMonitoring'
 import { thresholdController } from '@/lib/ia/thresholdController'
 import { synthetiserModeles, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
+import { pctBayes } from '@/lib/risque/bayesian'
+import { EnClairNote } from './EnClairNote'
 import { recommanderModeleAnalyse } from '@/lib/ia/modelSelector'
 import { lancerDiagnosticOrchestrateur, lireDernierDiagnostic, historiqueOrchestrateur } from '@/lib/ia/orchestrateur'
 import type { ResultatOrchestrateur } from '@/lib/ia/orchestrateur'
@@ -312,6 +314,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
         </button>
       </div>
     }>
+      <EnClairNote aQuoiCaSert="Compare 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur les mêmes données pour savoir lequel est le plus fiable, puis désigne celui qui pilote réellement les prédictions de risque." commentLire="Chaque modèle a un score sur 100 (accuracy, précision, rappel, F1, ROC-AUC). Le trophée signale le meilleur. La pastille « Utilisé » est le modèle actif : les futures prédictions passeront par lui." />
       {showSettings && (
         <div className="mb-5 rounded-lg border border-border p-4">
           <div className="flex items-center justify-between mb-3">
@@ -517,6 +520,7 @@ function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, f
     <Card icon={<Target className="h-4 w-4 text-role-primary" />} title="2. Modèles de risques — précision, maturité, simulation" badge={
       <span className="badge text-xs">{recommandation.recommande}</span>
     }>
+      <EnClairNote aQuoiCaSert="Mesure à quel point les modèles de risque (Bow-Tie, FTA, AMDEC, ML) concordent avec les scores réels, et recommande le modèle le plus adapté pour analyser un aérodrome." commentLire="La « Convergence ML ↔ Risque » et l'« Alignement C1-C5 » indiquent la cohérence entre modèles et réalité (plus haut = plus fiable). Le badge du titre est le modèle recommandé pour l'analyse en cours." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Précision / maturité */}
         <div className="space-y-4">
@@ -624,25 +628,36 @@ function MathModelsCard({ profilsRisque }: { profilsRisque: Record<string, Profi
     if (premierProfil.extreme_risk) modules.push({ nom: 'EVT (valeurs extrêmes)', valeur: premierProfil.extreme_risk.isHeavyTailed ? 'Queue lourde' : 'Queue légère', detail: `max 12m ${premierProfil.extreme_risk.maxExpected12m ?? 0}`, niveau: premierProfil.extreme_risk.isHeavyTailed ? 'warning' : 'success' })
     if (premierProfil.copula_metrics) modules.push({ nom: 'Copules', valeur: `tail ${Math.round((premierProfil.copula_metrics.maxTailDependence ?? 0) * 100)}%`, detail: premierProfil.copula_metrics.worstCaseDescription ? 'scénario pire cas modélisé' : undefined, niveau: (premierProfil.copula_metrics.maxTailDependence ?? 0) > 0.6 ? 'warning' : 'primary' })
     if (premierProfil.ts_metrics) modules.push({ nom: 'Thompson Sampling', valeur: premierProfil.ts_metrics.recommendedAction || '—', detail: `confiance ${Math.round(premierProfil.ts_metrics.bestProbability ?? 0)}%`, niveau: (premierProfil.ts_metrics.bestProbability ?? 0) > 60 ? 'success' : 'primary' })
-    if (premierProfil.bayesian_posterior != null) modules.push({ nom: 'Bayésien', valeur: `post ${Math.round(premierProfil.bayesian_posterior * 100)}%`, detail: premierProfil.bayesian_black_swan ? 'cygne noir !' : undefined, niveau: premierProfil.bayesian_black_swan ? 'danger' : 'primary' })
+    if (premierProfil.bayesian_posterior != null) { const post = pctBayes(premierProfil.bayesian_posterior); if (post != null) modules.push({ nom: 'Bayésien', valeur: `post ${post}%`, detail: premierProfil.bayesian_black_swan ? 'cygne noir !' : undefined, niveau: premierProfil.bayesian_black_swan ? 'danger' : 'primary' }) }
   }
+  const modulesAvances = ['HMM (Markov caché)', 'Survie (Cox)', 'EVT (valeurs extrêmes)', 'Copules', 'Thompson Sampling'].filter(nom => !modules.some(m => m.nom === nom))
 
   return (
     <Card icon={<Calculator className="h-4 w-4 text-role-primary" />} title="3. Modèles mathématiques — calibrage & simulation">
+      <EnClairNote aQuoiCaSert="Affiche les modèles probabilistes (HMM, survie, EVT, copules, Thompson, bayésien) qui estiment le risque de façon avancée, et les seuils auto-ajustés appris par le système." commentLire="Chaque modèle donne un indicateur (stabilité, probabilité a posteriori, hazard...). Un « post » proche de 100% = forte probabilité de défaillance estimée. Les modèles avancés exigent au moins 3 points d'historique pour se calibrer ; le bayésien fonctionne dès le premier profil." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-2">
           <h4 className="text-sm mb-2">Statut des modèles probabilistes</h4>
           {modules.length === 0 ? (
             <p className="text-sm text-muted text-center py-6">Aucun modèle mathématique calculé pour le moment. Complétez un profil de risque pour activer HMM, survie, EVT, copules, Thompson et bayésien.</p>
-          ) : modules.map(m => (
-            <div key={m.nom} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/20">
-              <div>
-                <p className="text-sm font-medium">{m.nom}</p>
-                {m.detail && <p className="text-xs text-muted-foreground">{m.detail}</p>}
-              </div>
-              <span className={`badge text-xs ${m.niveau === 'danger' ? 'danger' : m.niveau === 'warning' ? 'warning' : m.niveau === 'success' ? 'success' : 'primary'}`}>{m.valeur}</span>
-            </div>
-          ))}
+          ) : (
+            <>
+              {modules.map(m => (
+                <div key={m.nom} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/20">
+                  <div>
+                    <p className="text-sm font-medium">{m.nom}</p>
+                    {m.detail && <p className="text-xs text-muted-foreground">{m.detail}</p>}
+                  </div>
+                  <span className={`badge text-xs ${m.niveau === 'danger' ? 'danger' : m.niveau === 'warning' ? 'warning' : m.niveau === 'success' ? 'success' : 'primary'}`}>{m.valeur}</span>
+                </div>
+              ))}
+              {modulesAvances.length > 0 && (
+                <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+                  {modulesAvances.join(', ')} {modulesAvances.length > 1 ? 'ne sont' : 'n\'est'} pas encore calculé{modulesAvances.length > 1 ? 's' : ''} : il faut au moins 3 points d&apos;historique du profil pour les calibrer. Le bayésien reste disponible dès le premier profil.
+                </p>
+              )}
+            </>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -694,6 +709,7 @@ function AgentsCard({ engineStats, inspecteurStats }: {
 }) {
   return (
     <Card icon={<Users className="h-4 w-4 text-role-primary" />} title="4. Agents IA — précision & maturité">
+      <EnClairNote aQuoiCaSert="Montre la fiabilité des agents IA (AERORISQ et inspecteur virtuel) mesurée à partir de vos retours : accepter, corriger ou ignorer leurs suggestions." commentLire="Le taux de pertinence indique la part de suggestions jugées utiles (visé ≥ 60%). La maturité /100 par capacité (checklist, écarts, rapports...) suit votre taux d'acceptation. Plus vous validez, plus l'agent apprend et devient fiable." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Agents décisionnels AERORISQ */}
         <div>
@@ -795,6 +811,7 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
 }) {
   return (
     <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="5. AERORISQ — simulation, entraînement & expérimentation">
+      <EnClairNote aQuoiCaSert="Gère le moteur de décision global : calibration du modèle, tests A/B (formules vs réseaux de neurones), apprentissage PAC et configuration de l'auto-entraînement." commentLire="La précision globale et les taux de faux positifs/négatifs reflètent la qualité du modèle courant. Le test A/B montre quel moteur gagne le plus souvent : Neural Net ou Formules. « Recalibrer » ré-entraîne le modèle sur vos retours." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Entraînement / modèle courant */}
         <div className="space-y-3">
@@ -874,6 +891,7 @@ function SynthesisCard({ premierProfil, stats, inspecteurStats, benchmarkOutcome
 
   return (
     <Card icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="6. Synthèse — état des modèles en langage clair">
+      <EnClairNote aQuoiCaSert="Résume en quelques lignes l'état global de tous les modèles : précision, modèle actif, maturité et diagnostic consolidé en langage clair." commentLire="Lisez d'abord le « Diagnostic AERORISQ » et sa recommandation : c'est la conclusion synthétique. Les KPIs en haut donnent un ordre de grandeur : précision ≥ 70%, maturité et pertinence visent ≥ 60%." />
       <div className="space-y-5">
         {/* KPIs synthèse */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1083,6 +1101,7 @@ function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInf
     <Card icon={<Workflow className="h-4 w-4 text-role-primary" />} title="7. Diagnostic multi-agents — orchestrateur AERORISQ" badge={
       resultatActif ? <span className={`badge text-xs ${NIVEAU_BADGE[resultatActif.niveau] ?? 'primary'}`}>{resultatActif.niveau}</span> : undefined
     }>
+      <EnClairNote aQuoiCaSert="Enchaîne 5 agents d'analyse (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence) et fusionne leurs votes pour produire un verdict consolidé de dégradation." commentLire="L'« Indice de dégradation » /100 est le verdict : ≥ 65 = danger, 40-65 = préoccupant. Chaque vote d'agent affiche sa confiance et son support de données ; les votes trop incertains sont exclus de la fusion." />
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
           Exécute une chaîne de {5} agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence), fusionne les votes pondérés par la confiance et journalise le raisonnement.

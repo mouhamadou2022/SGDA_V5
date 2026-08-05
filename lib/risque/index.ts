@@ -32,6 +32,7 @@ export {
   updatePriorAfterIncident,
   computeConfidenceLevel,
   getConfidenceClass,
+  pctBayes,
 } from './bayesian'
 
 // Facteurs déclencheurs

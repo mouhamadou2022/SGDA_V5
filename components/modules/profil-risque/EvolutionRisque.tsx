@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react'
 import { ProfilRisque } from '@/lib/store'
 import { calculateGlobalScore, calculateC4FromEcarts } from '@/lib/risque'
+import { pctBayes } from '@/lib/risque/bayesian'
 import { Card } from '@/components/ui/card'
 import { expliquerEvolutionRisque, fallbackEvolutionRisque } from '@/lib/ia/exploitantIA'
 import { LangageClairFeedback } from '@/components/modules/profil-risque/LangageClairFeedback'
@@ -45,8 +46,8 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
   const scorePotentiel = calculateGlobalScore(crit(100))
 
   // ── Bayésien dynamique ──
-  const post = profil.bayesian_posterior != null ? Math.round(profil.bayesian_posterior * 100) : null
-  const prior = profil.bayesian_prior != null ? Math.round(profil.bayesian_prior * 100) : null
+  const post = pctBayes(profil.bayesian_posterior)
+  const prior = pctBayes(profil.bayesian_prior)
 
   // ── Langage clair IA ──
   const [texte, setTexte] = useState(() => fallbackEvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs }).texte)
