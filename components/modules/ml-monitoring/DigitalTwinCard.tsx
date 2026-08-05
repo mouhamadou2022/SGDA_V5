@@ -52,6 +52,8 @@ const SCENARIO_META: Record<string, { label: string; badge: string; icon: string
 
 export default function DigitalTwinCard({ profil, ecarts, surveillances, aerodromeNom }: Props) {
   const getHistoricalScoresForAerodrome = useAppStore(s => s.getHistoricalScoresForAerodrome)
+  const aerodromes = useAppStore(s => s.aerodromes)
+  const nomAerodrome = aerodromeNom ?? (profil ? aerodromes.find(a => a.id === profil.aerodrome_id)?.nom : undefined)
   const [leviers, setLeviers] = useState<LeviersJumeau | null>(() => (profil ? leviersParDefaut(profil) : null))
   const [selectedEcartId, setSelectedEcartId] = useState<string | null>(null)
 
@@ -120,7 +122,7 @@ export default function DigitalTwinCard({ profil, ecarts, surveillances, aerodro
     }>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <p className="text-sm text-muted-foreground">
-          {aerodromeNom ?? profil.aerodrome_id} — miroir interactif du système de risque : chaque levier recalcule instantanément le score projeté, les 4 scénarios et la trajectoire. Lecture seule, aucune donnée modifiée.
+          {nomAerodrome ?? profil.aerodrome_id} — miroir interactif du système de risque : chaque levier recalcule instantanément le score projeté, les 4 scénarios et la trajectoire. Lecture seule, aucune donnée modifiée.
         </p>
         <button onClick={reset} className="btn btn-sm btn-secondary gap-1.5"><RotateCcw className="h-3.5 w-3.5" />Réinitialiser</button>
       </div>

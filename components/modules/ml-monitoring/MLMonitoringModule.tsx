@@ -174,6 +174,7 @@ export default function MLMonitoringModule({ user }: Props) {
         onTrainRF={handleTrainRF}
         benchmarkConfig={benchmarkConfig}
         onSetConfig={setBenchmarkConfig}
+        aerodromeId={premierProfil?.aerodrome_id}
       />
 
       {/* ══════════════════ CARTE 2 : MODÈLES DE RISQUES ══════════════════ */}
@@ -197,7 +198,7 @@ export default function MLMonitoringModule({ user }: Props) {
       <MathModelsCard profilsRisque={profilsRisque} />
 
       {/* ══════════════════ CARTE 4 : AGENTS IA ══════════════════ */}
-      <AgentsCard engineStats={engineStats} inspecteurStats={inspecteurStats} />
+      <AgentsCard engineStats={engineStats} inspecteurStats={inspecteurStats} aerodromeId={premierProfil?.aerodrome_id} />
 
       {/* ══════════════════ CARTE 5 : AERORISQ ══════════════════ */}
       <AerorisqCard
@@ -219,6 +220,7 @@ export default function MLMonitoringModule({ user }: Props) {
         getTrainingStats={getTrainingStats}
         exportTrainingHistoryCSV={exportTrainingHistoryCSV}
         barColor={barColor}
+        aerodromeId={premierProfil?.aerodrome_id}
       />
 
       {/* ══════════════════ CARTE 6 : SYNTHÈSE ══════════════════ */}
@@ -276,7 +278,7 @@ export default function MLMonitoringModule({ user }: Props) {
 // CARTE 1 — MODÈLES ML : benchmark 5 algorithmes + sélection active
 // ═══════════════════════════════════════════════════════════════
 
-function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeModelName, activeModelTrainedAt, rfModelInfo, rfSamplesCount, modelMetrics, pendingAlerts, onRunBenchmark, onSelectModel, onTrainRF, benchmarkConfig, onSetConfig }: {
+function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeModelName, activeModelTrainedAt, rfModelInfo, rfSamplesCount, modelMetrics, pendingAlerts, onRunBenchmark, onSelectModel, onTrainRF, benchmarkConfig, onSetConfig, aerodromeId }: {
   benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
   isBenchmarking: boolean
   activeModelId: ModeleBenchmarkId | null
@@ -291,6 +293,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
   onTrainRF: () => void
   benchmarkConfig: BenchmarkConfig
   onSetConfig: (config: BenchmarkConfig) => void
+  aerodromeId?: string
 }) {
   const ordered: ModeleBenchmarkId[] = ['random_forest', 'xgboost', 'lightgbm', 'catboost', 'mlp']
   const [showSettings, setShowSettings] = useState(false)
@@ -314,7 +317,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
         </button>
       </div>
     }>
-      <EnClairNote aQuoiCaSert="Compare 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur les mêmes données pour savoir lequel est le plus fiable, puis désigne celui qui pilote réellement les prédictions de risque." commentLire="Chaque modèle a un score sur 100 (accuracy, précision, rappel, F1, ROC-AUC). Le trophée signale le meilleur. La pastille « Utilisé » est le modèle actif : les futures prédictions passeront par lui." />
+      <EnClairNote module="ml-card-1" aerodromeId={aerodromeId} aQuoiCaSert="Compare 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur les mêmes données pour savoir lequel est le plus fiable, puis désigne celui qui pilote réellement les prédictions de risque." commentLire="Chaque modèle a un score sur 100 (accuracy, précision, rappel, F1, ROC-AUC). Le trophée signale le meilleur. La pastille « Utilisé » est le modèle actif : les futures prédictions passeront par lui." />
       {showSettings && (
         <div className="mb-5 rounded-lg border border-border p-4">
           <div className="flex items-center justify-between mb-3">
@@ -520,7 +523,7 @@ function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, f
     <Card icon={<Target className="h-4 w-4 text-role-primary" />} title="2. Modèles de risques — précision, maturité, simulation" badge={
       <span className="badge text-xs">{recommandation.recommande}</span>
     }>
-      <EnClairNote aQuoiCaSert="Mesure à quel point les modèles de risque (Bow-Tie, FTA, AMDEC, ML) concordent avec les scores réels, et recommande le modèle le plus adapté pour analyser un aérodrome." commentLire="La « Convergence ML ↔ Risque » et l'« Alignement C1-C5 » indiquent la cohérence entre modèles et réalité (plus haut = plus fiable). Le badge du titre est le modèle recommandé pour l'analyse en cours." />
+      <EnClairNote module="ml-card-2" aerodromeId={premierProfil?.aerodrome_id} aQuoiCaSert="Mesure à quel point les modèles de risque (Bow-Tie, FTA, AMDEC, ML) concordent avec les scores réels, et recommande le modèle le plus adapté pour analyser un aérodrome." commentLire="La « Convergence ML ↔ Risque » et l'« Alignement C1-C5 » indiquent la cohérence entre modèles et réalité (plus haut = plus fiable). Le badge du titre est le modèle recommandé pour l'analyse en cours." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Précision / maturité */}
         <div className="space-y-4">
@@ -634,7 +637,7 @@ function MathModelsCard({ profilsRisque }: { profilsRisque: Record<string, Profi
 
   return (
     <Card icon={<Calculator className="h-4 w-4 text-role-primary" />} title="3. Modèles mathématiques — calibrage & simulation">
-      <EnClairNote aQuoiCaSert="Affiche les modèles probabilistes (HMM, survie, EVT, copules, Thompson, bayésien) qui estiment le risque de façon avancée, et les seuils auto-ajustés appris par le système." commentLire="Chaque modèle donne un indicateur (stabilité, probabilité a posteriori, hazard...). Un « post » proche de 100% = forte probabilité de défaillance estimée. Les modèles avancés exigent au moins 3 points d'historique pour se calibrer ; le bayésien fonctionne dès le premier profil." />
+      <EnClairNote module="ml-card-3" aerodromeId={premierProfil?.aerodrome_id} aQuoiCaSert="Affiche les modèles probabilistes (HMM, survie, EVT, copules, Thompson, bayésien) qui estiment le risque de façon avancée, et les seuils auto-ajustés appris par le système." commentLire="Chaque modèle donne un indicateur (stabilité, probabilité a posteriori, hazard...). Un « post » proche de 100% = forte probabilité de défaillance estimée. Les modèles avancés exigent au moins 3 points d'historique pour se calibrer ; le bayésien fonctionne dès le premier profil." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-2">
           <h4 className="text-sm mb-2">Statut des modèles probabilistes</h4>
@@ -703,13 +706,14 @@ function MathModelsCard({ profilsRisque }: { profilsRisque: Record<string, Profi
 // CARTE 4 — AGENTS IA : précision & maturité
 // ═══════════════════════════════════════════════════════════════
 
-function AgentsCard({ engineStats, inspecteurStats }: {
+function AgentsCard({ engineStats, inspecteurStats, aerodromeId }: {
   engineStats: EngineLearningStats | null
   inspecteurStats: InspecteurMonitoringStats | null
+  aerodromeId?: string
 }) {
   return (
     <Card icon={<Users className="h-4 w-4 text-role-primary" />} title="4. Agents IA — précision & maturité">
-      <EnClairNote aQuoiCaSert="Montre la fiabilité des agents IA (AERORISQ et inspecteur virtuel) mesurée à partir de vos retours : accepter, corriger ou ignorer leurs suggestions." commentLire="Le taux de pertinence indique la part de suggestions jugées utiles (visé ≥ 60%). La maturité /100 par capacité (checklist, écarts, rapports...) suit votre taux d'acceptation. Plus vous validez, plus l'agent apprend et devient fiable." />
+      <EnClairNote module="ml-card-4" aerodromeId={aerodromeId} aQuoiCaSert="Montre la fiabilité des agents IA (AERORISQ et inspecteur virtuel) mesurée à partir de vos retours : accepter, corriger ou ignorer leurs suggestions." commentLire="Le taux de pertinence indique la part de suggestions jugées utiles (visé ≥ 60%). La maturité /100 par capacité (checklist, écarts, rapports...) suit votre taux d'acceptation. Plus vous validez, plus l'agent apprend et devient fiable." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Agents décisionnels AERORISQ */}
         <div>
@@ -789,7 +793,7 @@ function AgentsCard({ engineStats, inspecteurStats }: {
 // CARTE 5 — AERORISQ : simulation, entraînement, A/B testing
 // ═══════════════════════════════════════════════════════════════
 
-function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, modelTrainingConfig, onRecalibrate, onReset, onExport, onImport, onSetAutoTrain, onSetInterval, onRefresh, onResetModels, getTrainingHistory, getTrainingStats, exportTrainingHistoryCSV, barColor }: {
+function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, modelTrainingConfig, onRecalibrate, onReset, onExport, onImport, onSetAutoTrain, onSetInterval, onRefresh, onResetModels, getTrainingHistory, getTrainingStats, exportTrainingHistoryCSV, barColor, aerodromeId }: {
   isAdmin: boolean
   pacStats: ReturnType<ReturnType<typeof useAppStore.getState>['getLearningStatsPAC']> | null
   detailedStats: ReturnType<ReturnType<typeof useAppStore.getState>['getDetailedLearningStats']> | null
@@ -808,10 +812,11 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
   getTrainingStats: () => Promise<TrainingStats>
   exportTrainingHistoryCSV: () => Promise<string>
   barColor: string
+  aerodromeId?: string
 }) {
   return (
     <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="5. AERORISQ — simulation, entraînement & expérimentation">
-      <EnClairNote aQuoiCaSert="Gère le moteur de décision global : calibration du modèle, tests A/B (formules vs réseaux de neurones), apprentissage PAC et configuration de l'auto-entraînement." commentLire="La précision globale et les taux de faux positifs/négatifs reflètent la qualité du modèle courant. Le test A/B montre quel moteur gagne le plus souvent : Neural Net ou Formules. « Recalibrer » ré-entraîne le modèle sur vos retours." />
+      <EnClairNote module="ml-card-5" aerodromeId={aerodromeId} aQuoiCaSert="Gère le moteur de décision global : calibration du modèle, tests A/B (formules vs réseaux de neurones), apprentissage PAC et configuration de l'auto-entraînement." commentLire="La précision globale et les taux de faux positifs/négatifs reflètent la qualité du modèle courant. Le test A/B montre quel moteur gagne le plus souvent : Neural Net ou Formules. « Recalibrer » ré-entraîne le modèle sur vos retours." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Entraînement / modèle courant */}
         <div className="space-y-3">
@@ -891,7 +896,7 @@ function SynthesisCard({ premierProfil, stats, inspecteurStats, benchmarkOutcome
 
   return (
     <Card icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="6. Synthèse — état des modèles en langage clair">
-      <EnClairNote aQuoiCaSert="Résume en quelques lignes l'état global de tous les modèles : précision, modèle actif, maturité et diagnostic consolidé en langage clair." commentLire="Lisez d'abord le « Diagnostic AERORISQ » et sa recommandation : c'est la conclusion synthétique. Les KPIs en haut donnent un ordre de grandeur : précision ≥ 70%, maturité et pertinence visent ≥ 60%." />
+      <EnClairNote module="ml-card-6" aerodromeId={premierProfil?.aerodrome_id} aQuoiCaSert="Résume en quelques lignes l'état global de tous les modèles : précision, modèle actif, maturité et diagnostic consolidé en langage clair." commentLire="Lisez d'abord le « Diagnostic AERORISQ » et sa recommandation : c'est la conclusion synthétique. Les KPIs en haut donnent un ordre de grandeur : précision ≥ 70%, maturité et pertinence visent ≥ 60%." />
       <div className="space-y-5">
         {/* KPIs synthèse */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1075,6 +1080,8 @@ function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInf
   activeModelName: string | null
 }) {
   const aerodromeId = premierProfil?.aerodrome_id ?? null
+  const aerodromes = useAppStore(s => s.aerodromes)
+  const nomAerodrome = aerodromeId ? aerodromes.find(a => a.id === aerodromeId)?.nom ?? null : null
   const [resultat, setResultat] = useState<ResultatOrchestrateur | null>(() =>
     premierProfil ? lireDernierDiagnostic(premierProfil.aerodrome_id) : null,
   )
@@ -1101,7 +1108,7 @@ function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInf
     <Card icon={<Workflow className="h-4 w-4 text-role-primary" />} title="7. Diagnostic multi-agents — orchestrateur AERORISQ" badge={
       resultatActif ? <span className={`badge text-xs ${NIVEAU_BADGE[resultatActif.niveau] ?? 'primary'}`}>{resultatActif.niveau}</span> : undefined
     }>
-      <EnClairNote aQuoiCaSert="Enchaîne 5 agents d'analyse (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence) et fusionne leurs votes pour produire un verdict consolidé de dégradation." commentLire="L'« Indice de dégradation » /100 est le verdict : ≥ 65 = danger, 40-65 = préoccupant. Chaque vote d'agent affiche sa confiance et son support de données ; les votes trop incertains sont exclus de la fusion." />
+      <EnClairNote module="ml-card-7" aerodromeId={aerodromeId ?? undefined} aQuoiCaSert="Enchaîne 5 agents d'analyse (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence) et fusionne leurs votes pour produire un verdict consolidé de dégradation." commentLire="L'« Indice de dégradation » /100 est le verdict : ≥ 65 = danger, 40-65 = préoccupant. Chaque vote d'agent affiche sa confiance et son support de données ; les votes trop incertains sont exclus de la fusion." />
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
           Exécute une chaîne de {5} agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence), fusionne les votes pondérés par la confiance et journalise le raisonnement.
@@ -1114,7 +1121,7 @@ function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInf
       {!premierProfil ? (
         <p className="text-sm text-muted text-center py-6">Complétez un profil de risque pour lancer le diagnostic.</p>
       ) : !resultatActif ? (
-        <p className="text-sm text-muted text-center py-6">Aucun diagnostic pour {aerodromeId}. Cliquez sur « Lancer le diagnostic ».</p>
+        <p className="text-sm text-muted text-center py-6">Aucun diagnostic pour {nomAerodrome ?? aerodromeId}. Cliquez sur « Lancer le diagnostic ».</p>
       ) : (
         <div className="space-y-5">
           {/* Verdict global */}
@@ -1183,7 +1190,7 @@ function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInf
 
           {/* Historique */}
           <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
-            <span className="text-muted-foreground">{historique.length} diagnostic(s) enregistré(s) pour {aerodromeId} – {new Date(resultatActif.horodatage).toLocaleString('fr-FR')}</span>
+            <span className="text-muted-foreground">{historique.length} diagnostic(s) enregistré(s) pour {nomAerodrome ?? aerodromeId} – {new Date(resultatActif.horodatage).toLocaleString('fr-FR')}</span>
           </div>
         </div>
       )}
