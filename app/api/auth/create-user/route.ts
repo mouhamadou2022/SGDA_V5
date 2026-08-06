@@ -54,9 +54,16 @@ export async function POST(request: Request) {
           console.error('[create-user] Erreur update:', dbError)
         }
 
+        const { data: existingRow } = await supabaseAdmin
+          .from('utilisateurs')
+          .select('id')
+          .eq('email', email)
+          .single()
+
         return NextResponse.json({
           success: true,
           auth_id: existingUser.id,
+          user_id: existingRow?.id,
           message: 'Utilisateur existant mis à jour',
         })
       }
@@ -78,16 +85,24 @@ export async function POST(request: Request) {
     })
 
     if (authError) {
-      console.error('[create-user] Erreur Supabase Auth:', authError)
+      console.error('[create-user] Erreur Supabase Auth:', JSON.stringify(authError))
       if (authError.message?.includes('already exists') || authError.message?.includes('duplicate')) {
-        return NextResponse.json({ error: 'Un compte existe déjà avec cet email', status: 409 }, { status: 409 })
+        return NextResponse.json({ error: 'Un compte existe déjà avec cet email' }, { status: 409 })
+      }
+      if (/Database error creating new user/i.test(authError.message || '')) {
+        return NextResponse.json({
+          error: 'Supabase n\'a pas pu créer le compte : le projet Auth semble mal configuré. Vérifiez que SUPABASE_SERVICE_ROLE_KEY a les droits admin et que le provider Email/Password est activé.',
+        }, { status: 500 })
       }
       return NextResponse.json({ error: authError.message }, { status: 500 })
     }
 
     console.log('[create-user] Utilisateur Auth créé:', authData.user.id)
 
-    // Créer l'entrée dans utilisateurs avec TOUS les champs
+    // Créer l'entrée dans utilisateurs avec TOUS les champs.
+    // Le trigger handle_new_user a déjà inséré une ligne avec auth_id :
+    // on fait donc un upsert par email (ON CONFLICT email) pour réutiliser
+    // la ligne existante et garder le même id en base qu'en local.
     const userData = {
       auth_id: authData.user.id,
       email,
@@ -103,32 +118,32 @@ export async function POST(request: Request) {
       ...(service && { service }),
     }
 
+    // Upsert par email : le trigger a déjà créé la ligne → on la réutilise
+    // (même id qu'en base, pas de doublon).
     const { error: dbError } = await supabaseAdmin
       .from('utilisateurs')
-      .insert(userData)
+      .upsert(userData, { onConflict: 'email', ignoreDuplicates: false })
 
     if (dbError) {
-      console.error('[create-user] Erreur insert utilisateur DB:', dbError)
-      // Essayer un update si conflit
-      const { error: updateError } = await supabaseAdmin
-        .from('utilisateurs')
-        .update(userData)
-        .eq('email', email)
-
-      if (updateError) {
-        console.error('[create-user] Erreur update fallback:', updateError)
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
-        return NextResponse.json({ error: 'Erreur base de données' }, { status: 500 })
-      }
+      console.error('[create-user] Erreur upsert utilisateur DB:', JSON.stringify(dbError))
+      const cause = dbError.message || 'erreur inconnue'
+      return NextResponse.json({ error: `Erreur base de données : ${cause}` }, { status: 500 })
     }
+
+    const { data: createdRow } = await supabaseAdmin
+      .from('utilisateurs')
+      .select('id')
+      .eq('email', email)
+      .single()
 
     return NextResponse.json({
       success: true,
       auth_id: authData.user.id,
+      user_id: createdRow?.id,
       message: 'Utilisateur créé avec succès',
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[create-user] Erreur API:', error)
-    return NextResponse.json({ error: error.message || 'Erreur serveur' }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Erreur serveur' }, { status: 500 })
   }
 }

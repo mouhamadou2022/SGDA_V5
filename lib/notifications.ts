@@ -18,6 +18,10 @@ export interface CascadeResult {
   kept?: boolean
 }
 
+// Cache du mode sandbox Resend : on ne log que la première fois pour éviter
+// de spammer la console tant que le domaine n'est pas vérifié.
+let _sandboxWarned = false
+
 async function sendEmail(notification: { to: string; subject: string; html: string }): Promise<void> {
   try {
     const res = await fetch('/api/notifications/email', {
@@ -25,7 +29,23 @@ async function sendEmail(notification: { to: string; subject: string; html: stri
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: notification.to, subject: notification.subject, message: notification.html }),
     })
-    if (!res.ok) console.error('[notifications.ts] Échec envoi email:', await res.text())
+    if (!res.ok) {
+      let sandbox = false
+      let message = ''
+      try {
+        const body = await res.json()
+        sandbox = /only send testing emails|restricted to only send emails|not verified/i.test(body?.error || body?.detail?.message || '')
+        message = body?.error || body?.detail?.message || res.statusText
+      } catch {
+        message = await res.text()
+      }
+      if (sandbox && !_sandboxWarned) {
+        _sandboxWarned = true
+        console.warn('[notifications.ts] Email non envoyé : la clé Resend est en mode test (sandbox). Les notifications in-app restent actives. Vérifiez le domaine sur https://resend.com/domains puis utilisez une clé de production.')
+      } else if (!sandbox) {
+        console.error('[notifications.ts] Échec envoi email:', message)
+      }
+    }
   } catch (err) {
     console.error('[notifications.ts] Erreur envoi email:', err)
   }

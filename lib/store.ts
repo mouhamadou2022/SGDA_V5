@@ -2536,8 +2536,13 @@ export const useAppStore = create<AppStore>()(
       addUtilisateur: async (u) => {
         set((state) => ({ utilisateurs: [...state.utilisateurs, u] }))
 
-        // Sauvegarder l'utilisateur dans Supabase
-        const { error: userErr } = await supabase.from('utilisateurs').insert(u).select().single()
+        // Sauvegarder l'utilisateur dans Supabase (upsert par email pour
+        // réutiliser la ligne éventuellement créée par le trigger handle_new_user)
+        const { error: userErr } = await supabase
+          .from('utilisateurs')
+          .upsert(u, { onConflict: 'email', ignoreDuplicates: false })
+          .select()
+          .single()
         if (userErr) console.error('[addUtilisateur] Erreur création utilisateur Supabase:', userErr)
 
         // Si le rôle est inspector, créer aussi un inspecteur correspondant
@@ -2615,7 +2620,10 @@ export const useAppStore = create<AppStore>()(
         }
         
         // Supprimer l'utilisateur de Supabase DB
-        await datastore.deleteUtilisateur(id)
+        const delResult = await datastore.deleteUtilisateur(id)
+        if (delResult.error) {
+          console.error('[deleteUtilisateur] Échec suppression Supabase (ligne conservée):', delResult.error)
+        }
         
         // Supprimer l'utilisateur du store local
         set((state) => ({

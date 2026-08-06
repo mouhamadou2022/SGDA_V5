@@ -220,6 +220,7 @@ export function UtilisateurForm({
 
       if (mode === 'creation') {
         let authId: string | undefined
+        let userId: string | undefined
         try {
           // Utiliser l'API create-user pour confirmation automatique de l'email
           const res = await fetch('/api/auth/create-user', {
@@ -237,6 +238,7 @@ export function UtilisateurForm({
           const apiData = await res.json()
           if (res.ok) {
             authId = apiData.auth_id
+            userId = apiData.user_id
           } else {
             console.error('[UtilisateurForm] Erreur API create-user:', apiData.error)
             setErrors({ submit: apiData.error || 'Erreur création du compte' })
@@ -248,7 +250,9 @@ export function UtilisateurForm({
         }
         addUtilisateur({
           ...data,
-          id: crypto.randomUUID(),
+          // Id réel créé en base (via trigger) pour que suppression/sync matchent ;
+          // sinon id local (mode hors-ligne).
+          id: userId || crypto.randomUUID(),
           auth_id: authId,
           created_at: new Date().toISOString(),
           force_pwd_change: true,

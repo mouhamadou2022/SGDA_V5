@@ -1,7 +1,13 @@
 -- SGDA v5 — SCHÉMA PRODUCTION
--- Généré le 2026-05-17 | Mis à jour le 2026-07-29
+-- Généré le 2026-05-17 | Mis à jour le 2026-08-06
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
+-- ✅ Rattrapage des colonnes ajoutées par les migrations pour les
+--    tables déjà créées par une version antérieure du schéma
+--    (ex. checklist_templates : categorie, regime, updated_by)
+-- ✅ Inclut les tables des migrations récentes :
+--    ia_langage_clair, ia_training_dataset, ia_training_logs (2026-08-04),
+--    inspecteur_feedback (2026-08-04)
 -- ✅ Corrige TOUTES les causes des erreurs RLS
 -- ✅ Inclut colonnes checklist préparée sur plannings
 -- ✅ Fichiers orphelins nettoyés : CertDashboard.tsx, HomoDashboard.tsx, OperatorPACConsolideModule.tsx
@@ -173,8 +179,12 @@ $$;
 
 -- ============================================================
 -- SECTION 5 — TRIGGER CORRIGÉ (cause racine #1)
--- Comportement : si l'email existe → UPDATE auth_id
---                sinon             → INSERT nouveau guest
+-- Comportement : upsert par EMAIL (ON CONFLICT email) pour lier
+-- le auth_id. Le pattern UPDATE + INSERT IF NOT FOUND échouait
+-- quand l'email existait déjà AVEC un auth_id (l'UPDATE ne
+-- matchait rien → INSERT → violation UNIQUE(email) → l'exception
+-- annulait l'INSERT dans auth.users → "Database error creating
+-- new user").
 -- ============================================================
 
 DROP FUNCTION IF EXISTS handle_new_user() CASCADE;
@@ -186,21 +196,22 @@ DECLARE
 BEGIN
   v_role := COALESCE(new.raw_user_meta_data->>'role', 'guest');
 
-  UPDATE public.utilisateurs
-  SET auth_id = new.id
-  WHERE email = new.email
-    AND auth_id IS NULL;
-
-  IF NOT FOUND THEN
-    INSERT INTO public.utilisateurs (
-      auth_id, email, identifiant, nom, prenom, "role", "statut", force_pwd_change
-    )
-    VALUES (new.id, new.email, split_part(new.email, '@', 1),
-            COALESCE(new.raw_user_meta_data->>'nom', ''),
-            COALESCE(new.raw_user_meta_data->>'prenom', ''),
-            v_role, 'actif', true)
-    ON CONFLICT (auth_id) DO NOTHING;
-  END IF;
+  INSERT INTO public.utilisateurs (
+    auth_id, email, identifiant, nom, prenom, "role", "statut", force_pwd_change
+  )
+  VALUES (
+    new.id, new.email, split_part(new.email, '@', 1),
+    COALESCE(new.raw_user_meta_data->>'nom', ''),
+    COALESCE(new.raw_user_meta_data->>'prenom', ''),
+    v_role, 'actif', true
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    auth_id         = EXCLUDED.auth_id,
+    identifiant     = EXCLUDED.identifiant,
+    nom             = EXCLUDED.nom,
+    prenom          = EXCLUDED.prenom,
+    "role"          = EXCLUDED."role",
+    force_pwd_change = EXCLUDED.force_pwd_change;
 
   RETURN new;
 END;
@@ -2429,6 +2440,25 @@ CREATE TABLE IF NOT EXISTS checklist_templates (
   created_by        uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   updated_by        uuid REFERENCES auth.users(id) ON DELETE SET NULL
 );
+
+-- Rattrapage pour bases existantes créées par une version antérieure
+-- (la table peut déjà exister SANS ces colonnes) : CREATE TABLE IF NOT
+-- EXISTS ne modifie pas une table existante, il faut donc les ajouter.
+-- Idempotent : sans effet si la colonne existe déjà.
+ALTER TABLE checklist_templates DROP CONSTRAINT IF EXISTS checklist_templates_type_check;
+ALTER TABLE checklist_templates ADD CONSTRAINT checklist_templates_type_check
+  CHECK (type IN ('IT', 'SOP', 'QSC', 'SGS', 'VALIDATION_SITE', 'HMG', 'COP', 'AUT'));
+
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS categorie text
+  NOT NULL DEFAULT 'autres'
+  CHECK (categorie IN ('homologation', 'certification', 'surveillance_continue', 'validation_site', 'autres'));
+
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS regime text
+  NOT NULL DEFAULT 'tous'
+  CHECK (regime IN ('certifie', 'homologue', 'tous'));
+
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+
 -- Unicité : un seul template ACTIF par (type, code) — les versions
 -- précédentes passent etat='archive' et conservent leur historique.
 -- Remplace la contrainte UNIQUE(type, code, version) d'origine.
@@ -2624,4 +2654,151 @@ GRANT INSERT, UPDATE, DELETE ON fta_analyses TO authenticated;
 
 -- ============================================================
 -- FIN SECTION 20 — FTA
+-- ============================================================
+
+-- ============================================================
+-- SECTION 21 — AERORISQ : LANGAGE CLAIR & ENTRAÎNEMENT (2026-08-04)
+-- Persiste les échanges « langage clair » IA affichés sur les vues
+-- exploitant / DG (texte + contexte chiffré + fallback + vote) et
+-- alimente le dataset d'entraînement quotidien de l'IA maison AERORISQ.
+-- Table 1 : ia_langage_clair — chaque texte affiché (dédoublonné par
+--           (module, texte_hash) ; un vote met à jour la ligne).
+-- Table 2 : ia_training_dataset — exemples validés (vote up, non-fallback).
+-- Table 3 : ia_training_logs — journal des runs du cron quotidien.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS ia_langage_clair (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  module      text NOT NULL,
+  texte_hash  text NOT NULL,
+  aerodrome_id text,
+  contexte    jsonb,
+  texte       text NOT NULL,
+  fallback_ia boolean NOT NULL DEFAULT false,
+  vote        text CHECK (vote IN ('up', 'down')),
+  user_id     text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (module, texte_hash)
+);
+
+CREATE TABLE IF NOT EXISTS ia_training_dataset (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  module      text NOT NULL,
+  texte_hash  text NOT NULL,
+  contexte    jsonb,
+  texte       text NOT NULL,
+  fallback_ia boolean NOT NULL DEFAULT false,
+  vote        text CHECK (vote IN ('up', 'down')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (module, texte_hash)
+);
+
+CREATE TABLE IF NOT EXISTS ia_training_logs (
+  id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  type     text NOT NULL,
+  resume   jsonb,
+  run_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_langage_clair_module  ON ia_langage_clair (module);
+CREATE INDEX IF NOT EXISTS idx_ia_langage_clair_created ON ia_langage_clair (created_at);
+CREATE INDEX IF NOT EXISTS idx_ia_training_logs_type    ON ia_training_logs (type, run_at);
+
+-- NB : RLS non activé sur les tables ia_* (accès exclusif via service role,
+-- identique à la migration d'origine 2026-08-04).
+
+-- ============================================================
+-- SECTION 22 — INSPECTEUR VIRTUEL : SUIVI ML (2026-08-04)
+-- Suivi acceptation / correction / rejet par capacité + maturité
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS inspecteur_feedback (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Capacité de l'inspecteur virtuel qui a produit la suggestion
+  capacite      TEXT NOT NULL CHECK (capacite IN ('checklist','ecart','rapport','certification','evenement')),
+
+  -- Décision utilisateur sur la suggestion
+  action        TEXT NOT NULL CHECK (action IN ('acceptee','corrigee','rejetee')),
+
+  -- Contexte
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+  surveillance_id UUID REFERENCES surveillances(id) ON DELETE SET NULL,
+  user_id       UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,  -- qui a réagi
+
+  -- Confiance affichée au moment de la suggestion
+  confiance     NUMERIC,
+
+  -- Flag de synchro
+  synced_at     TIMESTAMPTZ
+);
+
+-- Index pour les requêtes par aérodrome + capacité
+CREATE INDEX IF NOT EXISTS idx_inspecteur_feedback_aerodrome ON inspecteur_feedback(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_inspecteur_feedback_capacite ON inspecteur_feedback(capacite);
+CREATE INDEX IF NOT EXISTS idx_inspecteur_feedback_user ON inspecteur_feedback(user_id);
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION trigger_inspecteur_feedback_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_inspecteur_feedback_updated_at ON inspecteur_feedback;
+CREATE TRIGGER trg_inspecteur_feedback_updated_at
+  BEFORE UPDATE ON inspecteur_feedback
+  FOR EACH ROW EXECUTE FUNCTION trigger_inspecteur_feedback_updated_at();
+
+-- RLS
+ALTER TABLE inspecteur_feedback ENABLE ROW LEVEL SECURITY;
+
+-- Lecture : admin, dg_anacim et inspecteurs voient tout, opérateurs leur aérodrome
+DROP POLICY IF EXISTS inspecteur_feedback_select_all ON inspecteur_feedback;
+CREATE POLICY inspecteur_feedback_select_all ON inspecteur_feedback
+  FOR SELECT USING (
+    get_user_role() IN ('admin','dg_anacim','inspector')
+    OR (
+      get_user_role() IN ('dg_operator','focal_operator')
+      AND aerodrome_id = get_user_aerodrome_id()
+    )
+  );
+
+-- Écriture : tout utilisateur authentifié peut créer un retour
+DROP POLICY IF EXISTS inspecteur_feedback_insert_all ON inspecteur_feedback;
+CREATE POLICY inspecteur_feedback_insert_all ON inspecteur_feedback
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- Mise à jour : seul l'auteur (id interne) ou admin peut modifier
+DROP POLICY IF EXISTS inspecteur_feedback_update_owner ON inspecteur_feedback;
+CREATE POLICY inspecteur_feedback_update_owner ON inspecteur_feedback
+  FOR UPDATE USING (
+    user_id = get_user_internal_id()
+    OR get_user_role() IN ('admin','dg_anacim')
+  );
+
+-- Vue agrégée pour le tableau de bord Inspecteur Virtuel
+CREATE OR REPLACE VIEW v_inspecteur_feedback_stats AS
+SELECT
+  aerodrome_id,
+  capacite,
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE action = 'acceptee') AS acceptees,
+  COUNT(*) FILTER (WHERE action = 'corrigee') AS corrigees,
+  COUNT(*) FILTER (WHERE action = 'rejetee') AS rejetees,
+  ROUND(AVG(confiance) FILTER (WHERE confiance IS NOT NULL)) AS confiance_moyenne,
+  MAX(created_at) AS dernier_retour
+FROM inspecteur_feedback
+GROUP BY aerodrome_id, capacite;
+
+GRANT SELECT ON inspecteur_feedback TO authenticated;
+GRANT INSERT, UPDATE ON inspecteur_feedback TO authenticated;
+
+-- ============================================================
+-- FIN SECTION 22 — INSPECTEUR VIRTUEL
 -- ============================================================
