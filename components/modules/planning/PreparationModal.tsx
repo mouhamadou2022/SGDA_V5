@@ -58,19 +58,27 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
   const [showTypeChoice, setShowTypeChoice] = useState(false)
   const [sendingChecklist, setSendingChecklist] = useState(false)
 
-  // Charger les délégations depuis Supabase (via planning.delegations) ou localStorage
+  // Charger les délégations depuis planning.delegations (source de vérité unique en base)
   useEffect(() => {
     if (planning?.id) {
       const fromSupabase = planning.delegations
+      // Migration ponctuelle : anciennes clés localStorage → planning.delegations si la base est vide
       const raw = localStorage.getItem(`sgda_delegations_${planning.id}`)
-      if (fromSupabase && Object.keys(fromSupabase).length > 0) {
-        setDelegations(fromSupabase)
-        // Sync localStorage pour compatibilité checklist
-        localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(fromSupabase))
-      } else if (raw) {
-        try { setDelegations(JSON.parse(raw)) } catch {}
+      if (raw) {
+        try {
+          const legacy: Record<string, string> = JSON.parse(raw)
+          const legacyUtile = Object.entries(legacy).filter(([, id]) => id).length > 0
+          if (legacyUtile && (!fromSupabase || Object.keys(fromSupabase).length === 0)) {
+            updatePlanning(planning.id, { delegations: legacy })
+            setDelegations(legacy)
+            return
+          }
+        } catch { /* clé corrompue : ignorée */ }
+        localStorage.removeItem(`sgda_delegations_${planning.id}`)
       }
+      setDelegations(fromSupabase || {})
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planning?.id])
 
   const aerodromesActifs = useMemo(() => aerodromes.filter(a => !a.deleted_at), [aerodromes])
@@ -166,7 +174,6 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
   const handleSaveDelegations = () => {
     const nbDelegations = Object.keys(delegations).filter(d => delegations[d]).length
     if (planning?.id) {
-      localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
       updatePlanning(planning.id, { delegations })
     }
     addNotification({
@@ -272,7 +279,6 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
     onClose()
     // Sauvegarder les délégations avant d'ouvrir la checklist
     if (Object.keys(delegations).filter(d => delegations[d]).length > 0) {
-      localStorage.setItem(`sgda_delegations_${planning.id}`, JSON.stringify(delegations))
       updatePlanning(planning.id, { delegations })
     }
     const chosenType = possibleTypes[0]?.type || 'standard'

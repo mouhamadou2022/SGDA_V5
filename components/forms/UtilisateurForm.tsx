@@ -205,7 +205,30 @@ export function UtilisateurForm({
         notification_email: formData.notification_email || undefined,
         photo_url: formData.photo_url || undefined,
         ...(mode === 'creation' && { mot_de_passe: formData.mot_de_passe }),
-        updated_at: new Date().toISOString(),
+      }
+      // mot_de_passe/updated_at ne sont PAS des colonnes de la table
+      // utilisateurs (mot de passe → uniquement l'API auth) : on les retire
+      // avant l'upsert Supabase pour éviter l'erreur "column does not exist".
+      const dbPayload = {
+        prenom: data.prenom,
+        nom: data.nom,
+        matricule: data.matricule,
+        email: data.email,
+        telephone: data.telephone,
+        role: data.role,
+        ...(data.role === 'inspector' && {
+          type_inspecteur: data.type_inspecteur,
+          service: data.service,
+          poste: data.poste,
+          superieur_id: data.superieur_id,
+          specialites: data.specialites,
+          competences: data.competences,
+        }),
+        statut: data.statut,
+        notifications_email: data.notifications_email,
+        notifications_sms: data.notifications_sms,
+        notification_email: data.notification_email,
+        photo_url: data.photo_url,
       }
       // Sync photo, competences to linked inspecteur (specialites stocké sur utilisateurs uniquement)
       if (mode === 'modification') {
@@ -249,7 +272,7 @@ export function UtilisateurForm({
           console.error('[UtilisateurForm] Erreur création Auth:', err)
         }
         addUtilisateur({
-          ...data,
+          ...dbPayload,
           // Id réel créé en base (via trigger) pour que suppression/sync matchent ;
           // sinon id local (mode hors-ligne).
           id: userId || crypto.randomUUID(),
@@ -258,7 +281,7 @@ export function UtilisateurForm({
           force_pwd_change: true,
         } as any)
       } else {
-        updateUtilisateur(utilisateurId!, data as any)
+        updateUtilisateur(utilisateurId!, dbPayload as any)
       }
       onSuccess?.()
     } catch (error) {

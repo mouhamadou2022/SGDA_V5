@@ -454,8 +454,8 @@ CREATE POLICY "aerodromes_select" ON aerodromes
     auth.uid() IS NOT NULL
     AND deleted_at IS NULL
     AND (
-      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
-      OR (get_user_role() IN ('focal_operator','staff_operator','guest')
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator','guest')
+      OR (get_user_role() IN ('focal_operator','staff_operator')
           AND id = get_user_aerodrome_id())
     )
   );
@@ -692,7 +692,7 @@ CREATE POLICY "certs_select" ON certifications
   FOR SELECT USING (
     auth.uid() IS NOT NULL
     AND (
-      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator','guest')
       OR aerodrome_id = get_user_aerodrome_id()
     )
   );
@@ -1875,6 +1875,10 @@ DO $$ BEGIN
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS specialites           jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notification_email    text;
   ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS deleted_by            uuid;
+  -- updated_at : le Dashboard Supabase a créé un trigger "handle_updated_at"
+  -- qui référence NEW.updated_at ; sans cette colonne, chaque INSERT/UPDATE
+  -- échoue avec `record "new" has no field "updated_at"`.
+  ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS updated_at            timestamptz DEFAULT now();
 END $$;
 
 -- 13.E.b — Contrainte FK utilisateurs.aerodrome_id → aerodromes(id) ON DELETE SET NULL
@@ -1888,6 +1892,30 @@ DO $$ BEGIN
       ON DELETE SET NULL;
   END IF;
 END $$;
+
+-- 13.E.c — FK dossiers.inspecteur_id → utilisateurs(id) : ON DELETE SET NULL
+-- (contrainte créée via l'UI Supabase qui bloquait la suppression des
+-- utilisateurs ayant des dossiers assignés)
+DO $$
+DECLARE
+  v_fk text;
+BEGIN
+  SELECT conname INTO v_fk
+  FROM pg_constraint
+  WHERE conrelid = 'dossiers'::regclass
+    AND contype = 'f'
+    AND confrelid = 'utilisateurs'::regclass
+    AND conname LIKE 'dossiers_inspecteur_id_fkey%'
+  LIMIT 1;
+
+  IF v_fk IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE dossiers DROP CONSTRAINT %I', v_fk);
+  END IF;
+END $$;
+ALTER TABLE dossiers
+  ADD CONSTRAINT dossiers_inspecteur_id_fkey
+  FOREIGN KEY (inspecteur_id) REFERENCES utilisateurs(id)
+  ON DELETE SET NULL;
 
 -- 13.F CERTIFICATIONS — colonnes manquantes
 DO $$ BEGIN
@@ -2801,4 +2829,80 @@ GRANT INSERT, UPDATE ON inspecteur_feedback TO authenticated;
 
 -- ============================================================
 -- FIN SECTION 22 — INSPECTEUR VIRTUEL
+-- ============================================================
+
+-- ============================================================
+-- SECTION 23 — DEMANDES D'ACCÈS PORTEIL PUBLIC
+-- Table utilisée par le bouton "Demander un accès au système"
+-- du dashboard Invité. Un visiteur (anonyme ou guest) soumet une
+-- demande ; l'admin la consulte et la traite (création de compte)
+-- depuis le module Utilisateurs.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS demandes_acces (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Coordonnées du demandeur
+  nom           TEXT NOT NULL,
+  email         TEXT NOT NULL,
+  structure     TEXT,          -- exploitant, société, administration…
+  type_demande  TEXT NOT NULL DEFAULT 'compte' CHECK (type_demande IN ('compte','assistance','autre')),
+  message       TEXT,
+
+  -- Traitement
+  statut        TEXT NOT NULL DEFAULT 'nouveau' CHECK (statut IN ('nouveau','en_traitement','traitee','rejetee')),
+  traitee_par   UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,
+  traitee_le    TIMESTAMPTZ,
+  note_traitement TEXT
+);
+
+-- Index pour le tri par statut / date
+CREATE INDEX IF NOT EXISTS idx_demandes_acces_statut ON demandes_acces(statut);
+CREATE INDEX IF NOT EXISTS idx_demandes_acces_created ON demandes_acces(created_at);
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION trigger_demandes_acces_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_demandes_acces_updated_at ON demandes_acces;
+CREATE TRIGGER trg_demandes_acces_updated_at
+  BEFORE UPDATE ON demandes_acces
+  FOR EACH ROW EXECUTE FUNCTION trigger_demandes_acces_updated_at();
+
+-- RLS
+ALTER TABLE demandes_acces ENABLE ROW LEVEL SECURITY;
+
+-- Lecture : admin, dg_anacim, inspector voient toutes les demandes
+DROP POLICY IF EXISTS demandes_acces_select ON demandes_acces;
+CREATE POLICY demandes_acces_select ON demandes_acces
+  FOR SELECT USING (
+    get_user_role() IN ('admin','dg_anacim','inspector')
+  );
+
+-- Insertion : tout visiteur (anonyme ou authentifié) peut soumettre une demande
+DROP POLICY IF EXISTS demandes_acces_insert ON demandes_acces;
+CREATE POLICY demandes_acces_insert ON demandes_acces
+  FOR INSERT WITH CHECK (
+    auth.role() IN ('authenticated','anon','service_role')
+  );
+
+-- Mise à jour : admin / dg_anacim peuvent traiter
+DROP POLICY IF EXISTS demandes_acces_update ON demandes_acces;
+CREATE POLICY demandes_acces_update ON demandes_acces
+  FOR UPDATE USING (
+    get_user_role() IN ('admin','dg_anacim')
+  );
+
+GRANT SELECT ON demandes_acces TO authenticated;
+GRANT INSERT ON demandes_acces TO authenticated, anon;
+
+-- ============================================================
+-- FIN SECTION 23 — DEMANDES D'ACCÈS PORTEIL PUBLIC
 -- ============================================================

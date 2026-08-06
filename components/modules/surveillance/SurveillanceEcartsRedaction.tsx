@@ -900,14 +900,14 @@ export default function SurveillanceEcartsRedaction({
 
     // Vérifier si TOUS les délégués ont signé
     let allDelegatedSigned = true
-    const delegationRaw = localStorage.getItem(`sgda_delegations_${fullSurv?.planning_id || surveillanceId}`)
-    if (delegationRaw) {
-      try {
-        const delegations: Record<string, string> = JSON.parse(delegationRaw)
-        const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
-        const signedIds = new Set(allSigs.map(s => s.signataire_id))
-        allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
-      } catch { /* ignoré */ }
+    const planningObj = fullSurv?.planning_id
+      ? useAppStore.getState().plannings.find(p => p.id === fullSurv.planning_id)
+      : undefined
+    const delegations: Record<string, string> = planningObj?.delegations || {}
+    if (Object.keys(delegations).length > 0) {
+      const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
+      const signedIds = new Set(allSigs.map(s => s.signataire_id))
+      allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
     }
 
     // Si un onSigner est fourni (page parente), c'est le parent qui gère le statut global

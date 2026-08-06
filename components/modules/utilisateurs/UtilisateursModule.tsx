@@ -32,6 +32,7 @@ import { SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { UtilisateurForm } from '@/components/forms/UtilisateurForm';
 import { FormShell } from '@/components/ui/FormShell';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DemandesAccesPanel } from '@/components/modules/utilisateurs/DemandesAccesPanel';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' };
@@ -86,6 +87,8 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<'informations' | 'securite'>('informations');
   const [currentPage, setCurrentPage] = useState(1);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetResult, setResetResult] = useState<{ message: string; motDePasse?: string; isError?: boolean } | null>(null);
   const PAGE_SIZE = 20;
 
   const listeUtilisateurs = utilisateurs ?? [];
@@ -170,8 +173,35 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
     }
   };
 
-  const handleResetPassword = (userId: string) => {
-    alert('Fonctionnalité de réinitialisation de mot de passe à implémenter');
+  const handleResetPassword = async (userId: string) => {
+    setResetLoading(true);
+    setResetResult(null);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        setResetResult({ message: body?.error || 'Erreur lors de la réinitialisation', isError: true });
+        return;
+      }
+      setResetResult({ message: body.message, motDePasse: body.motDePasseTemporaire });
+    } catch (err) {
+      setResetResult({ message: err instanceof Error ? err.message : 'Erreur réseau', isError: true });
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const copierMotDePasse = async (motDePasse: string) => {
+    try {
+      await navigator.clipboard.writeText(motDePasse);
+      alert('Mot de passe copié dans le presse-papiers');
+    } catch {
+      alert(motDePasse);
+    }
   };
 
   const columns: Column<Utilisateur>[] = [
@@ -351,6 +381,13 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
           <div className="kpi-value">{stats.exploitants}</div>
         </div>
       </div>
+
+      {/* Demandes d'accès au système (admin / DG ANACIM) */}
+      {(userRole === 'admin' || userRole === 'dg_anacim') && (
+        <Card className="border-role-primary/20 bg-role-primary-soft/20">
+          <DemandesAccesPanel />
+        </Card>
+      )}
 
       {/* Barre d'outils */}
       <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
@@ -691,10 +728,25 @@ export default function UtilisateursModule({ userRole }: UtilisateursModuleProps
               <button
                 className="btn btn-secondary gap-2"
                 onClick={() => handleResetPassword(selectedUtilisateur.id)}
+                disabled={resetLoading}
               >
                 <Key className="w-4 h-4" />
-                Réinitialiser le mot de passe
+                {resetLoading ? 'Réinitialisation en cours…' : 'Réinitialiser le mot de passe'}
               </button>
+
+              {resetResult && (
+                <div className={`mt-3 p-3 rounded-md text-small ${resetResult.isError ? 'bg-red-50 text-red-600' : 'bg-role-primary-soft'}`}>
+                  <p className="font-medium">{resetResult.message}</p>
+                  {resetResult.motDePasse && !resetResult.isError && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <code className="block text-xs break-all p-2 bg-white rounded border">{resetResult.motDePasse}</code>
+                      <button className="btn btn-sm btn-primary" onClick={() => copierMotDePasse(resetResult.motDePasse!)}>
+                        Copier le mot de passe
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

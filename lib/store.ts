@@ -2338,6 +2338,8 @@ interface DelegationSlice {
   getDelegationsBySurveillance: (surveillanceId: string) => Delegation[];
   getDelegationsByInspecteur: (inspecteurId: string) => Delegation[];
   getDelegationsByDomaine: (surveillanceId: string, domaine: string) => Delegation | undefined;
+  /** Nettoie les délégations orphelines (surveillance disparue, domaine/inspecteur vide) et les doublons par (surveillance, domaine). */
+  cleanupDelegations: () => void;
 }
 
 interface AlerteSlice {
@@ -2607,20 +2609,25 @@ export const useAppStore = create<AppStore>()(
         const linkedInspecteur = state.inspecteurs.find(i => i.id === user.inspecteur_id)
         
         // Supprimer le compte Supabase Auth
+        let routeOk = false
         if (user.auth_id) {
           try {
-            await fetch('/api/auth/delete-user', {
+            const res = await fetch('/api/auth/delete-user', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ auth_id: user.auth_id }),
+              body: JSON.stringify({ auth_id: user.auth_id, id }),
             })
+            const body = await res.json().catch(() => ({}))
+            routeOk = res.ok && body?.success !== false
+            if (!routeOk) console.error('[deleteUtilisateur] Route delete-user a échoué:', body?.error || res.status)
           } catch (error) {
             console.error('Erreur API delete-user:', error)
           }
         }
-        
+
         // Supprimer l'utilisateur de Supabase DB
-        const delResult = await datastore.deleteUtilisateur(id)
+        // (si la route a déjà supprimé la ligne, ce delete est idempotent)
+        const delResult = routeOk ? { error: null } : await datastore.deleteUtilisateur(id)
         if (delResult.error) {
           console.error('[deleteUtilisateur] Échec suppression Supabase (ligne conservée):', delResult.error)
         }
@@ -4740,6 +4747,21 @@ getDelegationsByInspecteur: (inspecteurId) => {
 },
 getDelegationsByDomaine: (surveillanceId, domaine) => {
   return get().delegations.find(d => d.surveillance_id === surveillanceId && d.domaine === domaine);
+},
+cleanupDelegations: () => {
+  const surveillancesIds = new Set(get().surveillances.map(s => s.id));
+  const vues = new Set<string>();
+  const nettoyees = get().delegations.filter(d => {
+    if (!d.surveillance_id || !surveillancesIds.has(d.surveillance_id)) return false;
+    if (!d.domaine || !d.assigne_a) return false;
+    const cle = `${d.surveillance_id}|${d.domaine.toUpperCase()}`;
+    if (vues.has(cle)) return false;
+    vues.add(cle);
+    return true;
+  });
+  if (nettoyees.length !== get().delegations.length) {
+    set({ delegations: nettoyees });
+  }
 },
 
 // Alerte Slice

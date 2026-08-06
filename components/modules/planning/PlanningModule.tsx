@@ -56,6 +56,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 // Store
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, genererSuggestionsMaintien, verifierCompositionEquipe, type SuggestionMaintien } from '@/lib/domaines';
+import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 
@@ -255,6 +256,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   useEffect(() => {
     setMounted(true);
+    nettoyerMemoDelegations();
     return () => {
       if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
     }

@@ -669,8 +669,13 @@ export async function updatePlanning(id: string, payload: Partial<Planning>): Pr
     .update({ ...restPayload, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
-    .single()
-  if (error || !data) return { data: null, error: error?.message ?? null }
+    .maybeSingle()
+  if (error) return { data: null, error: error?.message ?? null }
+  if (!data) {
+    // 0 ligne mise à jour : le planning n'existe pas en base (id local hors-ligne)
+    // ou la RLS le masque. On ne considère pas ça comme une erreur bloquante.
+    return { data: { ...restPayload, id, equipe_ids: equipe_ids ?? [] } as Planning, error: null }
+  }
   if (equipe_ids !== undefined) {
     await supabase.from('planning_equipe').delete().eq('planning_id', id)
     if (equipe_ids.length > 0) {
