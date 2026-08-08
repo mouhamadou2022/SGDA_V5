@@ -1278,9 +1278,19 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   const handleView = (planning: Planning & { surveillanceId?: string }) => {
-    const surveillanceId = planning.surveillanceId || planning.surveillance_id;
+    const surveillanceId = planning.surveillanceId
+      || planning.surveillance_id
+      || surveillances.find(s => s.planning_id === planning.id)?.id;
     if (surveillanceId) {
       router.push(`/surveillance/${surveillanceId}`);
+    } else {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'warning',
+        title: 'Aucune surveillance',
+        message: 'Aucune surveillance n\'est liée à ce planning.',
+        canal: 'in_app',
+      });
     }
   };
 
