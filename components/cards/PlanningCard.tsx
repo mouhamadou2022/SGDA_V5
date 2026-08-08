@@ -683,7 +683,7 @@ export function PlanningCard({
   const equipeDesignee = !!planning.chef_id && (planning.equipe_ids?.length ?? 0) > 0;
   const canExecute = isChefEquipe;
   const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);
-  const canManage = isManager && !equipeDesignee;
+  const canManage = isManager;
   
   // Récupérer les vrais inspecteurs depuis le store
   const getChefEquipe = () => {

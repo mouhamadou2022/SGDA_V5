@@ -203,7 +203,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const equipeDesigneeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids?.length ?? 0) > 0;
   const canExecuteMission = (p: Planning) => isChefEquipeMission(p);
   const canPrepareMission = (p: Planning) => isChefEquipeMission(p) || isMembreEquipeMission(p) || (isManager && !equipeDesigneeMission(p));
-  const canManageMission = (p: Planning) => isManager && !equipeDesigneeMission(p);
+  const canManageMission = (p: Planning) => isManager;
 
   const aerodromesActifs = useMemo(() => aerodromes.filter(a => !a.deleted_at), [aerodromes]);
 
@@ -1277,9 +1277,10 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     setFeedbackTarget(null);
   };
 
-  const handleView = (planning: Planning) => {
-    if (planning.surveillance_id) {
-      router.push(`/surveillance/${planning.surveillance_id}`);
+  const handleView = (planning: Planning & { surveillanceId?: string }) => {
+    const surveillanceId = planning.surveillanceId || planning.surveillance_id;
+    if (surveillanceId) {
+      router.push(`/surveillance/${surveillanceId}`);
     }
   };
 
