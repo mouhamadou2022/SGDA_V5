@@ -1156,13 +1156,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     if (surveillanceId) {
       router.push(`/surveillance/${surveillanceId}`);
     } else {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'warning',
-        title: 'Aucune surveillance',
-        message: 'Aucune surveillance n\'est liée à ce planning.',
-        canal: 'in_app',
-      });
+      router.push(`/preparation-checklist/${planning.id}`);
     }
   };
 
