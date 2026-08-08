@@ -2383,7 +2383,7 @@ export interface IaSuggestion {
   objectifs: string;
   raison: string;
   confiance: number;
-  source: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' | 'ecart_actif' | 'evenement' | 'periodique';
+  source: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' | 'ecart_actif' | 'evenement' | 'periodique' | 'declencheur_urgent';
   created_at: string;
 }
 
@@ -2887,6 +2887,7 @@ deleteAerodrome: async (id: string) => {
       Object.entries(state.profilsRisque || {}).filter(([key]) => key !== id)
     ),
     codesAcces: state.codesAcces.filter(c => c.aerodrome_id !== id),
+    iaSuggestions: state.iaSuggestions.filter(s => s.aerodrome_id !== id),
   }))
 
   // Notification email au DG et point focal + admins
@@ -3111,6 +3112,9 @@ getActiveAerodromes: () => {
           set({ surveillances: surveillancesSnapshot, plannings: planningsSnapshot })
           return
         }
+
+        // Purger les délégations orphelines liées à la surveillance supprimée
+        set((s) => ({ delegations: s.delegations.filter(d => d.surveillance_id !== id) }))
         const equipeIds = surveillance.equipe_ids || []
         equipeIds.forEach(userId => {
           get().addNotification({
@@ -5728,6 +5732,11 @@ getProfilRisqueWithAiInsights: async (aerodromeId) => {
             const phase2 = { ...(homo.phases_data as any).phase2, planning_id: '' };
             get().updateHomologation(homo.id, { phases_data: { ...homo.phases_data, phase2 } } as any);
           }
+        }
+
+        // Purger les délégations liées à la surveillance du planning supprimé
+        if (_planning.surveillance_id) {
+          set((s) => ({ delegations: s.delegations.filter(d => d.surveillance_id !== _planning.surveillance_id) }))
         }
       },
 

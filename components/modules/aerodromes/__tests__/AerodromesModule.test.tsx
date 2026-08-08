@@ -65,6 +65,8 @@ jest.mock('../QrCodeGenerator', () => ({
 }))
 jest.mock('@/lib/config', () => ({
   REGIONS: ['Dakar', 'Ziguinchor', 'Saint-Louis'],
+  canWriteOperatorRole: (role?: string | null) => role === 'admin' || role === 'focal_operator',
+  canManageRole: (role?: string | null) => role === 'admin',
 }))
 
 // ─── Imports après mocks ──────────────────────────────────────────────────────
@@ -265,7 +267,8 @@ describe('AerodromesModule', () => {
 
   describe('Formulaire de création', () => {
     it('ouvre le formulaire au clic sur "Nouvelle infrastructure"', () => {
-      renderModule('inspector')
+      setupMocks({ user: { id: 'u-admin', role: 'admin', aerodrome_id: undefined } })
+      renderModule('admin')
       const newBtn = screen.getByText(/nouvelle infrastructure/i)
       fireEvent.click(newBtn)
       expect(screen.getByTestId('form-shell')).toBeInTheDocument()
@@ -282,7 +285,8 @@ describe('AerodromesModule', () => {
 
   describe('Suppression d\'un aérodrome', () => {
     it('ouvre la boîte de confirmation au clic sur Supprimer', () => {
-      renderModule()
+      setupMocks({ user: { id: 'u-admin', role: 'admin', aerodrome_id: undefined } })
+      renderModule('admin')
       const deleteButtons = document.querySelectorAll('.action-button.danger')
       expect(deleteButtons.length).toBeGreaterThan(0)
       fireEvent.click(deleteButtons[0])
@@ -291,7 +295,8 @@ describe('AerodromesModule', () => {
     })
 
     it('appelle deleteAerodrome après confirmation', async () => {
-      renderModule()
+      setupMocks({ user: { id: 'u-admin', role: 'admin', aerodrome_id: undefined } })
+      renderModule('admin')
       const deleteButtons = document.querySelectorAll('.action-button.danger')
       fireEvent.click(deleteButtons[0])
       const confirmBtn = screen.getByText(/supprimer définitivement/i)

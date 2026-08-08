@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { upsertEcartsRedaction } from '@/lib/datastore';
 import { getRiskLevelClass } from '@/lib/risque';
+import { canEditSurveillanceContent } from '@/lib/config';
 import SurveillanceEcartsRedaction, { QuestionNSNV, EcartRedaction } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
 import {
   ArrowLeft,
@@ -339,7 +340,7 @@ export default function EcartsPage() {
           surveillanceType={surveillance?.type}
           aerodromeCode={aerodrome?.code_oaci}
           ecartPrefix="SDT"
-          readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)}
+          readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
         />
       </div>
     </div>

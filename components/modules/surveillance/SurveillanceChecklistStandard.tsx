@@ -28,6 +28,7 @@ import { recordTextModification, type TextModification } from '@/lib/checklistMe
 import { uploadPreuveFile } from '@/lib/preuves';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
+import { canEditSurveillanceContent } from '@/lib/config';
 
 
 function getProgressBarColor(taux: number): string {
@@ -135,6 +136,7 @@ export function SurveillanceChecklistStandard({
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
+  const updateDelegation = useAppStore(s => s.updateDelegation);
   const profilsRisque = useOptimizedStore(s => s.profilsRisque);
   const recordCorrection = useAppStore(s => s.recordCorrection);
   const upsertItemHistory = useAppStore(s => s.upsertItemHistory);
@@ -717,6 +719,22 @@ export function SurveillanceChecklistStandard({
       signatures_checklist: allSigs,
     });
 
+    // Avancement auto du statut des délégations de l'inspecteur signataire
+    const now = new Date().toISOString();
+    const storeDels = useAppStore.getState();
+    storeDels.getDelegationsBySurveillance(surveillanceId)
+      .filter(d => d.assigne_a === user?.id)
+      .forEach(d => {
+        updateDelegation(d.id, {
+          statut: 'checklist_signee',
+          progression: 100,
+          checklist_signature_url: signatureUrl,
+          checklist_signe_le: now,
+          derniere_activite: now,
+          derniere_sync: now,
+        });
+      });
+
     if (sgsEvaluation) {
       const { updateAerodrome, recalculerProfilRisque } = useAppStore.getState();
       await updateAerodrome(aerodromeId, {
@@ -774,11 +792,10 @@ export function SurveillanceChecklistStandard({
 
 
 
-  // Autoriser l'édition si aucune restriction d'équipe n'est configurée (chef_id vide = surveillance non affectée)
-  const noTeamRestriction = !surveillance.chef_id;
-  const isChef = noTeamRestriction || user?.id === surveillance.chef_id || userRole === 'admin';
-  const isEquipeMember = noTeamRestriction || (!!user?.id && (surveillance.equipe_ids || []).includes(user.id));
-  const canEditChecklist = isChef || isEquipeMember;
+  // Droit d'édition : dès qu'une équipe est désignée (chef_id + membres), seuls
+  // le chef et les membres éditent — les autres inspecteurs (admin inclus) sont
+  // en lecture seule. Si aucune équipe n'est désignée, chacun peut éditer.
+  const canEditChecklist = canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id);
   const actualReadOnly = readOnly || isSigned || !canEditChecklist;
   // structureReadOnly active dès que la surveillance n'est plus en préparation (statut !== 'planifiee')
   // → la structure de la checklist est figée, seuls les résultats/observations restent modifiables

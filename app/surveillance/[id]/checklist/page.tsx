@@ -13,6 +13,8 @@ import type { DomaineChecklist, EvaluationSGS } from '@/types/checklist';
 import type { TypeChecklist } from '@/lib/domaines';
 import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type, RefreshCw } from 'lucide-react';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
+import { canEditSurveillanceContent } from '@/lib/config';
+import { getSgsMaturiteLabel } from '@/lib/utils';
 
 // Composant pour la version MIXTE (3 checklists dans des onglets)
 function ChecklistMixte({
@@ -103,6 +105,7 @@ function ChecklistMixte({
             aerodromeId={aerodromeId}
             onComplete={onComplete}
             userRole={userRole}
+            readOnly={readOnly}
           />
         )}
         {activeTab === 'pac' && (
@@ -111,6 +114,7 @@ function ChecklistMixte({
             aerodromeId={aerodromeId}
             onComplete={onComplete}
             userRole={userRole}
+            readOnly={readOnly}
           />
         )}
         {activeTab === 'maintien' && (
@@ -120,6 +124,7 @@ function ChecklistMixte({
             onSave={onSave}
             onComplete={onComplete}
             userRole={userRole}
+            readOnly={readOnly}
           />
         )}
       </div>
@@ -265,6 +270,8 @@ export default function ChecklistPage() {
   const [profileDerivedType, setProfileDerivedType] = useState<'standard' | 'suivi' | 'pac' | 'mixte' | null>(null);
   const [profileDerivedInitialTab, setProfileDerivedInitialTab] = useState<'standard' | 'suivi' | 'pac'>('standard');
   const [modeSaisie, setModeSaisie] = useState<'clavier' | 'stylet' | 'mixte'>('clavier');
+  // Score PAOE temps réel remonté par SGSEvaluationContent (0-100) — niveau de maturité N1-N5 de l'en-tête
+  const [liveSGSScore, setLiveSGSScore] = useState<number | null>(null);
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
@@ -276,7 +283,9 @@ export default function ChecklistPage() {
   );
 
   const STATUT_ORDER = ['planifiee', 'en_cours', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'];
-  const checklistReadOnly = STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 2;
+  // Lecture seule : statut avancé OU utilisateur hors équipe désignée (admin inclus)
+  const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids, user?.id);
+  const checklistReadOnly = STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 2 || equipeReadOnly;
 
   const deriveUiFromDecisionChecklist = (
     typesChecklist: TypeChecklist[]
@@ -329,6 +338,23 @@ export default function ChecklistPage() {
         { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl },
       ],
     });
+
+    // Avancement auto du statut de la délégation SGS de l'inspecteur signataire
+    const now = new Date().toISOString();
+    const storeDels = useAppStore.getState();
+    storeDels.getDelegationsBySurveillance(surveillanceId)
+      .filter(d => d.domaine === 'SGS' && d.assigne_a === user?.id)
+      .forEach(d => {
+        storeDels.updateDelegation(d.id, {
+          statut: 'checklist_signee',
+          progression: 100,
+          checklist_signature_url: signatureUrl,
+          checklist_signe_le: now,
+          derniere_activite: now,
+          derniere_sync: now,
+        });
+      });
+
     addNotification({
       user_id: user?.id || '',
       type: 'success',
@@ -397,6 +423,7 @@ export default function ChecklistPage() {
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
+            readOnly={checklistReadOnly}
             userRole={user?.role || 'inspector'}
           />
         ),
@@ -415,6 +442,7 @@ export default function ChecklistPage() {
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
+            readOnly={checklistReadOnly}
             userRole={user?.role || 'inspector'}
           />
         ),
@@ -443,6 +471,7 @@ export default function ChecklistPage() {
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
+            readOnly={checklistReadOnly}
             structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
               const portee = surveillance?.portee || [];
@@ -464,6 +493,7 @@ export default function ChecklistPage() {
               router.push(`/surveillance/${surveillanceId}`);
             }}
             isSigned={!!surveillance?.sgs_evaluation_signee_le}
+            onScoreChange={setLiveSGSScore}
             onBack={() => router.push(`/surveillance/${surveillanceId}`)}
           />
         ),
@@ -528,6 +558,7 @@ export default function ChecklistPage() {
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
+              readOnly={checklistReadOnly}
               userRole={user?.role || 'inspector'}
             />
           ),
@@ -545,6 +576,7 @@ export default function ChecklistPage() {
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
+              readOnly={checklistReadOnly}
               userRole={user?.role || 'inspector'}
             />
           ),
@@ -562,6 +594,7 @@ export default function ChecklistPage() {
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
+              readOnly={checklistReadOnly}
               userRole={user?.role || 'inspector'}
             />
           ),
@@ -582,6 +615,7 @@ export default function ChecklistPage() {
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
+            readOnly={checklistReadOnly}
             userRole={user?.role || 'inspector'}
           />
         ),
@@ -600,6 +634,7 @@ export default function ChecklistPage() {
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
+            readOnly={checklistReadOnly}
             userRole={user?.role || 'inspector'}
           />
         ),
@@ -632,11 +667,13 @@ export default function ChecklistPage() {
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
+            readOnly={checklistReadOnly}
             structureReadOnly={sgsStructureReadOnly}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
             isSigned={!!surveillance?.sgs_evaluation_signee_le}
+            onScoreChange={setLiveSGSScore}
             onBack={() => router.push(`/surveillance/${surveillanceId}`)}
           />
         ),
@@ -760,6 +797,12 @@ export default function ChecklistPage() {
   const scoreRisque = profil?.score_global;
   const niveauRisque = profil?.niveau;
   const maturiteSGS = aerodrome?.maturite_sgs;
+
+  // Score SGS effectif (0-100) : temps réel PAOE → évaluation sauvegardée → valeur aérodrome (N1-5 converti ou %)
+  const sgsScore100 = liveSGSScore
+    ?? (surveillance?.sgs_evaluation_prepa as EvaluationSGS | null | undefined)?.scoreGlobal
+    ?? (typeof maturiteSGS === 'number' && !isNaN(maturiteSGS) ? (maturiteSGS <= 5 ? (maturiteSGS - 1) * 25 : maturiteSGS) : null);
+  const sgsNiveauLabel = sgsScore100 != null ? getSgsMaturiteLabel(sgsScore100) : null;
 
   const scoreColor = scoreRisque == null ? 'text-muted-foreground'
     : scoreRisque >= 80 ? 'text-success' : scoreRisque >= 60 ? 'text-warning' : 'text-danger';
@@ -904,11 +947,11 @@ export default function ChecklistPage() {
                 )}
               </span>
             )}
-            {/* Maturité SGS */}
-            {maturiteSGS != null && (
+            {/* Maturité SGS — calculée en temps réel (score PAOE) */}
+            {sgsNiveauLabel && (
               <span className="badge muted badge-icon">
                 <ClipboardList className="w-3 h-3" />
-                SGS&nbsp;<strong className={maturiteSGS >= 4 ? 'text-success' : maturiteSGS >= 3 ? 'text-warning' : 'text-danger'}>{maturiteSGS}/5</strong>
+                SGS&nbsp;<strong className={(sgsScore100 ?? 0) >= 80 ? 'text-success' : (sgsScore100 ?? 0) >= 40 ? 'text-warning' : 'text-danger'}>{sgsNiveauLabel}</strong>
               </span>
             )}
             {/* Séparateur + stats temps réel — masquées pour l'évaluation SGS (PAOE) */}

@@ -503,6 +503,7 @@ export default function SurveillanceEcartsRedaction({
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
+  const updateDelegation = useAppStore(s => s.updateDelegation);
   const profilsRisque = useOptimizedStore(s => s.profilsRisque);
   const surveillances = useOptimizedStore(s => s.surveillances);
   const aerodromes = useOptimizedStore(s => s.aerodromes);
@@ -918,6 +919,22 @@ export default function SurveillanceEcartsRedaction({
       });
     }
     updateSurveillance(surveillanceId, { signatures_ecarts: allSigs });
+
+    // Avancement auto du statut des délégations de l'inspecteur signataire
+    const now = new Date().toISOString();
+    const storeDels = useAppStore.getState();
+    storeDels.getDelegationsBySurveillance(surveillanceId)
+      .filter(d => d.assigne_a === user?.id)
+      .forEach(d => {
+        updateDelegation(d.id, {
+          statut: 'ecarts_signes',
+          ecarts_signature_url: signatureUrl,
+          ecarts_signes_le: now,
+          derniere_activite: now,
+          derniere_sync: now,
+        });
+      });
+
     onSigner?.(signatureUrl);
     setSignatureDialogOpen(false);
     onSave?.(ecarts);

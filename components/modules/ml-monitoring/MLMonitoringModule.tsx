@@ -291,7 +291,7 @@ export default function MLMonitoringModule({ user }: Props) {
         actions={<div className="flex items-center gap-2">
           <button onClick={() => setShowHelp(true)} className="btn btn-sm btn-secondary gap-1.5"><BookOpen className="w-3.5 h-3.5" />Aide</button>
           <button onClick={handleExportPDF} disabled={exportingPdf} className="btn btn-sm btn-primary gap-1.5"><FileText className="h-4 w-4" />{exportingPdf ? 'Génération…' : 'Rapport PDF'}</button>
-          <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>
+          {isAdmin && <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>}
         </div>} />
 
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Onze cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI, simulation de surveillance" sections={HELP_SECTIONS} />
@@ -317,6 +317,7 @@ export default function MLMonitoringModule({ user }: Props) {
         onTrainRF={handleTrainRF}
         benchmarkConfig={benchmarkConfig}
         onSetConfig={setBenchmarkConfig}
+        isAdmin={isAdmin}
         aerodromeId={premierProfil?.aerodrome_id}
       />
 
@@ -334,6 +335,7 @@ export default function MLMonitoringModule({ user }: Props) {
         modelTrainingConfig={modelTrainingConfig}
         onTrainRF={handleTrainRF}
         rfSamplesCount={rfSamplesCount}
+        isAdmin={isAdmin}
         barColor={barColor}
       />
 
@@ -421,7 +423,7 @@ export default function MLMonitoringModule({ user }: Props) {
 // CARTE 1 — MODÈLES ML : benchmark 5 algorithmes + sélection active
 // ═══════════════════════════════════════════════════════════════
 
-function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeModelName, activeModelTrainedAt, rfModelInfo, rfSamplesCount, modelMetrics, pendingAlerts, onRunBenchmark, onSelectModel, onTrainRF, benchmarkConfig, onSetConfig, aerodromeId }: {
+function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeModelName, activeModelTrainedAt, rfModelInfo, rfSamplesCount, modelMetrics, pendingAlerts, onRunBenchmark, onSelectModel, onTrainRF, benchmarkConfig, onSetConfig, isAdmin, aerodromeId }: {
   benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
   isBenchmarking: boolean
   activeModelId: ModeleBenchmarkId | null
@@ -436,6 +438,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
   onTrainRF: () => void
   benchmarkConfig: BenchmarkConfig
   onSetConfig: (config: BenchmarkConfig) => void
+  isAdmin: boolean
   aerodromeId?: string
 }) {
   const ordered: ModeleBenchmarkId[] = ['random_forest', 'xgboost', 'lightgbm', 'catboost', 'mlp']
@@ -450,18 +453,22 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
     <Card icon={<Cpu className="h-4 w-4 text-role-primary" />} title="1. Modèles Machine Learning — comparaison & sélection" badge={
       <div className="flex items-center gap-2">
         {activeModelName && <span className="badge badge-primary text-xs">{activeModelName} <CheckCircle2 className="w-3 h-3 inline ml-1" /></span>}
-        {customParams && <span className="badge warning text-xs">Paramètres personnalisés</span>}
-        <button onClick={() => setShowSettings(s => !s)} className="btn btn-sm btn-secondary gap-1.5">
-          <Settings className="h-4 w-4" />Paramètres
-        </button>
-        <button onClick={onRunBenchmark} disabled={isBenchmarking || rfSamplesCount < 10} className="btn btn-primary btn-sm gap-1.5">
-          <RefreshCw className={`h-4 w-4 ${isBenchmarking ? 'animate-spin' : ''}`} />
-          {isBenchmarking ? 'Benchmark en cours…' : 'Lancer le benchmark'}
-        </button>
+        {customParams && isAdmin && <span className="badge warning text-xs">Paramètres personnalisés</span>}
+        {isAdmin && (
+          <>
+            <button onClick={() => setShowSettings(s => !s)} className="btn btn-sm btn-secondary gap-1.5">
+              <Settings className="h-4 w-4" />Paramètres
+            </button>
+            <button onClick={onRunBenchmark} disabled={isBenchmarking || rfSamplesCount < 10} className="btn btn-primary btn-sm gap-1.5">
+              <RefreshCw className={`h-4 w-4 ${isBenchmarking ? 'animate-spin' : ''}`} />
+              {isBenchmarking ? 'Benchmark en cours…' : 'Lancer le benchmark'}
+            </button>
+          </>
+        )}
       </div>
     }>
       <EnClairNote module="ml-card-1" aerodromeId={aerodromeId} aQuoiCaSert="Compare 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur les mêmes données pour savoir lequel est le plus fiable, puis désigne celui qui pilote réellement les prédictions de risque." commentLire="Chaque modèle a un score sur 100 (accuracy, précision, rappel, F1, ROC-AUC). Le trophée signale le meilleur. La pastille « Utilisé » est le modèle actif : les futures prédictions passeront par lui." />
-      {showSettings && (
+      {showSettings && isAdmin && (
         <div className="mb-5 rounded-lg border border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm flex items-center gap-1.5"><SlidersHorizontal className="w-3.5 h-3.5 text-role-primary" />Hyperparamètres par modèle</h4>
@@ -559,10 +566,14 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
                       <td className="py-2 pr-3 text-right text-muted-foreground">{r.predictTimeMs}ms</td>
                       <td className="py-2 pr-3 text-center"><span className="badge text-xs">{r.maturiteLabel}</span></td>
                       <td className="py-2 text-center">
-                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                          <input type="radio" name="active-model" checked={isActive} onChange={() => onSelectModel(id)} className="accent-role-primary" />
-                          <span className="text-xs text-muted-foreground">{isActive ? 'Utilisé' : 'Choisir'}</span>
-                        </label>
+                        {isAdmin ? (
+                          <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="active-model" checked={isActive} onChange={() => onSelectModel(id)} className="accent-role-primary" />
+                            <span className="text-xs text-muted-foreground">{isActive ? 'Utilisé' : 'Choisir'}</span>
+                          </label>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">{isActive ? 'Utilisé' : '—'}</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -607,7 +618,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
                     <p className="text-[10px] text-muted-foreground">v{rfModelInfo.version} · {new Date(rfModelInfo.trained_at).toLocaleDateString('fr-FR')}</p>
                   </div>
                   <div className="flex-1">
-                    <button onClick={onTrainRF} className="btn btn-sm btn-secondary w-full gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>
+                    {isAdmin && <button onClick={onTrainRF} className="btn btn-sm btn-secondary w-full gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>}
                   </div>
                 </div>
               ) : (
@@ -631,7 +642,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
 // CARTE 2 — MODÈLES DE RISQUES : précision, maturité, évolution, calibrage, simulation
 // ═══════════════════════════════════════════════════════════════
 
-function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, ftaAnalyses, evenementsSecurite, rfModelInfo, graphModelInfo, mlRiskCorrelation, modelTrainingConfig, onTrainRF, rfSamplesCount, barColor }: {
+function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, ftaAnalyses, evenementsSecurite, rfModelInfo, graphModelInfo, mlRiskCorrelation, modelTrainingConfig, onTrainRF, rfSamplesCount, isAdmin, barColor }: {
   profilsRisque: Record<string, ProfilRisque> | null
   ecarts: Ecart[]
   surveillances: Surveillance[]
@@ -644,6 +655,7 @@ function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, f
   modelTrainingConfig: ModelTrainingConfig
   onTrainRF: () => void
   rfSamplesCount: number
+  isAdmin: boolean
   barColor: string
 }) {
   const premierProfil = profilsRisque ? Object.values(profilsRisque)[0] : null
@@ -750,7 +762,7 @@ function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, f
             <div className="text-xs text-muted-foreground">
               Auto-entraînement : {modelTrainingConfig?.auto_train_enabled ? 'activé' : 'désactivé'} (toutes les {modelTrainingConfig?.train_interval_hours ?? 24}h)
             </div>
-            <button onClick={onTrainRF} disabled={rfSamplesCount < 10} className="btn btn-sm btn-secondary gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>
+            {isAdmin && <button onClick={onTrainRF} disabled={rfSamplesCount < 10} className="btn btn-sm btn-secondary gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Entraîner RF</button>}
           </div>
         </div>
       </div>
@@ -974,16 +986,18 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
             <p>Dernière calibration : {currentModel?.date_calibration ? new Date(currentModel.date_calibration).toLocaleDateString('fr-FR') : 'N/A'}</p>
             <p>Items améliorés : {detailedStats?.items_ameliores ?? 0} · dégradés : {detailedStats?.items_degrades ?? 0}</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={onRecalibrate} className="btn btn-primary btn-sm flex-1 gap-1.5"><RefreshCw className="h-4 w-4" />Recalibrer</button>
-            <button onClick={onReset} className="btn btn-sm btn-secondary gap-1.5"><RotateCcw className="h-4 w-4" />Réinit.</button>
-          </div>
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button onClick={onRecalibrate} className="btn btn-primary btn-sm flex-1 gap-1.5"><RefreshCw className="h-4 w-4" />Recalibrer</button>
+              <button onClick={onReset} className="btn btn-sm btn-secondary gap-1.5"><RotateCcw className="h-4 w-4" />Réinit.</button>
+            </div>
+          )}
         </div>
 
         {/* A/B Testing + PAC */}
         <div className="space-y-3">
           <h4 className="text-sm">A/B testing & PAC Learning</h4>
-          <ABTestingSection />
+          <ABTestingSection isAdmin={isAdmin} />
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Feedbacks PAC</p><p className="text-sm font-bold">{pacStats?.total_feedbacks ?? 0}</p></div>
             <div className="p-2 rounded bg-muted/20"><p className="text-xs text-muted">Concordance PAC</p><p className="text-sm font-bold text-success">{pacStats?.taux_concordance ?? 0}%</p></div>
@@ -1187,7 +1201,7 @@ function HistorySection({ getTrainingHistory, getTrainingStats, exportTrainingHi
   )
 }
 
-function ABTestingSection() {
+function ABTestingSection({ isAdmin }: { isAdmin: boolean }) {
   const [abStats, setAbStats] = useState(getABStats())
   return (
     <div className="rounded-lg border border-border p-3">
@@ -1196,7 +1210,7 @@ function ABTestingSection() {
           <div className="flex justify-between"><span className="text-muted">Tests A/B</span><span className="font-bold">{abStats.total}</span></div>
           <div className="flex justify-between"><span className="text-green-600">Neural Net</span><span>{abStats.neuralWins} ({Math.round(abStats.neuralWinRate * 100)}%)</span></div>
           <div className="flex justify-between"><span className="text-orange-600">Formules</span><span>{abStats.formulasWins} ({Math.round(abStats.formulasWinRate * 100)}%)</span></div>
-          <button onClick={() => { clearABHistory(); setAbStats(getABStats()) }} className="btn btn-sm btn-secondary w-full mt-1 gap-1"><RotateCcw className="h-3.5 w-3.5" />Réinitialiser</button>
+          {isAdmin && <button onClick={() => { clearABHistory(); setAbStats(getABStats()) }} className="btn btn-sm btn-secondary w-full mt-1 gap-1"><RotateCcw className="h-3.5 w-3.5" />Réinitialiser</button>}
         </div>
       ) : <p className="text-sm text-muted">Aucun test A/B. Créés automatiquement à chaque prédiction.</p>}
     </div>

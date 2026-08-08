@@ -10,14 +10,12 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, startTransition } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useDebounce } from '@/hooks/useDebounce';
-import { useAppStore, Planning, Aerodrome, ProfilRisque, Surveillance, Utilisateur, Ecart, IaSuggestion } from '@/lib/store';
-import { getProcessusActifs } from '@/lib/processus';
+import { useAppStore, Planning, Aerodrome, Surveillance, IaSuggestion } from '@/lib/store';
 import {
   CalendarDays,
   Calendar,
@@ -55,7 +53,8 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 
 // Store
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, genererSuggestionsMaintien, verifierCompositionEquipe, type SuggestionMaintien } from '@/lib/domaines';
+import { getDomaineLabel, genererSuggestionsMaintien, verifierCompositionEquipe } from '@/lib/domaines';
+import { canManageRole } from '@/lib/config';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
@@ -69,6 +68,14 @@ function estPlanningEnRetard(p: Planning, now = Date.now()): boolean {
   if (p.est_proposition || PLANNING_TERMINES.includes(p.statut)) return false
   const dFin = new Date(p.date_fin || p.date_debut).getTime()
   return !Number.isNaN(dFin) && dFin < now
+}
+
+// Convertit une date ISO en valeur pour <input type="datetime-local">
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 // Composants du module
@@ -88,8 +95,6 @@ import { checklistMemory } from '@/lib/checklistMemory';
 import { 
   RISK_LEVELS, 
   getRiskLevel, 
-  computeVelocityMetrics, 
-  computeProactiveAlert, 
   computeFinalFrequency,
   isSGSApplicable,
 } from '@/lib/risque';
@@ -184,6 +189,22 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const user               = useOptimizedStore(s => s.user);
   const addNotification    = useAppStore(s => s.addNotification);
 
+  // Source de vérité : seuls les rôles gestionnaires (admin) peuvent planifier,
+  // modifier, supprimer ou lancer les suggestions IA / N+1.
+  const effectiveRole = (userRole as string) || user?.role || '';
+  const isManager = canManageRole(effectiveRole);
+
+  // Contrôle d'accès mission : une fois l'équipe désignée (chef + membres),
+  // seul le chef d'équipe exécute, chef + membres préparent, l'admin passe en
+  // lecture seule stricte (il corrige uniquement avant désignation).
+  const userMissionId = user?.id || '';
+  const isChefEquipeMission = (p: Planning) => !!p.chef_id && userMissionId === p.chef_id;
+  const isMembreEquipeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids || []).includes(userMissionId);
+  const equipeDesigneeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids?.length ?? 0) > 0;
+  const canExecuteMission = (p: Planning) => isChefEquipeMission(p);
+  const canPrepareMission = (p: Planning) => isChefEquipeMission(p) || isMembreEquipeMission(p) || (isManager && !equipeDesigneeMission(p));
+  const canManageMission = (p: Planning) => isManager && !equipeDesigneeMission(p);
+
   const aerodromesActifs = useMemo(() => aerodromes.filter(a => !a.deleted_at), [aerodromes]);
 
   const ecartsCritiquesParAerodrome = useMemo(() => {
@@ -234,6 +255,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const [planningToDelete, setPlanningToDelete] = useState<Planning | null>(null);
   const [executeTarget, setExecuteTarget] = useState<Planning | null>(null);
   const [executeConfirmOpen, setExecuteConfirmOpen] = useState(false);
+  const [executeDateDebut, setExecuteDateDebut] = useState('');
+  const [executeDateFin, setExecuteDateFin] = useState('');
   const [feedbackTarget, setFeedbackTarget] = useState<{ aerodromeId: string; suggestionType: string; missionType: string; ecartIds?: string[] } | null>(null);
   const [feedbackValue, setFeedbackValue] = useState(true);
   const [feedbackReason, setFeedbackReason] = useState('');
@@ -241,7 +264,6 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const [isAskingIa, setIsAskingIa] = useState(false);
   const [iaQuestion, setIaQuestion] = useState('');
   const [iaAnswer, setIaAnswer] = useState('');
-  const [showProactiveSuggestions, setShowProactiveSuggestions] = useState(false);
   const [showIaSuggestionModal, setShowIaSuggestionModal] = useState(false);
   const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'all' | 'retards' | 'terminees'>('active');
   const certifications = useAppStore(s => s.certifications || []);
@@ -249,8 +271,15 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const iaSuggestions = useAppStore(s => s.iaSuggestions || []);
   const addIaSuggestion = useAppStore(s => s.addIaSuggestion);
   const removeIaSuggestion = useAppStore(s => s.removeIaSuggestion);
+
+  // Suggestions ne concernant que des aérodromes existants (une suppression
+  // d'aérodrome purge le store, mais les suggestions persistées en localStorage
+  // peuvent survivre → filtre défensif pour le badge et la modale)
+  const iaSuggestionsExistantes = useMemo(() => {
+    const idsExistants = new Set(aerodromesActifs.map(a => a.id));
+    return iaSuggestions.filter(s => idsExistants.has(s.aerodrome_id));
+  }, [iaSuggestions, aerodromesActifs]);
   const addPlanning = useAppStore(s => s.addPlanning);
-  const processusActifs = useMemo(() => getProcessusActifs(certifications, homologations, surveillances, ecarts, aerodromes), [certifications, homologations, surveillances, ecarts, aerodromes]);
   const [mounted, setMounted] = useState(false);
   const suggestionsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -586,21 +615,42 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   // Handlers
   const handleNewPlanning = () => {
+    if (!isManager) return;
     setEditingPlanning(null);
     startTransition(() => setFormOpen(true));
   };
 
   const handlePrepare = (planning: Planning) => {
+    if (!canPrepareMission(planning)) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning',
+        title: 'Préparation non autorisée',
+        message: 'Cette surveillance est gérée par l\'équipe désignée (chef d\'équipe et membres).',
+        canal: 'in_app',
+      });
+      return;
+    }
     setPreparationPlanning(planning);
     startTransition(() => setPreparationOpen(true));
   };
 
   const handleRefuser = (planning: Planning) => {
+    if (!isManager) return;
     enregistrerFeedbackPlanning(planning, false, 'Planning rejeté par l\'utilisateur');
     deletePlanning(planning.id);
   };
 
   const handleRequestExecute = (planning: Planning) => {
+    const isChefEquipe = !!user?.id && !!planning.chef_id && planning.chef_id === user.id;
+    if (!isChefEquipe) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning',
+        title: 'Réservé au chef d\'équipe',
+        message: 'Seul le chef d\'équipe désigné peut exécuter cette surveillance.',
+        canal: 'in_app',
+      });
+      return;
+    }
     if (planning.est_proposition) {
       addNotification({
         user_id: user?.id || '', type: 'warning',
@@ -610,6 +660,9 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       });
       return;
     }
+    // Pré-remplir les dates réelles avec celles du planning (ajustables avant lancement)
+    setExecuteDateDebut(toDatetimeLocal(planning.date_debut));
+    setExecuteDateFin(toDatetimeLocal(planning.date_fin));
     setExecuteTarget(planning);
     setExecuteConfirmOpen(true);
   };
@@ -617,10 +670,10 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const handleConfirmExecute = async () => {
     if (!executeTarget) return;
     setExecuteConfirmOpen(false);
-    await handleLancer(executeTarget);
+    await handleLancer(executeTarget, executeDateDebut, executeDateFin);
   };
 
-  const handleLancer = async (planning: Planning) => {
+  const handleLancer = async (planning: Planning, dateDebutReelle?: string, dateFinReelle?: string) => {
     const store = useAppStore.getState()
     const { addSurveillance, setChecklistHierarchy, updateSurveillance } = store;
     if (planning.est_proposition) {
@@ -643,10 +696,27 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       return;
     }
 
+    // Seul le chef d'équipe désigné peut lancer la surveillance (garde de sécurité)
+    if (!user?.id || !planning.chef_id || planning.chef_id !== user.id) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'warning',
+        title: 'Réservé au chef d\'équipe',
+        message: 'Seul le chef d\'équipe désigné peut exécuter cette surveillance.',
+        canal: 'in_app',
+      });
+      return;
+    }
+
     enregistrerFeedbackPlanning(planning, true, 'Planning validé et lancé');
 
     const planningAerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
     const sgsApplicable = isSGSApplicable(planningAerodrome);
+
+    // Dates réelles d'exécution : celles ajustées par le chef d'équipe si renseignées,
+    // sinon les dates programmées du planning.
+    const dateDebutReelleISO = dateDebutReelle ? new Date(dateDebutReelle).toISOString() : planning.date_debut;
+    const dateFinReelleISO = dateFinReelle ? new Date(dateFinReelle).toISOString() : planning.date_fin;
 
     // Certification : tous les domaines techniques + SGS (si applicable)
     let porteeComplete: string[];
@@ -680,8 +750,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       portee: porteeComplete,
       equipe_ids: planning.equipe_ids || [],
       chef_id: planning.chef_id || '',
-      date_debut: planning.date_debut,
-      date_fin: planning.date_fin,
+      date_debut: dateDebutReelleISO,
+      date_fin: dateFinReelleISO,
       statut: 'en_cours',
     };
 
@@ -874,8 +944,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     {
       const typeLabel = (planning.type as string)?.replace(/_/g, ' ') ?? 'surveillance';
       const domainesLabels = (planning.portee || []).map(getDomaineLabel).join(', ');
-      const dateDebut = new Date(planning.date_debut).toLocaleDateString('fr-FR');
-      const dateFin = new Date(planning.date_fin).toLocaleDateString('fr-FR');
+      const dateDebut = new Date(dateDebutReelleISO).toLocaleDateString('fr-FR');
+      const dateFin = new Date(dateFinReelleISO).toLocaleDateString('fr-FR');
       const equipeNoms = (planning.equipe_ids || []).map((id: string) => {
         const u = utilisateurs.find((x: any) => x.id === id);
         return u ? `${u.prenom} ${u.nom}` : id;
@@ -930,12 +1000,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   const handleEdit = (planning: Planning) => {
+    if (!canManageMission(planning)) return;
     setEditingPlanning(planning);
     startTransition(() => setFormOpen(true));
   };
 
   // Valider une suggestion IA → crée le planning
   const handleValiderSuggestion = useCallback(async (suggestion: IaSuggestion) => {
+    if (!isManager) return;
     const now = new Date().toISOString()
     const planning: Planning = {
       id: crypto.randomUUID(),
@@ -982,10 +1054,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         canal: 'in_app',
       })
     }
-  }, [addPlanning, removeIaSuggestion, submitSuggestionFeedbackStore, addNotification, user])
+  }, [addPlanning, removeIaSuggestion, submitSuggestionFeedbackStore, addNotification, user, isManager])
 
   // Ajuster une suggestion → ouvre le formulaire de planning pré-rempli
   const handleAjusterSuggestion = useCallback((suggestion: IaSuggestion) => {
+    if (!isManager) return;
     setEditingPlanning({
       id: crypto.randomUUID(),
       aerodrome_id: suggestion.aerodrome_id,
@@ -1005,10 +1078,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     })
     setFormOpen(true)
     setShowIaSuggestionModal(false)
-  }, [setEditingPlanning, setFormOpen])
+  }, [setEditingPlanning, setFormOpen, isManager])
 
   // Rejeter une suggestion → enregistre le feedback et la supprime
   const handleRejeterSuggestion = useCallback((suggestion: IaSuggestion, motif?: string) => {
+    if (!isManager) return;
     const now = new Date().toISOString()
     removeIaSuggestion(suggestion.id)
     submitSuggestionFeedbackStore({
@@ -1020,10 +1094,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       date_suggestion: suggestion.created_at,
       date_feedback: now,
     })
-  }, [removeIaSuggestion, submitSuggestionFeedbackStore])
+  }, [removeIaSuggestion, submitSuggestionFeedbackStore, isManager])
 
   // Appliquer les suggestions IA & Profil pour un planning donné
   const handleAppliquerSuggestionsGlobal = (planning: { aerodrome_id: string; id?: string }) => {
+    if (!isManager) return;
     if (!planning?.aerodrome_id) return;
     
     const profil = profilsRisque[planning.aerodrome_id];
@@ -1209,6 +1284,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   const handleDelete = (planning: Planning & { isLancee?: boolean }) => {
+    if (!canManageMission(planning)) return;
     if (planning.isLancee) {
       addNotification({
         user_id: user?.id || '',
@@ -1223,13 +1299,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     startTransition(() => setDeleteDialogOpen(true));
   };
 
-  const confirmDelete = useCallback(() => {
+  const confirmDelete = () => {
     if (planningToDelete) {
+      if (!canManageMission(planningToDelete)) return;
       deletePlanning(planningToDelete.id);
       setDeleteDialogOpen(false);
       setPlanningToDelete(null);
     }
-  }, [planningToDelete, deletePlanning]);
+  };
 
   const handleExportCSV = () => {
     const headers = ['Aérodrome', 'Type', 'Début', 'Fin', 'Statut', 'Priorité', 'Score risque', 'Tendance', 'Écarts critiques', 'Exemptions'];
@@ -1395,29 +1472,41 @@ const tableColumns: Column<TablePlanning>[] = [
     header: 'Actions',
     headerClassName: 'text-right',
     className: 'text-right',
-    render: (item) => (
-      <div className="flex justify-end gap-2">
-        {!item.est_proposition && (
-          <button className="action-button" onClick={(e) => { e.stopPropagation(); handlePrepare(item); }} title="Préparer">
-            <PlayCircle className="w-4 h-4" />
+    render: (item) => {
+      const isChefEquipe = !!user?.id && !!item.chef_id && item.chef_id === user.id;
+      const isMembreEquipe = !!user?.id && !!item.chef_id && (item.equipe_ids || []).includes(user.id);
+      const equipeDesignee = !!item.chef_id && (item.equipe_ids?.length ?? 0) > 0;
+      const canExecute = isChefEquipe;
+      const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);
+      const canManageTable = isManager && !equipeDesignee;
+      return (
+        <div className="flex justify-end gap-2">
+          {canPrepare && !item.est_proposition && (
+            <button className="action-button" onClick={(e) => { e.stopPropagation(); handlePrepare(item); }} title="Préparer">
+              <PlayCircle className="w-4 h-4" />
+            </button>
+          )}
+          {canExecute && !item.est_proposition && (
+            <button className="action-button" onClick={(e) => { e.stopPropagation(); handleRequestExecute(item); }} title="Exécuter">
+              <CheckCircle2 className="w-4 h-4" />
+            </button>
+          )}
+          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleView(item); }} title="Voir">
+            <Info className="w-4 h-4" />
           </button>
-        )}
-        {!item.est_proposition && (
-          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleRequestExecute(item); }} title="Exécuter">
-            <CheckCircle2 className="w-4 h-4" />
+          {canManageTable && (
+          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEdit(item); }} title="Modifier">
+            <Edit2 className="w-4 h-4" />
           </button>
-        )}
-        <button className="action-button" onClick={(e) => { e.stopPropagation(); handleView(item); }} title="Voir">
-          <Info className="w-4 h-4" />
-        </button>
-        <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEdit(item); }} title="Modifier">
-          <Edit2 className="w-4 h-4" />
-        </button>
-        <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Supprimer">
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
-    ),
+          )}
+          {canManageTable && (
+          <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Supprimer">
+            <Trash2 className="w-4 h-4" />
+          </button>
+          )}
+        </div>
+      )
+    },
   },
 ]
 
@@ -1456,11 +1545,13 @@ function ModaleSuppression({ deleteDialogOpen, setDeleteDialogOpen, confirmDelet
   );
 }
 
-function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute }: {
+function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute, executeDateDebut, setExecuteDateDebut, executeDateFin, setExecuteDateFin }: {
   executeConfirmOpen: boolean, executeTarget: Planning | null,
   setExecuteConfirmOpen: (v: boolean) => void, setExecuteTarget: (v: Planning | null) => void,
   aerodromesActifs: Aerodrome[], aerodromes: Aerodrome[], userRole: string,
-  handleConfirmExecute: () => void
+  handleConfirmExecute: () => void,
+  executeDateDebut: string, setExecuteDateDebut: (v: string) => void,
+  executeDateFin: string, setExecuteDateFin: (v: string) => void,
 }) {
   if (!executeConfirmOpen || !executeTarget) return null;
   const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
@@ -1481,8 +1572,37 @@ function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmO
             <div className="p-3 bg-role-primary-soft rounded-lg">
               <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
               <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
-              <p className="text-sm font-medium mt-1">Période: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
+              <p className="text-sm font-medium mt-1">Période programmée: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
             </div>
+
+            {/* Dates réelles d'exécution — ajustables par le chef d'équipe */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Dates réelles de la surveillance</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Début réel</label>
+                  <input
+                    type="datetime-local"
+                    value={executeDateDebut}
+                    onChange={(e) => setExecuteDateDebut(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Fin réelle</label>
+                  <input
+                    type="datetime-local"
+                    value={executeDateFin}
+                    onChange={(e) => setExecuteDateFin(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Pré-remplies avec les dates programmées. Ajustez-les selon les dates réelles de la mission.
+              </p>
+            </div>
+
             <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
               <div className="flex items-start gap-2">
                 <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -1570,10 +1690,12 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         title="Planning des Surveillances"
         description="Gestion et planification des surveillances"
         actions={<div className="flex items-center gap-3">
-          <button onClick={handleNewPlanning} className="btn btn-primary gap-2">
-            <Plus className="w-4 h-4" />
-            Nouveau planning
-          </button>
+          {isManager && (
+            <button onClick={handleNewPlanning} className="btn btn-primary gap-2">
+              <Plus className="w-4 h-4" />
+              Nouveau planning
+            </button>
+          )}
         </div>}
       />
 
@@ -1642,6 +1764,18 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         </div>
       )}
 
+      {/* Rappel lecture seule pour l'admin après désignation */}
+      {isManager && filteredPlannings.some(equipeDesigneeMission) && (
+        <div className="p-3 rounded-lg border border-info/40 bg-info-soft/20 flex items-start gap-2">
+          <Shield className="w-4 h-4 text-info shrink-0 mt-0.5" />
+          <p className="text-xs">
+            <span className="font-semibold text-foreground">Missions en cours d'exécution :</span>{' '}
+            <span className="text-foreground">les plannings avec équipe désignée sont en lecture seule pour l'admin.</span>{' '}
+            La préparation revient au chef d'équipe et aux membres, l'exécution au seul chef d'équipe désigné.
+          </p>
+        </div>
+      )}
+
       {/* Barre d'outils */}
       <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
         <div className="flex flex-wrap items-center gap-2">
@@ -1662,6 +1796,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
             </div>
 
             {/* Bouton N+1 */}
+            {isManager && (
             <div className="relative inline-flex">
               <button
                 onClick={() => setShowNPlus1Modal(true)}
@@ -1690,10 +1825,11 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                 )
               })()}
             </div>
+            )}
             
-            {/* Bouton Suggestions AERORISQ — badge des suggestions en attente */}
-            {(() => {
-              const badgeCount = iaSuggestions.length;
+            {/* Bouton Suggestions AERORISQ — badge des suggestions en attente (admin uniquement) */}
+            {isManager && (() => {
+              const badgeCount = iaSuggestionsExistantes.length;
               const aDesNouvelles = badgeCount > 0;
 
               if (aDesNouvelles) return (
@@ -2102,7 +2238,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                   </div>
                   <div>
                     <h2 className="text-lg font-bold text-foreground">Suggestions AERORISQ</h2>
-                    <p className="text-xs text-muted-foreground">{iaSuggestions.length} proposition(s) de surveillance en attente de validation</p>
+                    <p className="text-xs text-muted-foreground">{iaSuggestionsExistantes.length} proposition(s) de surveillance en attente de validation</p>
                   </div>
                 </div>
                 <button onClick={() => setShowIaSuggestionModal(false)} className="btn btn-secondary gap-2">
@@ -2110,19 +2246,20 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                 </button>
               </div>
               <div className="p-6 space-y-4">
-                {iaSuggestions.length === 0 && (
+                {iaSuggestionsExistantes.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p>Aucune suggestion AERORISQ en attente.</p>
                   </div>
                 )}
-                {iaSuggestions.map((s) => {
+                {iaSuggestionsExistantes.map((s) => {
                   const aerodrome = aerodromesActifs.find(a => a.id === s.aerodrome_id)
                   const sourceLabel = s.source === 'risque_critique' ? 'Score critique'
                     : s.source === 'sgs_absent' ? 'SGS absent'
                     : s.source === 'sgs_faible' ? 'SGS insuffisant'
                     : s.source === 'certification_fraiche' ? 'Certification obtenue'
                     : s.source === 'homologation_fraiche' ? 'Homologation obtenue'
+                    : s.source === 'declencheur_urgent' ? 'Déclencheur urgent'
                     : s.source
                   const profil = profilsRisque?.[s.aerodrome_id]
                   const niveauKey = profil && typeof profil.score_global === 'number'
@@ -2266,6 +2403,7 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
           onSelectEvent={handleView}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          userRole={userRole}
         />
       )}
 
@@ -2299,6 +2437,8 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
         setExecuteConfirmOpen={setExecuteConfirmOpen} setExecuteTarget={setExecuteTarget}
         aerodromesActifs={aerodromesActifs} aerodromes={aerodromes}
         userRole={userRole} handleConfirmExecute={handleConfirmExecute}
+        executeDateDebut={executeDateDebut} setExecuteDateDebut={setExecuteDateDebut}
+        executeDateFin={executeDateFin} setExecuteDateFin={setExecuteDateFin}
       />
       <PreparationModal open={preparationOpen} planning={preparationPlanning} onClose={() => setPreparationOpen(false)} userRole={userRole} />
     </div>

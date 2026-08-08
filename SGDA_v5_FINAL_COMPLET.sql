@@ -354,7 +354,6 @@ ALTER TABLE checklist_sous_sous_domaines  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE enquete_aerodromes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reponses_enquete              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alertes_securite              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE delegations                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alertes_proactives            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scores_historique             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE presence_entries              ENABLE ROW LEVEL SECURITY;
@@ -1237,6 +1236,72 @@ CREATE POLICY "alertes_pro_write" ON alertes_proactives
 -- ╔══════════════════════════════════════════════════════════╗
 -- ║  7.19 DÉLÉGATIONS & ALERTES SÉCURITÉ                     ║
 -- ╚══════════════════════════════════════════════════════════╝
+
+-- Table delegations : était référencée par les policies RLS et la
+-- synchro offline (/api/sync) mais n'était créée nulle part.
+-- Idempotente : safe à ré-exécuter.
+CREATE TABLE IF NOT EXISTS delegations (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Références métier
+  surveillance_id       UUID REFERENCES surveillances(id) ON DELETE CASCADE,
+  aerodrome_id          UUID REFERENCES aerodromes(id)   ON DELETE CASCADE,
+  chef_id               UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,
+  assigne_a             UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,
+  assigne_par           UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,
+
+  -- Domaine réglementaire délégué (SGS, PHY, OLS, RA…)
+  domaine               TEXT NOT NULL,
+  domaine_nom           TEXT,
+  type_surveillance     TEXT,
+
+  -- Suivi
+  items_ids             JSONB NOT NULL DEFAULT '[]'::jsonb,
+  items_count           INTEGER,
+  progression           INTEGER NOT NULL DEFAULT 0,
+  statut                TEXT NOT NULL DEFAULT 'assigne' CHECK (statut IN (
+    'assigne','checklist_en_cours','checklist_signee',
+    'ecarts_en_cours','ecarts_signes','transmis_chef',
+    'en_cours','termine','bloque'
+  )),
+
+  -- Signatures
+  checklist_signature_url TEXT,
+  checklist_signe_le      TIMESTAMPTZ,
+  ecarts_signature_url    TEXT,
+  ecarts_signes_le        TIMESTAMPTZ,
+  transmis_le             TIMESTAMPTZ,
+
+  -- Horodatages d'activité
+  assigne_le              TIMESTAMPTZ,
+  derniere_activite       TIMESTAMPTZ,
+  derniere_sync           TIMESTAMPTZ
+);
+
+-- Index pour les requêtes courantes (getDelegationsBySurveillance, par inspecteur, par domaine)
+CREATE INDEX IF NOT EXISTS idx_delegations_surveillance ON delegations(surveillance_id);
+CREATE INDEX IF NOT EXISTS idx_delegations_assigne_a     ON delegations(assigne_a);
+CREATE INDEX IF NOT EXISTS idx_delegations_domaine       ON delegations(domaine);
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION trigger_delegations_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_delegations_updated_at ON delegations;
+CREATE TRIGGER trg_delegations_updated_at
+  BEFORE UPDATE ON delegations
+  FOR EACH ROW EXECUTE FUNCTION trigger_delegations_updated_at();
+
+ALTER TABLE delegations ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON delegations TO authenticated;
 
 DROP POLICY IF EXISTS "delegations_select" ON delegations;
 CREATE POLICY "delegations_select" ON delegations
@@ -2906,3 +2971,4 @@ GRANT INSERT ON demandes_acces TO authenticated, anon;
 -- ============================================================
 -- FIN SECTION 23 — DEMANDES D'ACCÈS PORTEIL PUBLIC
 -- ============================================================
+

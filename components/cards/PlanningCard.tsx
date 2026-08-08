@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import { useAppStore, Planning, Aerodrome, Utilisateur, Surveillance, Ecart } from '@/lib/store'
 import { DOMAINES_SURVEILLANCE, getDomaineLabel, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines'
-import { getBadgeClassFromScore } from '@/lib/config'
+import { getBadgeClassFromScore, canManageRole } from '@/lib/config'
 
 function EntiteIcon({ typeEntite }: { typeEntite?: string }) {
   if (typeEntite === 'helistation') return <span className="flex-shrink-0" style={{ fontSize: '0.95rem', lineHeight: 1 }}>🚁</span>
@@ -109,19 +109,16 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
     return { label: labels[statut] || statut, cls: classes[statut] || 'neutral' };
   };
 
-  // Délégations — via le store (réactif)
-  const getDelegationsBySurveillance = useAppStore(s => s.getDelegationsBySurveillance)
-  const addDelegation               = useAppStore(s => s.addDelegation)
-  const updateDelegation            = useAppStore(s => s.updateDelegation)
-  const deleteDelegation            = useAppStore(s => s.deleteDelegation)
+  // Délégations — source de vérité : planning.delegations (base)
+  const updatePlanning              = useAppStore(s => s.updatePlanning)
   
   const profil = profilsRisque[planning.aerodrome_id]
   const [isLoading, setIsLoading] = useState(false)
-  const [delegations, setDelegations] = useState<Record<string, string>>({})
+  const [delegations, setDelegations] = useState<Record<string, string>>(() => planning.delegations || {})
   const [activeTab, setActiveTab] = useState<'profil' | 'historique' | 'checklist' | 'delegation'>('profil')
   const [delegationsSaved, setDelegationsSaved] = useState(false)
   const [showTypeChoice, setShowTypeChoice] = useState(false)
-  
+
   // Récupérer les inspecteurs disponibles depuis le store
   const inspecteursDisponibles = useMemo(() => {
     return utilisateurs
@@ -201,36 +198,13 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
   
   const handleSaveDelegations = async () => {
     const nbDelegations = Object.keys(delegations).filter(d => delegations[d]).length
-    
-    // Pour chaque délégation, sauvegarder dans le store
-    for (const [domaineCode, inspecteurId] of Object.entries(delegations)) {
-      if (inspecteurId) {
-        // Vérifier si une délégation existe déjà
-        const existingDelegation = getDelegationsBySurveillance?.(planning.id)?.find(
-          (d: any) => d.domaine === domaineCode
-        )
-        
-        if (existingDelegation) {
-          updateDelegation?.(existingDelegation.id, { assigne_a: inspecteurId })
-        } else {
-          addDelegation?.({
-            surveillance_id: planning.id,
-            aerodrome_id: planning.aerodrome_id,
-            chef_id: planning.chef_id,
-            domaine: domaineCode,
-            assigne_a: inspecteurId,
-            assigne_par: user?.id || '',
-            items_ids: [],
-            progression: 0,
-            statut: 'en_cours',
-            assigne_le: new Date().toISOString(),
-            derniere_activite: new Date().toISOString(),
-            derniere_sync: new Date().toISOString(),
-          })
-        }
-      }
+
+    // Source de vérité unique : planning.delegations (base). Le store Delegation[]
+    // n'est alimenté qu'à la conversion planning → surveillance (PlanningModule).
+    if (planning.id) {
+      await updatePlanning(planning.id, { delegations })
     }
-    
+
     setDelegationsSaved(true)
     addNotification({
       user_id: user?.id || '',
@@ -698,6 +672,18 @@ export function PlanningCard({
   const router = useRouter()
   const [showPreparationModal, setShowPreparationModal] = useState(false)
   const utilisateurs = useAppStore(s => s.utilisateurs)
+  const currentUser = useAppStore(s => s.user)
+  const isManager = canManageRole(userRole)
+
+  // Contrôle d'accès mission : une fois l'équipe désignée, seul le chef
+  // d'équipe exécute, le chef + les membres préparent, l'admin passe en
+  // lecture seule stricte (il corrige uniquement avant désignation).
+  const isChefEquipe = !!currentUser?.id && !!planning.chef_id && planning.chef_id === currentUser.id;
+  const isMembreEquipe = !!currentUser?.id && !!planning.chef_id && (planning.equipe_ids || []).includes(currentUser.id);
+  const equipeDesignee = !!planning.chef_id && (planning.equipe_ids?.length ?? 0) > 0;
+  const canExecute = isChefEquipe;
+  const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);
+  const canManage = isManager && !equipeDesignee;
   
   // Récupérer les vrais inspecteurs depuis le store
   const getChefEquipe = () => {
@@ -876,7 +862,7 @@ export function PlanningCard({
             {/* Action buttons */}
              <div className="flex items-center gap-2">
                {/* Bouton Suggestion AERORISQ & Profil - Dynamique selon le profil */}
-               {onSuggestionIA && (
+{canManage && onSuggestionIA && (
                  <button
                    className={`action-button transition-all duration-300 ${
                      profilScore === undefined || profilScore === null ? 'text-primary hover:bg-primary/10 hover:scale-110' :
@@ -893,22 +879,26 @@ export function PlanningCard({
                
                {!isProposition && !isLancee && planning.statut === 'planifiee' && (
                  <>
-                   <button
-                     className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
-                     onClick={handlePrepareClick}
-                     title="Préparer la surveillance"
-                   >
-                     <FileText className="h-4 w-4" />
-                   </button>
-                   <button
-                     className="action-button hover:text-success hover:bg-success/10 transition-all duration-200"
-                     onClick={() => onExecute?.(planning)}
-                     title="Lancer la surveillance"
-                   >
-                     <PlayCircle className="h-4 w-4" />
-                   </button>
+                   {canPrepare && (
+                     <button
+                       className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
+                       onClick={handlePrepareClick}
+                       title="Préparer la surveillance"
+                     >
+                       <FileText className="h-4 w-4" />
+                     </button>
+                   )}
+                   {canExecute && (
+                     <button
+                       className="action-button hover:text-success hover:bg-success/10 transition-all duration-200"
+                       onClick={() => onExecute?.(planning)}
+                       title="Lancer la surveillance (chef d'équipe)"
+                     >
+                       <PlayCircle className="h-4 w-4" />
+                     </button>
+                   )}
                  </>
-               )}
+                )}
                {isLancee && surveillanceId && (
                  <button
                    className="action-button hover:text-success hover:bg-success/10 transition-all duration-200"
@@ -925,7 +915,7 @@ export function PlanningCard({
                >
                  <Eye className="h-4 w-4" />
                </button>
-               {!isLancee && (
+               {canManage && !isLancee && (
                  <button
                    className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"
                    onClick={() => onEdit?.(planning)}
@@ -934,7 +924,7 @@ export function PlanningCard({
                    <PenSquare className="h-4 w-4" />
                  </button>
                )}
-               {!isLancee && onDelete && (
+               {canManage && !isLancee && onDelete && (
                  <button
                    className="action-button danger hover:bg-danger/10 transition-all duration-200"
                    onClick={() => onDelete(planning)}

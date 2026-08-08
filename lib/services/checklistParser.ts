@@ -815,15 +815,36 @@ export function buildSGSTemplateFromImport(
  * fusionnée avec les edits de l'inspecteur (`_sgsEditedTemplate`).
  * Repli : template SGS stocké sur l'aérodrome (`sgs_checklist_template`).
  */
+function countSGSQuestions(template: Record<string, { questions: SGSQuestion[] }>): number {
+  let total = 0
+  for (const elementId of Object.keys(template)) {
+    total += template[elementId]?.questions?.length || 0
+  }
+  return total
+}
+
 export function buildSGSTemplateFromMaster(
   masterChecklists: Record<string, DomaineChecklist[]>,
   fallback?: Record<string, unknown> | null,
 ): Record<string, { questions: SGSQuestion[]; directives: SGSDirectives; guideEtapes: SGSGuideEtape[]; titre?: string }> | undefined {
   const sgsIds = Object.keys(masterChecklists).filter(id => id.toUpperCase().startsWith('SGS_'))
   if (sgsIds.length > 0) {
-    const id = sgsIds[sgsIds.length - 1]
-    const hierarchie = masterChecklists[id]
-    const code = id.replace(/^SGS_/i, '')
+    // Choisir la version SGS la plus complète (le plus de questions), comme le kit
+    // inspecteur qui ouvre le template exact. L'ordre d'insertion de
+    // loadTemplatesFromSupabase étant `created_at DESC`, la dernière clé peut
+    // être une ancienne version incomplète.
+    let bestId = sgsIds[0]
+    let bestCount = -1
+    for (const id of sgsIds) {
+      const candidate = buildSGSTemplateFromImport(masterChecklists[id], id.replace(/^SGS_/i, ''))
+      const count = countSGSQuestions(candidate)
+      if (count > bestCount) {
+        bestCount = count
+        bestId = id
+      }
+    }
+    const hierarchie = masterChecklists[bestId]
+    const code = bestId.replace(/^SGS_/i, '')
     return buildSGSTemplateFromImport(hierarchie, code)
   }
   return fallback as Record<string, { questions: SGSQuestion[]; directives: SGSDirectives; guideEtapes: SGSGuideEtape[]; titre?: string }> | undefined

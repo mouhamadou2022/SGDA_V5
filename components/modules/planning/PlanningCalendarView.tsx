@@ -9,6 +9,7 @@ import 'react-big-calendar/lib/css/react-big-calendar.css';
 import type { Planning, Aerodrome } from '@/lib/store';
 import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
+import { canManageRole } from '@/lib/config';
 import { Eye, PenSquare, Trash2, X, MapPin, Calendar as CalendarIcon, Users, Target, AlertTriangle } from 'lucide-react';
 
 moment.locale('fr');
@@ -50,6 +51,7 @@ interface CalendarViewProps {
   onSelectEvent?: (event: Planning) => void;
   onEdit?: (planning: Planning) => void;
   onDelete?: (planning: Planning) => void;
+  userRole?: string;
 }
 
 // Carte planning dans les vues grille (6 mois / année)
@@ -155,10 +157,14 @@ const YearView = (props: any) => {
 YearView.title = (date: Date) => moment(date).format('YYYY');
 
 // Modale détail
-function EventDetailModal({ planning, aerodrome, onClose, onView, onEdit, onDelete }: {
+function EventDetailModal({ planning, aerodrome, onClose, onView, onEdit, onDelete, userRole = 'inspector' }: {
   planning: Planning; aerodrome?: Aerodrome; onClose: () => void;
   onView: (p: Planning) => void; onEdit: (p: Planning) => void; onDelete: (p: Planning) => void;
+  userRole?: string;
 }) {
+  const isManager = canManageRole(userRole);
+  const equipeDesignee = !!planning.chef_id && (planning.equipe_ids?.length ?? 0) > 0;
+  const canManage = isManager && !equipeDesignee;
   const statutBadge = getStatutBadge(planning.statut);
   const prioriteBadge = getPrioriteBadge(planning.priorite);
   return createPortal(
@@ -184,8 +190,8 @@ function EventDetailModal({ planning, aerodrome, onClose, onView, onEdit, onDele
           <div className="modal-footer border-t border-border p-4 flex justify-end gap-2">
             <button className="btn btn-secondary btn-sm" onClick={onClose}>Fermer</button>
             <button className="btn btn-primary btn-sm gap-1" onClick={() => { onView(planning); onClose(); }}><Eye className="w-4 h-4" />Voir</button>
-            <button className="btn btn-secondary btn-sm gap-1" onClick={() => { onEdit(planning); onClose(); }}><PenSquare className="w-4 h-4" />Modifier</button>
-            <button className="btn btn-danger btn-sm gap-1" onClick={() => { onDelete(planning); onClose(); }}><Trash2 className="w-4 h-4" />Supprimer</button>
+            {canManage && <button className="btn btn-secondary btn-sm gap-1" onClick={() => { onEdit(planning); onClose(); }}><PenSquare className="w-4 h-4" />Modifier</button>}
+            {canManage && <button className="btn btn-danger btn-sm gap-1" onClick={() => { onDelete(planning); onClose(); }}><Trash2 className="w-4 h-4" />Supprimer</button>}
           </div>
         </div>
       </div>
@@ -194,7 +200,7 @@ function EventDetailModal({ planning, aerodrome, onClose, onView, onEdit, onDele
   );
 }
 
-export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onEdit, onDelete }: CalendarViewProps) {
+export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onEdit, onDelete, userRole }: CalendarViewProps) {
   const [currentView, setCurrentView] = useState<string>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedPlanning, setSelectedPlanning] = useState<Planning | null>(null);
@@ -305,6 +311,7 @@ export function PlanningCalendarView({ plannings, aerodromes, onSelectEvent, onE
           onView={(p) => { setShowDetail(false); setSelectedPlanning(null); onSelectEvent?.(p); }}
           onEdit={(p) => { setShowDetail(false); setSelectedPlanning(null); onEdit?.(p); }}
           onDelete={(p) => { setShowDetail(false); setSelectedPlanning(null); onDelete?.(p); }}
+          userRole={userRole}
         />
       )}
     </Card>

@@ -33,6 +33,37 @@ export const ROLE_COLORS = {
 // PERMISSIONS PAR MODULE
 // ============================================================
 
+export const MANAGER_ROLES = ['admin'] as const
+
+export type ManagerRole = typeof MANAGER_ROLES[number]
+
+export function canManageRole(role?: string | null): boolean {
+  return !!role && (MANAGER_ROLES as readonly string[]).includes(role)
+}
+
+// Rôles autorisés à écrire dans le portail exploitant : l'admin ANACIM et le
+// point focal (qui soumet preuves, PAC, formulaires, etc.).
+export function canWriteOperatorRole(role?: string | null): boolean {
+  return canManageRole(role) || role === 'focal_operator'
+}
+
+// Droit d'édition du contenu d'une surveillance (checklist, écarts, rapport) :
+// dès qu'une équipe est désignée (chef_id + membres), seuls le chef d'équipe et
+// les membres éditent ; les autres inspecteurs — y compris l'admin ANACIM — sont
+// en lecture seule stricte (ils suivent l'évolution de la surveillance).
+// Si aucune équipe n'est désignée (surveillance non affectée), chacun peut éditer.
+export function canEditSurveillanceContent(
+  chefId?: string | null,
+  equipeIds?: string[] | null,
+  userId?: string | null
+): boolean {
+  const equipeDesignee = !!chefId && (equipeIds?.length ?? 0) > 0
+  if (!equipeDesignee) return true
+  if (!userId) return false
+  if (userId === chefId) return true
+  return (equipeIds || []).includes(userId)
+}
+
 export const PERMISSIONS = {
   admin: { all: true },
   
@@ -101,6 +132,14 @@ export const PERMISSIONS = {
     ],
   }
 } as const
+
+// ============================================================
+// PERMISSIONS D'ÉCRITURE (source de vérité)
+// Seuls les rôles gestionnaires peuvent créer, modifier ou
+// supprimer des données structurantes (plannings, surveillances,
+// aérodromes, registres, dossiers, formations, documents, kit).
+// Les autres rôles sont en lecture seule.
+// ============================================================
 
 // ============================================================
 // SEUILS DE RISQUE CENTRALISÉS (NORMALISÉS)

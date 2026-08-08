@@ -34,6 +34,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useAppStore, type Dossier } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { dossierUtils } from '@/lib/dossierUtils';
+import { canManageRole } from '@/lib/config';
 import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import { DossierForm } from '@/components/forms/DossierForm';
@@ -274,8 +275,8 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     };
   };
 
-  const canManage = ['admin', 'chef'].includes(userRole)
-  const canCreate = ['admin', 'chef'].includes(userRole)
+  const canManage = canManageRole(userRole)
+  const canCreate = canManageRole(userRole)
 
   const handleMarquerTermine = (dossierId: string) => {
     if (!canManage) return
@@ -368,7 +369,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     const localFocus = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
     const handleExtend = async () => {
       if (!selectedDossier || !extMotif.trim()) return
-      const estAdmin = ['admin', 'chef'].includes(userRole)
+      const estAdmin = canManageRole(userRole)
       await extendreDossier(selectedDossier.id, { date: new Date().toISOString(), jours: extJours, motif: extMotif, statut: estAdmin ? 'approuve' : 'en_attente' }, user?.nom)
       if (estAdmin) {
         addNotification({ user_id: selectedDossier.inspecteur_id || selectedDossier.assignments?.[0]?.inspecteur_id || user?.id || '', type: 'success', title: 'Délai étendu', message: `Délai du dossier ${selectedDossier.reference} étendu de ${extJours} jours.`, canal: 'in_app' })

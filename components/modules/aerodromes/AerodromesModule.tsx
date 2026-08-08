@@ -18,7 +18,7 @@ import { useAppStore, type Aerodrome } from '@/lib/store';
 import { toast } from '@/lib/toast';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { generatePDFFromHTMLString } from '@/lib/pdfGenerator';
-import { REGIONS } from '@/lib/config';
+import { REGIONS, canWriteOperatorRole } from '@/lib/config';
 import AerodromeForm from '@/components/forms/AerodromeForm';
 import AerodromeDetail from './AerodromeDetail';
 import { QrCodeGenerator } from './QrCodeGenerator';
@@ -124,6 +124,7 @@ const activeDepartement = useAppStore(s => s.activeDepartement)
 
   const currentUserRole = user?.role || userRole;
   const isOperator = OPERATOR_ROLES.includes(currentUserRole);
+  const isManager = canWriteOperatorRole(currentUserRole);
 
   const [searchTerm,   setSearchTerm]   = useState('');
   const [filters,      setFilters]      = useState({
@@ -218,8 +219,12 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleDelete = (aerodrome: Aerodrome) => { setSelectedAerodrome(aerodrome); setShowDeleteDialog(true); };
+  const handleDelete = (aerodrome: Aerodrome) => {
+    if (!isManager) return;
+    setSelectedAerodrome(aerodrome); setShowDeleteDialog(true);
+  };
   const confirmDelete = async () => {
+    if (!isManager) return;
     if (!selectedAerodrome) return
     setIsDeleting(true)
     try {
@@ -236,12 +241,12 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
   };
   const handleViewDetails  = (aerodrome: Aerodrome) => { setSelectedAerodrome(aerodrome); setShowDetailDialog(true); };
   const handleEdit = () => {
-    if (isOperator) return;
+    if (!isManager) return;
     setShowDetailDialog(false);
     setShowFormDialog(true);
   };
   const handleDirectEdit = (aerodrome: Aerodrome) => {
-    if (isOperator) return;
+    if (!isManager) return;
     setSelectedAerodrome(aerodrome);
     setShowDetailDialog(false);
     setShowFormDialog(true);
@@ -594,7 +599,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
         render: (a) => (
           <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
             <button className="action-button" onClick={() => handleViewDetails(a)}><Eye className="w-4 h-4"/></button>
-            {!isOperator && <>
+            {isManager && <>
               <button className="action-button" onClick={() => handleDirectEdit(a)}><PenSquare className="w-4 h-4"/></button>
               <button className="action-button danger" onClick={() => handleDelete(a)}><Trash2 className="w-4 h-4"/></button>
             </>}
@@ -667,13 +672,11 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
             </div>
             <div className="card-footer flex justify-between items-center">
               <span className="text-small text-role-primary hover:underline cursor-pointer">Voir fiche</span>
-              {!isOperator && (
-                <div className="flex gap-1">
-                  <button className="action-button" onClick={e => { e.stopPropagation(); setSelectedAerodrome(aerodrome); setShowQrDialog(true); }} title="QR Code"><QrCode className="w-4 h-4"/></button>
-                  <button className="action-button" onClick={e => { e.stopPropagation(); handleDirectEdit(aerodrome); }}><PenSquare className="w-4 h-4"/></button>
-                  <button className="action-button" onClick={e => { e.stopPropagation(); handleExportFichePDF(aerodrome); }} title="Exporter la fiche PDF"><Download className="w-4 h-4"/></button>
-                </div>
-              )}
+              <div className="flex gap-1">
+                <button className="action-button" onClick={e => { e.stopPropagation(); setSelectedAerodrome(aerodrome); setShowQrDialog(true); }} title="QR Code"><QrCode className="w-4 h-4"/></button>
+                {isManager && <button className="action-button" onClick={e => { e.stopPropagation(); handleDirectEdit(aerodrome); }}><PenSquare className="w-4 h-4"/></button>}
+                <button className="action-button" onClick={e => { e.stopPropagation(); handleExportFichePDF(aerodrome); }} title="Exporter la fiche PDF"><Download className="w-4 h-4"/></button>
+              </div>
             </div>
           </div>
         );
@@ -715,7 +718,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
         icon={<Plane />}
         title={isOperator ? 'Mon Infrastructure' : 'Aérodromes & Hélistations'}
         description={isOperator ? 'Consultation de votre infrastructure' : 'Gestion des infrastructures aéronautiques du Sénégal'}
-        actions={!isOperator ? (
+        actions={isManager ? (
           <button onClick={() => { setSelectedAerodrome(null); setShowFormDialog(true); }} className="btn btn-primary gap-2">
             <Plus className="w-4 h-4" />Nouvelle infrastructure
           </button>

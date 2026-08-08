@@ -41,6 +41,7 @@ import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/global
 import { useAppStore, type Aerodrome, type TypeEntiteAerodrome } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { getProcessusActifs } from '@/lib/processus';
+import { canManageRole } from '@/lib/config';
 import { AccordionSection, AccordionGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
 
 // Composants du module
@@ -399,6 +400,7 @@ function ArchiveView({
 export default function SurveillanceModule({ userRole }: SurveillanceModuleProps) {
   const router = useRouter();
   const { startTransition } = useGlobalTransition();
+  const isManager = canManageRole(userRole);
   
   // Store
   const user = useOptimizedStore(s => s.user)
@@ -458,11 +460,13 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   };
 
   const handleEditSurveillance = (surveillance: Surveillance) => {
+    if (!isManager) return;
     setEditingSurveillance(surveillance);
     setFormOpen(true);
   };
 
   const handleDeleteSurveillance = (id: string) => {
+    if (!isManager) return;
     const surv = surveillances.find(s => s.id === id);
     if (!surv) return;
     const lieAUnProcessus = certifications.some(c =>
@@ -811,6 +815,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                             aerodrome={aero}
                             nbEcarts={ecarts.filter(e => e.surveillance_id === s.id).length}
                             profilScore={profilsRisque?.[s.aerodrome_id]?.score_global}
+                            userRole={userRole}
                             onView={() => handleViewDetails(s)}
                             onEdit={() => handleEditSurveillance(s)}
                             onDelete={() => handleDeleteSurveillance(s.id)}
@@ -878,6 +883,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                         aerodrome={aerodrome}
                         nbEcarts={ecarts.filter(e => e.surveillance_id === s.id).length}
                         profilScore={profilsRisque?.[s.aerodrome_id]?.score_global}
+                        userRole={userRole}
                         onView={() => handleViewDetails(s)}
                       onEdit={() => handleEditSurveillance(s)}
                       onDelete={() => handleDeleteSurveillance(s.id)}
@@ -927,6 +933,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
                       aerodrome={aerodrome}
                       nbEcarts={ecarts.filter(e => e.surveillance_id === surveillance.id).length}
                       profilScore={profilsRisque?.[surveillance.aerodrome_id]?.score_global}
+                      userRole={userRole}
                       onView={() => handleViewDetails(surveillance)}
                       onEdit={() => handleEditSurveillance(surveillance)}
                       onDelete={() => handleDeleteSurveillance(surveillance.id)}

@@ -53,6 +53,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
+import { canManageRole } from '@/lib/config';
 import { getGraviteRisqueLabel, getGraviteRisqueClasse } from '@/lib/evenementUtils';
 import type { TrainingNeedsAnalysisResult } from '@/lib/ia/agents/registreAgent';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
@@ -404,11 +405,12 @@ function DashboardTab() {
 // ============================================================
 // SOUS-ONGLET: CERTIFICATIONS (par année puis aérodrome)
 // ============================================================
-function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
+function CertificationsTab({ onEdit, userRole = '' }: { onEdit?: (entry: any) => void; userRole?: string }) {
   const allCertifications = useAppStore((s) => s.certifications);
   const aerodromes = useAppStore((s) => s.aerodromes);
   const registreEntries = useAppStore((s) => s.registreEntries);
   const deleteRegistreEntry = useAppStore((s) => s.deleteRegistreEntry);
+  const isManager = canManageRole(userRole);
   const [selectedCert, setSelectedCert] = useState<any | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
@@ -427,6 +429,7 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
   }, [allCertifications, registreEntries, aerodromes]);
 
   const handleDeleteCert = (entryId: string) => {
+    if (!isManager) return;
     deleteRegistreEntry(entryId)
     setConfirmDeleteId(null)
   }
@@ -522,10 +525,10 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                             <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedCert({ ...c, aerodrome })}>
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(c.registreEntry || c)}>
+                            {isManager && <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(c.registreEntry || c)}>
                               <PenSquare className="w-4 h-4" />
-                            </button>
-                            {confirmDeleteId === c.id ? (
+                            </button>}
+                            {isManager && (confirmDeleteId === c.id ? (
                               <div className="flex items-center gap-1">
                                 <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteCert(c.id)}>
                                   <CheckCircle className="w-4 h-4" />
@@ -538,7 +541,7 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                               <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(c.id)}>
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
+                            ))}
                           </div>
                         )},
                       ]}
@@ -648,11 +651,12 @@ function CertificationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
 // ============================================================
 // SOUS-ONGLET: HOMOLOGATIONS
 // ============================================================
-function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
+function HomologationsTab({ onEdit, userRole = '' }: { onEdit?: (entry: any) => void; userRole?: string }) {
   const allHomologations = useAppStore((s) => s.homologations);
   const aerodromes = useAppStore((s) => s.aerodromes);
   const registreEntries = useAppStore((s) => s.registreEntries);
   const deleteRegistreEntry = useAppStore((s) => s.deleteRegistreEntry);
+  const isManager = canManageRole(userRole);
   const [selectedHomo, setSelectedHomo] = useState<any | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
@@ -671,6 +675,7 @@ function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
   }, [allHomologations, registreEntries, aerodromes]);
 
   const handleDeleteHomo = (entryId: string) => {
+    if (!isManager) return;
     deleteRegistreEntry(entryId)
     setConfirmDeleteId(null)
   }
@@ -754,10 +759,10 @@ function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                             <button className="action-button hover:scale-105 transition-all duration-200" title="Voir détails" onClick={() => setSelectedHomo({ ...h, aerodrome })}>
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(h.registreEntry || h)}>
+                            {isManager && <button className="action-button hover:scale-105 transition-all duration-200 text-role-primary" title="Modifier" onClick={() => onEdit?.(h.registreEntry || h)}>
                               <PenSquare className="w-4 h-4" />
-                            </button>
-                            {confirmDeleteId === h.id ? (
+                            </button>}
+                            {isManager && (confirmDeleteId === h.id ? (
                               <div className="flex items-center gap-1">
                                 <button className="action-button text-danger" title="Confirmer" onClick={() => handleDeleteHomo(h.id)}>
                                   <CheckCircle className="w-4 h-4" />
@@ -770,7 +775,7 @@ function HomologationsTab({ onEdit }: { onEdit?: (entry: any) => void }) {
                               <button className="action-button hover:scale-105 transition-all duration-200 text-danger" title="Supprimer" onClick={() => setConfirmDeleteId(h.id)}>
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
+                            ))}
                           </div>
                         )},
                       ]}
@@ -1839,6 +1844,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
   const storeUser = useAppStore((s) => s.user);
   const user = storeUser ?? userProp;
   const userRole = userRoleProp ?? userProp?.role ?? storeUser?.role ?? 'inspector';
+  const isManager = canManageRole(userRole);
   const regulationAnalyses = useAppStore((s) => s.regulationAnalyses);
   const formationSuggestions = useAppStore((s) => s.formationSuggestions);
   
@@ -1962,6 +1968,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
   };
   
   const handleManualAdd = async (formData: any) => {
+    if (!isManager) return;
     try {
       const newEntry: RegistreEntry = {
         id: `reg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
@@ -2010,9 +2017,11 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
           <div className="space-y-8">
             <CertificationsTab
               onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
+              userRole={userRole}
             />
             <HomologationsTab
               onEdit={(entry) => { setFormSourceData(entry); setShowFormModal(true); }}
+              userRole={userRole}
             />
           </div>
         );
@@ -2065,10 +2074,10 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
         icon={<Archive className="h-6 w-6" />}
         title="Registre officiel"
         description="Traçabilité des certifications, homologations, surveillances et documents"
-        actions={<button onClick={() => setShowFormModal(true)} className="btn btn-primary gap-2">
+        actions={isManager ? <button onClick={() => setShowFormModal(true)} className="btn btn-primary gap-2">
           <Plus className="w-4 h-4" />
           Ajouter un document
-        </button>}
+        </button> : undefined}
       />
       
       {/* Intelligence réglementaire */}

@@ -41,7 +41,7 @@ export default function AerorisqAnalyse({ aerodromeId, compact = false }: Aerori
   const aerodrome = useAppStore(s => aerodromeId ? s.aerodromes.find(a => a.id === aerodromeId) : null)
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const addNotification = useAppStore(s => s.addNotification)
-  const addSurveillance = useAppStore(s => s.addSurveillance)
+  const addIaSuggestion = useAppStore(s => s.addIaSuggestion)
   const hasTriggered = useRef(false)
 
   // Auto-déclenchement : une seule fois par analyse
@@ -68,23 +68,29 @@ export default function AerorisqAnalyse({ aerodromeId, compact = false }: Aerori
     }
     setNotificationEnvoyee(true)
 
-    // Création automatique de la surveillance d'urgence
+    // Proposition de surveillance d'urgence → à valider par l'utilisateur
+    // (jamais d'auto-création sans approbation)
     if (result.surveillancePreRemplie) {
       const s = result.surveillancePreRemplie
-      addSurveillance({
+      const now = new Date().toISOString()
+      addIaSuggestion({
+        id: crypto.randomUUID(),
         aerodrome_id: aerodrome.id,
         type: s.type,
         portee: s.portee,
-        equipe_ids: s.equipe_ids,
-        chef_id: s.equipe_ids[0] || '',
         date_debut: new Date(Date.now() + 86400000).toISOString(), // demain
         date_fin: new Date(Date.now() + 7 * 86400000).toISOString(), // +7 jours
-        statut: 'planifiee',
-        justification_declenchement: s.justification,
-        observations: 'Créée automatiquement par AERORISQ (mode autonome)',
+        equipe_ids: s.equipe_ids,
+        chef_id: s.equipe_ids[0] || '',
+        priorite: 'critique',
+        objectifs: `Surveillance ${s.type.replace(/_/g, ' ')} d'urgence`,
+        raison: s.justification,
+        confiance: 0.9,
+        source: 'declencheur_urgent',
+        created_at: now,
       })
     }
-  }, [analysis, aerodrome, utilisateurs, addNotification, addSurveillance])
+  }, [analysis, aerodrome, utilisateurs, addNotification, addIaSuggestion])
 
   if (!analysis) return null
 
@@ -141,7 +147,7 @@ export default function AerorisqAnalyse({ aerodromeId, compact = false }: Aerori
             <Zap className="h-4 w-4 text-danger" />
             <span className="font-semibold text-danger">Déclenchement automatique AERORISQ</span>
           </div>
-          <p className="text-foreground">Une alerte a été envoyée aux inspecteurs concernés.</p>
+          <p className="text-foreground">Une alerte a été envoyée aux inspecteurs concernés et une surveillance d&apos;urgence a été proposée en validation.</p>
           {notificationEnvoyee && (
             <p className="text-muted-foreground flex items-center gap-1">
               <Bell className="h-3 w-3" /> Notification email + in-app envoyée

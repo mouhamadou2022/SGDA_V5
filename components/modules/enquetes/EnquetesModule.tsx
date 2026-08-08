@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore, type Enquete } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { TYPES_ENQUETE, TYPES_QUESTION } from '@/lib/config';
+import { TYPES_ENQUETE, TYPES_QUESTION, canManageRole } from '@/lib/config';
 import {
   ClipboardList,
   BarChart3,
@@ -140,6 +140,7 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
   };
 
   const handleEditEnquete = (enquete: any) => {
+    if (!peutCreerEnquete) return;
     setEditingEnquete(enquete);
     setFormOpen(true);
   };
@@ -150,11 +151,13 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
   };
 
   const handleOpenBuilder = (enquete: any) => {
+    if (!peutCreerEnquete) return;
     setCurrentEnquete(enquete);
     setBuilderOpen(true);
   };
 
   const handleBuilderSave = (updatedEnquete: any) => {
+    if (!peutCreerEnquete) return;
     updateEnquete(updatedEnquete.id, updatedEnquete);
     setBuilderOpen(false);
     setCurrentEnquete(null);
@@ -381,7 +384,7 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
     setFilters({ type: 'tous', statut: 'tous', aerodrome: 'tous' });
   };
 
-  const peutCreerEnquete = userRole === 'admin' || userRole === 'inspector';
+  const peutCreerEnquete = canManageRole(userRole);
 
   // ============================================================
   // MODALES

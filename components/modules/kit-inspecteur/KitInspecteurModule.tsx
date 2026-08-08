@@ -56,6 +56,7 @@ import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocume
 import { uploadFile } from '@/lib/datastore';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { kitUtils } from '@/lib/kitUtils';
+import { canManageRole } from '@/lib/config';
 import { formatDate } from '@/lib/utils';
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
 import { generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
@@ -272,6 +273,7 @@ function ShareModalAction({ showShareModal, selectedDocument, setShowShareModal,
 }
 
 export default function KitInspecteurModule({ userRole }: KitInspecteurModuleProps) {
+  const isManager = canManageRole(userRole);
   const kitDocuments = useAppStore(s => s.kitDocuments);
   const user = useAppStore(s => s.user);
   const addKitDocument = useAppStore(s => s.addKitDocument);
@@ -659,6 +661,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   }, [showGenModal, showImportModal])
 
   const handleGenerateChecklist = async () => {
+    if (!isManager) return
     if (genPortee.length === 0) return
     setGenLoading(true)
     try {
@@ -888,6 +891,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isManager) return;
     if (!validerFormulaire()) return;
     setIsSubmitting(true);
     try {
@@ -987,6 +991,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   };
 
   const handleEdit = (doc: any) => {
+    if (!isManager) return;
     setSelectedDocument(doc);
     setFormData({
       nom: doc.nom,
@@ -1006,6 +1011,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   };
 
   const handleDelete = async (id: string) => {
+    if (!isManager) return;
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) {
       await deleteKitDocument(id);
     }
@@ -1103,12 +1109,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowDetails(true); }}>
             <Eye className="w-4 h-4" />
           </button>
-          <button className="action-button" onClick={() => handleEdit(doc)} title="Modifier">
+          {isManager && <button className="action-button" onClick={() => handleEdit(doc)} title="Modifier">
             <Edit3 className="w-4 h-4" />
-          </button>
-          <button className="action-button" onClick={() => handleDelete(doc.id)} title="Supprimer">
+          </button>}
+          {isManager && <button className="action-button" onClick={() => handleDelete(doc.id)} title="Supprimer">
             <Trash2 className="w-4 h-4 text-danger" />
-          </button>
+          </button>}
           {doc.accessible_exploitant && (
             <button className="action-button" onClick={() => { setSelectedDocument(doc); setShowShareModal(true); }}>
               <Share2 className="w-4 h-4" />
@@ -1128,18 +1134,18 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         title="Kit Inspecteur"
         description={`Base documentaire - ${stats.total} documents`}
         actions={<div className="flex items-center gap-2">
-          <button onClick={() => setShowImportModal(true)} className="btn btn-secondary gap-2">
+          {isManager && <button onClick={() => setShowImportModal(true)} className="btn btn-secondary gap-2">
             <Upload className="w-4 h-4" />
             Importer modèle ANACIM
-          </button>
-          <button onClick={() => setShowGenModal(true)} className="btn btn-secondary gap-2">
+          </button>}
+          {isManager && <button onClick={() => setShowGenModal(true)} className="btn btn-secondary gap-2">
             <LayoutList className="w-4 h-4" />
             Générer la checklist
-          </button>
-          <button onClick={() => { resetForm(); setShowForm(true); }} className="btn btn-primary gap-2">
+          </button>}
+          {isManager && <button onClick={() => { resetForm(); setShowForm(true); }} className="btn btn-primary gap-2">
             <Plus className="w-4 h-4" />
             Ajouter un document
-          </button>
+          </button>}
         </div>}
       />
 
@@ -1523,14 +1529,14 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                   {(e.versionsCount || 0) > 1 && (
                                     <button className="action-button" onClick={() => setShowVersionHistory(e.key)} title="Historique versions"><Clock className="w-3.5 h-3.5" /></button>
                                   )}
-                                  <button className="action-button text-warning hover:text-warning" onClick={() => { if (confirm(`Archiver le template ${e.key} ?`)) archiveMasterChecklist(e.key); }} title="Archiver"><Archive className="w-3.5 h-3.5" /></button>
-                                  <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+                                  {isManager && <button className="action-button text-warning hover:text-warning" onClick={() => { if (confirm(`Archiver le template ${e.key} ?`)) archiveMasterChecklist(e.key); }} title="Archiver"><Archive className="w-3.5 h-3.5" /></button>}
+                                  {isManager && <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
                                 </>
                               )}
                               {isArchived && (
                                 <>
-                                  <button className="action-button" onClick={() => unarchiveMasterChecklist(e.key)} title="Restaurer"><RefreshCw className="w-3.5 h-3.5" /></button>
-                                  <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer définitivement"><Trash2 className="w-3.5 h-3.5" /></button>
+                                  {isManager && <button className="action-button" onClick={() => unarchiveMasterChecklist(e.key)} title="Restaurer"><RefreshCw className="w-3.5 h-3.5" /></button>}
+                                  {isManager && <button className="action-button text-danger hover:text-danger" onClick={() => { if (confirm(`Supprimer définitivement le template ${e.key} ? Cette action est irréversible.`)) deleteMasterChecklist(e.key); }} title="Supprimer définitivement"><Trash2 className="w-3.5 h-3.5" /></button>}
                                 </>
                               )}
                             </div>
@@ -1692,12 +1698,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                       <button className="action-button h-7 w-7 p-0" onClick={() => { setSelectedDocument(doc); setShowDetails(true); }} title="Voir détails">
                         <Eye className="w-3 h-3" />
                       </button>
-                      <button className="action-button h-7 w-7 p-0" onClick={() => handleEdit(doc)} title="Modifier">
+                      {isManager && <button className="action-button h-7 w-7 p-0" onClick={() => handleEdit(doc)} title="Modifier">
                         <Edit3 className="w-3 h-3" />
-                      </button>
-                      <button className="action-button h-7 w-7 p-0" onClick={() => handleDelete(doc.id)} title="Supprimer">
+                      </button>}
+                      {isManager && <button className="action-button h-7 w-7 p-0" onClick={() => handleDelete(doc.id)} title="Supprimer">
                         <Trash2 className="w-3 h-3 text-danger" />
-                      </button>
+                      </button>}
                       {doc.extraits && doc.extraits.length > 0 && (
                         <span className="badge outline text-[10px]">{doc.extraits.length} extrait(s)</span>
                       )}

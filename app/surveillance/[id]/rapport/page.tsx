@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import SurveillanceRapport from '@/components/modules/surveillance/SurveillanceRapport';
+import { canEditSurveillanceContent } from '@/lib/config';
 import { ArrowLeft, FileText, Wifi, WifiOff, FileDown, Eye } from 'lucide-react';
 
 export default function RapportPage() {
@@ -162,7 +163,7 @@ export default function RapportPage() {
             surveillanceId={surveillanceId}
             onSave={handleSave}
             onSigner={handleSigner}
-            readOnly={isSigned}
+            readOnly={isSigned || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
             userRole={user?.role || 'inspector'}
           />
         )}

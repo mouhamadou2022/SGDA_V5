@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore } from '@/lib/store';
+import { useAppStore, type Utilisateur } from '@/lib/store';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import {
   DOMAINES_SURVEILLANCE,
@@ -109,12 +109,43 @@ export interface DelegationZoneProps {
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
-const MOCK_INSPECTEURS: InspecteurDisponible[] = [
-  { id: 'insp-001', prenom: 'Mamadou', nom: 'Diop', competences: ['SGS', 'OLS', 'PHY', 'AGA'], chargeActuelle: 2, estChef: true, estDisponible: true },
-  { id: 'insp-002', prenom: 'Fatou', nom: 'Ndiaye', competences: ['SLI', 'RA', 'OPS'], chargeActuelle: 1, estChef: false, estDisponible: true },
-  { id: 'insp-003', prenom: 'Ibrahima', nom: 'Sow', competences: ['ELEC', 'MFP', 'PHY'], chargeActuelle: 0, estChef: false, estDisponible: true },
-  { id: 'insp-004', prenom: 'Aissatou', nom: 'Ba', competences: ['COP', 'SGS', 'OPS'], chargeActuelle: 0, estChef: false, estDisponible: false, derniereActivite: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-];
+// Expansion des compétences AGA/XXX vers les codes domaines individuels
+const AGA_COMPETENCES_MAP: Record<string, string[]> = {
+  'AGA/EXPLOIT': ['SGS', 'COP', 'OPS'],
+  'AGA/GENIE_CIV': ['PHY', 'OLS'],
+  'AGA/GENIE_ELEC': ['ELEC', 'MFP'],
+  'AGA/SLI_RA': ['SLI', 'RA'],
+};
+
+// Construit la liste d'inspecteurs disponibles depuis les vrais utilisateurs du store
+function buildInspecteursFromUtilisateurs(
+  utilisateurs: Utilisateur[],
+  chefId: string
+): InspecteurDisponible[] {
+  return utilisateurs
+    .filter(u => u.role === 'inspector' && u.statut !== 'inactif')
+    .map(u => {
+      const comps = new Set<string>();
+      (u.competences || []).forEach((c: { domaine?: string } | string) => {
+        const d = typeof c === 'string' ? c : c?.domaine;
+        if (!d) return;
+        const expanded = AGA_COMPETENCES_MAP[d];
+        if (expanded) expanded.forEach(e => comps.add(e));
+        else comps.add(d);
+      });
+      (u.specialites || []).forEach(s => comps.add(s));
+      return {
+        id: u.id,
+        prenom: u.prenom,
+        nom: u.nom,
+        competences: [...comps],
+        chargeActuelle: 0,
+        estChef: u.id === chefId,
+        estDisponible: u.statut === 'actif' || !u.statut,
+        derniereActivite: u.last_login,
+      };
+    });
+}
 
 function getTypeBadge(type: TypeSurveillanceContinue) {
   const colors: Record<TypeSurveillanceContinue, string> = {
@@ -444,7 +475,11 @@ export function DelegationZone({
       domaine: d.code as DomaineCode,
     }));
   });
-  const [inspecteurs] = useState<InspecteurDisponible[]>(inspecteursProp.length > 0 ? inspecteursProp : MOCK_INSPECTEURS);
+  const [inspecteurs] = useState<InspecteurDisponible[]>(() => {
+    if (inspecteursProp.length > 0) return inspecteursProp;
+    const utilisateurs = useAppStore.getState().utilisateurs || [];
+    return buildInspecteursFromUtilisateurs(utilisateurs, chefId);
+  });
 
   // Initialiser depuis le store (délégations déjà persistées), sinon depuis les props
   const [delegations, setDelegations] = useState<DelegationAssignee[]>(() => {
@@ -781,17 +816,27 @@ export function DelegationZone({
           badge={<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{inspecteurs.filter(i => i.estDisponible).length} disponible(s)</span>}
           className="max-h-[500px] overflow-y-auto"
         >
-          {inspecteurs.map(inspecteur => (
-            <InspecteurCard
-              key={inspecteur.id}
-              inspecteur={inspecteur}
-              isDragOver={dragOverInspecteurId === inspecteur.id}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              assignedDomaines={delegations}
-            />
-          ))}
+          {inspecteurs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-500" />
+              <p className="text-sm font-medium text-foreground">Aucun inspecteur disponible</p>
+              <p className="text-xs mt-1">
+                Ajoutez des utilisateurs avec le rôle inspecteur pour pouvoir assigner les domaines.
+              </p>
+            </div>
+          ) : (
+            inspecteurs.map(inspecteur => (
+              <InspecteurCard
+                key={inspecteur.id}
+                inspecteur={inspecteur}
+                isDragOver={dragOverInspecteurId === inspecteur.id}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                assignedDomaines={delegations}
+              />
+            ))
+          )}
         </Card>
       </div>
 

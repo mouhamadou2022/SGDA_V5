@@ -5,6 +5,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useAppStore, Planning, Aerodrome, ProfilRisque } from '@/lib/store'
+import { canManageRole } from '@/lib/config'
 import { DOMAINES_SURVEILLANCE, getDomaineLabel } from '@/lib/domaines'
 import {
   Calendar, CheckCircle2, XCircle, X, TrendingUp, AlertTriangle,
@@ -36,7 +37,7 @@ const SURVEILLANCE_TYPES = ['periodique', 'maintien', 'suivi_ecarts', 'mise_oeuv
 const PRIORITE_BADGE: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
 const PRIORITE_LABEL: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
 
-export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
+export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
   const aerodromes = useAppStore(s => s.aerodromes)
   const plannings = useAppStore(s => s.plannings)
   const profilsRisque = useAppStore(s => s.profilsRisque)
@@ -47,6 +48,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const consoliderPropositionsN1 = useAppStore(s => s.consoliderPropositionsN1)
   const user = useAppStore(s => s.user)
   const addNotification = useAppStore(s => s.addNotification)
+  const isManager = canManageRole(userRole || user?.role || '')
 
   const anneeN1 = new Date().getFullYear() + 1
   const moisActuel = new Date().getMonth() + 1 // 1-12
@@ -150,12 +152,14 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   const handleCancelEdit = () => { setEditingId(null); setEditForm({}) }
 
   const handleValider = (id: string) => {
+    if (!isManager) return
     if (editingId === id) handleSaveEdit(id)
     setValidatedIds(prev => new Set(prev).add(id))
   }
-  const handleUnvalider = (id: string) => setValidatedIds(prev => { const n = new Set(prev); n.delete(id); return n })
-  const handleRefuser = (id: string) => setRefusModal({ id, motif: '' })
+  const handleUnvalider = (id: string) => { if (!isManager) return; setValidatedIds(prev => { const n = new Set(prev); n.delete(id); return n }) }
+  const handleRefuser = (id: string) => { if (!isManager) return; setRefusModal({ id, motif: '' }) }
   const confirmRefus = () => {
+    if (!isManager) return
     if (!refusModal) return
     refuserPropositionN1(refusModal.id, refusModal.motif || MOTIFS_REFUS[0])
     setValidatedIds(prev => { const n = new Set(prev); n.delete(refusModal.id); return n })
@@ -164,6 +168,7 @@ export default function PlanningNPlus1({ onClose, userRole = 'admin' }: Props) {
   }
 
   const handleConsolider = async () => {
+    if (!isManager) return
     setConsolidating(true)
     try {
       const ids = Array.from(validatedIds)

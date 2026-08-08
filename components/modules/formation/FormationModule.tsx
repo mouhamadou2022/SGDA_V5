@@ -53,6 +53,7 @@ import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/global
 import { useAppStore, Formation, Inspecteur, Competence } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { formationUtils } from '@/lib/formationUtils';
+import { canManageRole } from '@/lib/config';
 import { formatDate } from '@/lib/utils';
 {/* InspecteurFiche import retiré */}
 
@@ -375,6 +376,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
   const handleSubmitFormation = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage) return;
     const nouvelleFormation: Omit<Formation, 'id' | 'created_at'> = {
       reference: formationUtils.genererReference(new Date().getFullYear(), listeFormations.length + 1),
       titre: formData.titre,
@@ -403,6 +405,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
   const handleSubmitInspecteur = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage) return;
     if (selectedInspecteur) {
       updateInspecteur(selectedInspecteur, {
         matricule: inspecteurData.matricule,
@@ -472,6 +475,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   };
 
   const handleExecute = (f: Formation) => {
+    if (!canManage) return;
     setSelectedFormation(f.id);
     setExecuteDate(f.date);
     setExecuteDuree(f.duree_heures);
@@ -493,6 +497,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   };
 
   const handleCertificat = (f: Formation) => {
+    if (!canManage) return;
     setSelectedFormation(f.id);
     startTransition(() => setShowCertifModal(true));
   };
@@ -514,6 +519,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   };
 
   const handleModifierDates = (f: Formation) => {
+    if (!canManage) return;
     setSelectedFormation(f.id);
     setNewDate(f.date);
     setNewDuree(f.duree_heures);
@@ -598,6 +604,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   };
 
   const handleDeleteInspecteur = (id: string) => {
+    if (!canManage) return;
     setDeletingInspecteurId(id);
     setShowDeleteConfirm(true);
   };
@@ -614,6 +621,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   };
 
   const handleDeleteExpiree = async (f: Formation) => {
+    if (!canManage) return;
     if (!window.confirm(`La formation "${f.titre}" est arrivée à échéance sans être terminée. Supprimer ?`)) return;
     try {
       await deleteFormation(f.id);
@@ -641,7 +649,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     setFormErrors({});
   };
 
-  const canManage = userRole === 'admin' || userRole === 'dg_anacim';
+  const canManage = canManageRole(userRole);
 
   const FormationFormModal = () => (
     <FormShell
@@ -1190,7 +1198,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <PlayCircle className="w-4 h-4" />
           </button>
         )}
-        {expiree && (
+        {expiree && canManage && (
           <>
             <button className="action-button hover:text-warning hover:bg-warning/10 transition-all duration-200" onClick={() => handleCertificat(f)} title="Ajouter certificat">
               <Upload className="w-4 h-4" />
@@ -1213,7 +1221,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <Trash2 className="w-4 h-4" />
           </button>
         )}
-        {f.statut === 'terminee' && !f.certificat && (
+        {f.statut === 'terminee' && !f.certificat && canManage && (
           <button className="action-button hover:text-warning hover:bg-warning/10 transition-all duration-200" onClick={() => handleCertificat(f)} title="Ajouter certificat">
             <Upload className="w-4 h-4" />
           </button>
@@ -1237,10 +1245,10 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
         description="Gestion des formations et matrice de compétences"
         actions={<div className="flex items-center gap-2">
           {/* Nouvel inspecteur géré via Utilisateurs */}
-          <button onClick={() => startTransition(() => setShowForm(true))} className="btn btn-primary gap-2">
+          {canManage && <button onClick={() => startTransition(() => setShowForm(true))} className="btn btn-primary gap-2">
             <Plus className="w-4 h-4" />
             Nouvelle formation
-          </button>
+          </button>}
         </div>}
       />
 

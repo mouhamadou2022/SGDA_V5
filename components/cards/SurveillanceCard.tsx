@@ -13,7 +13,7 @@ import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
 import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/ChargerRedigerRapportModal'
 import { useAppStore } from '@/lib/store'
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
-import { getBadgeClassFromScore } from '@/lib/config'
+import { getBadgeClassFromScore, canManageRole } from '@/lib/config'
 
 const TypeEntiteBadge = ({ typeEntite }: { typeEntite?: string }) => {
   switch (typeEntite) {
@@ -281,6 +281,7 @@ export function SurveillanceCard({
 
   const peutEditer = ['planifiee', 'en_cours'].includes(surveillance.statut)
   const peutContinuer = surveillance.statut === 'en_cours'
+  const isManager = canManageRole(userRole)
   const isTransmisOuArchive = ['transmise', 'archivee'].includes(surveillance.statut)
   const peutAfficherChecklist = ['en_cours', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
   const peutAfficherRapport = ['rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
@@ -673,15 +674,17 @@ export function SurveillanceCard({
                   <Users className="h-4 w-4" />
                 </button>
               )}
-              <button
-                type="button"
-                className="action-button danger hover:bg-danger/10 transition-all duration-200"
-                onClick={(e) => { e.stopPropagation(); onDelete?.(surveillance.id); }}
-                title="Supprimer la surveillance"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-              {peutEditer && (
+              {isManager && (
+                <button
+                  type="button"
+                  className="action-button danger hover:bg-danger/10 transition-all duration-200"
+                  onClick={(e) => { e.stopPropagation(); onDelete?.(surveillance.id); }}
+                  title="Supprimer la surveillance"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+              {peutEditer && isManager && (
                 <button
                   type="button"
                   className="action-button hover:text-primary hover:bg-primary/10 transition-all duration-200"

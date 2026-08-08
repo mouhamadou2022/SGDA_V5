@@ -7,6 +7,7 @@ import SurveillanceTransmission from '@/components/modules/surveillance/Surveill
 import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/ChargerRedigerRapportModal';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
+import { canEditSurveillanceContent } from '@/lib/config';
 import { SurveillanceStepper } from '@/components/modules/surveillance/SurveillanceStepper';
 import { ChefDashboard } from '@/components/modules/surveillance/ChefDashboard';
 import { InspecteurDelegationPanel } from '@/components/modules/surveillance/InspecteurDelegationPanel';
@@ -50,6 +51,7 @@ export default function SurveillanceDetailPage() {
   const surveillances = useAppStore(s => s.surveillances)
   const aerodromes = useAppStore(s => s.aerodromes)
   const user = useAppStore(s => s.user)
+  const utilisateurs = useAppStore(s => s.utilisateurs)
   const ecarts = useAppStore(s => s.ecarts)
   const getExemptionsActives = useAppStore(s => s.getExemptionsActives);
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
@@ -86,6 +88,41 @@ export default function SurveillanceDetailPage() {
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
   const exemptionsActives = surveillance ? getExemptionsActives(surveillance.aerodrome_id) : [];
+  // Lecture seule stricte : dès qu'une équipe est désignée, seuls le chef et les
+  // membres éditent (l'admin ANACIM et les autres inspecteurs consultent).
+  const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids || [], user?.id);
+
+  // Vrais inspecteurs (utilisateurs rôle inspector actifs) pour la zone de délégation
+  const inspecteursDisponibles: InspecteurDisponible[] = React.useMemo(() => {
+    return utilisateurs
+      .filter(u => u.role === 'inspector' && u.statut !== 'inactif')
+      .map(u => {
+        const comps = new Set<string>();
+        (u.competences || []).forEach((c: { domaine?: string } | string) => {
+          const d = typeof c === 'string' ? c : c?.domaine;
+          if (!d) return;
+          const expanded: Record<string, string[]> = {
+            'AGA/EXPLOIT': ['SGS', 'COP', 'OPS'],
+            'AGA/GENIE_CIV': ['PHY', 'OLS'],
+            'AGA/GENIE_ELEC': ['ELEC', 'MFP'],
+            'AGA/SLI_RA': ['SLI', 'RA'],
+          };
+          if (expanded[d]) expanded[d].forEach(e => comps.add(e));
+          else comps.add(d);
+        });
+        (u.specialites || []).forEach(s => comps.add(s));
+        return {
+          id: u.id,
+          prenom: u.prenom,
+          nom: u.nom,
+          competences: [...comps],
+          chargeActuelle: 0,
+          estChef: u.id === (surveillance?.chef_id ?? ''),
+          estDisponible: u.statut === 'actif' || !u.statut,
+          derniereActivite: u.last_login,
+        };
+      });
+  }, [utilisateurs, surveillance?.chef_id]);
 
   // ── Prérequis transmission ──────────────────────────────────────────────────
   const STATUT_ORDER_MAP: Record<string, number> = {
@@ -182,19 +219,21 @@ export default function SurveillanceDetailPage() {
   const handleEtapeClick = (etape: string) => {
     // Clic sur "Rapport signé" avant que le rapport soit finalisé → modal de création
     if (etape === 'rapport_signe' && !STATUTS_RAPPORT_FINALISE.includes(surveillance.statut)) {
+      if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; }
       setShowRapportModal(true);
       return;
     }
     // Clic sur "Lettre signée" depuis le stepper → ouvre la lettre
     if (etape === 'lettre_signee' && surveillance.statut === 'rapport_signe') {
+      if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; }
       setShowLettreModal(true);
       return;
     }
     const route = etapeRoutes[etape];
     if (!route) return;
-    if (route === '__lettre__') { setShowLettreModal(true); return; }
-    if (route === '__rapport__') { setShowRapportModal(true); return; }
-    if (route === '__transmission__') { setShowTransmissionModal(true); return; }
+    if (route === '__lettre__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowLettreModal(true); return; }
+    if (route === '__rapport__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowRapportModal(true); return; }
+    if (route === '__transmission__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowTransmissionModal(true); return; }
     // Écarts avec SGS mixte → choix
     if (route === ecartsRoute && hasSGS && !isSgsOnly) {
       setShowSgsChoice('ecarts');
@@ -421,10 +460,14 @@ export default function SurveillanceDetailPage() {
                     <>
                       <button
                         onClick={handleEcartClick}
-                        className="btn btn-primary w-full justify-start gap-3"
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
+                          equipeReadOnly
+                            ? 'border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm'
+                            : 'btn btn-primary justify-start gap-3'
+                        }`}
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                        <span>Rédiger les écarts</span>
+                        <span>{equipeReadOnly ? 'Voir les écarts' : 'Rédiger les écarts'}</span>
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
@@ -451,12 +494,23 @@ export default function SurveillanceDetailPage() {
                   {/* ── ecarts_signes ── */}
                   {surveillance.statut === 'ecarts_signes' && (
                     <>
+                      {!equipeReadOnly && (
                       <button
                         onClick={() => setShowRapportModal(true)}
                         className="btn btn-primary w-full justify-start gap-3"
                       >
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Rédiger le rapport</span>
+                      </button>
+                      )}
+                      <button
+                        onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
+                          'border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm'
+                        }`}
+                      >
+                        <FileText className="w-5 h-5 flex-shrink-0" />
+                        <span>Voir le rapport</span>
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
@@ -490,6 +544,7 @@ export default function SurveillanceDetailPage() {
                   {/* ── rapport_signe ── */}
                   {surveillance.statut === 'rapport_signe' && (
                     <>
+                      {!equipeReadOnly && (
                       <button
                         onClick={() => setShowLettreModal(true)}
                         className="btn btn-primary w-full justify-start gap-3"
@@ -497,6 +552,7 @@ export default function SurveillanceDetailPage() {
                         <Mail className="w-5 h-5 flex-shrink-0" />
                         <span>Lettre de transmission</span>
                       </button>
+                      )}
                       <button
                         onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -534,6 +590,7 @@ export default function SurveillanceDetailPage() {
                   {/* ── lettre_signee → transmission ── */}
                   {surveillance.statut === 'lettre_signee' && (
                     <>
+                      {!equipeReadOnly && (
                       <button
                         onClick={() => setShowTransmissionModal(true)}
                         className="btn btn-primary w-full justify-start gap-3"
@@ -541,6 +598,7 @@ export default function SurveillanceDetailPage() {
                         <Send className="w-5 h-5 flex-shrink-0" />
                         <span>Transmettre au portail exploitant</span>
                       </button>
+                      )}
                       <button
                         onClick={() => setShowLettreModal(true)}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
@@ -608,7 +666,7 @@ export default function SurveillanceDetailPage() {
                       </button>
 
                       {/* ── Bouton réparation — visible si écarts officiels absents mais brouillons disponibles ── */}
-                      {ecarts.filter(e => e.surveillance_id === surveillanceId).length === 0 &&
+                      {!equipeReadOnly && ecarts.filter(e => e.surveillance_id === surveillanceId).length === 0 &&
                        ecartsRedaction.filter((e: any) => e.surveillance_id === surveillanceId).length > 0 && (
                         <div className="space-y-2">
                           <button
@@ -669,8 +727,8 @@ export default function SurveillanceDetailPage() {
               />
             )}
 
-            {/* ── Panel inspecteur délégué (optionnel) ── */}
-            {user?.id !== surveillance.chef_id && (
+            {/* ── Panel inspecteur délégué (membres de l'équipe uniquement) ── */}
+            {user?.id !== surveillance.chef_id && (surveillance.equipe_ids || []).includes(user?.id || '') && (
               <InspecteurDelegationPanel
                 surveillanceId={surveillanceId}
                 portee={surveillance.portee}
@@ -689,7 +747,7 @@ export default function SurveillanceDetailPage() {
                   itemsIds: (d.items || []).map(i => i.id),
                   priorite: 'moyenne' as const,
                 }))}
-                inspecteurs={[]}
+                inspecteurs={inspecteursDisponibles}
                 readOnly={false}
               />
             )}
@@ -731,6 +789,7 @@ export default function SurveillanceDetailPage() {
                     // Ouvrir directement la transmission après validation de la lettre
                     setShowTransmissionModal(true);
                   }}
+                  readOnly={equipeReadOnly}
                   userRole={user?.role}
                 />
               </div>

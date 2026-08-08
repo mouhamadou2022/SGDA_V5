@@ -8,6 +8,7 @@ import {
   MoreVertical, History, PenSquare, Trash2
 } from 'lucide-react'
 import { dossierUtils } from '@/lib/dossierUtils'
+import { canManageRole } from '@/lib/config'
 
 interface DossierCardProps {
   dossier: any
@@ -35,7 +36,7 @@ export function DossierCard({
   userRole = 'inspector'
 }: DossierCardProps) {
 
-  const canManage = ['admin', 'chef'].includes(userRole)
+  const canManage = canManageRole(userRole)
   const [showMenu, setShowMenu] = useState(false)
 
   const getDelaiIndicator = (dateLimite: string) => {

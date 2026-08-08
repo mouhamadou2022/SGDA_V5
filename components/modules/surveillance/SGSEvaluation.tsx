@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import SignaturePad from 'signature_pad';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import {
-  Shield, ChevronDown, ChevronRight, CheckCircle, AlertCircle, Info, FileText,
+  Shield, ChevronDown, ChevronRight, CheckCircle, Info, FileText,
   Save, X, TrendingUp, Brain, Upload, Eye, PenLine, Calendar, MapPin, Users,
   Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity, CheckCircle2,
 } from 'lucide-react';
@@ -15,18 +15,15 @@ import { uploadPreuveFile } from '@/lib/preuves';
 import {
   SGS_COMPOSANTES,
   PAOE_LABELS,
-  PAOE_SCORES,
   PAOE_ORDER,
   type PAOELevel,
   type SGSQuestion,
-  type SGSComposante,
   type EvaluationSGS,
   type SGSElementNotes,
   type SGSDirectives,
   type SGSGuideEtape,
   computeSGSElementScore,
   computeSGSComposanteScore,
-  computeMaturiteSGS,
   buildEvaluationSGS,
   getPAOENiveauFromScore,
 } from '@/types/checklist';
@@ -85,16 +82,6 @@ function getProgressColor(score: number): string {
   if (score >= 40) return 'bg-warning';
   if (score >= 15) return 'bg-orange-500';
   return 'bg-danger';
-}
-
-function getActiveClass(level: PAOELevel): string {
-  switch (level) {
-    case 'efficace': return 'active-sa';
-    case 'operationnel': return 'active-na';
-    case 'approprie': return 'active-nv';
-    case 'present': return 'active-na';
-    case 'absent': return 'active-ns';
-  }
 }
 
 /** Retourne la classe badge CSS standard selon le niveau PAOE */
@@ -1514,13 +1501,16 @@ interface SGSEvaluationContentProps {
   /** Remonte les modifications de structure SGS (questions/directives/guide) vers la page parente
    * pour qu'elles soient persistées (ex. éditeur Kit Inspecteur). */
   onChange?: (template: Record<string, { questions?: SGSQuestion[]; directives?: SGSDirectives; guideEtapes?: SGSGuideEtape[] }>) => void;
+  /** Remonte le score global PAOE (0-100) en temps réel, pour l'affichage du niveau de maturité
+   * N1-N5 dans l'en-tête de la page parente pendant la saisie. */
+  onScoreChange?: (scoreGlobal: number) => void;
   onBack?: () => void;
 }
 
 export function SGSEvaluationContent({
   aerodromeId, surveillanceId, aerodromeNom, surveillanceType, surveillanceDate, equipeCount,
   inspecteurId, inspecteurNom, onSave, onComplete, onSigner, onSaveSGSTemplate, sgsTemplate, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, showSaveButton = true, isSigned = false, riskTrend = 'stable',
-  onGenerateByIA, onValidateProposal, onChange, onBack,
+  onGenerateByIA, onValidateProposal, onChange, onBack, onScoreChange,
 }: SGSEvaluationContentProps) {
   const [questionsByElement, setQuestionsByElement] = useState<{ [elementId: string]: SGSQuestion[] }>({});
   const [modeSaisieByElement, setModeSaisieByElement] = useState<{ [elementId: string]: ModeSaisie }>({});
@@ -1540,6 +1530,9 @@ export function SGSEvaluationContent({
   // Dernier template appliqué — évite de réinitialiser les edits de l'inspecteur
   // quand sgsTemplate change d'identité (retour des modifications via onChange)
   const templateInitializedRef = useRef<string | null>(null);
+  // Nombre de questions du template appliqué — permet de ne jamais écraser une
+  // version complète par une version tronquée (fallback périmé) arrivée en retard.
+  const appliedTemplateTotalRef = useRef(0);
 
   // Données IA (directives + guide) extraites du template SGS si disponible
   const iaDataByElement = useMemo(() => {
@@ -1656,7 +1649,10 @@ export function SGSEvaluationContent({
       setQuestionsByElement(byElem);
       setObservations(existingEvaluation.observations || '');
       setElementNotes(existingEvaluation.elementNotes || {});
-    } else if (previousEvaluation) {
+      templateInitializedRef.current = 'evaluation';
+      return;
+    }
+    if (previousEvaluation) {
       const byElem: { [elementId: string]: SGSQuestion[] } = {};
       const modes: { [elementId: string]: ModeSaisie } = {};
       previousEvaluation.composantes.forEach(comp => {
@@ -1691,32 +1687,62 @@ export function SGSEvaluationContent({
       setQuestionsByElement(byElem);
       setModeSaisieByElement(modes);
       setObservations('');
-    } else if (sgsTemplate && !templateInitializedRef.current) {
-      templateInitializedRef.current = '1';
-      const initial: { [elementId: string]: SGSQuestion[] } = {};
-      const modes: { [elementId: string]: ModeSaisie } = {};
-      SGS_COMPOSANTES.forEach(comp => {
-        comp.elements.forEach(elem => {
-          const val = sgsTemplate[elem.id];
-          if (Array.isArray(val) && val.length > 0) {
-            initial[elem.id] = (val as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
-          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+      templateInitializedRef.current = 'evaluation';
+      return;
+    }
+
+    if (sgsTemplate) {
+      // Nombre total de questions du template — permet d'éviter d'écraser une
+      // version complète par une version tronquée (fallback périmé) qui arrive
+      // en retard (chargement asynchrone de masterChecklists depuis Supabase).
+      const totalQuestions = () => {
+        let total = 0;
+        for (const key of Object.keys(sgsTemplate)) {
+          const val = sgsTemplate[key];
+          if (Array.isArray(val)) total += val.length;
+          else if (val && typeof val === 'object') {
             const obj = val as Record<string, unknown>;
-            if (Array.isArray(obj.questions) && obj.questions.length > 0) {
-              initial[elem.id] = (obj.questions as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
+            if (Array.isArray(obj.questions)) total += obj.questions.length;
+          }
+        }
+        return total;
+      };
+      const newTotal = totalQuestions();
+      const previousTotal = templateInitializedRef.current === 'template' ? (appliedTemplateTotalRef.current ?? 0) : 0;
+      // Première initialisation, ou template strictement plus riche → réinitialiser.
+      if (templateInitializedRef.current !== 'template' || newTotal > previousTotal) {
+        templateInitializedRef.current = 'template';
+        appliedTemplateTotalRef.current = newTotal;
+        const initial: { [elementId: string]: SGSQuestion[] } = {};
+        const modes: { [elementId: string]: ModeSaisie } = {};
+        SGS_COMPOSANTES.forEach(comp => {
+          comp.elements.forEach(elem => {
+            const val = sgsTemplate[elem.id];
+            if (Array.isArray(val) && val.length > 0) {
+              initial[elem.id] = (val as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
+            } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+              const obj = val as Record<string, unknown>;
+              if (Array.isArray(obj.questions) && obj.questions.length > 0) {
+                initial[elem.id] = (obj.questions as any[]).map((q, qi) => ({ ...q, id: `${elem.id}.q${qi + 1}`, niveau: 'absent' as PAOELevel }));
+              } else {
+                initial[elem.id] = elem.questions.map(q => ({ ...q }));
+              }
             } else {
               initial[elem.id] = elem.questions.map(q => ({ ...q }));
             }
-          } else {
-            initial[elem.id] = elem.questions.map(q => ({ ...q }));
-          }
-          modes[elem.id] = 'clavier';
+            modes[elem.id] = 'clavier';
+          });
         });
-      });
-      setQuestionsByElement(initial);
-      setModeSaisieByElement(modes);
-      setObservations('');
-    } else {
+        setQuestionsByElement(initial);
+        setModeSaisieByElement(modes);
+        setObservations('');
+      }
+      return;
+    }
+
+    // Aucun template ni évaluation : questions par défaut (uniquement si rien n'a encore été initialisé)
+    if (templateInitializedRef.current === null) {
+      templateInitializedRef.current = 'default';
       const initial: { [elementId: string]: SGSQuestion[] } = {};
       const modes: { [elementId: string]: ModeSaisie } = {};
       SGS_COMPOSANTES.forEach(comp => {
@@ -1830,6 +1856,11 @@ export function SGSEvaluationContent({
   const evaluation = useMemo(() => {
     return buildEvaluationSGS(aerodromeId, surveillanceId, inspecteurId, inspecteurNom, questionsByElement);
   }, [questionsByElement, aerodromeId, surveillanceId, inspecteurId, inspecteurNom]);
+
+  // Remonte le score global en temps réel (niveau de maturité N1-N5 de l'en-tête)
+  useEffect(() => {
+    if (onScoreChange) onScoreChange(evaluation.scoreGlobal ?? 0);
+  }, [evaluation.scoreGlobal, onScoreChange]);
 
   const totalQuestions = Object.values(questionsByElement).flat().length;
   const evaluatedQuestions = Object.values(questionsByElement).flat().filter(q => q.niveau !== 'absent').length;

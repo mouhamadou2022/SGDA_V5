@@ -11,6 +11,7 @@ import SurveillanceEcartsRedaction, {
   QuestionNSNV,
   EcartRedaction,
 } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
+import { canEditSurveillanceContent } from '@/lib/config';
 import { Card } from '@/components/ui/card';
 import type { EvaluationSGS, PAOELevel } from '@/types/checklist';
 import { getPAOENiveauFromScore, PAOE_LABELS } from '@/types/checklist';
@@ -109,6 +110,7 @@ export default function SGSEcartsPage() {
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome    = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
+  const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids || [], user?.id);
 
   // Chargement de l'évaluation PAOE depuis la surveillance
   const sgsEvaluation = useMemo<EvaluationSGS | null>(() => {
@@ -225,6 +227,20 @@ export default function SGSEcartsPage() {
   // Handlers
   const handleEcartsSignes = (_signatureUrl?: string) => {
     useAppStore.getState().updateSurveillance(surveillanceId, { sgs_ecarts_signes_le: new Date().toISOString() });
+    // Avancement auto du statut de la délégation SGS de l'inspecteur signataire
+    const now = new Date().toISOString();
+    const storeDels = useAppStore.getState();
+    storeDels.getDelegationsBySurveillance(surveillanceId)
+      .filter(d => d.domaine === 'SGS' && d.assigne_a === user?.id)
+      .forEach(d => {
+        storeDels.updateDelegation(d.id, {
+          statut: 'ecarts_signes',
+          ecarts_signature_url: _signatureUrl || d.ecarts_signature_url,
+          ecarts_signes_le: now,
+          derniere_activite: now,
+          derniere_sync: now,
+        });
+      });
     // Vérifier si les écarts standard sont déjà signés → avancer le statut global
     const updated = useAppStore.getState().surveillances.find(s => s.id === surveillanceId);
     if (updated?.statut === 'ecarts_signes') {
@@ -511,13 +527,15 @@ export default function SGSEcartsPage() {
             <p className="text-sm text-muted-foreground mb-6">
               Tous les éléments PAOE évalués sont au moins au niveau "Approprié".
             </p>
-            <button
-              onClick={() => handleEcartsSignes()}
-              className="btn btn-primary gap-2"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Valider et continuer
-            </button>
+            {!equipeReadOnly && (
+              <button
+                onClick={() => handleEcartsSignes()}
+                className="btn btn-primary gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Valider et continuer
+              </button>
+            )}
           </Card>
         ) : (
           <SurveillanceEcartsRedaction
@@ -531,7 +549,7 @@ export default function SGSEcartsPage() {
             surveillanceType={surveillance?.type}
             aerodromeCode={aerodrome?.code_oaci}
             ecartPrefix="SGS"
-            readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)}
+            readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
           />
         )}
       </div>

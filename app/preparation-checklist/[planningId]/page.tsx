@@ -812,12 +812,12 @@ export default function PreparationChecklistPage() {
   // Onglet actif en mode mixte
   const [mixteTab, setMixteTab] = useState<MixteTab>('standard');
 
-  // Délégations (domaine → inspecteur) chargées depuis la préparation
-  const [delegations, setDelegations] = useState<Record<string, string>>({});
+  // Délégations (domaine → inspecteur) — source de vérité : planning.delegations en base
+  const [delegations, setDelegations] = useState<Record<string, string>>(() => planning?.delegations || {});
   useEffect(() => {
-    const raw = localStorage.getItem(`sgda_delegations_${planningId}`);
-    if (raw) { try { setDelegations(JSON.parse(raw)) } catch { /* ignore */ } }
-  }, [planningId]);
+    const planningCourant = useAppStore.getState().plannings.find(p => p.id === planningId);
+    setDelegations(planningCourant?.delegations || {});
+  }, [planningId, plannings]);
 
   // Filtrer les domaines selon les délégations (inspecteur ne voit que ses domaines)
   const filteredDomaines = useMemo(() => {
@@ -854,6 +854,16 @@ export default function PreparationChecklistPage() {
       return () => { document.body.removeAttribute('data-role'); };
     }
   }, [user?.role]);
+
+  // ── Rafraîchir les templates du Kit Inspecteur depuis Supabase ──
+  // Comme le fait KitInspecteurModule au montage. Sans cela, masterChecklists
+  // peut être vide (ou périmé), et buildSGSTemplateFromMaster retombe sur
+  // aerodrome.sgs_checklist_template (ancienne version tronquée).
+  useEffect(() => {
+    import('@/lib/services/checklistTemplateService').then(({ loadTemplatesFromSupabase }) => {
+      loadTemplatesFromSupabase().then(() => {}).catch(() => {})
+    }).catch(() => {})
+  }, []);
 
   // ── Chargement ─────────────────────────────────────────────
   useEffect(() => {

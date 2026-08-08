@@ -11,6 +11,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppStore, type Planning, type Utilisateur, type Formation, type Exemption, type ProfilRisque } from '@/lib/store';
 import type { ResultatChecklist } from '@/types/surveillance';
 import { formatDate } from '@/lib/utils';
+import { canManageRole } from '@/lib/config';
 import { computeCompetenceScore } from '@/lib/competences';
 import { getDomainesFromSpecialites, couvertureSuffisante, verifierCompositionEquipe } from '@/lib/domaines';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
@@ -246,7 +247,7 @@ interface SmartAssignmentProps {
   userRole?: string;
 }
 
-export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
+export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
   const plannings = useAppStore(s => s.plannings)
   const aerodromes = useAppStore(s => s.aerodromes)
   const utilisateurs = useAppStore(s => s.utilisateurs)
@@ -255,6 +256,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
   const updatePlanning = useAppStore(s => s.updatePlanning)
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user);
+  const isManager = canManageRole(userRole || user?.role || '');
 
   // Récupérer les exemptions actives depuis le store
   const storeState = useAppStore.getState()
@@ -367,6 +369,7 @@ export function SmartAssignment({ userRole = 'admin' }: SmartAssignmentProps) {
   }
 
   function handleAssigner(planningId: string) {
+    if (!isManager) return;
     const inspecteurId = assignations[planningId];
     if (!inspecteurId) return;
     

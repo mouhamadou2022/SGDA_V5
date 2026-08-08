@@ -953,7 +953,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => voi
 
 type PermissionsEntry = { all?: boolean; modules?: string[]; readOnly?: boolean; writeModules?: string[] }
 
-type AnyModule = React.ComponentType<{ user: AuthUser }> & Record<string, unknown>
+type AnyModule = React.ComponentType<{ user: AuthUser; userRole?: string }> & Record<string, unknown>
 
 function resolveModule(mod: Record<string, unknown>, exportName: string): { default: AnyModule } {
   const named = mod[exportName] as AnyModule | undefined
@@ -1005,7 +1005,7 @@ const MODULES = {
   'admin-dashboard': lazy(() => import('@/components/modules/dashboard/AdminDashboardModule').then((m) => resolveModule(m, 'AdminDashboardModule'))),
   'staff-dashboard': lazy(() => import('@/components/modules/portail-exploitant/StaffDashboardModule').then((m) => resolveModule(m, 'StaffDashboardModule'))),
   'ml-monitoring': lazy(() => import('@/components/modules/ml-monitoring/MLMonitoringModule').then((m) => resolveModule(m, 'MLMonitoringModule'))),
-} as Record<string, React.LazyExoticComponent<React.ComponentType<{ user: AuthUser }>>>
+} as Record<string, React.LazyExoticComponent<React.ComponentType<{ user: AuthUser; userRole?: string }>>>
 
 export default function Page() {
   const user = useAppStore(s => s.user)
@@ -1030,6 +1030,14 @@ export default function Page() {
 
       // Initialiser l'auto-création de surveillance pour les profils critiques
       import('@/lib/services/surveillanceAutoCreator').then(m => m.initSurveillanceAutoCreator())
+
+      // Charger les templates du Kit Inspecteur depuis Supabase → masterChecklists.
+      // Garantit que la checklist SGS (PAOE) résolue dans la préparation et
+      // l'exécution correspond bien à la version à jour du kit (et non un
+      // repli périmé sur aerodrome.sgs_checklist_template).
+      import('@/lib/services/checklistTemplateService').then(({ loadTemplatesFromSupabase }) => {
+        loadTemplatesFromSupabase().catch(() => {})
+      }).catch(() => {})
 
       const zustandUser = useAppStore.getState().user
       if (zustandUser) {
@@ -1452,7 +1460,7 @@ function ActiveModuleRenderer({ moduleKey, user }: { moduleKey: string; user: Au
           </div>
         </div>
       }>
-        <ModuleComponent key={resolvedKey} user={user} />
+        <ModuleComponent key={resolvedKey} user={user} userRole={user.role} />
       </Suspense>
     </ChunkErrorBoundary>
   )
