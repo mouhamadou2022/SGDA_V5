@@ -28,7 +28,6 @@ import {
   Send,
   X,
   UserCheck,
-  Brain,
   Loader2,
   TrendingUp,
   TrendingDown,
@@ -61,7 +60,6 @@ interface PlanningCardProps {
   estRetard?: boolean
   userRole?: string
   profilScore?: number
-  onSuggestionIA?: (planning: Planning) => void
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -667,7 +665,6 @@ export function PlanningCard({
   estRetard = false,
   userRole = 'inspector',
   profilScore,
-  onSuggestionIA,
 }: PlanningCardProps) {
   const router = useRouter()
   const [showPreparationModal, setShowPreparationModal] = useState(false)
@@ -861,22 +858,6 @@ export function PlanningCard({
             
             {/* Action buttons */}
              <div className="flex items-center gap-2">
-               {/* Bouton Suggestion AERORISQ & Profil - Dynamique selon le profil */}
-{canManage && onSuggestionIA && (
-                 <button
-                   className={`action-button transition-all duration-300 ${
-                     profilScore === undefined || profilScore === null ? 'text-primary hover:bg-primary/10 hover:scale-110' :
-                     profilScore < 30 ? 'text-danger hover:bg-danger/10 hover:scale-110' :
-                     profilScore < 60 ? 'text-warning hover:bg-warning/10 hover:scale-110' :
-                     'text-primary hover:bg-primary/10 hover:scale-110'
-                   }`}
-                   onClick={() => onSuggestionIA(planning)}
-                   title={profilScore !== undefined && profilScore !== null ? `Suggestion AERORISQ & Profil (Score: ${profilScore}/100)` : "Suggestion AERORISQ & Profil"}
-                 >
-                   <Brain className="h-4 w-4" />
-                 </button>
-               )}
-               
                {!isProposition && !isLancee && planning.statut === 'planifiee' && (
                  <>
                    {canPrepare && (

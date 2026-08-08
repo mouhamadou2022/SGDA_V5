@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useCallback, useRef, startTransition } from 'react';
+import { useState, useMemo, useEffect, useCallback, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
@@ -281,14 +281,10 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   }, [iaSuggestions, aerodromesActifs]);
   const addPlanning = useAppStore(s => s.addPlanning);
   const [mounted, setMounted] = useState(false);
-  const suggestionsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setMounted(true);
     nettoyerMemoDelegations();
-    return () => {
-      if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-    }
   }, []);
 
   const filteredPlannings = useMemo(() => {
@@ -1096,130 +1092,6 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     })
   }, [removeIaSuggestion, submitSuggestionFeedbackStore, isManager])
 
-  // Appliquer les suggestions IA & Profil pour un planning donné
-  const handleAppliquerSuggestionsGlobal = (planning: { aerodrome_id: string; id?: string }) => {
-    if (!isManager) return;
-    if (!planning?.aerodrome_id) return;
-    
-    const profil = profilsRisque[planning.aerodrome_id];
-    if (!profil) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'warning',
-        title: 'Profil indisponible',
-        message: 'Aucun profil de risque trouvé pour cet aérodrome',
-        canal: 'in_app',
-      });
-      return;
-    }
-
-    // Suggérer les domaines prioritaires selon le profil
-    const domaines: string[] = [];
-    ['c1', 'c2', 'c3', 'c4', 'c5'].forEach(key => {
-      const score = (profil as unknown as Record<string, number>)[key];
-      if (score < 60) {
-        const mapping: Record<string, string> = {
-          'c1': 'SGS', 'c2': 'PAC', 'c3': 'PHY', 'c4': 'Ecarts', 'c5': 'SLI'
-        };
-        domaines.push(mapping[key] || key);
-      }
-    });
-    const DOMAINE_TO_CKEY: Record<string, string> = { SGS: 'c1', PAC: 'c2', PHY: 'c3', Ecarts: 'c4', SLI: 'c5' }
-    domaines.sort((a, b) =>
-      ((profil as unknown as Record<string, number>)[DOMAINE_TO_CKEY[a] || 'c3'] ?? 0) -
-      ((profil as unknown as Record<string, number>)[DOMAINE_TO_CKEY[b] || 'c3'] ?? 0)
-    );
-    if (domaines.length > 3) domaines.length = 3;
-
-    // Suggérer la priorité
-    const priorite = profil.score_global < 30 ? 'critique' :
-                   profil.score_global < 50 ? 'haute' :
-                   profil.score_global < 70 ? 'moyenne' : 'basse';
-
-    // Suggérer le type
-    const type = profil.score_global < 30 ? 'audit_complet' :
-                 profil.c4 < 40 ? 'suivi_ecarts' :
-                 profil.c2 < 50 ? 'mise_oeuvre_pac' : 'programmee';
-
-    // Suggérer l'équipe selon spécialité AGA et disponibilité
-    const equipeSuggeree = utilisateurs
-      .filter(u => u.role === 'inspector' && u.statut !== 'inactif' && u.statut !== 'suspendu')
-      .filter(u => {
-        if (!u.competences || u.competences.length === 0) return false;
-        
-        // Vérifier si l'inspecteur a une spécialité AGA qui couvre les domaines prioritaires
-        return u.competences.some((c: { domaine: string; niveau: string } | string) => {
-          const domaineInsp = typeof c === 'string' ? c : c.domaine;
-          
-          // Si AGA/XXX, vérifier si ça couvre les domaines critiques
-          if (domaineInsp.startsWith('AGA/')) {
-            const mapping: Record<string, string[]> = {
-              'AGA/EXPLOITATION': ['SGS', 'COP', 'OPS'],
-              'AGA/GENIE_CIVIL': ['PHY', 'OLS'],
-              'AGA/GENIE_ELEC': ['ELEC', 'MFP'],
-              'AGA/SLI_RA': ['SLI', 'RA'],
-            };
-            const domainesInsp = mapping[domaineInsp] || [];
-            return domaines.some((d: string) => domainesInsp.includes(d));
-          }
-          
-          // Si domaine direct, vérifier s'il est dans la liste
-          return domaines.includes(domaineInsp);
-        });
-      })
-      .map(u => ({
-        id: u.id,
-        nom: u.nom,
-        prenom: u.prenom,
-        competences: u.competences,
-        // Privilégier ceux qui ont le plus de domaines correspondants
-        scoreMatch: (u.competences || []).filter((c: { domaine: string; niveau: string } | string) => {
-          const d = typeof c === 'string' ? c : c.domaine;
-          if (d.startsWith('AGA/')) {
-            const mapping: Record<string, string[]> = {
-              'AGA/EXPLOITATION': ['SGS', 'COP', 'OPS'],
-              'AGA/GENIE_CIVIL': ['PHY', 'OLS'],
-              'AGA/GENIE_ELEC': ['ELEC', 'MFP'],
-              'AGA/SLI_RA': ['SLI', 'RA'],
-            };
-            const domainesInsp = mapping[d] || [];
-            return domaines.some((dom: string) => domainesInsp.includes(dom));
-          }
-          return domaines.includes(d);
-        }).length
-      }))
-      .sort((a, b) => b.scoreMatch - a.scoreMatch)
-      .slice(0, 3)
-      .map(u => u.id);
-
-    // Ancien appel à learningEngine.recordLearningFeedback retiré — corrompait le Random Forest
-
-    // Submit SuggestionFeedback pour alimenter le ML Agent
-    const suggestionTypeMap: Record<string, 'surveillance_pac' | 'surveillance_ecarts' | 'audit_complet' | 'surveillance_mixte'> = {
-      'audit_complet': 'audit_complet',
-      'suivi_ecarts': 'surveillance_ecarts',
-      'mise_oeuvre_pac': 'surveillance_pac',
-      'programmee': 'surveillance_mixte',
-    };
-    const feedbackType = suggestionTypeMap[type] || 'surveillance_mixte';
-    try {
-      submitSuggestionFeedbackStore({
-        aerodrome_id: planning.aerodrome_id,
-        suggestion_type: feedbackType,
-        mission_type_suggeree: type,
-        etait_pertinent: true,
-        date_suggestion: new Date().toISOString(),
-      });
-    } catch (_) {}
-
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Suggestion AERORISQ & Profil appliquée',
-      message: `Domaines: ${domaines.join(', ')} | Type: ${type} | Priorité: ${priorite} | Équipe: ${equipeSuggeree.length} inspecteur(s) suggérés selon leur spécialité AGA`,
-      canal: 'in_app',
-    });
-  };
 
   const submitSuggestionFeedback = (aerodromeId: string, suggestionType: string, missionType: string, etaitPertinent: boolean, raison?: string, ecartIds?: string[]) => {
     const feedback: Omit<SuggestionFeedback, 'id'> = {
@@ -2054,14 +1926,6 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                         onEdit={() => handleEdit(planning)}
                         onDelete={() => handleDelete(planning)}
                         userRole={userRole}
-                        onSuggestionIA={(p) => {
-                          setEditingPlanning(p);
-                          setFormOpen(true);
-                          if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-                          suggestionsTimerRef.current = setTimeout(() => {
-                            handleAppliquerSuggestionsGlobal(p);
-                          }, 500);
-                        }}
                       />
                     </div>
                   )
@@ -2212,19 +2076,11 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                      surveillanceId={planning.surveillanceId}
                      userRole={userRole}
                      profilScore={planning.profilScore}
-                      onSuggestionIA={(p) => {
-                        setEditingPlanning(p);
-                        setFormOpen(true);
-                         if (suggestionsTimerRef.current) clearTimeout(suggestionsTimerRef.current)
-                         suggestionsTimerRef.current = setTimeout(() => {
-                           handleAppliquerSuggestionsGlobal(p);
-                         }, 500);
-                      }}
-                    />
-                  </div>
-                ))
-                )}
-              </AccordionSection>
+                   />
+                 </div>
+               ))
+               )}
+             </AccordionSection>
             );
           })}
 
