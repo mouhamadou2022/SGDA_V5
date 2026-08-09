@@ -151,7 +151,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'kit', label: 'Kit Inspecteur', icon: Briefcase, roles: ['admin', 'inspector'] },
     { id: 'evenements', label: 'Événements', icon: AlertTriangle, roles: ['admin', 'inspector'] },
     { id: 'enquetes', label: 'Enquêtes', icon: MessageSquare, roles: ['admin', 'inspector'] },
-    { id: 'messagerie', label: 'Messagerie', icon: Mail, roles: ['admin', 'inspector'], badge: messagesNonLus, badgeVariant: 'primary' },
+    { id: 'messagerie', label: 'Messagerie', icon: Mail, roles: ['admin', 'inspector'], badge: messagesNonLus, badgeVariant: 'primary', condition: false }, // Module désactivé — réactiver avec condition: true
     { id: 'risque', label: 'Profil Risque', icon: Activity, roles: ['admin', 'inspector', 'focal_operator'] },
     { id: 'charge', label: 'Charge Travail', icon: ListTodo, roles: ['admin', 'inspector'] },
     // ── Modules DG ANACIM (stratégique national) ──
@@ -176,7 +176,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'operator-documentations', label: 'Kit Références', icon: FileText, roles: ['focal_operator', 'staff_operator', 'guest'] },
     { id: 'operator-enquetes', label: 'Enquêtes', icon: MessageCircle, roles: ['focal_operator'] },
     { id: 'operator-archives', label: 'Archives', icon: Archive, roles: ['focal_operator'] },
-    { id: 'operator-messagerie', label: 'Messagerie', icon: Mail, roles: ['dg_operator', 'focal_operator', 'staff_operator'], badge: messagesNonLus, badgeVariant: 'primary' },
+    { id: 'operator-messagerie', label: 'Messagerie', icon: Mail, roles: ['dg_operator', 'focal_operator', 'staff_operator'], badge: messagesNonLus, badgeVariant: 'primary', condition: false }, // Module désactivé — réactiver avec condition: true
   ]
 
   // Filtrer par rôle, condition optionnelle ET modules exclus par département

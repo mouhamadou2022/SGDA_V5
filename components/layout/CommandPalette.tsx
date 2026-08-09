@@ -96,7 +96,8 @@ const NAVIGATION_COMMANDS: Command[] = [
   { id: 'signatures', label: 'Signatures DG', icon: <FileSignature className="w-4 h-4" />, module: 'signatures', keywords: ['signer', 'sign'], badge: { label: 'DG', variant: 'primary' }, category: 'navigation' },
   { id: 'evenements', label: 'Événements', icon: <AlertTriangle className="w-4 h-4" />, module: 'evenements', keywords: ['incidents', 'accidents'], category: 'navigation' },
   { id: 'enquetes', label: 'Enquêtes', icon: <Search className="w-4 h-4" />, module: 'enquetes', keywords: ['surveys', 'questionnaires'], category: 'navigation' },
-  { id: 'messagerie', label: 'Messagerie', icon: <MessageSquare className="w-4 h-4" />, module: 'messagerie', keywords: ['messages', 'chat'], category: 'navigation' },
+  // Messagerie désactivée (module masqué) — réactiver en décommentant :
+  // { id: 'messagerie', label: 'Messagerie', icon: <MessageSquare className="w-4 h-4" />, module: 'messagerie', keywords: ['messages', 'chat'], category: 'navigation' },
   { id: 'utilisateurs', label: 'Utilisateurs', icon: <Users className="w-4 h-4" />, module: 'utilisateurs', keywords: ['users', 'comptes'], badge: { label: 'Admin', variant: 'danger' }, category: 'navigation' },
   { id: 'formation', label: 'Formations', icon: <GraduationCap className="w-4 h-4" />, module: 'formation', keywords: ['training', 'competences'], category: 'navigation' },
   { id: 'kit', label: 'Kit Inspecteur', icon: <Wrench className="w-4 h-4" />, module: 'kit', keywords: ['outils', 'templates'], category: 'navigation' },
