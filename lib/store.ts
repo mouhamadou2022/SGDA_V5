@@ -2385,6 +2385,7 @@ export interface IaSuggestion {
   confiance: number;
   source: 'risque_critique' | 'sgs_absent' | 'sgs_faible' | 'certification_fraiche' | 'homologation_fraiche' | 'ecart_actif' | 'evenement' | 'periodique' | 'declencheur_urgent';
   created_at: string;
+  equipe_justification?: string;
 }
 
 export interface SuggestionFeedback {

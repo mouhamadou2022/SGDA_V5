@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Planning, Aerodrome, Surveillance, IaSuggestion } from '@/lib/store';
+import { useAppStore, Planning, Aerodrome, Surveillance, IaSuggestion, Formation } from '@/lib/store';
 import {
   CalendarDays,
   Calendar,
@@ -55,6 +55,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { getDomaineLabel, genererSuggestionsMaintien, verifierCompositionEquipe } from '@/lib/domaines';
 import { canManageRole } from '@/lib/config';
+import { teamOptimizer } from '@/lib/ia/engines/teamOptimizer';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
@@ -184,6 +185,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const profilsRisque      = useOptimizedStore(s => s.profilsRisque);
   const surveillances      = useOptimizedStore(s => s.surveillances);
   const utilisateurs       = useOptimizedStore(s => s.utilisateurs);
+  const formations         = useOptimizedStore(s => s.formations || []);
   const ecarts             = useOptimizedStore(s => s.ecarts);
   const evenements         = useOptimizedStore(s => s.evenements || []);
   const user               = useOptimizedStore(s => s.user);
@@ -464,6 +466,16 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       if (suggestionAerodromeIds.has(aero.id)) continue
       if (planningsAerodromeIds.has(aero.id)) continue
 
+      const portee = (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean))
+          .filter(d => d !== 'SGS' || isSGSApplicable(aero as any))
+      // Équipe proposée par le moteur teamOptimizer (compétences, charge, disponibilité)
+      const propositionEquipe = teamOptimizer.proposer(
+        utilisateurs,
+        planningsStore,
+        portee.length > 0 ? portee : ['SGS'],
+        formations,
+      )
+
       const newSuggestion: IaSuggestion = {
         id: `ia-sug-${crypto.randomUUID()}`,
         aerodrome_id: aero.id,
@@ -471,12 +483,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
           : aero.decisionSurveillance.type === 'maintien' ? 'maintien'
           : aero.decisionSurveillance.type === 'periodique' ? 'periodique'
           : 'programmee') as Planning['type'],
-        portee: (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean))
-          .filter(d => d !== 'SGS' || isSGSApplicable(aero as any)),
+        portee,
         date_debut: new Date(Date.now() + 7 * 86400000).toISOString(),
         date_fin: new Date(Date.now() + 9 * 86400000).toISOString(),
-        equipe_ids: [],
-        chef_id: '',
+        equipe_ids: propositionEquipe.inspecteurs.map(i => i.id),
+        chef_id: propositionEquipe.chefPropose || propositionEquipe.inspecteurs[0]?.id || '',
         priorite: (aero.niveauAlerte === 'critique' || prioriteDecision === 'critique' ? 'critique' : 'haute') as Planning['priorite'],
         objectifs: `Surveillance ${aero.decisionSurveillance.type} — ${aero.decisionSurveillance.raison}`,
         raison: aero.decisionSurveillance.raison,
@@ -487,10 +498,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
           ? 'evenement'
           : aero.niveauAlerte === 'critique' ? 'risque_critique' : 'sgs_faible',
         created_at: maintenant,
+        equipe_justification: propositionEquipe.justification,
       }
       addIaSuggestion(newSuggestion)
     }
-  }, [aerodromesRisque, iaSuggestions, filteredPlannings, addIaSuggestion])
+  }, [aerodromesRisque, iaSuggestions, filteredPlannings, addIaSuggestion, utilisateurs, planningsStore, formations])
 
   // Plannings avec enrichissement risque et lien vers surveillance
   const planningsEnrichis = useMemo(() => {
@@ -2154,8 +2166,31 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 flex-wrap">
                         <span>Début: {new Date(s.date_debut).toLocaleDateString('fr-FR')}</span>
                         <span>Fin: {new Date(s.date_fin).toLocaleDateString('fr-FR')}</span>
-                        {s.equipe_ids.length > 0 && <span>Équipe: {s.equipe_ids.length} membre(s)</span>}
                       </div>
+                      {s.equipe_ids.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg bg-role-primary-soft border border-role-primary-light">
+                          <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-role-primary" />
+                            Équipe de surveillance proposée
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {s.equipe_ids.map(id => {
+                              const membre = utilisateurs.find(u => u.id === id)
+                              const estChef = id === s.chef_id
+                              return (
+                                <span key={id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border ${estChef ? 'badge primary' : 'badge outline'}`}>
+                                  {estChef && <Shield className="w-3 h-3" />}
+                                  {membre ? `${membre.prenom} ${membre.nom}` : id}
+                                  {estChef && <span className="font-bold">Chef</span>}
+                                </span>
+                              )
+                            })}
+                          </div>
+                          {s.equipe_justification && (
+                            <p className="text-[11px] text-muted-foreground mt-2">{s.equipe_justification}</p>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 pt-2 border-t border-border">
                         <button
                           onClick={() => handleValiderSuggestion(s)}
