@@ -117,17 +117,18 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
   const [delegationsSaved, setDelegationsSaved] = useState(false)
   const [showTypeChoice, setShowTypeChoice] = useState(false)
 
-  // Récupérer les inspecteurs disponibles depuis le store
+  // Récupérer les inspecteurs disponibles depuis le store (membres de l'équipe du planning)
   const inspecteursDisponibles = useMemo(() => {
+    const equipeIds = new Set(planning.equipe_ids || []);
     return utilisateurs
-      .filter((u: Utilisateur) => u.role === 'inspector' && u.statut !== 'inactif')
+      .filter((u: Utilisateur) => u.role === 'inspector' && u.statut !== 'inactif' && equipeIds.has(u.id))
       .map((u: Utilisateur) => {
         const linkedInsp = u.inspecteur_id
           ? inspecteurs.find((i: any) => i.id === u.inspecteur_id)
           : inspecteurs.find((i: any) => i.email === u.email || (i.prenom === u.prenom && i.nom === u.nom))
         return { ...u, _insp: linkedInsp }
       })
-  }, [utilisateurs, inspecteurs])
+  }, [utilisateurs, inspecteurs, planning.equipe_ids])
   
   // Récupérer les domaines depuis DOMAINES_SURVEILLANCE
   const domainesList = useMemo(() => {
@@ -528,7 +529,10 @@ function PreparationModal({ planning, aerodrome, onClose, onOpenChecklist, onOpe
               {/* Contenu onglet DÉLÉGATION */}
               {activeTab === 'delegation' && (
                 <div className="space-y-3 animate-fade-in">
-                  {DOMAINES_SURVEILLANCE.filter(d => planning.portee?.includes(d.code)).map(d => (
+                  {DOMAINES_SURVEILLANCE.filter(d => {
+                    const codesPortee = new Set(expandDomaines(planning.portee || []).map(c => c.toUpperCase()));
+                    return codesPortee.size === 0 || codesPortee.has(d.code);
+                  }).map(d => (
                     <div key={d.code} className="flex items-center justify-between gap-4 p-3 rounded-xl border border-border hover:bg-role-primary-soft/10 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center shrink-0">

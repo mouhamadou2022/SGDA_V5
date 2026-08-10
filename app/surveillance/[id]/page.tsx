@@ -8,6 +8,16 @@ import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/Ch
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { canEditSurveillanceContent } from '@/lib/config';
+import { getDomaineCode, expandDomaines, type DomaineCode } from '@/lib/domaines';
+
+// Extrait le code domaine depuis un élément de checklist_hierarchy.
+// Les id sont de la forme `kit_<surveillance>_<CODE>` ; le nom peut être le label
+// (ex. "Système de Gestion de la Sécurité") ou directement le code.
+function extractDomaineCode(d: any): string {
+  const fromId = String(d?.id || '').split('_').pop() || '';
+  const code = getDomaineCode(d?.nom || '') || getDomaineCode(fromId);
+  return code.toUpperCase();
+}
 import { SurveillanceStepper } from '@/components/modules/surveillance/SurveillanceStepper';
 import { ChefDashboard } from '@/components/modules/surveillance/ChefDashboard';
 import { InspecteurDelegationPanel } from '@/components/modules/surveillance/InspecteurDelegationPanel';
@@ -92,10 +102,11 @@ export default function SurveillanceDetailPage() {
   // membres éditent (l'admin ANACIM et les autres inspecteurs consultent).
   const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids || [], user?.id);
 
-  // Vrais inspecteurs (utilisateurs rôle inspector actifs) pour la zone de délégation
+  // Vrais inspecteurs (membres de l'équipe de surveillance uniquement) pour la zone de délégation
   const inspecteursDisponibles: InspecteurDisponible[] = React.useMemo(() => {
+    const equipeIds = new Set(surveillance?.equipe_ids || []);
     return utilisateurs
-      .filter(u => u.role === 'inspector' && u.statut !== 'inactif')
+      .filter(u => u.role === 'inspector' && u.statut !== 'inactif' && equipeIds.has(u.id))
       .map(u => {
         const comps = new Set<string>();
         (u.competences || []).forEach((c: { domaine?: string } | string) => {
@@ -122,7 +133,13 @@ export default function SurveillanceDetailPage() {
           derniereActivite: u.last_login,
         };
       });
-  }, [utilisateurs, surveillance?.chef_id]);
+  }, [utilisateurs, surveillance?.chef_id, surveillance?.equipe_ids]);
+
+  // Codes de la portée de la surveillance (étendue si AGA/AGA-xxx) pour filtrer
+  // les domaines proposés dans la zone de délégation.
+  const porteeCodes: Set<string> = React.useMemo(() => {
+    return new Set(expandDomaines(surveillance?.portee || []).map(c => c.toUpperCase()));
+  }, [surveillance?.portee]);
 
   // ── Prérequis transmission ──────────────────────────────────────────────────
   const STATUT_ORDER_MAP: Record<string, number> = {
@@ -740,13 +757,19 @@ export default function SurveillanceDetailPage() {
               <DelegationZone
                 surveillanceId={surveillanceId}
                 typeSurveillance={(surveillance.type === 'periodique' || surveillance.type === 'inopine' || surveillance.type === 'inopinee' || surveillance.type === 'maintien' ? surveillance.type : 'periodique') as any}
-                domaines={(surveillance.checklist_hierarchy || []).map(d => ({
-                  id: (d.nom || d.id || '').toUpperCase(),
-                  nom: d.nom || d.id || '',
-                  itemsCount: (d.items || []).length + (d.sousDomaines?.reduce((a, sd) => a + (sd.items?.length || 0), 0) || 0),
-                  itemsIds: (d.items || []).map(i => i.id),
-                  priorite: 'moyenne' as const,
-                }))}
+                domaines={(surveillance.checklist_hierarchy || [])
+                  .map(d => {
+                    const codeDomaine = extractDomaineCode(d);
+                    return {
+                      id: codeDomaine,
+                      nom: d.nom || d.id || '',
+                      domaine: codeDomaine as DomaineCode,
+                      itemsCount: (d.items || []).length + (d.sousDomaines?.reduce((a, sd) => a + (sd.items?.length || 0), 0) || 0),
+                      itemsIds: (d.items || []).map(i => i.id),
+                      priorite: 'moyenne' as const,
+                    };
+                  })
+                  .filter(d => porteeCodes.has(d.domaine))}
                 inspecteurs={inspecteursDisponibles}
                 readOnly={false}
               />

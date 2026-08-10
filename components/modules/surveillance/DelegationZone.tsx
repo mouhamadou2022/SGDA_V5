@@ -33,6 +33,7 @@ import {
   getDomaineInfo,
   getTypeSurveillanceInfo,
   getTypeSurveillanceLabel,
+  expandDomaines,
 } from '@/lib/domaines';
 
 // Types
@@ -465,20 +466,27 @@ export function DelegationZone({
 
   const [domaines, setDomaines] = useState<DomaineDisponible[]>(() => {
     if (domainesProp.length > 0) return domainesProp;
-    return DOMAINES_SURVEILLANCE.map(d => ({
-      id: `dom-${d.code.toLowerCase()}`,
-      nom: d.code,
-      itemsCount: Math.floor(Math.random() * 20) + 10,
-      itemsIds: Array.from({ length: Math.floor(Math.random() * 5) + 1 }, (_, i) => `${d.code.toLowerCase()}-${String(i + 1).padStart(3, '0')}`),
-      priorite: (d.code === 'SGS' || d.code === 'SLI' || d.code === 'RA') ? 'haute' : (d.code === 'AGA' ? 'haute' : 'moyenne'),
-      description: d.label,
-      domaine: d.code as DomaineCode,
-    }));
+    const codesPortee = new Set(expandDomaines(surveillance?.portee || []).map(c => c.toUpperCase()));
+    return DOMAINES_SURVEILLANCE
+      .filter(d => codesPortee.size === 0 || codesPortee.has(d.code))
+      .map(d => ({
+        id: d.code.toLowerCase(),
+        nom: d.code,
+        itemsCount: Math.floor(Math.random() * 20) + 10,
+        itemsIds: Array.from({ length: Math.floor(Math.random() * 5) + 1 }, (_, i) => `${d.code.toLowerCase()}-${String(i + 1).padStart(3, '0')}`),
+        priorite: (d.code === 'SGS' || d.code === 'SLI' || d.code === 'RA') ? 'haute' : (d.code === 'AGA' ? 'haute' : 'moyenne'),
+        description: d.label,
+        domaine: d.code as DomaineCode,
+      }));
   });
   const [inspecteurs] = useState<InspecteurDisponible[]>(() => {
     if (inspecteursProp.length > 0) return inspecteursProp;
     const utilisateurs = useAppStore.getState().utilisateurs || [];
-    return buildInspecteursFromUtilisateurs(utilisateurs, chefId);
+    const equipeIds = new Set(surveillance?.equipe_ids || []);
+    return buildInspecteursFromUtilisateurs(
+      equipeIds.size > 0 ? utilisateurs.filter(u => equipeIds.has(u.id)) : utilisateurs,
+      chefId
+    );
   });
 
   // Initialiser depuis le store (délégations déjà persistées), sinon depuis les props
@@ -521,13 +529,15 @@ export function DelegationZone({
     return domaines.filter(d => !assignedDomaineIds.includes(d.id));
   }, [domaines, delegations]);
 
-  // Vérifier si un inspecteur a les compétences pour un domaine
+  // Vérifier si un inspecteur a les compétences pour un domaine (matching par code)
   const inspecteurEstCompetent = useCallback((inspecteur: InspecteurDisponible, domaine: DomaineDisponible): boolean => {
     if (inspecteur.competences.includes('AGA')) return true;
+    const code = (domaine.domaine || getDomaineInfo(domaine.nom)?.code || domaine.nom || '').toUpperCase();
+    if (!code) return false;
     return inspecteur.competences.some(comp =>
-      comp === domaine.nom ||
-      domaine.nom?.includes(comp) ||
-      comp.includes(domaine.nom || '')
+      comp.toUpperCase() === code ||
+      comp.toUpperCase() === code.replace(/\//g, '') ||
+      comp.includes(code)
     );
   }, []);
 
