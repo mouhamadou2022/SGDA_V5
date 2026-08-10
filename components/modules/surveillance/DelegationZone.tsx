@@ -479,15 +479,21 @@ export function DelegationZone({
         domaine: d.code as DomaineCode,
       }));
   });
-  const [inspecteurs] = useState<InspecteurDisponible[]>(() => {
-    if (inspecteursProp.length > 0) return inspecteursProp;
-    const utilisateurs = useAppStore.getState().utilisateurs || [];
+
+  // Inspecteurs restreints aux membres de l'équipe de la surveillance (jamais hors équipe).
+  // useMemo → recalculé quand l'équipe est chargée (évite le fallback "tous les inspecteurs").
+  const inspecteurs = useMemo<InspecteurDisponible[]>(() => {
     const equipeIds = new Set(surveillance?.equipe_ids || []);
+    if (equipeIds.size === 0) return [];
+    if (inspecteursProp.length > 0) {
+      return inspecteursProp.filter(i => equipeIds.has(i.id));
+    }
+    const utilisateurs = useAppStore.getState().utilisateurs || [];
     return buildInspecteursFromUtilisateurs(
-      equipeIds.size > 0 ? utilisateurs.filter(u => equipeIds.has(u.id)) : utilisateurs,
+      utilisateurs.filter(u => equipeIds.has(u.id)),
       chefId
     );
-  });
+  }, [inspecteursProp, surveillance?.equipe_ids, chefId]);
 
   // Initialiser depuis le store (délégations déjà persistées), sinon depuis les props
   const [delegations, setDelegations] = useState<DelegationAssignee[]>(() => {
@@ -829,9 +835,9 @@ export function DelegationZone({
           {inspecteurs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-500" />
-              <p className="text-sm font-medium text-foreground">Aucun inspecteur disponible</p>
+              <p className="text-sm font-medium text-foreground">Aucun membre de l'équipe</p>
               <p className="text-xs mt-1">
-                Ajoutez des utilisateurs avec le rôle inspecteur pour pouvoir assigner les domaines.
+                Les inspecteurs affichés sont uniquement les membres de l'équipe de cette surveillance.
               </p>
             </div>
           ) : (
