@@ -1399,148 +1399,6 @@ const tableColumns: Column<TablePlanning>[] = [
   },
 ]
 
-/* ───────── Composants extraits (hors du corps du composant parent) ───────── */
-
-function ModaleSuppression({ deleteDialogOpen, setDeleteDialogOpen, confirmDelete, userRole }: {
-  deleteDialogOpen: boolean, setDeleteDialogOpen: (v: boolean) => void,
-  confirmDelete: () => void, userRole: string
-}) {
-  if (!deleteDialogOpen) return null;
-  return createPortal(
-    <div className="modal-overlay" data-role={userRole} onClick={() => setDeleteDialogOpen(false)}>
-      <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
-        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-            <div className="modal-title flex items-center gap-2 text-danger">
-              <AlertCircle className="w-5 h-5" />
-              Confirmer la suppression
-            </div>
-            <button className="modal-close" onClick={() => setDeleteDialogOpen(false)}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="modal-body py-6 px-5">
-            <p className="text-foreground">Êtes-vous sûr de vouloir supprimer ce planning ?</p>
-            <p className="text-small text-muted-foreground mt-2">Cette action est irréversible.</p>
-          </div>
-          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-            <button className="btn btn-secondary" onClick={() => setDeleteDialogOpen(false)}>Annuler</button>
-            <button className="btn btn-danger" onClick={confirmDelete}>Supprimer</button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute, executeDateDebut, setExecuteDateDebut, executeDateFin, setExecuteDateFin }: {
-  executeConfirmOpen: boolean, executeTarget: Planning | null,
-  setExecuteConfirmOpen: (v: boolean) => void, setExecuteTarget: (v: Planning | null) => void,
-  aerodromesActifs: Aerodrome[], aerodromes: Aerodrome[], userRole: string,
-  handleConfirmExecute: () => void,
-  executeDateDebut: string, setExecuteDateDebut: (v: string) => void,
-  executeDateFin: string, setExecuteDateFin: (v: string) => void,
-}) {
-  if (!executeConfirmOpen || !executeTarget) return null;
-  const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
-  return createPortal(
-    <div className="modal-overlay" data-role={userRole} onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-      <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-            <div className="modal-title flex items-center gap-2 text-role-primary">
-              <PlayCircle className="w-5 h-5" />
-              Lancer la surveillance
-            </div>
-            <button className="modal-close" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="modal-body py-6 px-5 space-y-4">
-            <div className="p-3 bg-role-primary-soft rounded-lg">
-              <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
-              <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
-              <p className="text-sm font-medium mt-1">Période programmée: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
-            </div>
-
-            {/* Dates réelles d'exécution — ajustables par le chef d'équipe */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Dates réelles de la surveillance</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Début réel</label>
-                  <input
-                    type="datetime-local"
-                    value={executeDateDebut}
-                    onChange={(e) => setExecuteDateDebut(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Fin réelle</label>
-                  <input
-                    type="datetime-local"
-                    value={executeDateFin}
-                    onChange={(e) => setExecuteDateFin(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Pré-remplies avec les dates programmées. Ajustez-les selon les dates réelles de la mission.
-              </p>
-            </div>
-
-            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-              <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Vous allez être redirigé vers le module Surveillance</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                    La surveillance sera créée automatiquement. Vous pourrez ensuite rédiger la checklist, identifier les écarts et produire le rapport.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-            <button className="btn btn-secondary" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>Annuler</button>
-            <button className="btn btn-primary" onClick={handleConfirmExecute}>
-              <PlayCircle className="w-4 h-4 mr-1" />
-              Continuer vers Surveillance
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPlanning, userRole }: {
-  formOpen: boolean, setFormOpen: (v: boolean) => void,
-  editingPlanning: Planning | null, setEditingPlanning: (v: Planning | null) => void,
-  userRole: string
-}) {
-  return (
-    <FormShell
-      open={!!formOpen}
-      onClose={() => setFormOpen(false)}
-      title={editingPlanning ? 'Modifier le planning' : 'Nouveau planning'}
-      icon={CalendarDays}
-      size="3xl"
-      dataRole={userRole}
-    >
-      <PlanningForm
-        planning={editingPlanning}
-        onClose={() => setFormOpen(false)}
-        onSuccess={() => { setFormOpen(false); setEditingPlanning(null); }}
-      />
-    </FormShell>
-  );
-}
-
   if (!mounted) return null;
 
   return (
@@ -2338,6 +2196,148 @@ function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPl
       />
       <PreparationModal open={preparationOpen} planning={preparationPlanning} onClose={() => setPreparationOpen(false)} userRole={userRole} />
     </div>
+  );
+}
+
+/* ───────── Composants modales (définis hors du corps du composant pour éviter tout remount à chaque frappe) ───────── */
+
+function ModaleSuppression({ deleteDialogOpen, setDeleteDialogOpen, confirmDelete, userRole }: {
+  deleteDialogOpen: boolean, setDeleteDialogOpen: (v: boolean) => void,
+  confirmDelete: () => void, userRole: string
+}) {
+  if (!deleteDialogOpen) return null;
+  return createPortal(
+    <div className="modal-overlay" data-role={userRole} onClick={() => setDeleteDialogOpen(false)}>
+      <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+            <div className="modal-title flex items-center gap-2 text-danger">
+              <AlertCircle className="w-5 h-5" />
+              Confirmer la suppression
+            </div>
+            <button className="modal-close" onClick={() => setDeleteDialogOpen(false)}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="modal-body py-6 px-5">
+            <p className="text-foreground">Êtes-vous sûr de vouloir supprimer ce planning ?</p>
+            <p className="text-small text-muted-foreground mt-2">Cette action est irréversible.</p>
+          </div>
+          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
+            <button className="btn btn-secondary" onClick={() => setDeleteDialogOpen(false)}>Annuler</button>
+            <button className="btn btn-danger" onClick={confirmDelete}>Supprimer</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute, executeDateDebut, setExecuteDateDebut, executeDateFin, setExecuteDateFin }: {
+  executeConfirmOpen: boolean, executeTarget: Planning | null,
+  setExecuteConfirmOpen: (v: boolean) => void, setExecuteTarget: (v: Planning | null) => void,
+  aerodromesActifs: Aerodrome[], aerodromes: Aerodrome[], userRole: string,
+  handleConfirmExecute: () => void,
+  executeDateDebut: string, setExecuteDateDebut: (v: string) => void,
+  executeDateFin: string, setExecuteDateFin: (v: string) => void,
+}) {
+  if (!executeConfirmOpen || !executeTarget) return null;
+  const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
+  return createPortal(
+    <div className="modal-overlay" data-role={userRole} onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
+      <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
+          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
+            <div className="modal-title flex items-center gap-2 text-role-primary">
+              <PlayCircle className="w-5 h-5" />
+              Lancer la surveillance
+            </div>
+            <button className="modal-close" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="modal-body py-6 px-5 space-y-4">
+            <div className="p-3 bg-role-primary-soft rounded-lg">
+              <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
+              <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
+              <p className="text-sm font-medium mt-1">Période programmée: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
+            </div>
+
+            {/* Dates réelles d'exécution — ajustables par le chef d'équipe */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Dates réelles de la surveillance</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Début réel</label>
+                  <input
+                    type="datetime-local"
+                    value={executeDateDebut}
+                    onChange={(e) => setExecuteDateDebut(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Fin réelle</label>
+                  <input
+                    type="datetime-local"
+                    value={executeDateFin}
+                    onChange={(e) => setExecuteDateFin(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Pré-remplies avec les dates programmées. Ajustez-les selon les dates réelles de la mission.
+              </p>
+            </div>
+
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Vous allez être redirigé vers le module Surveillance</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    La surveillance sera créée automatiquement. Vous pourrez ensuite rédiger la checklist, identifier les écarts et produire le rapport.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
+            <button className="btn btn-secondary" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>Annuler</button>
+            <button className="btn btn-primary" onClick={handleConfirmExecute}>
+              <PlayCircle className="w-4 h-4 mr-1" />
+              Continuer vers Surveillance
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPlanning, userRole }: {
+  formOpen: boolean, setFormOpen: (v: boolean) => void,
+  editingPlanning: Planning | null, setEditingPlanning: (v: Planning | null) => void,
+  userRole: string
+}) {
+  return (
+    <FormShell
+      open={!!formOpen}
+      onClose={() => setFormOpen(false)}
+      title={editingPlanning ? 'Modifier le planning' : 'Nouveau planning'}
+      icon={CalendarDays}
+      size="3xl"
+      dataRole={userRole}
+    >
+      <PlanningForm
+        planning={editingPlanning}
+        onClose={() => setFormOpen(false)}
+        onSuccess={() => { setFormOpen(false); setEditingPlanning(null); }}
+      />
+    </FormShell>
   );
 }
 
