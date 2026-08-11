@@ -413,11 +413,11 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   const updateSurveillance = useAppStore(s => s.updateSurveillance)
   const deleteSurveillance = useAppStore(s => s.deleteSurveillance)
   const verifierAvantTransmission = useAppStore(s => s.verifierAvantTransmission)
-  const passerEtapeSuivante = useAppStore(s => s.passerEtapeSuivante)
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
 
   const getExemptionsActives = useAppStore(s => s.getExemptionsActives)
+  const getProchaineEtape = useAppStore(s => s.getProchaineEtape)
 
   // Portal mount state
   const [mounted, setMounted] = useState(false);
@@ -491,7 +491,52 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   };
 
   const handleContinue = (surveillance: Surveillance) => {
-    passerEtapeSuivante(surveillance.id);
+    // « Continuer » navigue vers l'étape suivante du workflow (checklist, écarts, rapport, etc.).
+    // La transition de statut (ex. en_cours → checklist_signee) se fait sur la page concernée
+    // (signature de la checklist), pas depuis la carte.
+    const prochaine = getProchaineEtape(surveillance);
+    if (!prochaine) return;
+    const portee = surveillance.portee || [];
+    const hasSGS = portee.includes('SGS');
+    const isSgsOnly = portee.length === 1 && portee[0] === 'SGS';
+    switch (prochaine.type) {
+      case 'checklist': {
+        // Portée SGS mixte → la page détail propose le choix Standard/SGS
+        if (hasSGS && !isSgsOnly) {
+          router.push(`/surveillance/${surveillance.id}`);
+          return;
+        }
+        const type = isSgsOnly ? 'sgs'
+          : surveillance.type === 'suivi_ecarts' ? 'suivi'
+          : surveillance.type === 'mise_oeuvre_pac' ? 'pac'
+          : surveillance.type === 'maintien' ? 'mixte'
+          : 'standard';
+        router.push(`/surveillance/${surveillance.id}/checklist?type=${type}`);
+        return;
+      }
+      case 'ecarts': {
+        if (hasSGS && portee.length > 1) {
+          setEcartChoiceSurveillance(surveillance);
+          setShowEcartChoice(true);
+        } else if (hasSGS) {
+          router.push(`/surveillance/${surveillance.id}/ecarts/sgs`);
+        } else {
+          router.push(`/surveillance/${surveillance.id}/ecarts`);
+        }
+        return;
+      }
+      case 'rapport':
+        router.push(`/surveillance/${surveillance.id}/rapport`);
+        return;
+      case 'lettre':
+        openLettreModal(surveillance);
+        return;
+      case 'transmission':
+        handleTransmit(surveillance);
+        return;
+      default:
+        return;
+    }
   };
 
   const handleTransmit = (surveillance: Surveillance) => {

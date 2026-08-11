@@ -2509,6 +2509,23 @@ function extractEcartsFromRapportHtml(surveillance: Surveillance): Partial<Ecart
 // Timer pour vérifier les rappels + vigie risque toutes les heures
 let rappelsTimerId: ReturnType<typeof setInterval> | null = null
 
+// Aplatit la hiérarchie de checklist (source persistée sur la surveillance) en liste plate d'items.
+// Source de vérité fiable pour la progression : survit au rechargement (contrairement à checklistItems,
+// reflet volatil non persisté dans le store).
+function flattenHierarchyItems(hierarchy: DomaineChecklist[] | undefined | null): ChecklistItem[] {
+  if (!hierarchy || hierarchy.length === 0) return []
+  const flat: ChecklistItem[] = []
+  const pushItems = (items?: ChecklistItem[]) => { if (items) for (const i of items) flat.push(i) }
+  for (const d of hierarchy) {
+    pushItems(d.items)
+    for (const sd of d.sousDomaines || []) {
+      pushItems(sd.items)
+      for (const ssd of sd.sousSousDomaines || []) pushItems(ssd.items)
+    }
+  }
+  return flat
+}
+
 export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
@@ -7419,7 +7436,12 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         }),  
       
       getItemsNSNV: (surveillanceId) => {
-        const items = get().checklistItems?.[surveillanceId] || []
+        const surv = get().surveillances.find(s => s.id === surveillanceId)
+        // Source de vérité : hiérarchie persistée sur la surveillance (survit au rechargement)
+        const itemsPersistes = flattenHierarchyItems(surv?.checklist_hierarchy)
+        const items = itemsPersistes.length > 0
+          ? itemsPersistes
+          : (get().checklistItems?.[surveillanceId] || [])
         return items.filter(i => i.resultat === 'NS' || i.resultat === 'NV')
       }, 
       
@@ -7451,7 +7473,12 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       },
       
       calculerProgression: (surveillanceId) => {
-        const items = get().checklistItems?.[surveillanceId] || []
+        const surv = get().surveillances.find(s => s.id === surveillanceId)
+        // Source de vérité : hiérarchie persistée sur la surveillance (survit au rechargement)
+        const itemsPersistes = flattenHierarchyItems(surv?.checklist_hierarchy)
+        const items = itemsPersistes.length > 0
+          ? itemsPersistes
+          : (get().checklistItems?.[surveillanceId] || [])
         if (items.length === 0) return 0
         const renseignes = items.filter(i => i.resultat).length
         return Math.round((renseignes / items.length) * 100)
