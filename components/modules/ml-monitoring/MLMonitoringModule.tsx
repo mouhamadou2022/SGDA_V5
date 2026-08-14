@@ -38,7 +38,7 @@ import type { BenchmarkConfig } from '@/lib/ia/benchmark'
 import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
 } from 'recharts'
-import { generatePDFFromHTMLString } from '@/lib/pdfGenerator'
+import { creerRapportPdf, PDF_COLORS } from '@/lib/services/pdfRapport'
 import {
   Brain, Target, TrendingUp, AlertTriangle, CheckCircle2, RefreshCw,
   Database, Download, Upload, RotateCcw,
@@ -123,137 +123,119 @@ export default function MLMonitoringModule({ user }: Props) {
 
   const handleRecalibrate = () => recalibrateModel('manuel', user?.prenom && user?.nom ? `${user.prenom} ${user.nom}` : 'admin')
 
-  const construireHTMLRapport = useCallback(() => {
+  const construireRapportMLPDF = useCallback(async (): Promise<Blob> => {
+    const pdf = await creerRapportPdf()
+
     const aerodromeNom = premierProfil?.aerodrome_id
       ? aerodromes.find(a => a.id === premierProfil.aerodrome_id)?.nom || premierProfil.aerodrome_id
       : '—'
     const diag = premierProfil ? synthetiserModeles(premierProfil) : null
-    const tendanceLabel = diag?.tendance === 'amelioration' ? 'Amélioration' : diag?.tendance === 'degradation_rapide' ? 'Dégradation rapide' : diag?.tendance === 'degradation_legere' ? 'Dégradation légère' : 'Stable'
+    const tendanceLabel = diag?.tendance === 'amelioration' ? 'Amélioration'
+      : diag?.tendance === 'degradation_rapide' ? 'Dégradation rapide'
+      : diag?.tendance === 'degradation_legere' ? 'Dégradation légère'
+      : 'Stable'
+    const date = new Date().toISOString().split('T')[0]
 
-    const kpi = (label: string, value: string, sub?: string) => `
-      <div style="flex:1;min-width:130px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin:4px;">
-        <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.3px;">${label}</div>
-        <div style="font-size:18px;font-weight:700;color:#0f172a;margin-top:2px;">${value}</div>
-        ${sub ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${sub}</div>` : ''}
-      </div>`
+    pdf.coverPage({
+      titre: 'RAPPORT DE MONITORING DES MODÈLES D’INTELLIGENCE ARTIFICIELLE',
+      sousTitre: 'Performance, entraînement et calibrage des modèles de risque — SGDA V5',
+      ref: `ML-${date.replace(/-/g, '')}-${(activeModelName || 'RF').toUpperCase().replace(/[^A-Z0-9]/g, '')}`,
+      meta: [
+        ['Aérodrome', aerodromeNom],
+        ['Date du rapport', new Date().toLocaleDateString('fr-FR')],
+        ['Modèle actif', activeModelName || 'aucun'],
+        ['Dernier entraînement', activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : '—'],
+        ['Corrélation ML / risque', `${mlRiskCorrelation.convergenceScore}%`],
+        ['Alertes en attente', `${pendingAlerts.length}`],
+      ],
+    })
 
-    const voteRows = diag && diag.votes.length > 0
-      ? diag.votes.map(v => `
-        <tr>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${v.nom}</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;font-weight:600;">${v.indiceDegradation}</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${v.confiance}%</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${v.interpretation}</td>
-        </tr>`).join('')
-      : '<tr><td colspan="4" style="padding:6px 8px;font-size:11px;color:#64748b;">Aucun profil de risque disponible pour la synthèse.</td></tr>'
+    pdf.addPage()
 
-    const benchRows = benchmarkOutcome && benchmarkOutcome.ranked.length > 0
-      ? benchmarkOutcome.ranked.map((r, i) => `
-        <tr>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${i + 1}</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:600;">${r.nom}</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${r.score.toFixed(1)}</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.accuracy * 100).toFixed(1)}%</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.f1Score * 100).toFixed(1)}%</td>
-          <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:right;">${(r.rocAuc * 100).toFixed(1)}%</td>
-        </tr>`).join('')
-      : '<tr><td colspan="6" style="padding:6px 8px;font-size:11px;color:#64748b;">Benchmark non réalisé (il faut au moins 10 échantillons d\'entraînement).</td></tr>'
+    pdf.kpiBoxes([
+      { value: detailedStats ? `${detailedStats.taux_justesse.toFixed(1)}%` : '—', label: 'Précision apprentissage', color: PDF_COLORS.green },
+      { value: activeModelName || 'aucun', label: 'Modèle actif', color: PDF_COLORS.primary },
+      { value: inspecteurStats ? `${inspecteurStats.maturiteGlobale.toFixed(0)}/100` : '—', label: 'Maturité inspecteur', color: PDF_COLORS.blue },
+      { value: engineStats ? `${(engineStats.pertinenceRate * 100).toFixed(0)}%` : '—', label: 'Pertinence AERORISQ', color: PDF_COLORS.amber },
+      { value: `${mlRiskCorrelation.convergenceScore}%`, label: 'Corrélation ML/risque', color: PDF_COLORS.primary },
+      { value: `${pendingAlerts.length}`, label: 'Alertes en attente', color: pendingAlerts.length > 0 ? PDF_COLORS.red : PDF_COLORS.green },
+    ])
 
-    const alertLines = pendingAlerts.length > 0
-      ? pendingAlerts.slice(0, 10).map(a => `<li style="font-size:11px;margin:3px 0;">${a.niveau.toUpperCase()} — ${a.message}</li>`).join('')
-      : '<li style="font-size:11px;color:#64748b;">Aucune alerte de recalibrage en attente.</li>'
+    // 1. Synthèse en langage clair
+    pdf.sectionTitle('1. Synthèse en langage clair')
+    if (diag) {
+      pdf.infoBox(
+        `Tendance : ${tendanceLabel} — indice global ${Math.round(diag.indiceGlobal)}/100 (confiance ${Math.round(diag.confianceGlobale)}%)`,
+        { title: 'Diagnostic consolidé', tone: 'green' },
+      )
+      pdf.paragraph(`Interprétation : ${diag.interpretation}`)
+      pdf.paragraph(`Recommandation : ${diag.recommandation}`)
+      if (diag.elementsClefs.length > 0) pdf.bulletList(diag.elementsClefs)
+      if (diag.votes.length > 0) {
+        pdf.subHeading('Votes des modèles')
+        pdf.table({
+          head: [['Modèle', 'Indice', 'Confiance', 'Interprétation']],
+          body: diag.votes.map(v => [v.nom, String(v.indiceDegradation), `${v.confiance}%`, v.interpretation]),
+          columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 14, halign: 'right' }, 2: { cellWidth: 18, halign: 'right' } },
+        })
+      }
+    } else {
+      pdf.paragraph('Aucun profil de risque chargé — la synthèse IA n\'est pas disponible.')
+    }
 
-    const dom = (nom: string, prec: number) =>
-      `<tr><td style="padding:3px 8px;border-bottom:1px solid #eef2f7;font-size:11px;">${nom}</td><td style="padding:3px 8px;border-bottom:1px solid #eef2f7;font-size:11px;text-align:right;font-weight:600;">${prec.toFixed(1)}%</td></tr>`
+    // 2. Benchmark des modèles ML
+    pdf.sectionTitle('2. Benchmark des modèles ML')
+    if (benchmarkOutcome && benchmarkOutcome.ranked.length > 0) {
+      pdf.table({
+        head: [['#', 'Modèle', 'Score', 'Accuracy', 'F1', 'ROC-AUC']],
+        body: benchmarkOutcome.ranked.map((r, i) => [
+          String(i + 1), r.nom, r.score.toFixed(1),
+          `${(r.accuracy * 100).toFixed(1)}%`, `${(r.f1Score * 100).toFixed(1)}%`, `${(r.rocAuc * 100).toFixed(1)}%`,
+        ]),
+        columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 40 }, 2: { cellWidth: 22, halign: 'right' }, 3: { cellWidth: 24, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 5: { cellWidth: 26, halign: 'right' } },
+      })
+    } else {
+      pdf.paragraph('Benchmark non réalisé (il faut au moins 10 échantillons d\'entraînement).')
+    }
 
-    const domainesRows = detailedStats && Object.keys(detailedStats.precision_par_domaine).length > 0
-      ? Object.entries(detailedStats.precision_par_domaine).map(([d, p]) => dom(d, p)).join('')
-      : '<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#64748b;">Pas encore de données par domaine.</td></tr>'
+    // 3. Précision par domaine
+    pdf.sectionTitle('3. Précision par domaine')
+    if (detailedStats && Object.keys(detailedStats.precision_par_domaine).length > 0) {
+      pdf.table({
+        head: [['Domaine', 'Précision']],
+        body: Object.entries(detailedStats.precision_par_domaine).map(([d, p]) => [d, `${p.toFixed(1)}%`]),
+        columnStyles: { 1: { cellWidth: 40, halign: 'right' } },
+      })
+    } else {
+      pdf.paragraph('Pas encore de données par domaine.')
+    }
 
-    return `
-      <html><head><meta charset="utf-8" /></head>
-      <body style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;padding:0;">
-        <div style="padding:0 4px;">
-          <div style="border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:16px;">
-            <h1 style="font-size:20px;margin:0;color:#0f766e;">Rapport de monitoring ML</h1>
-            <div style="font-size:11px;color:#475569;margin-top:4px;">SGDA V5 — ${aerodromeNom} — généré le ${new Date().toLocaleDateString('fr-FR')}</div>
-          </div>
+    // 4. Alertes de recalibrage
+    pdf.sectionTitle('4. Alertes de recalibrage')
+    if (pendingAlerts.length > 0) {
+      pendingAlerts.slice(0, 10).forEach(a => {
+        pdf.infoBox(a.message, {
+          title: a.niveau === 'critical' ? 'ALERTE CRITIQUE' : a.niveau === 'warning' ? 'Attention' : 'Information',
+          tone: a.niveau === 'critical' ? 'red' : a.niveau === 'warning' ? 'amber' : 'green',
+        })
+      })
+    } else {
+      pdf.paragraph('Aucune alerte de recalibrage en attente.')
+    }
 
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">1. Synthèse en langage clair</h2>
-          <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:10px 12px;">
-            ${diag ? `
-              <p style="font-size:12px;margin:2px 0;"><b>Tendance :</b> ${tendanceLabel} — indice global ${Math.round(diag.indiceGlobal)}/100 (confiance ${Math.round(diag.confianceGlobale)}%)</p>
-              <p style="font-size:12px;margin:2px 0;"><b>Interprétation :</b> ${diag.interpretation}</p>
-              <p style="font-size:12px;margin:2px 0;"><b>Recommandation :</b> ${diag.recommandation}</p>
-              ${diag.elementsClefs.length > 0 ? `<p style="font-size:12px;margin:2px 0;"><b>Éléments clés :</b> ${diag.elementsClefs.join(' · ')}</p>` : ''}
-            ` : '<p style="font-size:12px;margin:2px 0;">Aucun profil de risque chargé — la synthèse IA n\'est pas disponible.</p>'}
-          </div>
+    pdf.paragraph('Ce rapport est généré par le module Monitoring ML de SGDA V5 à partir des données locales du poste. Les modèles mathématiques fournissent une interprétation automatique ; la décision finale reste de la responsabilité de l\'inspecteur.', 8, { color: PDF_COLORS.gray, italic: true })
 
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">2. Indicateurs clés</h2>
-          <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            ${kpi('Précision apprentissage', detailedStats ? `${detailedStats.taux_justesse.toFixed(1)}%` : '—', detailedStats ? `${detailedStats.total_feedbacks} feedbacks · v${detailedStats.version_modele}` : 'aucun feedback')}
-            ${kpi('Modèle actif', activeModelName || 'aucun', activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : '')}
-            ${kpi('Maturité inspecteur', inspecteurStats ? `${inspecteurStats.maturiteGlobale.toFixed(0)}/100` : '—', inspecteurStats?.maturiteGlobaleLabel || '')}
-            ${kpi('Pertinence AERORISQ', engineStats ? `${(engineStats.pertinenceRate * 100).toFixed(0)}%` : '—', engineStats ? `${engineStats.totalFeedbacks} retours` : '')}
-            ${kpi('Corrélation ML/risque', `${mlRiskCorrelation.convergenceScore}%`, mlRiskCorrelation.aerodromeCount > 0 ? `${mlRiskCorrelation.aerodromeCount} aérodromes` : '')}
-            ${kpi('Alertes en attente', `${pendingAlerts.length}`, '')}
-          </div>
-
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">3. Détail des modèles mathématiques</h2>
-          <table style="width:100%;border-collapse:collapse;">
-            <tr style="background:#f1f5f9;">
-              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;text-transform:uppercase;">Modèle</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;text-transform:uppercase;">Indice</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;text-transform:uppercase;">Confiance</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;text-transform:uppercase;">Interprétation</th>
-            </tr>
-            ${voteRows}
-          </table>
-
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">4. Benchmark des modèles ML</h2>
-          <table style="width:100%;border-collapse:collapse;">
-            <tr style="background:#f1f5f9;">
-              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">#</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:left;color:#475569;">Modèle</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">Score</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">Accuracy</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">F1</th>
-              <th style="padding:4px 8px;font-size:10px;text-align:right;color:#475569;">ROC-AUC</th>
-            </tr>
-            ${benchRows}
-          </table>
-
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">5. Précision par domaine</h2>
-          <table style="width:100%;border-collapse:collapse;">
-            ${domainesRows}
-          </table>
-
-          <h2 style="font-size:14px;color:#0f766e;margin:14px 0 6px;">6. Alertes de recalibrage</h2>
-          <ul style="padding-left:18px;margin:4px 0;">${alertLines}</ul>
-
-          <div style="margin-top:18px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8;">
-            Ce rapport est généré par le module Monitoring ML de SGDA V5 à partir des données locales du poste. Les modèles mathématiques fournissent une interprétation automatique ; la décision finale reste de la responsabilité de l'inspecteur.
-          </div>
-        </div>
-      </body></html>`
+    pdf.drawFooter('SGDA V5 — MONITORING ML — ANACIM / Direction de la Navigation Aérienne')
+    return pdf.blob()
   }, [premierProfil, aerodromes, detailedStats, activeModelName, activeModelTrainedAt, inspecteurStats, engineStats, mlRiskCorrelation, pendingAlerts, benchmarkOutcome])
 
   const handleExportPDF = async () => {
     setPdfExportError(null)
     setExportingPdf(true)
     try {
-      const result = await generatePDFFromHTMLString(construireHTMLRapport(), {
-        title: `Rapport monitoring ML — ${new Date().toISOString().slice(0, 10)}`,
-        author: user?.prenom && user?.nom ? `${user.prenom} ${user.nom}` : 'SGDA V5',
-        subject: `Rapport de monitoring des modèles d'intelligence artificielle`,
-        keywords: ['SGDA', 'IA', 'monitoring', 'apprentissage'],
-        header: { text: 'SGDA V5 — Monitoring ML', height: 10 },
-        footer: { text: 'Rapport généré par le module Monitoring ML', height: 10 },
-      })
-      if (!result.success || !result.blob) throw new Error(result.error || 'Génération impossible')
-      const url = URL.createObjectURL(result.blob)
-      const a = document.createElement('a'); a.href = url; a.download = `rapport-monitoring-ml-${new Date().toISOString().split('T')[0]}.pdf`; a.click()
-      URL.revokeObjectURL(url)
+      const blob = await construireRapportMLPDF()
+      const { downloadBlob } = await import('@/lib/pdfGenerator')
+      downloadBlob(blob, `rapport-monitoring-ml-${new Date().toISOString().split('T')[0]}.pdf`)
     } catch (err: unknown) {
       setPdfExportError(err instanceof Error ? err.message : "Erreur d'export PDF")
     } finally {
