@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { PerformanceProvider } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { Toaster } from '@/components/ui/Toaster';
+import { SessionBootstrap } from './SessionBootstrap';
 
 // Composant qui optimise globalement les événements DOM
 function GlobalEventOptimizer() {
@@ -49,6 +50,7 @@ export function GlobalOptimizer({ children }: { children: React.ReactNode }) {
   return (
     <PerformanceProvider>
       <GlobalEventOptimizer />
+      <SessionBootstrap />
       <HydrationGate>
         {children}
       </HydrationGate>
