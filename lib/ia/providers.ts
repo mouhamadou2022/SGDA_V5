@@ -200,6 +200,14 @@ export function isLocalUrl(url: string | undefined): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/.test(url) || /\.local(\/|$)/.test(url)
 }
 
+// Détecte si deux URLs pointent vers le même serveur (même origin).
+// Utile quand AERORISQ_API_URL = Ollama : éviter de tenter 2x la même machine
+// sous des noms différents au sein d'une même chaîne de fallback.
+function sameOrigin(a: string | undefined, b: string): boolean {
+  if (!a) return false
+  try { return new URL(a).origin === new URL(b).origin } catch { return false }
+}
+
 export async function callWithFallback(request: LLMRequest): Promise<LLMResult> {
   const errors: string[] = []
   const budgetDebut = Date.now()
@@ -222,6 +230,12 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
   // SAUF s'il s'agit d'un Ollama local (localhost/127.0.0.1) : l'inférence locaux CPU est
   // très lente, on ne la met PAS en priorité — les providers cloud rapides passent d'abord.
   const aerorisqLocal = isLocalUrl(AERORISQ_URL)
+  // AERORISQ_API_URL pointe-t-il vers le même serveur qu'Ollama ? (cas typique
+  // chez l'utilisateur : les deux sur localhost:11434). Si oui, on ne tentera
+  // pas 3x la même machine (aerorisq_0 + ollama + ollama_fallback) — aerorisq_0
+  // suffit comme unique tentative vers le serveur local, pour laisser du budget
+  // à un éventuel vrai provider différent si le local échoue.
+  const aerorisqIsOllama = sameOrigin(AERORISQ_URL, OLLAMA_URL)
   const aerorisqEntries: typeof allProviders = []
   for (const k of aerorisqKeys.length > 0 ? aerorisqKeys : (AERORISQ_URL ? [{ key_value: '', fallback_order: 0, is_active: true }] : [])) {
     if (!k.is_active) continue
@@ -276,8 +290,12 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
 
   // Ollama (local) en DERNIER recours : zéro clé API mais lent (inférence locale).
   // Les providers cloud (Groq, OpenRouter, Google…) sont priorisés pour la rapidité.
-  allProviders.push({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
-  allProviders.push({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
+  // Si AERORISQ_API_URL pointe déjà vers ce même serveur Ollama, on le saute :
+  // `aerorisq_0` couvre déjà cette machine (évite 3 tentatives redondantes).
+  if (!aerorisqIsOllama) {
+    allProviders.push({ name: 'ollama', key: '', call: callOllama, model: OLLAMA_PRIMARY })
+    allProviders.push({ name: 'ollama_fallback', key: '', call: callOllama, model: OLLAMA_FALLBACK })
+  }
 
   // Context-aware routing : sauter les providers dont la fenêtre de contexte est trop petite
   const inputTokens = estimateInputTokens(request.messages)
