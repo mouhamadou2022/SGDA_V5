@@ -6,8 +6,10 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { useAppStore, Planning, Ecart, Utilisateur } from '@/lib/store'
+import { useAppStore, Planning, Ecart, Utilisateur, FicheBriefing } from '@/lib/store'
 import { toast } from '@/lib/toast'
+import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent'
+import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF'
 
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 import { Card } from '@/components/ui/card'
@@ -21,6 +23,7 @@ import {
   Calendar, CheckCircle2, ClipboardList, Clock, FileText, History, LayoutGrid,
   MapPin, PlayCircle, Send, Shield, Target, TrendingDown, TrendingUp, Users,
   UserCheck, X, AlertCircle, AlertTriangle, Save, Brain, ChevronRight, Loader2,
+  Download,
 } from 'lucide-react'
 
 interface Props {
@@ -57,6 +60,44 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
   const [delegations, setDelegations] = useState<Record<string, string>>({})
   const [showTypeChoice, setShowTypeChoice] = useState(false)
   const [sendingChecklist, setSendingChecklist] = useState(false)
+  const [briefingLoading, setBriefingLoading] = useState(false)
+  const [briefing, setBriefing] = useState<FicheBriefing | null | undefined>(() => planning?.briefing_fiche)
+  const [briefingDownloading, setBriefingDownloading] = useState(false)
+
+  const handleDownloadBriefing = async () => {
+    if (!briefing || briefingDownloading) return
+    setBriefingDownloading(true)
+    try {
+      await exporterFicheBriefing({
+        fiche: briefing,
+        planning: planning
+          ? {
+              date_debut: planning.date_debut,
+              date_fin: planning.date_fin,
+              annee_cible: planning.annee_cible,
+              priorite: planning.priorite,
+              statut: planning.statut,
+              declencheur: planning.declencheur,
+            }
+          : undefined,
+        aerodrome: aerodrome ? { code_oaci: aerodrome.code_oaci, nom: aerodrome.nom } : undefined,
+        redacteur: user ? `${user.prenom} ${user.nom}`.trim() : undefined,
+      })
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Fiche de briefing téléchargée',
+        message: 'La fiche de briefing pré-mission a été exportée en PDF.',
+        canal: 'in_app',
+      })
+      toast('success', 'Fiche de briefing téléchargée', 'PDF exporté')
+    } catch (e) {
+      console.error('Erreur export briefing PDF:', e)
+      toast('error', 'Impossible d\'exporter la fiche de briefing en PDF', 'Erreur')
+    } finally {
+      setBriefingDownloading(false)
+    }
+  }
 
   // Charger les délégations depuis planning.delegations (source de vérité unique en base)
   useEffect(() => {
@@ -286,6 +327,41 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
       router.push(`/preparation-checklist/${planning.id}?type=sgs`)
     } else {
       router.push(`/preparation-checklist/${planning.id}?type=${chosenType}`)
+    }
+  }
+
+  const handleGenererBriefing = async () => {
+    if (briefingLoading || !planning?.id) return
+    setBriefingLoading(true)
+    try {
+      const fiche = await kitDocAgent.genererFicheBriefing({
+        planningId: planning.id,
+        aerodromeId: planning.aerodrome_id,
+      })
+      setBriefing(fiche)
+      if (planning.id) {
+        await updatePlanning(planning.id, { briefing_fiche: fiche })
+      }
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Fiche de briefing générée',
+        message: 'Le briefing pré-mission est prêt. Consultez-le dans la checklist de préparation.',
+        canal: 'in_app',
+      })
+      toast('success', 'Fiche de briefing générée', 'Briefing pré-mission prêt')
+    } catch (e) {
+      console.error('Erreur génération briefing:', e)
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Erreur',
+        message: 'Impossible de générer la fiche de briefing. Réessayez.',
+        canal: 'in_app',
+      })
+      toast('error', 'Impossible de générer la fiche de briefing', 'Erreur')
+    } finally {
+      setBriefingLoading(false)
     }
   }
 
@@ -733,8 +809,16 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
             </div>
 
             {/* Footer */}
-            <div className="modal-footer border-t border-border flex justify-end gap-3">
+            <div className="modal-footer border-t border-border flex justify-end gap-3 flex-wrap">
               <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
+              <button className="btn btn-secondary gap-2" onClick={handleGenererBriefing} disabled={briefingLoading} title="Générer la fiche de briefing pré-mission">
+                {briefingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {briefingLoading ? 'Génération...' : briefing ? 'Régénérer le briefing' : 'Générer la fiche de briefing'}
+              </button>
+              <button className="btn btn-secondary gap-2" onClick={handleDownloadBriefing} disabled={!briefing || briefingDownloading} title="Télécharger la fiche de briefing (PDF)">
+                {briefingDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {briefingDownloading ? 'Export...' : 'Télécharger le PDF'}
+              </button>
               <button className="btn btn-secondary gap-2" onClick={handleNotifyOperator} disabled={sendingChecklist} title="Envoyer la checklist aux exploitants">
                 {sendingChecklist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 {sendingChecklist ? 'Envoi...' : 'Envoyer la checklist'}

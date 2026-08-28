@@ -2,6 +2,8 @@
 'use client';
 
 import { ProfilRisque, Ecart } from './store';
+import { getRiskLevelFromCell } from './risque';
+import { iaStorage } from '@/lib/persistence/iaStorage';
 
 // Types
 export type NiveauProbabilite = 1 | 2 | 3 | 4 | 5;
@@ -59,17 +61,12 @@ export interface LearningModel {
   observations_count: number;
 }
 
-// Configuration des cellules de la matrice OACI
-const MATRICE_CELLULES: Record<string, NiveauRisqueGlobal> = {
-  '5A': 'critique', '5B': 'critique', '5C': 'critique',
-  '4A': 'critique', '4B': 'critique', '3A': 'critique',
-  '5D': 'eleve', '4C': 'eleve', '3B': 'eleve', '2A': 'eleve',
-  '5E': 'moyen', '4D': 'moyen', '3C': 'moyen', '2B': 'moyen', '1A': 'moyen',
-  '1B': 'faible', '1C': 'faible', '1D': 'faible', '1E': 'faible',
-  '2C': 'faible', '2D': 'faible', '2E': 'faible',
-  '3D': 'faible', '3E': 'faible',
-  '4E': 'faible',
-};
+// Configuration des cellules de la matrice OACI — utilise le mapping canonical de lib/risque
+function getNiveauFromCellule(cellule: string): NiveauRisqueGlobal {
+  const niveau = getRiskLevelFromCell(cellule);
+  // Mapper 'tres_faible' → 'faible' pour la compatibilité avec NiveauRisqueGlobal (4 niveaux)
+  return (niveau === 'tres_faible' ? 'faible' : niveau) as NiveauRisqueGlobal;
+}
 
 // Modèle d'apprentissage par défaut
 const DEFAULT_LEARNING_MODEL: LearningModel = {
@@ -90,9 +87,87 @@ const DEFAULT_LEARNING_MODEL: LearningModel = {
   observations_count: 0,
 };
 
-// Stockage des feedbacks pour l'apprentissage (simulé, à remplacer par le store)
+// Stockage des feedbacks pour l'apprentissage — persisté en IDB
 let feedbacksStore: RiskIndexFeedback[] = [];
 let learningModel: LearningModel = { ...DEFAULT_LEARNING_MODEL };
+let riskIndexReady = false;
+
+/** Charger feedbacks + modèle depuis IDB (appelé au démarrage) */
+export async function initRiskIndexFromIDB(): Promise<void> {
+  try {
+    const stored = await iaStorage.get<RiskIndexFeedback[]>('feedbacks', 'risk_index_feedbacks');
+    if (stored && stored.length > 0) feedbacksStore = stored;
+    const model = await iaStorage.get<LearningModel>('feedbacks', 'risk_index_learning_model');
+    if (model) learningModel = model;
+  } catch { /* best effort */ }
+  riskIndexReady = true;
+}
+
+function persistRiskIndex(): void {
+  if (!riskIndexReady) return;
+  try {
+    iaStorage.set('feedbacks', 'risk_index_feedbacks', feedbacksStore.slice(-200).map(sanitizeFeedback));
+    iaStorage.set('feedbacks', 'risk_index_learning_model', learningModel);
+  } catch { /* best effort */ }
+}
+
+/**
+ * Assainir un feedback avant persistance : ne conserver que des primitives
+ * numériques/chaînes valides. Empêche qu'un objet non-clonable (ex. un
+ * PointerEvent leaked par un handler React) ne fasse échouer structuredClone
+ * d'indexedDB et ne corrompe le modèle d'apprentissage.
+ */
+function sanitizeFeedback<T extends RiskIndexFeedback>(fb: T): T {
+  const num = (v: unknown, fallback = 0): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const str = (v: unknown, fallback = ''): string =>
+    typeof v === 'string' ? v : fallback;
+  const char = (v: unknown, fallback: string): string =>
+    typeof v === 'string' && /^[A-E]$/.test(v.toUpperCase()) ? v.toUpperCase() : fallback;
+
+  const riskIndex = (r: unknown): RiskIndex => {
+    const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+    return {
+      probabilite: (num(o.probabilite) as NiveauProbabilite),
+      gravite: char(o.gravite, 'C') as NiveauGravite,
+      niveau: str(o.niveau, 'faible') as NiveauRisqueGlobal,
+      cellule: str(o.cellule),
+      score: num(o.score),
+      confidence: num(o.confidence),
+      volatilite: num(o.volatilite),
+      tendance: (str(o.tendance, 'stable') as RiskIndex['tendance']),
+    };
+  };
+
+  return {
+    id: str((fb as any).id),
+    aerodrome_id: str((fb as any).aerodrome_id),
+    date: str((fb as any).date),
+    contexte: {
+      score_global: num(fb.contexte?.score_global),
+      c1: num(fb.contexte?.c1),
+      c2: num(fb.contexte?.c2),
+      c3: num(fb.contexte?.c3),
+      c4: num(fb.contexte?.c4),
+      c5: num(fb.contexte?.c5),
+      velocity: num(fb.contexte?.velocity),
+      nb_ecarts_critiques: num(fb.contexte?.nb_ecarts_critiques),
+      nb_nv: num(fb.contexte?.nb_nv),
+      nb_ns: num(fb.contexte?.nb_ns),
+    },
+    suggestion_systeme: riskIndex(fb.suggestion_systeme),
+    choix_inspecteur: riskIndex(fb.choix_inspecteur),
+    ecart: num((fb as any).ecart),
+    commentaire: (fb as any).commentaire != null ? String((fb as any).commentaire) : undefined,
+  } as unknown as T;
+}
+
+/** Accès public au modèle d'apprentissage (lecture seule) */
+export function getLearningModel(): LearningModel {
+  return learningModel;
+}
 
 /**
  * Calculer le niveau de probabilité basé sur le profil de risque
@@ -190,8 +265,8 @@ export function computeGravityLevel(
 /**
  * Obtenir le niveau de risque global à partir de la cellule
  */
-export function getRiskLevelFromCell(cellule: string): NiveauRisqueGlobal {
-  return MATRICE_CELLULES[cellule] || 'faible';
+export function getRiskLevelFromCellIdx(cellule: string): NiveauRisqueGlobal {
+  return getRiskLevelFromCell(cellule) as NiveauRisqueGlobal;
 }
 
 /**
@@ -230,7 +305,7 @@ export function computeRiskIndex(
   const probabilite = computeProbabilityLevel(profil, nbEcartsCritiques, nbNS, nbNV);
   const gravite = computeGravityLevel(profil, nbEcartsCritiques, nbEcartsEleves, nbIncidentsGraves);
   const cellule = `${probabilite}${gravite}`;
-  const niveau = getRiskLevelFromCell(cellule);
+  const niveau = getNiveauFromCellule(cellule);
 
   // Calcul du score (0-100)
   let score = 100;
@@ -314,6 +389,9 @@ export function recordRiskIndexFeedback(
 
   feedbacksStore.push(feedback);
 
+  // Persister en IDB
+  persistRiskIndex();
+
   // Mettre à jour le modèle d'apprentissage après suffisamment d'observations
   if (feedbacksStore.length >= 10 && feedbacksStore.length % 5 === 0) {
     calibrateLearningModel();
@@ -366,6 +444,9 @@ export function calibrateLearningModel(): LearningModel {
     },
     observations_count: feedbacksStore.length,
   };
+
+  // Persister le modèle mis à jour
+  persistRiskIndex();
 
   return learningModel;
 }
@@ -421,6 +502,29 @@ export function resetLearningModel(): void {
  */
 export function getFeedbacksForAerodrome(aerodromeId: string): RiskIndexFeedback[] {
   return feedbacksStore.filter(f => f.aerodrome_id === aerodromeId);
+}
+
+/**
+ * Obtenir les N dernières corrections d'indice (où inspecteur a modifié la suggestion)
+ * Utile pour injecter des exemples few-shot dans les prompts IA
+ */
+export function getRecentCorrections(limit: number = 5): Array<{
+  itemsNS: number
+  itemsNV: number
+  scoreGlobal: number
+  suggestionCellule: string
+  correctionCellule: string
+}> {
+  return feedbacksStore
+    .filter(f => f.ecart > 0) // Seulement les cas où inspecteur a corrigé
+    .slice(-limit)
+    .map(f => ({
+      itemsNS: f.contexte.nb_ns,
+      itemsNV: f.contexte.nb_nv,
+      scoreGlobal: f.contexte.score_global,
+      suggestionCellule: f.suggestion_systeme.cellule,
+      correctionCellule: f.choix_inspecteur.cellule,
+    }));
 }
 
 /**

@@ -92,17 +92,19 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
   const current: BowTieModele | undefined = selectedDomaine === '__all__' ? undefined : models.find(m => m.domaine === selectedDomaine)
 
   // Reset selection si le domaine n'est plus disponible (ex: SGS devient non_applicable)
-  useEffect(() => {
-    if (selectedDomaine !== '__all__' && domainesDisponibles.length > 0 && !domainesDisponibles.includes(selectedDomaine)) {
-      setSelectedDomaine('__all__')
-    }
-  }, [selectedDomaine, domainesDisponibles])
+  const [prevSelection, setPrevSelection] = useState(selectedDomaine)
+  if (selectedDomaine !== prevSelection) {
+    setPrevSelection(selectedDomaine)
+  } else if (selectedDomaine !== '__all__' && domainesDisponibles.length > 0 && !domainesDisponibles.includes(selectedDomaine)) {
+    setSelectedDomaine('__all__')
+  }
 
   const isAiCurrent = current ? !!aiEnriched[current.domaine] : false
 
   // Enrichissement bayésien : remplace les efficacités recopiées par des valeurs causales
   // Version dynamique : recharge les observations persistées (Supabase/IndexedDB) puis recalibre les CPT
   const [bayesianEnrich, setBayesianEnrich] = useState<{
+    domaine: string
     barrieresPreventives: Barriere[]
     barrieresCorrectives: Barriere[]
     probabiliteResiduelle: number
@@ -111,14 +113,11 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
 
   useEffect(() => {
     let cancelled = false
-    if (!current || isAiCurrent) {
-      setBayesianEnrich(null)
-      return
-    }
+    if (!current || isAiCurrent) return
     computeBarrierEfficaciteAvecApprentissage(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5, profil.aerodrome_id)
-      .then(r => { if (!cancelled) setBayesianEnrich(r) })
+      .then(r => { if (!cancelled) setBayesianEnrich({ domaine: current.domaine, ...r }) })
       .catch(() => {
-        if (!cancelled) setBayesianEnrich(computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5))
+        if (!cancelled) setBayesianEnrich({ domaine: current.domaine, ...computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5) })
       })
     return () => { cancelled = true }
   }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5, profil.aerodrome_id])
@@ -127,7 +126,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
   const displayModel = useMemo(() => {
     if (!current) return null
     if (isAiCurrent) return current
-    if (!bayesianEnrich) return current
+    if (!bayesianEnrich || bayesianEnrich.domaine !== current.domaine) return current
     return {
       ...current,
       barrieresPreventives: bayesianEnrich.barrieresPreventives,
@@ -136,7 +135,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
     }
   }, [current, isAiCurrent, bayesianEnrich])
 
-  const confianceReseau = bayesianEnrich?.confiance ?? 0
+  const confianceReseau = current && bayesianEnrich?.domaine === current.domaine ? bayesianEnrich.confiance : 0
 
   const escalation = useMemo(() => {
     if (!displayModel) return null
@@ -286,7 +285,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-bold text-danger">Facteur d'escalation détecté</p>
+                      <p className="text-sm font-bold text-danger">Facteur d&apos;escalation détecté</p>
                       <p className="text-xs text-foreground mt-1">
                         La barrière <strong>{escalation.weakest.nom}</strong> est la plus faible (efficacité {escalation.weakest.efficacite}%).
                         {escalation.weakest.type === 'preventive' ? ' Renforcer cette barrière préventive réduirait la probabilité de défaillance.' : ' Améliorer cette barrette corrective accélérerait le retour à la conformité.'}
@@ -404,7 +403,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                   <p className={`text-2xl font-bold mt-1 ${displayModel.probabiliteResiduelle >= 50 ? 'text-danger' : displayModel.probabiliteResiduelle >= 30 ? 'text-warning' : 'text-primary'}`}>{displayModel.probabiliteResiduelle}%</p>
                   <span className={getRiskCls(displayModel.probabiliteResiduelle)}>{getNiveauLabel(displayModel.niveauRisqueResiduel)}</span>
                   <div className="progress h-2 mt-3"><div className="progress-bar" style={{ width: `${displayModel.probabiliteResiduelle}%` }} /></div>
-                  <p className="text-xs text-foreground mt-2">Probabilité d'incident malgré les barrières</p>
+                  <p className="text-xs text-foreground mt-2">Probabilité d&apos;incident malgré les barrières</p>
                 </div>
                 <div className="p-4 rounded-xl bg-success-soft/30 border border-success/20">
                   <p className="text-xs text-foreground">Bénéfices estimés</p>

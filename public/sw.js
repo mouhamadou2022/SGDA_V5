@@ -1,7 +1,7 @@
 // SGDA V5 — Service Worker
 // Cache les pages visitées + assets pour navigation offline
 
-const CACHE = 'sgda-v5-v1'
+const CACHE = 'sgda-v5-v2'
 const STATIC_ASSETS = ['/']
 
 self.addEventListener('install', (e) => {
@@ -10,7 +10,14 @@ self.addEventListener('install', (e) => {
 })
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim())
+  e.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      )
+      .then(() => clients.claim())
+  )
 })
 
 function isCacheable(request) {

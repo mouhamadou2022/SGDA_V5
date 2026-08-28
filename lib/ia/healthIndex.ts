@@ -50,8 +50,9 @@ export function computeHealthIndex(profil: ProfilRisque): HealthIndexResult {
 
   const dominant = [...dimensions].sort((a, b) => a.score - b.score)[0]
 
+  // Convention repo : 'hausse' = score qui monte = amélioration du profil → +2
   const evolution: HealthIndexResult['evolution'] = {
-    valeur: profil.tendance === 'hausse' ? -2 : profil.tendance === 'baisse' ? 2 : 0,
+    valeur: profil.tendance === 'hausse' ? 2 : profil.tendance === 'baisse' ? -2 : 0,
     direction: profil.tendance,
   }
 
@@ -95,8 +96,8 @@ export function getEvolutionArrow(direction: 'hausse' | 'baisse' | 'stable'): st
 }
 
 export function getEvolutionColor(direction: 'hausse' | 'baisse' | 'stable'): string {
-  if (direction === 'hausse') return 'text-danger'
-  if (direction === 'baisse') return 'text-success'
+  if (direction === 'hausse') return 'text-success'
+  if (direction === 'baisse') return 'text-danger'
   return 'text-muted-foreground'
 }
 

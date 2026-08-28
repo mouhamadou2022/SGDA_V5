@@ -29,7 +29,8 @@ import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Ecart, ProfilRisque, type PresenceEntry } from '@/lib/store';
-import { getCellColor, getRiskLevelClass } from '@/lib/risque';
+import { getCellColor, getRiskLevelClass, calculateGlobalScore } from '@/lib/risque';
+import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController';
 import { PresenceSheet } from './PresenceSheet';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -244,8 +245,8 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
   const getNiveauBadge = (niveau: string) => {
     switch (niveau) {
       case 'critique': return 'badge danger animate-pulse';
-      case 'eleve': return 'badge warning';
-      case 'moyen': return 'badge primary';
+      case 'eleve': return 'badge eleve';
+      case 'moyen': return 'badge moyen';
       default: return 'badge neutral';
     }
   };
@@ -530,8 +531,11 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
 
   const handleEdit = (field: string, value: number) => {
     const newProfil = { ...profil, [field]: value };
-    // Recalculer le score global
-    newProfil.score_global = Math.round((newProfil.c1 + newProfil.c2 + newProfil.c3 + newProfil.c4 + newProfil.c5) / 5);
+    // Recalculer le score global avec la pondération officielle (C1:20 C2:25 C3:20 C4:20 C5:15)
+    newProfil.score_global = calculateGlobalScore(
+      { c1: newProfil.c1, c2: newProfil.c2, c3: newProfil.c3, c4: newProfil.c4, c5: newProfil.c5 },
+      { ...DEFAULT_WEIGHTS }
+    );
     setEditedProfil(newProfil);
     addNotification({
       user_id: user?.id || '',
@@ -945,6 +949,7 @@ export function RapportAnnexes({
       const { exportAnnexeDOCX } = await import('@/lib/services/rapportAnnexeService');
       const realEcarts = ecarts.filter(e => e.surveillance_id === surveillanceId);
       const items = useAppStore.getState().checklistItems[surveillanceId] || [];
+      const fichesPresence = useAppStore.getState().getFichesBySurveillance(surveillanceId);
       const saCount = items.filter(i => i.resultat === 'SA').length;
       const nsCount = items.filter(i => i.resultat === 'NS').length;
       const nvCount = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
@@ -967,7 +972,13 @@ export function RapportAnnexes({
         date_debut: surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A',
         date_fin: surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A',
         date_profil: new Date().toLocaleDateString('fr-FR'),
-        presences: [],
+        presences: fichesPresence.map(f => ({
+          nom_presence: f.prenom_nom,
+          structure_presence: f.structure,
+          fonction_presence: f.fonction,
+          tel_presence: f.telephone,
+          signature_presence: f.signature_date ? `Signé le ${new Date(f.signature_date).toLocaleDateString('fr-FR')}` : '',
+        })),
         nb_ecarts: realEcarts.length,
         ecarts_liste: realEcarts.map(e => ({
           ref_ecart: e.reference,
@@ -1000,7 +1011,7 @@ export function RapportAnnexes({
           nv_domaine: st.nv,
           taux_domaine: (st.sa + st.ns + st.nv) > 0 ? `${Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100)}%` : '0%',
         })),
-        taux_global: totalItems > 0 ? `${Math.round((saCount / totalItems) * 100)}%` : '0%',
+        taux_global: (saCount + nsCount + nvCount) > 0 ? `${Math.round((saCount / (saCount + nsCount + nvCount)) * 100)}%` : '0%',
         sa_total: saCount,
         ns_total: nsCount,
         nv_total: nvCount,

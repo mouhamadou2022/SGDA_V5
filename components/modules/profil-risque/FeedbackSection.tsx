@@ -65,15 +65,16 @@ export function FeedbackSection({ aerodromeId, userRole, predictedScore = 50 }: 
   const [submittedRating, setSubmittedRating] = useState<Rating | null>(null)
   const [calibrationNote, setCalibrationNote] = useState<string | null>(null)
 
-  const isInspector = userRole === 'inspecteur'
+  const isInspector = userRole === 'inspector'
 
   const handleRate = useCallback(
     (rating: Rating) => {
       if (!isInspector) return
       setSubmittedRating(rating)
 
-      const erreur = rating === 'exacte' ? 0 : rating === 'proche' ? 5 : 15
+      // 'proche' → écart 3 pts (valeur réelle = prédite + 3), 'eloignee' → écart 10 pts
       const valueReelle = Math.max(0, Math.min(100, predictedScore - (rating === 'exacte' ? 0 : rating === 'proche' ? -3 : 10)))
+      const erreur = Math.abs(predictedScore - valueReelle)
 
       const fb: FeedbackInspecteur = {
         id: `fb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

@@ -30,8 +30,8 @@ interface SoumissionPACFormProps {
 
 const NIVEAU_CONFIG = {
   critique: { label: 'Critique', badgeClass: 'badge danger' },
-  eleve:    { label: 'Élevé',    badgeClass: 'badge warning' },
-  moyen:    { label: 'Moyen',    badgeClass: 'badge primary' },
+  eleve:    { label: 'Élevé',    badgeClass: 'badge eleve' },
+  moyen:    { label: 'Moyen',    badgeClass: 'badge moyen' },
   faible:   { label: 'Faible',   badgeClass: 'badge success' },
   tres_faible: { label: 'Très faible', badgeClass: 'badge success' },
 } as const;

@@ -72,7 +72,7 @@ export const PERMISSIONS = {
       'dashboard', 'aerodromes', 'certification', 'homologation', 
       'planning', 'surveillance', 'registres', 'dossiers', 
       'formation', 'kit', 'evenements', 'enquetes', 'messagerie', 
-      'risque', 'charge', 'plans-actions', 'ml-monitoring'
+      'risque', 'charge', 'plans-actions', 'ml-monitoring', 'agents'
     ]
   },
   
@@ -83,6 +83,7 @@ export const PERMISSIONS = {
       'dg-pilotage-securite',
       'dg-conformite-controle',
       'dg-decisions-impact',
+      'agents',
     ],
   },
   

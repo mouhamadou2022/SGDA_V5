@@ -32,7 +32,7 @@ function badgeNiveau(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'badge danger'
     case 'eleve': return 'badge warning'
-    case 'moyen': return 'badge primary'
+    case 'moyen': return 'badge teal'
     default: return 'badge success'
   }
 }
@@ -128,7 +128,7 @@ export function ModeleMLAnalysis({ modele, profil, rfModelInfo, predictionRF, ev
           <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="text-sm text-foreground">
-                Probabilité d'événement extrême : <strong className={evt.isHeavyTailed ? 'text-danger' : 'text-warning'}>{tail}%</strong>
+                Probabilité d&apos;événement extrême : <strong className={evt.isHeavyTailed ? 'text-danger' : 'text-warning'}>{tail}%</strong>
               </span>
               <span className={evt.isHeavyTailed ? 'badge danger' : 'badge success'}>
                 {evt.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}
@@ -193,8 +193,8 @@ export function ModeleMLAnalysis({ modele, profil, rfModelInfo, predictionRF, ev
               <span className="badge primary">Confiance {confiance}%</span>
             </div>
             <p className="text-sm text-foreground leading-relaxed">
-              L'algorithme Thompson Sampling balance exploration / exploitation sur l'historique des surveillances pour recommander
-              l'action la plus efficace pour cet aérodrome.
+              L&apos;algorithme Thompson Sampling balance exploration / exploitation sur l&apos;historique des surveillances pour recommander
+              l&apos;action la plus efficace pour cet aérodrome.
             </p>
           </div>
         </Card>
@@ -274,10 +274,16 @@ function BayesAnalyseCard({ profil, ecarts, evenements }: { profil: ProfilRisque
   const { bayesian_prior, bayesian_posterior, bayesian_black_swan } = profil
   const [explication, setExplication] = useState<BayesExplication | null>(null)
   const [enCours, setEnCours] = useState(true)
+  const now = useState(() => Date.now())[0]
+  const [prevProfil, setPrevProfil] = useState(profil)
+  if (prevProfil !== profil) {
+    setPrevProfil(profil)
+    setEnCours(true)
+    setExplication(null)
+  }
 
   useEffect(() => {
     let actif = true
-    setEnCours(true)
     expliquerBayesEnClair({ profil, ecarts: ecarts ?? [], evenements }).then((res) => {
       if (!actif) return
       setExplication(res)
@@ -304,7 +310,7 @@ function BayesAnalyseCard({ profil, ecarts, evenements }: { profil: ProfilRisque
     ? evenements.reduce((max, e) => (new Date(e.date) > max ? new Date(e.date) : max), new Date(0))
     : null
   const moisSansIncident = dernierEvent
-    ? Math.max(0, Math.round((Date.now() - dernierEvent.getTime()) / (30 * 86400000)))
+    ? Math.max(0, Math.round((now - dernierEvent.getTime()) / (30 * 86400000)))
     : null
 
   const texte = explication ?? {

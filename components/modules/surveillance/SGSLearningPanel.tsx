@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Brain, ChevronDown, ChevronRight, AlertTriangle, TrendingUp } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { useAppStore } from '@/lib/store';
 import { getSGSMemoryStats, getSGSProblematicElements } from '@/lib/sgsMemory';
 
 interface Props {
@@ -12,8 +13,15 @@ interface Props {
 export function SGSLearningPanel({ aerodromeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const stats = useMemo(() => getSGSMemoryStats(aerodromeId), [aerodromeId]);
-  const problematiques = useMemo(() => getSGSProblematicElements(aerodromeId, 30).slice(0, 5), [aerodromeId]);
+  // Abonnement réactif : le panneau se met à jour quand l'inspecteur corrige
+  // un niveau PAOE pendant la session (sgsMemoryRecords change → re-render).
+  const sgsMemoryRecords = useAppStore(s => s.sgsMemoryRecords);
+
+  const stats = useMemo(() => getSGSMemoryStats(aerodromeId), [sgsMemoryRecords, aerodromeId]);
+  const problematiques = useMemo(
+    () => getSGSProblematicElements(aerodromeId, 30).slice(0, 5),
+    [sgsMemoryRecords, aerodromeId]
+  );
 
   if (stats.total_corrections === 0) return null;
 

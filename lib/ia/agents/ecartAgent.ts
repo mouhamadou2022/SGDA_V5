@@ -9,21 +9,33 @@ import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import { computeHawkesContagion } from '@/lib/risque'
 import { aiClient } from '@/lib/ia/aiClient'
 import { ECART_SYSTEM_PROMPT, SGS_ECART_SYSTEM_PROMPT, PAC_SYSTEM_PROMPT } from '@/lib/ia/prompts'
-import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteReglementaire, recupererExtraitsReglementaires } from '@/lib/ia/rag/reglementaireRag'
+import { rechercherAutorite, formaterSourcesWeb } from '@/lib/ia/rag/rechercheWeb'
+import { getRiskLevelFromCell } from '@/lib/risque'
+import { getRecentCorrections } from '@/lib/riskIndex'
+import { libelleMemory } from '@/lib/ia/libelleMemory'
+import { suggestGraviteFromTexte, classifyEcartTexte } from '@/lib/risque/ecartClassifier'
 
 export interface GenerateEcartRequest {
   itemsNSNV: Array<{
     id: string
     numero: string
-    point_verification: string
+    point_verification?: string
+    description?: string
     reference_reglementaire: string
     observation?: string
+    justification?: string
     domaine: string
     resultat?: 'NS' | 'NV'
+    paoeLevel?: 'absent' | 'present' | 'approprie'
   }>
   aerodromeId: string
   surveillanceId?: string
   profil?: ProfilRisque
+  /** Instruction personnalisée de l'inspecteur pour régénérer l'écart */
+  instruction?: string
+  /** Autorise la recherche web sur les autorités aviation si le Kit local couvre mal le sujet */
+  rechercheWeb?: boolean
 }
 
 export type NiveauGraviteOACI = 'A' | 'B' | 'C' | 'D' | 'E'
@@ -42,6 +54,21 @@ export interface GenerateEcartResult {
   domaine: string
   confiance: number
   items_lies: string[]
+  /** Avis watch-dog de l'IA : quelle combinaison/regroupement recommander et pourquoi */
+  avis?: string
+  /** Explication explicite (« pourquoi ») du raisonnement de l'IA pour cette
+   *  suggestion : pourquoi ce libellé, ce niveau de risque et ce regroupement.
+   *  Distinct de `justification` (qui décrit l'indice OACI). */
+  pourquoi?: string
+  /** Intervalle de confiance de la prédiction (min/max, en %) */ 
+  intervalleConfiance?: { min: number; max: number }
+  /** Nombre d'écarts recommandés par l'IA à partir des items sélectionnés */
+  nbEcartsRecommande?: number
+  /** true si le LLM a réellement produit la suggestion ; false si l'IA est
+   *  indisponible et qu'un fallback local a été utilisé. Le composant utilise
+   *  ce drapeau pour décider s'il présente une « suggestion IA » ou bascule
+   *  sur la rédaction manuelle (champ « Libellé de la constatation »). */
+  iaDisponible?: boolean
 }
 
 export interface EvaluatePACRequest {
@@ -97,20 +124,6 @@ type PACAction = SoumissionPAC['actions'][number]
 
 const NOTES_SEUILS = { ACCEPTE: 70, REFUSE: 40 }
 
-// ============================================================
-// MATRICE OACI — calcul cellule (probabilité × gravité)
-// ============================================================
-
-const MATRICE_OACI: Record<string, 'critique' | 'eleve' | 'moyen' | 'faible'> = {
-  '5A': 'critique', '5B': 'critique', '5C': 'critique', '4A': 'critique',
-  '4B': 'critique', '3A': 'critique',
-  '5D': 'eleve', '4C': 'eleve', '3B': 'eleve', '2A': 'eleve',
-  '5E': 'moyen', '4D': 'moyen', '3C': 'moyen', '2B': 'moyen', '1A': 'moyen',
-  '1B': 'faible', '1C': 'faible', '1D': 'faible', '1E': 'faible',
-  '2C': 'faible', '2D': 'faible', '2E': 'faible', '3D': 'faible',
-  '3E': 'faible', '4E': 'faible',
-}
-
 const GRAVITE_LABELS: Record<NiveauGraviteOACI, string> = {
   A: 'Catastrophique (perte de vie ou aéronef)',
   B: 'Grave (blessures graves, dommages importants)',
@@ -126,43 +139,6 @@ const PROBABILITE_LABELS: Record<NiveauProbabiliteOACI, string> = {
   1: 'Improbable (très peu probable)',
 }
 
-function computeCelluleOACI(
-  nsCount: number,
-  nvCount: number,
-  profil?: ProfilRisque
-): { probabilite: NiveauProbabiliteOACI; gravite: NiveauGraviteOACI; cellule: string; justification: string } {
-  const score = profil?.score_global ?? 100
-  const c4 = profil?.c4 ?? 100
-  const totalNS = nsCount
-  const totalNV = nvCount
-
-  // Probabilité — fréquence d'occurrence du type de défaillance
-  let probabilite: NiveauProbabiliteOACI
-  if (score < 20 || totalNS >= 5) probabilite = 5
-  else if (score < 35 || totalNS >= 3) probabilite = 4
-  else if (score < 50 || totalNS >= 2) probabilite = 3
-  else if (score < 65 || totalNS >= 1) probabilite = 2
-  else probabilite = 1
-
-  // Gravité — conséquence potentielle sur la sécurité des opérations
-  let gravite: NiveauGraviteOACI
-  if (c4 < 20 || (totalNS >= 3 && score < 30)) gravite = 'A'
-  else if (c4 < 35 || (totalNS >= 2 && score < 45)) gravite = 'B'
-  else if (c4 < 55 || totalNS >= 2 || totalNV >= 3) gravite = 'C'
-  else if (totalNS >= 1 || totalNV >= 1) gravite = 'D'
-  else gravite = 'E'
-
-  const cellule = `${probabilite}${gravite}`
-
-  const justification =
-    `Probabilité ${probabilite} (${PROBABILITE_LABELS[probabilite]}) : ${totalNS} item(s) NS, ${totalNV} NV` +
-    (profil ? `, score global ${score}/100, charge critique C4 ${c4}/100` : '') +
-    `. Gravité ${gravite} (${GRAVITE_LABELS[gravite]}). ` +
-    `Cellule matrice OACI : ${cellule} → niveau ${MATRICE_OACI[cellule] ?? 'moyen'}.`
-
-  return { probabilite, gravite, cellule, justification }
-}
-
 const NIVEAUX_DELAI: Record<string, { pac: number; regularisation: number }> = {
   critique: { pac: 3, regularisation: 7 },
   eleve: { pac: 7, regularisation: 30 },
@@ -170,13 +146,46 @@ const NIVEAUX_DELAI: Record<string, { pac: number; regularisation: number }> = {
   faible: { pac: 30, regularisation: 180 },
 }
 
+// Gravité OACI à partir du niveau sémantique local (classifieur texte de l'inspecteur).
+const GRAVITE_OACI_PAR_NIVEAU: Record<string, NiveauGraviteOACI> = {
+  critique: 'A',
+  eleve: 'B',
+  moyen: 'C',
+  faible: 'D',
+}
+
+/**
+ * Estimation LOCALE déterministe (100 % sans LLM) de l'indice OACI à partir des
+ * items sélectionnés (observations + nombre de non-conformités). Sert de garde-fou
+ * quand le modèle renvoie la cellule neutre par défaut (3C) au lieu de raisonner.
+ */
+function estimerCelluleLocale(items: GenerateEcartRequest['itemsNSNV']): { probabilite: NiveauProbabiliteOACI; gravite: NiveauGraviteOACI } {
+  const texte = items.map(i => `${i.observation || ''} ${i.point_verification || i.description || ''}`).join(' ').slice(0, 500)
+  let gravOACI: NiveauGraviteOACI = 'C'
+  try {
+    const { gravite } = suggestGraviteFromTexte(texte)
+    gravOACI = GRAVITE_OACI_PAR_NIVEAU[gravite as keyof typeof GRAVITE_OACI_PAR_NIVEAU] || 'C'
+  } catch { /* ignore */ }
+
+  const n = items.length
+  const prob: NiveauProbabiliteOACI =
+    n >= 4 ? 4
+    : n === 3 ? 4
+    : n === 2 ? 3
+    : 3
+
+  return { probabilite: prob, gravite: gravOACI }
+}
+
 export class EcartAgent {
   private initialized = false
   private evaluationCache = new Map<string, EvaluatePACResult>()
   private verificationCache = new Map<string, VerifyPreuvesResult>()
+  private relanceCache = new Map<string, { titre: string; contenu: string; delai: string }>()
 
   async init(_storeData: unknown): Promise<void> {
     this.initialized = true
+    libelleMemory.initFromIDB()
   }
 
   // ============================================================
@@ -187,96 +196,335 @@ export class EcartAgent {
     const store = useAppStore.getState()
     const aerodrome = store.aerodromes.find((a: Aerodrome) => a.id === request.aerodromeId)
 
-    // Calcul du niveau de risque (local — rapide)
-    const nsCount = request.itemsNSNV.filter(i => i.resultat === 'NS').length
-    const nvCount = request.itemsNSNV.filter(i => i.resultat === 'NV').length
-    let niveau_risque: 'critique' | 'eleve' | 'moyen' | 'faible' = 'moyen'
-    let confiance = 70
-
-    if (request.profil) {
-      const p = request.profil
-      if (p.score_global < 30) { niveau_risque = 'critique'; confiance = 92 }
-      else if (p.score_global < 50 || p.c4 < 40) { niveau_risque = 'eleve'; confiance = 82 }
-      else if (nsCount >= 3) { niveau_risque = 'eleve'; confiance = 78 }
-      else if (nsCount >= 1) { niveau_risque = 'moyen'; confiance = 72 }
-      else { niveau_risque = 'faible'; confiance = 62 }
-    } else {
-      if (nsCount >= 3) niveau_risque = 'eleve'
-      else if (nsCount >= 1) niveau_risque = 'moyen'
-      else niveau_risque = 'faible'
-    }
-
     const domaine = request.itemsNSNV[0]?.domaine ?? 'Général'
     const isSGS = domaine === 'SGS'
-    const delais = NIVEAUX_DELAI[niveau_risque]
     const refs = [...new Set(request.itemsNSNV.map(i => i.reference_reglementaire).filter(Boolean))]
 
-    // Contexte réglementaire RAG (Kit Inspecteur) — citations fiables, pas d'invention
+    // Contexte réglementaire RAG (Kit Inspecteur)
     const contexteReglementaire = construireContexteReglementaire({
       domaines: request.itemsNSNV.map(i => i.domaine),
       type_entite: aerodrome?.type_entite,
-      requete: request.itemsNSNV.map(i => i.point_verification).join(' '),
+      requete: request.itemsNSNV.map(i => i.point_verification || i.description || '').join(' '),
       maxChars: 3500,
     })
 
-    // Calcul de la cellule OACI (matrice probabilité × gravité) — non applicable SGS
-    const { probabilite, gravite, cellule, justification } = isSGS
-      ? { probabilite: 1 as NiveauProbabiliteOACI, gravite: 'A' as NiveauGraviteOACI, cellule: 'N/A', justification: 'SGS — évaluation PAOE, pas de matrice OACI' }
-      : computeCelluleOACI(nsCount, nvCount, request.profil)
+    // ── RECHERCHE WEB AUTORITÉS (enrichissement) ──────────────────
+    // Si le Kit Inspecteur local ne couvre PAS ce sujet, on interroge les sites
+    // officiels d'aviation (OACI, EASA, FAA, DGAC, IATA, ACI, ANACIM, ASECNA, ANAC…).
+    // Strictement borné : timeout court + ne bloque jamais la génération rapide.
+    let contexteAvecWeb = contexteReglementaire
+    if (request.rechercheWeb !== false) {
+      const perteKit = recupererExtraitsReglementaires({
+        domaines: request.itemsNSNV.map(i => i.domaine),
+        type_entite: aerodrome?.type_entite,
+        requete: request.itemsNSNV.map(i => i.point_verification || i.description || '').join(' '),
+        maxChunks: 3,
+        maxChars: 1000,
+      })
+      if (perteKit.length === 0) {
+        const requeteWeb = request.itemsNSNV
+          .map(i => `${i.point_verification || i.description || ''} ${i.reference_reglementaire || ''}`)
+          .join(' ')
+          .trim()
+          .slice(0, 120)
+        if (requeteWeb) {
+          try {
+            const sourcesWeb = await Promise.race([
+              rechercherAutorite(requeteWeb, { max: 4 }),
+              new Promise<Awaited<ReturnType<typeof rechercherAutorite>>>(resolve => setTimeout(() => resolve([]), 800)),
+            ])
+            if (sourcesWeb.length > 0) {
+              contexteAvecWeb = `${contexteReglementaire}\n\n${formaterSourcesWeb(sourcesWeb, 4)}`
+            }
+          } catch {
+            /* la recherche web ne bloque jamais l'écart */
+          }
+        }
+      }
+    }
+
+    // ── ANTICIPATION (pré-remplissage) ─────────────────────────────
+    // L'IA connaît déjà ces questions : si l'INSPECTEUR a déjà validé un libellé
+    // pour EXACTEMENT ce même ensemble d'items (surveillances récurrentes), on
+    // renvoie ce libellé immédiatement, SANS rappeler le LLM. Réponse instantanée.
+    const itemIds = request.itemsNSNV.map(i => i.id)
+    const match = libelleMemory.findExactMatch({ itemIds, isSGS })
+    if (match && match.regroupementValide !== false) {
+      const prefill = estimerCelluleLocale(request.itemsNSNV)
+      const cellulePrefill = `${prefill.probabilite}${prefill.gravite}`
+      const niveauPrefill = getRiskLevelFromCell(cellulePrefill) as 'critique' | 'eleve' | 'moyen' | 'faible'
+      const delaisPrefill = NIVEAUX_DELAI[niveauPrefill]
+      return {
+        libelle: match.libelleCorrige,
+        ref_reglementaire: refs.join(' ; ') || 'RAS 14 / Annexe 14 OACI',
+        niveau_risque: niveauPrefill,
+        cellule: cellulePrefill,
+        probabilite: prefill.probabilite,
+        gravite: prefill.gravite,
+        justification: `Estimation locale OACI ${cellulePrefill} (${niveauPrefill}) — libellé déjà validé précédemment par l'inspecteur pour ces mêmes questions (anticipation par réutilisation du libellé appris). Ajuste l'indice OACI si besoin.`,
+        delai_pac_propose: delaisPrefill.pac,
+        delai_regularisation_propose: delaisPrefill.regularisation,
+        domaine,
+        confiance: 92,
+        pourquoi: `Réutilisation du libellé que vous avez déjà validé pour ces mêmes questions (${itemIds.length} item(s)) lors d'une surveillance précédente. Le constat et le regroupement ont été approuvés par l'inspecteur, d'où une confiance maximale.`,
+        intervalleConfiance: { min: 86, max: 98 },
+        items_lies: itemIds,
+        avis: match.avis || 'Libellé déjà validé pour ces questions — suggestion instantanée.',
+        nbEcartsRecommande: match.nbEcartsRecommande ?? 1,
+        iaDisponible: true,
+      }
+    }
+
+    // Indiquer à l'IA les groupements déjà REFUSÉS pour cet ensemble (anti-apprentissage)
+    const refus = libelleMemory.findRecentRefus({ itemIds, isSGS })
+    const refusNote = refus
+      ? `ATTENTION : l'inspecteur a déjà REFUSÉ la combinaison de ces questions (${new Date(refus.date).toLocaleDateString('fr-FR')}). Ne propose pas un regroupement similaire.`
+      : ''
 
     // Génération du libellé officiel par IA
     let userMessage: string
     if (isSGS) {
       // Message SGS : maturité PAOE, Annexe 19, sans risque OACI
+      // Les items SGS utilisent 'description' (pas 'point_verification')
+      // et peuvent avoir 'justification' (observations de l'inspecteur)
       const itemsContext = request.itemsNSNV.map(i => {
-        const paoeLabel = (i as any).paoeLevel === 'absent' ? 'Absent (—)'
-          : (i as any).paoeLevel === 'present' ? 'Présent (P)'
-          : (i as any).paoeLevel === 'approprie' ? 'Approprié (A)'
+        const paoeLabel = i.paoeLevel === 'absent' ? 'Absent (—)'
+          : i.paoeLevel === 'present' ? 'Présent (P)'
+          : i.paoeLevel === 'approprie' ? 'Approprié (A)'
           : 'Non conforme'
-        return `- [${paoeLabel}] ${i.point_verification}${i.reference_reglementaire ? ` [Réf: ${i.reference_reglementaire}]` : ''}`
+        const desc = i.description || i.point_verification || ''
+        const observation = i.justification || i.observation || ''
+        const obsPart = observation ? `\n  → Observation inspecteur : ${observation}` : ''
+        return `- [${paoeLabel}] ${desc}${obsPart}${i.reference_reglementaire ? ` [Réf: ${i.reference_reglementaire}]` : ''}`
       }).join('\n')
 
-      userMessage = `Génère le libellé officiel d'un écart SGS selon le modèle PAOE (Annexe 19 OACI) pour :
+      userMessage = `Tu es l'assistant IA d'un inspecteur ANACIM. À partir des éléments SGS non conformes sélectionnés, tu dois :
+1) JOUER UN RÔLE DE WATCH-DOG : dire lesquels peuvent être COMBINÉS en un seul écart et lesquels doivent être SÉPARÉS.
+   - Combiner les éléments de MÊME domaine + MÊME référence réglementaire (et gravité comparable) en un seul écart.
+   - Séparer les éléments de domaines ou références DIFFÉRENTES, ou de nature distincte.
+2) Rédiger le libellé officiel selon le modèle PAOE (Annexe 19 OACI) avec des phrases COURTES.
+   - Si plusieurs éléments sont combinés, structure en PUCEs numérotées (« 1. », « 2. », « 3. »), UN point par élément, chaque puce simple et autonome.
+   - Éviter les phrases longues : l'exploitant doit comprendre sans effort.
+
 Aérodrome : ${aerodrome?.code_oaci ?? ''} — ${aerodrome?.nom ?? ''}
 Éléments SGS non conformes constatés (avec niveau PAOE) :
 ${itemsContext}
 
-${contexteReglementaire}
+${contexteAvecWeb}
 
-Retourne UNIQUEMENT le libellé officiel de l'écart SGS (1-3 phrases, style réglementaire ANACIM).
-Cite la référence exacte fournie dans les références ci-dessus (ex : Doc 9859 §6.3) à l'appui du constat.
-Ne mentionne pas de matrice de risque, de probabilité ni de gravité OACI.
-Ne retourne pas de JSON ni d'explications supplémentaires.`
+${refusNote}
+
+${(() => {
+  const exemples = libelleMemory.getExemples(3, { isSGS: true, references: refs });
+  if (exemples.length === 0) return '';
+  const lignes = exemples.map(e => {
+    const partie = `- ${e.libelleCorrige}`;
+    if (e.regroupementValide === false) return partie + ` (groupement REFUSÉ par l'inspecteur — ne pas reproduire cette combinaison)`;
+    const note = e.avis ? ` (groupement validé : ${e.avis.slice(0, 80)})` : '';
+    return partie + note;
+  });
+  return 'EXEMPLES DE LIBELLÉS CORRIGÉS PAR L\'INSPECTEUR (constats déjà validés ; respecte les groupements validés et évite ceux refusés) :\n' +
+    lignes.join('\n') + '\n';
+})()}
+
+Règles de rédaction :
+- Décris l'ÉTAT CONSTATÉ (ce qui manque ou est insuffisant), pas seulement la question. Utilise les observations de l'inspecteur comme base du constat.
+- NE COMMENCE PAS le libellé par la référence réglementaire (elle est enregistrée séparément).
+- Ne mentionne AUCUNE matrice de risque OACI (probabilité × gravité), ni cellule, ni risque chiffré.
+
+Retourne UNIQUEMENT un JSON (pas de texte avant ou après) :
+{
+  "libelle": "[constat SGS, en puces numérotées s'il y a plusieurs éléments combinés]",
+  "avis": "[avis watch-dog en 1-2 phrases : quels éléments combinés ou séparés et pourquoi]",
+  "nb_ecarts": [nombre d'écarts recommandés, ex: 1 si tout combinable, sinon 2 ou 3],
+  "pourquoi": "[2-3 phrases : EXPLIQUE le raisonnement — pourquoi ce libellé, pourquoi ce regroupement ou séparation, sur la base du niveau PAOE et de la référence réglementaire. Explicite, pédagogique, en français]",
+  "confiance_min": [numéro entier 0-100, borne basse de votre certitude sur la suggestion],
+  "confiance_max": [numéro entier 0-100, borne haute de votre certitude, ≥ confiance_min]
+}${request.instruction ? `\n\nINSTRUCTION SPÉCIALE DE L'INSPECTEUR :\n${request.instruction}\nRespecte cette instruction pour la rédaction du libellé et/ou le regroupement.` : ''}`
     } else {
-      const itemsContext = request.itemsNSNV.map(i =>
-        `- [${i.resultat ?? 'NS'}] ${i.point_verification}${i.observation ? ` (Observation: ${i.observation})` : ''}${i.reference_reglementaire ? ` [Réf: ${i.reference_reglementaire}]` : ''}`
-      ).join('\n')
+      const itemsContext = request.itemsNSNV.map(i => {
+        const desc = i.point_verification || i.description || ''
+        const obs = i.observation || i.justification || ''
+        return `- Question : ${desc}${obs ? `\n  Observation inspecteur : ${obs}` : ''}${i.reference_reglementaire ? `\n  Référence : ${i.reference_reglementaire}` : ''}`
+      }).join('\n\n')
 
-      userMessage = `Génère le libellé officiel d'un écart de surveillance pour :
+      userMessage = `Tu dois évaluer un écart de surveillance aéroportuaire.
+
+CONTEXTE :
 Aérodrome : ${aerodrome?.code_oaci ?? ''} — ${aerodrome?.nom ?? ''}
 Domaine : ${domaine}
-Niveau de risque calculé : ${niveau_risque} (matrice OACI cellule ${cellule})
-Items non-satisfaisants constatés :
+
+ITEMS À ÉVALUER (question + observation inspecteur) :
 ${itemsContext}
-${request.profil ? `Profil de risque : score global ${request.profil.score_global}/100, C4 (charge critique) : ${request.profil.c4}/100` : ''}
 
-${contexteReglementaire}
+${contexteAvecWeb}
 
-Retourne UNIQUEMENT le libellé officiel de l'écart (1-3 phrases, style réglementaire ANACIM).
-Cite la référence exacte fournie dans les références ci-dessus (ex : RAS 14 I §3.1.2) à l'appui du constat.
-Ne retourne pas de JSON ni d'explications supplémentaires.`
+${refusNote}
+
+${(() => {
+  const corrections = getRecentCorrections(5);
+  if (corrections.length === 0) return '';
+  const exemples = corrections.map(c =>
+    `- ${c.itemsNS} NS, ${c.itemsNV} NV, score ${c.scoreGlobal} → suggéré ${c.suggestionCellule}, corrigé ${c.correctionCellule}`
+  ).join('\n');
+  return `EXEMPLES DE CORRECTIONS PRÉCÉDENTES :\n${exemples}`;
+})()}
+
+${(() => {
+  const exemplesLib = libelleMemory.getExemples(3, { isSGS: false, references: refs });
+  if (exemplesLib.length === 0) return '';
+  const lignes = exemplesLib.map(e => {
+    const partie = `- ${e.libelleCorrige}`;
+    if (e.regroupementValide === false) return partie + ` (groupement REFUSÉ par l'inspecteur — ne pas reproduire cette combinaison)`;
+    const note = e.avis ? ` (groupement validé : ${e.avis.slice(0, 80)})` : '';
+    return partie + note;
+  });
+  return 'EXEMPLES DE LIBELLÉS CORRIGÉS PAR L\'INSPECTEUR (constats déjà validés ; respecte les groupements validés et évite ceux refusés) :\n' +
+    lignes.join('\n') + '\n';
+})()}
+
+INSTRUCTIONS :
+1. JOUER UN RÔLE DE WATCH-DOG : déterminer quels items peuvent être COMBINÉS en un seul écart et lesquels doivent être SÉPARÉS.
+   - Combiner les items de MÊME domaine + MÊME référence réglementaire (et gravité comparable) en un seul écart.
+   - Séparer les items de domaines ou références DIFFÉRENTES, ou de nature distincte.
+2. Lis chaque question ET chaque observation de l'inspecteur pour comprendre la non-conformité réelle.
+3. Si des observations sont renseignées, ce sont elles qui décrivent la situation constatée — utilises-les pour rédiger le libellé ET évaluer la gravité.
+4. Si une observation est vide, rédige à partir de la question en décrivant ce qui manque ou est insuffisant.
+5. La gravité doit refléter le risque COMBINÉ des items réellement combinés — plusieurs items NS dans un même écart grave le risque.
+6. Rédiger le libellé avec des phrases COURTES. Si plusieurs items sont combinés, structure en PUCEs numérotées (« 1. », « 2. », « 3. »), UN point par item, chaque puce simple et autonome. Éviter les phrases longues : l'exploitant doit comprendre sans effort.
+7. NE COMMENCE PAS le libellé par la référence réglementaire : rédige uniquement le constat factuel (la référence est enregistrée séparément).
+
+MATRICE OACI — évalue la probabilité ET la gravité basées sur ce qui est décrit :
+PROBABILITÉ (fréquence d'occurrence) :
+  5 = Fréquent    (survient souvent, problème systémique)
+  4 = Probable    (survient plusieurs fois)
+  3 = Occasionnel (survient parfois)
+  2 = Rare        (peu probable mais possible)
+  1 = Improbable  (très peu probable)
+
+GRAVITÉ (conséquence potentielle sur la sécurité) :
+  A = Catastrophique (perte de vie ou d'aéronef)
+  B = Grave         (blessures graves, dommages importants)
+  C = Majeure       (incident sérieux, blessures légères)
+  D = Mineure       (procédures d'urgence requises)
+  E = Négligeable   (nuisance sans impact opérationnel)
+
+Retourne UNIQUEMENT un JSON (pas de texte avant ou après) :
+{
+  "libelle": "[description factuelle du constat, sans référence en tête, en puces numérotées si plusieurs items combinés]",
+  "probabilite": 3,
+  "gravite": "C",
+  "avis": "[avis watch-dog en 1-2 phrases : quels items combinés ou séparés et pourquoi]",
+  "nb_ecarts": [nombre d'écarts recommandés, ex: 1 si tout combinable, sinon 2 ou 3],
+  "pourquoi": "[2-3 phrases : EXPLIQUE le raisonnement — pourquoi ce libellé, pourquoi ce niveau de gravité/probabilité, pourquoi ce regroupement ou séparation. Explicite, pédagogique, en français]",
+  "confiance_min": [numéro entier 0-100, borne basse de votre certitude sur la suggestion],
+  "confiance_max": [numéro entier 0-100, borne haute de votre certitude, ≥ confiance_min]
+}
+
+Le libellé doit être factuel, au présent, phrases courtes, style réglementaire ANACIM, et ne pas commencer par la référence.
+Si plusieurs items sont combinés, une puce par item. Si des items sont séparés, précise-le dans l'avis.${request.instruction ? `\n\nINSTRUCTION SPÉCIALE DE L'INSPECTEUR :\n${request.instruction}\nRespecte cette instruction pour la rédaction du libellé et/ou le regroupement.` : ''}`
     }
 
     const aiResult = await aiClient.call({
       systemPrompt: isSGS ? SGS_ECART_SYSTEM_PROMPT : ECART_SYSTEM_PROMPT,
       userMessage,
       temperature: 0.2,
-      maxTokens: 300,
+      maxTokens: 700,
     })
 
-    const libelle = aiResult.ok && aiResult.content.trim()
-      ? aiResult.content.trim()
-      : this.buildFallbackLibelle(request.itemsNSNV, niveau_risque)
+    // Parser la réponse LLM
+    let libelle = ''
+    let probabilite: NiveauProbabiliteOACI = 3
+    let gravite: NiveauGraviteOACI = 'C'
+    let confiance = 60
+    let avis = ''
+    let pourquois = ''
+    let intervalleConfiance: { min: number; max: number } | undefined
+    let nbEcarts = request.itemsNSNV.length
+
+    if (aiResult.ok && aiResult.content.trim()) {
+      const raw = aiResult.content.trim()
+      // Tenter d'extraire le JSON
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0])
+          libelle = parsed.libelle || ''
+          probabilite = Math.min(5, Math.max(1, Number(parsed.probabilite) || 3)) as NiveauProbabiliteOACI
+          const g = String(parsed.gravite || 'C').toUpperCase()
+          gravite = (['A','B','C','D','E'].includes(g) ? g : 'C') as NiveauGraviteOACI
+          avis = String(parsed.avis || '').trim()
+          pourquois = String(parsed.pourquoi || '')
+          const n = Number(parsed.nb_ecarts)
+          if (Number.isFinite(n) && n > 0 && n <= request.itemsNSNV.length) nbEcarts = n
+          // Intervalle de confiance fourni par le modèle (%). On le borne à [0;100].
+          const cMin = Number(parsed.confiance_min)
+          const cMax = Number(parsed.confiance_max)
+          if (Number.isFinite(cMin) && Number.isFinite(cMax)) {
+            intervalleConfiance = {
+              min: Math.round(Math.min(100, Math.max(0, Math.min(cMin, cMax)))),
+              max: Math.round(Math.min(100, Math.max(0, Math.max(cMin, cMax)))),
+            }
+            confiance = intervalleConfiance.max
+          } else {
+            confiance = 85
+          }
+          if (!intervalleConfiance) {
+            intervalleConfiance = { min: Math.max(0, confiance - 15), max: Math.min(100, confiance + 5) }
+          }
+        } catch {
+          libelle = raw.slice(0, 500)
+          confiance = 55
+        }
+      } else {
+        libelle = raw.slice(0, 500)
+        confiance = 50
+      }
+    }
+
+    if (!libelle) {
+      libelle = this.buildFallbackLibelle(request.itemsNSNV, 'moyen')
+    }
+
+    // Garde-fou local : si le modèle renvoie la cellule neutre par défaut (3C) —
+    // sans raisonner sur la matrice OACI — on la remplace par une estimation
+    // locale déterministe issue des items sélectionnés (observations + nb NS).
+    if (probabilite === 3 && gravite === 'C') {
+      try {
+        const local = estimerCelluleLocale(request.itemsNSNV)
+        probabilite = local.probabilite
+        gravite = local.gravite
+        if (confiance < 85) confiance = Math.max(confiance, 70)
+      } catch { /* conserver 3C si estimation locale impossible */ }
+    }
+
+    const cellule = `${probabilite}${gravite}`
+    const niveau_risque = getRiskLevelFromCell(cellule) as 'critique' | 'eleve' | 'moyen' | 'faible'
+    const delais = NIVEAUX_DELAI[niveau_risque]
+
+    // L'IA est considérée "disponible" si elle a réellement renvoyé un contenu
+    // exploitable. Sinon (échec LLM / contenu vide) on est tombé sur le fallback
+    // local (buildFallbackLibelle) : le composant bascule alors sur la rédaction
+    // manuelle plutôt que de présenter une fausse « suggestion IA ».
+    const iaDisponible = Boolean(aiResult.ok && aiResult.content && aiResult.content.trim().length > 0)
+
+    // Intervalle de confiance par défaut si le modèle ne l'a pas fourni
+    const confianceFinale = Math.max(0, Math.min(100, confiance))
+    const intervalleFinal = intervalleConfiance ?? {
+      min: Math.max(0, confianceFinale - 15),
+      max: Math.min(100, confianceFinale + 5),
+    }
+
+    // « Pourquoi » explicite : fallback construit à partir de la justification si le modèle
+    // n'a pas produit de raisonnement explicite.
+    const pourquoiFinal = (pourquois || '').trim()
+      ? pourquois.trim()
+      : `Ce libellé traduit l'état constaté (non-conformité${request.itemsNSNV.length > 1 ? 's multiples combinées' : ''}) rapporté par l'inspecteur, rattaché à la référence réglementaire ${refs.join(' ; ') || 'applicable'}. L'indice OACI ${cellule} (niveau ${niveau_risque}) découle de la gravité des observations et de leur probabilité d'occurrence.`
+
+    const justification =
+      `Indice déterminé par IA à partir de la question checklist et de l'observation inspecteur. ` +
+      `Probabilité ${probabilite} (${PROBABILITE_LABELS[probabilite]}), Gravité ${gravite} (${GRAVITE_LABELS[gravite]}). ` +
+      `Cellule OACI : ${cellule} → niveau ${niveau_risque}.${avis ? `\nAvis de regroupement IA : ${avis}` : ''}`
 
     return {
       libelle,
@@ -289,18 +537,33 @@ Ne retourne pas de JSON ni d'explications supplémentaires.`
       delai_pac_propose: delais.pac,
       delai_regularisation_propose: delais.regularisation,
       domaine,
-      confiance,
+      confiance: confianceFinale,
       items_lies: request.itemsNSNV.map(i => i.id),
+      avis,
+      pourquoi: pourquoiFinal,
+      intervalleConfiance: intervalleFinal,
+      nbEcartsRecommande: nbEcarts,
+      iaDisponible,
     }
   }
 
   private buildFallbackLibelle(items: GenerateEcartRequest['itemsNSNV'], niveau: string): string {
     const isSGS = items[0]?.domaine === 'SGS'
-    const desc = items.map(i => i.point_verification)
+    // Utiliser 'description' pour SGS, 'point_verification' pour standard
+    const desc = items.map(i => i.description || i.point_verification || '')
+    const observations = items.map(i => i.justification || i.observation || '').filter(Boolean)
+
     if (isSGS) {
-      if (desc.length === 1) return `Non-conformité SGS constatée en regard de l'Annexe 19 OACI : ${desc[0]}`
-      return `Non-conformités SGS constatées en regard de l'Annexe 19 OACI : ${desc.slice(0, 3).join(' ; ')}${desc.length > 3 ? ` et ${desc.length - 3} autre(s)` : ''}`
+      const paoeLabel = items[0]?.paoeLevel === 'absent' ? 'absence'
+        : items[0]?.paoeLevel === 'present' ? 'insuffisance'
+        : 'non-conformité'
+      if (observations.length > 0) {
+        return `${observations[0]}`
+      }
+      if (desc.length === 1) return `${paoeLabel} de ${desc[0]}`
+      return `${desc.slice(0, 3).join(' ; ')}${desc.length > 3 ? ` et ${desc.length - 3} autre(s)` : ''}`
     }
+    if (observations.length > 0) return `Non-conformité constatée : ${observations[0]}`
     if (desc.length === 1) return `Non-conformité constatée : ${desc[0]}`
     if (desc.length <= 3) return `Non-conformités constatées : ${desc.join(' ; ')}`
     return `Non-conformités multiples constatées : ${desc.slice(0, 3).join(' ; ')} et ${desc.length - 3} autre(s)`
@@ -509,6 +772,80 @@ ${JSON.stringify(contextPAC, null, 2)}`,
   }
 
   // ============================================================
+  // PROJET DE COURRIER DE RELANCE
+  // ============================================================
+
+  async genererCourrierRelance(ecartId: string): Promise<{ titre: string; contenu: string; delai: string }> {
+    const cached = this.relanceCache.get(ecartId)
+    if (cached) return cached
+
+    const store = useAppStore.getState()
+    const ecart = store.ecarts.find((e: Ecart) => e.id === ecartId)
+    if (!ecart) {
+      const fallback: { titre: string; contenu: string; delai: string } = {
+        titre: 'Courrier de relance',
+        contenu: 'Écart non trouvé.',
+        delai: new Date(Date.now() + 15 * 86400000).toISOString(),
+      }
+      this.relanceCache.set(ecartId, fallback)
+      return fallback
+    }
+
+    const aerodrome = store.aerodromes.find(a => a.id === ecart.aerodrome_id) ?? null
+    const dateFormatted = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    const delai = ecart.delai_pac ?? new Date(Date.now() + 15 * 86400000).toISOString()
+    const delaiFormatted = new Date(delai).toLocaleDateString('fr-FR')
+
+    const contexteReg = construireContexteReglementaire({
+      requete: `courrier relance écart ${ecart.reference} ${ecart.libelle}`,
+      domaines: ecart.domaine ? [ecart.domaine] : [],
+      type_entite: aerodrome?.type_entite,
+      maxChars: 2000,
+    })
+
+    const aiResult = await aiClient.call({
+      systemPrompt: `Tu es un inspecteur référent de l'ANACIM. Rédige le CORPS d'un courrier de relance officiel adressé à l'exploitant d'un aérodrome concernant un écart de conformité non régularisé.
+
+Format : lettre administrative française. Commence par "Objet :" puis le corps structuré en courts paragraphes (constat du retard, référence réglementaire, demande de régularisation avec échéance ferme, mise en garde proportionnée si l'écart est critique), et une formule de politesse signée "L'Inspecteur Référent".
+N'inclus pas d'en-tête ni de logo. Appuie les mentions réglementaires sur les références fournies.`,
+      userMessage: `ÉCART À RELANCER :
+Référence : ${ecart.reference}
+Libellé : ${ecart.libelle}
+Niveau de risque : ${ecart.niveau_risque}
+Référence réglementaire : ${ecart.ref_reglementaire}
+Aérodrome : ${aerodrome ? `${aerodrome.nom} (${aerodrome.code_oaci})` : ecart.aerodrome_id}
+Délai PAC : ${delaiFormatted}
+Date de création de l'écart : ${new Date(ecart.created_at).toLocaleDateString('fr-FR')}
+
+${contexteReg}
+
+Rédige le courrier de relance.`,
+      temperature: 0.3,
+      maxTokens: 900,
+    })
+
+    const contenuFallback = `Objet : Relance — Écart de conformité ${ecart.reference}
+
+Monsieur le Directeur d'Exploitation,
+
+Nos services ont constaté que l'écart de conformité référencé ${ecart.reference} (${ecart.libelle}), signalé le ${new Date(ecart.created_at).toLocaleDateString('fr-FR')} au titre de la référence ${ecart.ref_reglementaire}, n'a pas encore fait l'objet de la transmission de votre plan d'actions correctives dans le délai imparti.
+
+Nous vous prions de bien vouloir nous transmettre, sous 15 jours, le plan d'actions correctives afin de clore ce dossier. À défaut, l'ANACIM se réserve le droit d'engager les mesures prévues par la réglementation en vigueur.
+
+Fait à Dakar, le ${dateFormatted}.
+
+Veuillez agréer, Monsieur le Directeur d'Exploitation, l'expression de nos salutations distinguées.
+
+L'Inspecteur Référent`
+
+    const contenu = aiResult.ok && aiResult.content ? aiResult.content : contenuFallback
+
+    const result = { titre: `Courrier de relance — Écart ${ecart.reference}`, contenu, delai }
+    this.relanceCache.set(ecartId, result)
+    return result
+  }
+
+  // ============================================================
   // ANALYSE RISQUE CASCADE
   // ============================================================
 
@@ -640,9 +977,60 @@ ${JSON.stringify(contextPAC, null, 2)}`,
   clearCache(): void {
     this.evaluationCache.clear()
     this.verificationCache.clear()
+    this.relanceCache.clear()
   }
 
   isReady(): boolean { return this.initialized }
+
+  /**
+   * Enregistre un libellé d'écart réajusté par l'inspecteur comme exemple
+   * de référence (boucle d'apprentissage textuelle). Ne fait rien si le
+   * libellé final est identique à la suggestion ou si aucun libellé.
+   */
+  enregistrerCorrectionLibelle(input: {
+    isSGS: boolean
+    references: string[]
+    itemIds: string[]
+    libellePropose?: string
+    libelleCorrige: string
+    contexte?: string
+    avis?: string
+    nbEcartsRecommande?: number
+  }): void {
+    libelleMemory.enregistrerCorrection({
+      isSGS: input.isSGS,
+      references: input.references || [],
+      itemIds: input.itemIds || [],
+      libellePropose: input.libellePropose || '',
+      libelleCorrige: input.libelleCorrige,
+      contexte: input.contexte || '',
+      avis: input.avis,
+      nbEcartsRecommande: input.nbEcartsRecommande,
+      regroupementValide: true,
+    })
+  }
+
+  /**
+   * Mémorise un refus du regroupement proposé par l'IA afin d'éviter de
+   * reproduire la même décision de combinaison/séparation dans le futur.
+   */
+  enregistrerRefusGroupement(input: {
+    isSGS: boolean
+    references: string[]
+    itemIds: string[]
+    libelleCorrige: string
+    contexte?: string
+  }): void {
+    libelleMemory.enregistrerCorrection({
+      isSGS: input.isSGS,
+      references: input.references || [],
+      itemIds: input.itemIds || [],
+      libellePropose: input.libelleCorrige,
+      libelleCorrige: input.libelleCorrige,
+      contexte: input.contexte || '',
+      regroupementValide: false,
+    })
+  }
 }
 
 export const ecartAgent = new EcartAgent()

@@ -49,6 +49,7 @@ import { SurveillanceCard } from '@/components/cards/SurveillanceCard';
 import { SurveillanceForm } from '@/components/forms/SurveillanceForm';
 import SurveillanceTransmission from './SurveillanceTransmission';
 import SurveillanceLettre from './SurveillanceLettre';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 
 // Types
 import { Surveillance, SurveillanceStatut, SurveillanceType } from '@/types/surveillance';
@@ -129,6 +130,7 @@ function ArchiveView({
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedAerodrome, setSelectedAerodrome] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const plannings = useAppStore(s => s.plannings);
 
   // Filtrer les surveillances terminées/archivées
   const archiveSurveillances = surveillances.filter(s => 
@@ -349,7 +351,7 @@ function ArchiveView({
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Users className="w-3 h-3" />
-                                      {surveillance.equipe_ids?.length || 0} inspecteur(s)
+                                      {getSurveillanceEquipeIds(surveillance, plannings).length || 0} inspecteur(s)
                                     </span>
                                     {surveillance.transmitted_at && (
                                       <span className="flex items-center gap-1">
@@ -407,6 +409,7 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   const aerodromes = useOptimizedStore(s => s.aerodromes)
   const surveillances = useOptimizedStore(s => s.surveillances)
   const ecarts = useOptimizedStore(s => s.ecarts)
+  const plannings = useAppStore(s => s.plannings)
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const certifications = useAppStore(s => s.certifications)
   const homologations = useAppStore(s => s.homologations)

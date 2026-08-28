@@ -53,6 +53,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { canManageRole } from '@/lib/config';
 import { getGraviteRisqueLabel, getGraviteRisqueClasse } from '@/lib/evenementUtils';
 import type { TrainingNeedsAnalysisResult } from '@/lib/ia/agents/registreAgent';
@@ -875,6 +876,7 @@ function HomologationsTab({ onEdit, userRole = '' }: { onEdit?: (entry: any) => 
 function SurveillancesTab() {
   const surveillances = useAppStore((s) => s.surveillances);
   const aerodromes = useAppStore((s) => s.aerodromes);
+  const plannings = useAppStore((s) => s.plannings);
   const [selectedSurv, setSelectedSurv] = useState<any | null>(null);
   const [modalMode, setModalMode] = useState<'checklist' | 'rapport' | 'details' | null>(null);
 
@@ -952,7 +954,7 @@ function SurveillancesTab() {
                             {sv.date_debut ? new Date(sv.date_debut).toLocaleDateString('fr-FR') : '-'} → {sv.date_fin ? new Date(sv.date_fin).toLocaleDateString('fr-FR') : '-'}
                           </span>
                         )},
-                        { key: 'equipe', header: 'Équipe', render: (sv: any) => <span className="text-small">{sv.equipe_ids?.length || 0} inspecteur(s)</span> },
+                        { key: 'equipe', header: 'Équipe', render: (sv: any) => <span className="text-small">{getSurveillanceEquipeIds(sv, plannings).length || 0} inspecteur(s)</span> },
                         { key: 'statut', header: 'Statut', render: (sv: any) => <span className={getStatutBadge(sv.statut)}>{sv.statut}</span> },
                         { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (sv: any) => (
                           <div className="flex justify-end gap-2">
@@ -1022,7 +1024,7 @@ function SurveillancesTab() {
             </div>
             <div className="p-3 bg-role-primary-soft rounded-xl">
               <p className="text-xs text-muted-foreground mb-1">Équipe</p>
-              <p className="font-semibold text-sm">{selectedSurv.equipe_ids?.length || 0} inspecteur(s)</p>
+              <p className="font-semibold text-sm">{getSurveillanceEquipeIds(selectedSurv, plannings).length || 0} inspecteur(s)</p>
             </div>
           </div>
           {selectedSurv.score_global !== undefined && (
@@ -1140,7 +1142,7 @@ function EcartsTab() {
     switch(niveau) {
       case 'critique': return 'badge danger';
       case 'eleve': return 'badge warning';
-      case 'moyen': return 'badge primary';
+      case 'moyen': return 'badge teal';
       default: return 'badge neutral';
     }
   };

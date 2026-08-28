@@ -12,11 +12,8 @@ import {
   Calendar,
   MapPin,
   FileText,
-  CheckCircle2,
-  AlertCircle,
   Download,
   Eye,
-  Filter,
   Printer,
   FolderArchive,
   HardDrive,
@@ -372,8 +369,112 @@ export default function ArchivePage() {
     router.push(`/surveillance/${id}?view=${type}`);
   };
 
-  const handleExport = (id: string) => {
-    console.log('Export dossier complet:', id);
+  const handleExport = async (id: string) => {
+    try {
+      const state = useAppStore.getState();
+      const surv = state.surveillances.find(s => s.id === id);
+      if (!surv) return;
+      const aero = state.aerodromes.find(a => a.id === surv.aerodrome_id);
+      const code = aero?.code_oaci || 'XXXX';
+      const items = state.checklistItems[surv.id] || [];
+      const ecarts = state.ecarts.filter(e => e.surveillance_id === id);
+      const presences = state.getFichesBySurveillance(id);
+
+      const { creerRapportPdf } = await import('@/lib/services/pdfRapport');
+      const { downloadBlob } = await import('@/lib/pdfGenerator');
+      const rapport = await creerRapportPdf();
+
+      rapport.coverPage({
+        titre: 'DOSSIER COMPLET DE SURVEILLANCE',
+        sousTitre: `${aero?.nom || 'Inconnu'} (${code})`,
+        ref: `${code}_${new Date(surv.date_debut).getFullYear()}_${(surv.type || '').toUpperCase()}`,
+        meta: [
+          ['Type', surv.type],
+          ['Début', new Date(surv.date_debut).toLocaleDateString('fr-FR')],
+          ['Fin', surv.date_fin ? new Date(surv.date_fin).toLocaleDateString('fr-FR') : 'N/A'],
+          ['Statut', surv.statut],
+          ['Transmis le', surv.transmitted_at ? new Date(surv.transmitted_at).toLocaleDateString('fr-FR') : 'N/A'],
+          ['Checklist signée', (surv.signatures_checklist?.length || 0) > 0 ? 'Oui' : 'Non'],
+          ['Écarts signés', (surv.signatures_ecarts?.length || 0) > 0 ? 'Oui' : 'Non'],
+          ['Rapport signé', surv.rapport_signe_par ? 'Oui' : 'Non'],
+        ],
+      });
+      rapport.addPage();
+
+      rapport.sectionTitle('Synthèse');
+      const sa = items.filter(i => i.resultat === 'SA').length;
+      const ns = items.filter(i => i.resultat === 'NS').length;
+      const nv = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
+      rapport.kvTable([
+        ['Items de la checklist', String(items.length)],
+        ['Conformes (SA)', String(sa)],
+        ['Non conformes (NS)', String(ns)],
+        ['Non vérifiés (NV)', String(nv)],
+        ['Taux de conformité', (sa + ns + nv) > 0 ? `${Math.round((sa / (sa + ns + nv)) * 100)}%` : '0%'],
+        ['Écarts détectés', String(ecarts.length)],
+        ['Participants', String(presences.length)],
+      ]);
+
+      let sections: Record<string, string> = {};
+      try { sections = JSON.parse(surv.rapport_sections || '{}'); } catch { sections = {}; }
+      const sectionLabels: Record<string, string> = {
+        resume: 'Résumé',
+        introduction: 'Introduction',
+        methodologie: 'Méthodologie',
+        resultsIntro: "Résultats — analyse des écarts",
+        resultsAnalysis: 'Résultats — analyse des causes',
+        preoccupations: 'Préoccupations',
+        recommandations: 'Recommandations',
+        conclusion: 'Conclusion',
+      };
+      const nonEmptySections = Object.entries(sections).filter(([, v]) => v && typeof v === 'string' && (v as string).trim());
+      if (nonEmptySections.length > 0) {
+        rapport.addPage();
+        rapport.sectionTitle('Rapport de surveillance');
+        for (const [key, value] of nonEmptySections) {
+          rapport.subHeading(sectionLabels[key] || key);
+          rapport.paragraphsFromHtml(value);
+        }
+      }
+
+      if (items.length > 0) {
+        rapport.addPage();
+        rapport.sectionTitle('Checklist de contrôle');
+        rapport.table({
+          head: [['Réf.', 'Domaine', 'Point de contrôle', 'Résultat', 'Observation']],
+          body: items.map(i => [i.reference_ras14 || i.numero || '', i.domaine || '', (i.point_verification || i.description || '').substring(0, 80), i.resultat || 'NV', (i.observation || '').substring(0, 60)]),
+          fontSize: 7,
+          headFontSize: 7.5,
+        });
+      }
+
+      if (ecarts.length > 0) {
+        rapport.addPage();
+        rapport.sectionTitle(`Écarts détectés (${ecarts.length})`);
+        rapport.table({
+          head: [['Réf.', 'Domaine', 'Constat', 'Niveau de risque', 'Statut']],
+          body: ecarts.map(e => [e.reference, e.domaine, (e.libelle || '').substring(0, 80), e.niveau_risque, e.statut]),
+          fontSize: 7,
+          headFontSize: 7.5,
+        });
+      }
+
+      if (presences.length > 0) {
+        rapport.addPage();
+        rapport.sectionTitle('Fiches de présence');
+        rapport.table({
+          head: [['Nom', 'Structure', 'Fonction', 'Téléphone', 'Signature']],
+          body: presences.map(f => [f.prenom_nom, f.structure, f.fonction, f.telephone, f.signature_date ? `Signé le ${new Date(f.signature_date).toLocaleDateString('fr-FR')}` : '']),
+          fontSize: 7.5,
+          headFontSize: 7.5,
+        });
+      }
+
+      rapport.drawFooter(`Dossier complet ${code} — généré le ${new Date().toLocaleDateString('fr-FR')}`);
+      downloadBlob(rapport.blob(), `Dossier_${code}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error('Export dossier impossible:', err);
+    }
   };
 
   const resetFilters = () => {

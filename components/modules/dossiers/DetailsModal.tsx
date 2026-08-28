@@ -2,10 +2,11 @@
 'use client'
 
 import React, { useState, memo, useEffect } from 'react'
-import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X, Eye } from 'lucide-react'
+import { FolderOpen, User, Send, Clock, FileText, Download, CheckCircle2, Upload, X, Eye, Brain, ListChecks, Loader2, Trash2, ShieldCheck, RotateCcw } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
-import { useAppStore, type Dossier } from '@/lib/store'
-import { uploadPreuveFile } from '@/lib/dossierFileUpload'
+import { useAppStore, type Dossier, type DossierAnalyseResult } from '@/lib/store'
+import { uploadPreuveFile, uploadDossierFile } from '@/lib/dossierFileUpload'
+import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent'
 
 const CATEGORIES_DOSSIERS = [
   { id: 'reglementaire', label: 'Réglementaire' },
@@ -36,6 +37,253 @@ function getLibelleStatut(statut: string): string {
   return libelles[statut] || statut
 }
 
+function getCouleurScore(score: number): string {
+  if (score >= 75) return 'badge success'
+  if (score >= 50) return 'badge warning'
+  return 'badge danger'
+}
+
+function AnalyseResultPanel({ analyse }: { analyse: DossierAnalyseResult }) {
+  return (
+    <div className="space-y-2 p-2 bg-role-primary-soft/40 rounded-lg border border-border">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-role-primary flex items-center gap-1">
+          <Brain className="w-3.5 h-3.5" /> Avis IA — {analyse.nom_fichier}
+        </p>
+        <div className="flex items-center gap-2">
+          <span className={`${getCouleurScore(analyse.score_global)} text-xs`}>{analyse.score_global}/100</span>
+          <span className="text-[10px] text-muted-foreground">confiance {analyse.confiance}%</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+        {analyse.criteres.map(c => (
+          <div key={c.nom} className="bg-background rounded p-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-medium">{c.nom}</span>
+              <span className={`text-[10px] font-bold ${c.satisfait ? 'text-success' : 'text-danger'}`}>{c.score}</span>
+            </div>
+            {c.commentaire && <p className="text-[9px] text-muted-foreground leading-tight mt-0.5">{c.commentaire}</p>}
+          </div>
+        ))}
+      </div>
+      {analyse.references_reglementaires.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-foreground">Références réglementaires détectées</p>
+          <div className="flex flex-wrap gap-1">
+            {analyse.references_reglementaires.map((r, i) => (
+              <span key={i} className="badge outline text-[9px]">{r}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {analyse.reserves.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-danger">Réserves</p>
+          {analyse.reserves.map((r, i) => <p key={i} className="text-[10px] text-foreground">• {r}</p>)}
+        </div>
+      )}
+      {analyse.recommandations.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-success">Recommandations</p>
+          {analyse.recommandations.map((r, i) => <p key={i} className="text-[10px] text-foreground">• {r}</p>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const RESULTATS = ['SA', 'NS', 'NA', 'NV'] as const
+const RESULTATS_LABELS: Record<string, { label: string; cls: string }> = {
+  SA: { label: 'Satisfaisant', cls: 'badge success' },
+  NS: { label: 'Non satisfaisant', cls: 'badge danger' },
+  NA: { label: 'Non applicable', cls: 'badge neutral' },
+  NV: { label: 'Non vérifié', cls: 'badge warning' },
+}
+
+interface ChecklistTraitementSectionProps {
+  dossier: Dossier
+}
+
+function ChecklistTraitementSection({ dossier }: ChecklistTraitementSectionProps) {
+  const setChecklistTraitement = useAppStore(s => s.setChecklistTraitement)
+  const mettreAJourItemChecklist = useAppStore(s => s.mettreAJourItemChecklist)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const items = dossier.checklist_traitement || []
+
+  const handleGenerate = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const generated = await kitDocAgent.genererChecklistTraitement({
+        titre: dossier.titre,
+        categorie: dossier.categorie,
+        instructions: dossier.instructions,
+        aerodromeId: dossier.aerodrome_id,
+      })
+      if (generated.length > 0) {
+        await setChecklistTraitement(dossier.id, generated)
+      } else {
+        setError('La génération IA n\'a retourné aucun item — réessayez.')
+      }
+    } catch (e) {
+      setError('Erreur lors de la génération de la checklist.')
+      console.error('Erreur génération checklist traitement:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-role-primary uppercase flex items-center gap-1">
+          <ListChecks className="w-3.5 h-3.5" /> Checklist de traitement
+          {dossier.checklist_generee_le && (
+            <span className="text-[10px] text-muted-foreground font-normal normal-case">
+              générée le {new Date(dossier.checklist_generee_le).toLocaleDateString('fr-FR')}
+            </span>
+          )}
+        </p>
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="btn btn-primary btn-xs gap-1"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+          {items.length > 0 ? 'Régénérer' : 'Générer par IA'}
+        </button>
+      </div>
+      {error && <p className="text-[10px] text-danger">{error}</p>}
+      {items.length > 0 && (
+        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          {items.map(item => (
+            <div key={item.id} className="border border-border rounded-lg p-2 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold flex items-center gap-1">
+                  <span className="font-mono text-[10px] text-muted-foreground">{item.numero}</span>
+                  {item.point_verification}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {RESULTATS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => mettreAJourItemChecklist(dossier.id, item.id, r)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium transition-all ${
+                      (item.resultat || item.prediction) === r ? RESULTATS_LABELS[r].cls : 'btn-secondary'
+                    }`}
+                    title={RESULTATS_LABELS[r].label}
+                  >
+                    {r}
+                  </button>
+                ))}
+                {!item.resultat && (
+                  <span className="text-[9px] text-muted-foreground ml-auto">prédiction IA : {item.prediction} ({item.confiance}%)</span>
+                )}
+              </div>
+              {item.reference_reglementaire && (
+                <p className="text-[9px] text-muted-foreground flex items-center gap-1">
+                  <FileText className="w-2.5 h-2.5" /> {item.reference_reglementaire}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface FormulairesSectionProps {
+  dossier: Dossier
+  canManage: boolean
+}
+
+function FormulairesSection({ dossier, canManage }: FormulairesSectionProps) {
+  const ajouterFormulaireDossier = useAppStore(s => s.ajouterFormulaireDossier)
+  const retirerFormulaireDossier = useAppStore(s => s.retirerFormulaireDossier)
+  const [files, setFiles] = useState<File[]>([])
+  const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+
+  const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return
+    setFiles(prev => [...prev, ...Array.from(e.target.files!)])
+  }
+
+  const handleUpload = async () => {
+    if (files.length === 0) return
+    setUploading(true)
+    setError('')
+    try {
+      const uploaded = await Promise.all(files.map(async f => ({
+        nom: f.name,
+        url: await uploadDossierFile(f, dossier.id),
+        taille: f.size,
+        type: f.type,
+      })))
+      for (const u of uploaded) {
+        await ajouterFormulaireDossier(dossier.id, u)
+      }
+      setFiles([])
+    } catch (e) {
+      setError('Erreur lors de l\'upload des formulaires.')
+      console.error('Erreur upload formulaire:', e)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const formulaires = dossier.formulaires || []
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-role-primary uppercase flex items-center gap-1">
+        <Upload className="w-3.5 h-3.5" /> Formulaires ({formulaires.length})
+      </p>
+      {formulaires.length > 0 && (
+        <div className="space-y-1">
+          {formulaires.map(f => (
+            <div key={f.id} className="flex items-center gap-2 p-2 border border-border rounded-lg text-xs">
+              <FileText className="w-3.5 h-3.5 text-role-primary shrink-0" />
+              <span className="flex-1 truncate">{f.nom}</span>
+              <span className="text-muted-foreground shrink-0 text-[10px]">{new Date(f.date_upload).toLocaleDateString('fr-FR')}</span>
+              <a href={f.url} download={f.nom} className="btn btn-ghost btn-xs p-0 shrink-0" title="Télécharger"><Download className="w-3 h-3" /></a>
+              {canManage && (
+                <button onClick={() => retirerFormulaireDossier(dossier.id, f.id)} className="btn btn-ghost btn-xs p-0 text-danger shrink-0" title="Retirer"><Trash2 className="w-3 h-3" /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="border border-dashed border-border rounded-lg p-2">
+        <input type="file" multiple onChange={handleFiles} className="hidden" id={`formulaires-${dossier.id}`}
+          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" />
+        <label htmlFor={`formulaires-${dossier.id}`} className="cursor-pointer flex items-center gap-2 text-xs text-muted-foreground">
+          <Upload className="w-4 h-4" /> Ajouter des formulaires (checklist signée, avis, rapport…)
+        </label>
+        {files.length > 0 && (
+          <div className="space-y-1 mt-2">
+            {files.map((f, i) => (
+              <div key={i} className="flex items-center justify-between bg-role-primary-soft rounded px-2 py-1 text-[10px]">
+                <span className="truncate flex-1">{f.name}</span>
+                <button onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))} className="btn btn-ghost btn-xs text-danger p-0"><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+            <button onClick={handleUpload} disabled={uploading} className="btn btn-primary btn-xs w-full gap-1">
+              {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+              Associer {files.length} fichier(s)
+            </button>
+          </div>
+        )}
+        {error && <p className="text-[10px] text-danger mt-1">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
 interface AssignmentCardProps {
   assignment: any
   dossierId: string
@@ -56,6 +304,7 @@ interface AssignmentCardProps {
   setReassignTarget: (t: { id: string; nom: string } | null) => void
   setReassignMotif: (m: string) => void
   isReassigning: boolean
+  onEvaluer: (assignmentId: string, decision: 'valide' | 'retour', commentaire: string) => void
 }
 
 const AssignmentCard = memo(function AssignmentCard({
@@ -63,6 +312,7 @@ const AssignmentCard = memo(function AssignmentCard({
   isAdmin, isInspector, canManage, canFeedback,
   onFeedback, onReassignStart, onReassignConfirm, onReassignCancel,
   reassignTarget, reassignMotif, setReassignTarget, setReassignMotif, isReassigning,
+  onEvaluer,
 }: AssignmentCardProps) {
   const updateAssignment = useAppStore(s => s.updateAssignment)
   const accuserReceptionAssignment = useAppStore(s => s.accuserReceptionAssignment)
@@ -73,6 +323,7 @@ const AssignmentCard = memo(function AssignmentCard({
   const [preuvesFiles, setPreuvesFiles] = useState<File[]>([])
   const [preuveError, setPreuveError] = useState('')
   const [fbText, setFbText] = useState('')
+  const [evalComment, setEvalComment] = useState('')
 
   const isOwn = user?.id === a.inspecteur_id && userRole === 'inspector'
 
@@ -245,6 +496,28 @@ const AssignmentCard = memo(function AssignmentCard({
         </div>
       )}
 
+      {canManage && a.statut === 'en_validation' && a.progression === 100 && !isTerminated && (
+        <div className="space-y-1 p-2 bg-success-soft/50 rounded-lg border border-success/30">
+          <p className="text-xs font-semibold flex items-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-success" /> Évaluation du travail inspecteur
+          </p>
+          <textarea value={evalComment}
+            onChange={e => setEvalComment(e.target.value)}
+            placeholder="Avis du chef (optionnel)..."
+            className="form-textarea text-xs" rows={2} />
+          <div className="flex gap-1">
+            <button onClick={() => { onEvaluer(a.id, 'valide', evalComment); setEvalComment('') }}
+              className="btn btn-success btn-xs flex-1 gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Valider
+            </button>
+            <button onClick={() => { onEvaluer(a.id, 'retour', evalComment); setEvalComment('') }}
+              className="btn btn-warning btn-xs flex-1 gap-1">
+              <RotateCcw className="w-3 h-3" /> Retourner
+            </button>
+          </div>
+        </div>
+      )}
+
       {canManage && a.statut !== 'termine' && a.statut !== 'valide' && !isTerminated && (
         <div className="pt-1">
           {isReassigning ? (
@@ -327,6 +600,34 @@ export default function DetailsModal({
   const [reassignMotif, setReassignMotif] = useState('')
   const [reassignDossierId, setReassignDossierId] = useState('')
   const [reassignAssignmentId, setReassignAssignmentId] = useState('')
+  const [analysingFile, setAnalysingFile] = useState<string | null>(null)
+  const enregistrerAnalyseIA = useAppStore(s => s.enregistrerAnalyseIA)
+  const evaluerTravailInspecteur = useAppStore(s => s.evaluerTravailInspecteur)
+
+  const handleAnalyserFichier = async (f: { nom: string; url: string }) => {
+    if (!d || analysingFile) return
+    setAnalysingFile(f.nom)
+    try {
+      const analyse = await kitDocAgent.analyserDocumentDossier({
+        nomFichier: f.nom,
+        titre: d.titre,
+        categorie: d.categorie,
+        instructions: d.instructions,
+        fichierUrl: f.url,
+        aerodromeId: d.aerodrome_id,
+      })
+      await enregistrerAnalyseIA(d.id, f.nom, analyse)
+    } catch (e) {
+      console.error('Erreur analyse IA document:', e)
+    } finally {
+      setAnalysingFile(null)
+    }
+  }
+
+  const handleEvaluer = (assignmentId: string, decision: 'valide' | 'retour', commentaire: string) => {
+    if (!d) return
+    evaluerTravailInspecteur(d.id, assignmentId, decision, commentaire)
+  }
 
   const handleReassign = () => {
     if (!reassignTarget || !reassignMotif.trim() || !reassignDossierId || !reassignAssignmentId) return
@@ -402,23 +703,48 @@ export default function DetailsModal({
               <FileText className="w-3 h-3" /> Fichiers joints ({d.fichiers.length})
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {d.fichiers.map((f, i) => (
-                <div key={i} className="flex items-center gap-2 p-2 border border-border rounded-lg text-xs">
-                  <FileText className="w-4 h-4 shrink-0 text-role-primary" />
-                  <span className="flex-1 truncate">{f.nom}</span>
-                  <span className="text-muted-foreground shrink-0">{(f.taille / 1024).toFixed(0)} Ko</span>
-                  <a href={f.url} target="_blank" rel="noopener noreferrer"
-                    className="btn btn-ghost btn-xs shrink-0" title="Visualiser">
-                    <Eye className="w-3 h-3" />
-                  </a>
-                  <a href={f.url} download={f.nom}
-                    className="btn btn-ghost btn-xs shrink-0" title="Télécharger">
-                    <Download className="w-3 h-3" />
-                  </a>
-                </div>
-              ))}
+              {d.fichiers.map((f, i) => {
+                const analyse = d.analyses_ia?.[f.nom]
+                return (
+                  <div key={i} className="border border-border rounded-lg p-2 space-y-1.5">
+                    <div className="flex items-center gap-2 text-xs">
+                      <FileText className="w-4 h-4 shrink-0 text-role-primary" />
+                      <span className="flex-1 truncate">{f.nom}</span>
+                      <span className="text-muted-foreground shrink-0">{(f.taille / 1024).toFixed(0)} Ko</span>
+                      <a href={f.url} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-ghost btn-xs shrink-0" title="Visualiser">
+                        <Eye className="w-3 h-3" />
+                      </a>
+                      <a href={f.url} download={f.nom}
+                        className="btn btn-ghost btn-xs shrink-0" title="Télécharger">
+                        <Download className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <button
+                      onClick={() => handleAnalyserFichier(f)}
+                      disabled={!!analysingFile}
+                      className="btn btn-ghost btn-xs gap-1 border border-border w-full"
+                      title="Évaluer le document par l'agent AERORISQ (score, critères, réserves)"
+                    >
+                      {analysingFile === f.nom
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : <Brain className="w-3 h-3 text-role-primary" />}
+                      {analysingFile === f.nom ? 'Analyse en cours...' : 'Analyser par IA'}
+                    </button>
+                    {analyse && <AnalyseResultPanel analyse={analyse} />}
+                  </div>
+                )
+              })}
             </div>
           </div>
+        )}
+
+        {d && (
+          <ChecklistTraitementSection dossier={d} />
+        )}
+
+        {d && (
+          <FormulairesSection dossier={d} canManage={canManage} />
         )}
 
         {d?.assignments && d.assignments.length > 0 && (
@@ -448,6 +774,7 @@ export default function DetailsModal({
                 setReassignTarget={setReassignTarget}
                 setReassignMotif={setReassignMotif}
                 isReassigning={reassignAssignmentId === a.id && reassignDossierId === d.id}
+                onEvaluer={handleEvaluer}
               />
             ))}
           </div>

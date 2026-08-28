@@ -5,7 +5,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ProfilRisque, EvenementSecurite, Ecart } from '@/lib/store'
+import { ProfilRisque, EvenementSecurite, Ecart, Surveillance } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
@@ -21,8 +21,8 @@ interface Props {
   nbEcartsCritiques: number
   userRole: string
   onRecalculate: () => void
-  prochainesSurveillances?: any[]
-  ecartsActifs?: any[]
+  prochainesSurveillances?: Surveillance[]
+  ecartsActifs?: Ecart[]
   evenements?: EvenementSecurite[]
 }
 
@@ -31,7 +31,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
   const recommandationDuJour = useMemo(() => {
     try {
-      return recommendationEngine.genererRecommandationDuJour(profil, ecartsActifs as Ecart[], evenements, aerodromeCode, aerodromeName)
+      return recommendationEngine.genererRecommandationDuJour(profil, ecartsActifs, evenements, aerodromeCode, aerodromeName)
     } catch {
       return null
     }
@@ -39,7 +39,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
 
   const getNiveauConfig = (score: number) => {
     if (score >= 80) return { label: 'Faible', color: 'text-success', bg: 'bg-success-soft', border: 'border-success/30', badge: 'badge success' }
-    if (score >= 60) return { label: 'Moyen', color: 'text-primary', bg: 'bg-primary-soft', border: 'border-primary/30', badge: 'badge primary' }
+    if (score >= 60) return { label: 'Moyen', color: 'text-teal', bg: 'bg-teal-soft', border: 'border-teal/30', badge: 'badge teal' }
     if (score >= 30) return { label: 'Élevé', color: 'text-warning', bg: 'bg-warning-soft', border: 'border-warning/30', badge: 'badge warning' }
     return { label: 'Critique', color: 'text-danger', bg: 'bg-danger-soft', border: 'border-danger/30', badge: 'badge danger' }
   }
@@ -203,7 +203,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
         {/* Probabilité d'incident 3/6/12m */}
         {(profil.incident_prediction_3m !== undefined || profil.incident_prediction_6m !== undefined || profil.incident_prediction_12m !== undefined) && (
           <div className="mt-3 pt-3 border-t border-border">
-            <p className="text-xs font-semibold text-foreground mb-2">Probabilité d'incident</p>
+            <p className="text-xs font-semibold text-foreground mb-2">Probabilité d&apos;incident</p>
             <div className="grid grid-cols-3 gap-3 text-center">
               {[
                 { label: '3 mois', val: profil.incident_prediction_3m },
@@ -252,7 +252,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
         {/* Survival 90j — repli si aucune prédiction d'incident */}
         {profil.survival_metrics && profil.incident_prediction_3m === undefined && (
           <div className="mt-3 pt-3 border-t border-border text-xs text-foreground text-center">
-            Risque d'incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
+            Risque d&apos;incident à 90 jours : {Math.round(profil.survival_metrics.hazard90d * 100)}%
             {profil.survival_metrics.hazard90d > 0.5 && <span className="text-danger font-semibold ml-1">— Inspection recommandée</span>}
           </div>
         )}
@@ -282,7 +282,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
       {prochainesSurveillances.length > 0 && (
         <Card variant="role" title="Prochaines surveillances" icon={<Calendar className="w-4 h-4" />}>
           <div className="space-y-3">
-            {prochainesSurveillances.map((s: any) => (
+            {prochainesSurveillances.map((s: Surveillance) => (
               <div key={s.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
                 <div className="flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5 text-foreground" />
@@ -291,8 +291,8 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
                 <span className="text-xs text-foreground">
                   {s.date_debut ? new Date(s.date_debut).toLocaleDateString('fr-FR') : 'À planifier'}
                 </span>
-                <span className={`badge text-xs ${s.statut === 'en_cours' ? 'warning' : s.statut === 'realisee' ? 'success' : 'primary'}`}>
-                  {s.statut === 'planifiee' ? 'Planifiée' : s.statut === 'en_cours' ? 'En cours' : 'Réalisée'}
+                <span className={`badge text-xs ${s.statut === 'en_cours' ? 'warning' : s.statut === 'transmise' || s.statut === 'archivee' ? 'success' : 'primary'}`}>
+                  {s.statut === 'planifiee' ? 'Planifiée' : s.statut === 'en_cours' ? 'En cours' : s.statut === 'transmise' || s.statut === 'archivee' ? 'Réalisée' : s.statut}
                 </span>
               </div>
             ))}
@@ -304,7 +304,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
       {ecartsActifs.length > 0 && (
         <Card variant="role" title={`Écarts actifs (${ecartsActifs.length})`} icon={<AlertTriangle className="w-4 h-4" />}>
           <div className="space-y-3">
-            {ecartsActifs.map((e: any) => (
+            {ecartsActifs.map((e: Ecart) => (
               <div key={e.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-muted/20">
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${getRiskLevelBgVariant(e.niveau_risque)}`} />

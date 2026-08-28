@@ -54,26 +54,26 @@ function getNiveauLabel(niveau: PAOELevel): string {
 
 const NIVEAU_LABELS: Record<string, string> = { N0: 'N0 — Non évalué', N1: 'N1 — Absent', N2: 'N2 — Présent', N3: 'N3 — Approprié', N4: 'N4 — Opérationnel', N5: 'N5 — Efficace' }
 
+// Seuils alignés sur la convention repo (lib/utils.ts getSgsMaturiteLabel) :
+// ≥80 N5 · ≥60 N4 · ≥40 N3 · ≥20 N2 · sinon N1
 function getNiveauN0N5(score: number): string {
-  if (score >= 95) return 'N5';
-  if (score >= 80) return 'N4';
-  if (score >= 60) return 'N3';
-  if (score >= 40) return 'N2';
-  if (score >= 20) return 'N1';
-  return 'N0';
+  if (score >= 80) return 'N5';
+  if (score >= 60) return 'N4';
+  if (score >= 40) return 'N3';
+  if (score >= 20) return 'N2';
+  return 'N1';
 }
 
 function getNiveauN0N5Label(score: number): string {
-  return NIVEAU_LABELS[getNiveauN0N5(score)] || 'N0';
+  return NIVEAU_LABELS[getNiveauN0N5(score)] || 'N1';
 }
 
 function getNiveauN0N5BadgeClass(score: number): string {
-  if (score >= 95) return 'badge success';   // N5 — vert
-  if (score >= 80) return 'badge primary';   // N4 — bleu
-  if (score >= 60) return 'badge primary';   // N3 — bleu
-  if (score >= 40) return 'badge warning';   // N2 — orange
-  if (score >= 15) return 'badge danger';    // N1 — rouge
-  return 'badge danger';                     // N0 — rouge (critique)
+  if (score >= 80) return 'badge success';   // N5 — vert
+  if (score >= 60) return 'badge primary';   // N4 — bleu
+  if (score >= 40) return 'badge primary';   // N3 — bleu
+  if (score >= 20) return 'badge warning';   // N2 — orange
+  return 'badge danger';                     // N1 — rouge
 }
 
 function getProgressColor(score: number): string {

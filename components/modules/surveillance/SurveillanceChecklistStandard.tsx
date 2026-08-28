@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/card';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable';
 import { ConfidenceIndicator } from '@/components/modules/checklist/ChecklistFormContent';
 import {
@@ -121,7 +122,7 @@ export function SurveillanceChecklistStandard({
   modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
-  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: import('@/lib/checklistMemory').TypeInspection; date_debut: string; equipe_ids: string[]; chef_id: string; statut?: string; };
+  surveillance: { aerodrome?: { code_oaci: string; nom: string }; type: import('@/lib/checklistMemory').TypeInspection; date_debut: string; equipe_ids: string[]; chef_id: string; statut?: string; planning_id?: string; };
   onSave?: (checklistState: any) => void;
   onComplete?: () => void;
   readOnly?: boolean;
@@ -138,6 +139,7 @@ export function SurveillanceChecklistStandard({
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
   const updateDelegation = useAppStore(s => s.updateDelegation);
   const profilsRisque = useOptimizedStore(s => s.profilsRisque);
+  const plannings = useAppStore(s => s.plannings);
   const recordCorrection = useAppStore(s => s.recordCorrection);
   const upsertItemHistory = useAppStore(s => s.upsertItemHistory);
   const validateBatchItems = useAppStore(s => s.validateBatchItems);
@@ -469,7 +471,7 @@ export function SurveillanceChecklistStandard({
         (sd.sousSousDomaines ?? []).forEach(ssd => collect(ssd.items ?? []));
       });
     });
-    const renseignes = sa + ns + na;
+    const renseignes = sa + ns + nv + na;
     const progression = total > 0 ? Math.round((renseignes / total) * 100) : 0;
     const tauxConformiteReel = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
     const itemsSA: { id: string; prediction: ResultatChecklist; confiance: number }[] = [];
@@ -682,9 +684,9 @@ export function SurveillanceChecklistStandard({
   }, [aerodromeId]);
 
   const computeSurveillanceScore = useCallback((): number => {
-    const { sa, ns, na, total } = stats;
+    const { sa, ns, nv, na, total } = stats;
     if (total === 0) return 70;
-    const renseignes = sa + ns + na;
+    const renseignes = sa + ns + nv + na;
     if (renseignes === 0) return 70;
     const tauxConformite = Math.round((sa / (sa + ns)) * 100);
     const tauxCompletion = Math.round((renseignes / total) * 100);
@@ -696,44 +698,15 @@ export function SurveillanceChecklistStandard({
     setSignatureDialogOpen(false);
 
     const scoreGlobal = computeSurveillanceScore();
-    
-    // Récupérer les signatures existantes et ajouter la nouvelle
-    const fullSurv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
-    const existingSigs = fullSurv?.signatures_checklist || []
-    const newSig = { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }
-    const allSigs = [...existingSigs.filter(s => s.signataire_id !== user?.id), newSig]
 
-    // Vérifier si TOUS les délégués ont signé
-    let allDelegatedSigned = true
-    const storeSig = useAppStore.getState()
-    const delegsSig = storeSig.getDelegationsBySurveillance(surveillanceId)
-    if (delegsSig.length > 0) {
-      const delegatedIds = new Set(delegsSig.map(d => d.assigne_a).filter(Boolean))
-      const signedIds = new Set(allSigs.map(s => s.signataire_id))
-      allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
-    }
-
-    updateSurveillance(surveillanceId, {
-      statut: allDelegatedSigned ? 'checklist_signee' : fullSurv?.statut || 'en_cours',
+    // Action centrale du store : fusion des signatures, avancement des
+    // délégations du signataire, décision d'avancement du statut selon portée.
+    await useAppStore.getState().signerChecklistSurveillance(surveillanceId, {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
+      signature_url: signatureUrl,
       score_global: scoreGlobal,
-      signatures_checklist: allSigs,
     });
-
-    // Avancement auto du statut des délégations de l'inspecteur signataire
-    const now = new Date().toISOString();
-    const storeDels = useAppStore.getState();
-    storeDels.getDelegationsBySurveillance(surveillanceId)
-      .filter(d => d.assigne_a === user?.id)
-      .forEach(d => {
-        updateDelegation(d.id, {
-          statut: 'checklist_signee',
-          progression: 100,
-          checklist_signature_url: signatureUrl,
-          checklist_signe_le: now,
-          derniere_activite: now,
-          derniere_sync: now,
-        });
-      });
 
     if (sgsEvaluation) {
       const { updateAerodrome, recalculerProfilRisque } = useAppStore.getState();
@@ -842,7 +815,7 @@ export function SurveillanceChecklistStandard({
                 <Users className="h-5 w-5 text-white" />
               </div>
               <div className="flex -space-x-2">
-                {surveillance.equipe_ids.map(id => (
+                {getSurveillanceEquipeIds(surveillance, plannings).map(id => (
                   <div key={id} className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center text-white text-[13px] font-bold border-2 border-white shadow-lg">{id.slice(-2).toUpperCase()}</div>
                 ))}
               </div>
@@ -1011,7 +984,7 @@ export function SurveillanceChecklistStandard({
         aerodromeNom={surveillance.aerodrome?.nom}
         surveillanceType={surveillance.type}
         surveillanceDate={surveillance.date_debut}
-        equipeCount={surveillance.equipe_ids?.length}
+        equipeCount={getSurveillanceEquipeIds(surveillance, plannings).length}
         inspecteurId={user?.id || ''}
         inspecteurNom={`${user?.prenom || ''} ${user?.nom || ''}`}
         onSave={handleSaveSGSEvaluation}

@@ -294,7 +294,7 @@ export function FtaModule({ user: userProp, userRole: userRoleProp, aerodromeId:
           {/* Arbre */}
           <Card
             variant="level"
-            levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'warning' : niveauProba === 'moyen' ? 'primary' : 'success'}
+            levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'warning' : niveauProba === 'moyen' ? 'teal' : 'success'}
             title="Arbre de défaillance"
             subtitle={selectedArbre.evenementLabel}
             icon={<GitBranch className="w-4 h-4" />}

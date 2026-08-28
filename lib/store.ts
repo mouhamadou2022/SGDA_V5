@@ -233,6 +233,8 @@ export interface Surveillance {
   updated_by?: string
   progression?: number
   checklist_hierarchy?: DomaineChecklist[]
+  checklist_suivi_ecarts?: { items: Array<Record<string, unknown>>; observations_generales?: string }  // onSaveSuivi (Suivi des écarts)
+  checklist_pac?: { items: Array<Record<string, unknown>>; observations_generales?: string }           // onSavePAC (Mise en œuvre PAC)
   sgs_evaluation_prepa?: any  // EvaluationSGS — transférée depuis le planning lors du lancement
   sgs_evaluation_signee_le?: string  // date ISO de signature de l'évaluation SGS (PAOE)
   sgs_ecarts_signes_le?: string      // date ISO de signature des écarts SGS
@@ -641,6 +643,8 @@ export interface ProfilRisque {
   qualite?: 'excellente' | 'bonne' | 'moyenne' | 'faible'
   // Bow-Tie HIRM — modèles Bow-Tie enrichis par domaine
   bowtie_metrics?: import('./risque/types').BowTieModele[]
+  // Chaîne qualitative — diagnostic combiné AMDEC + BowTie + FTA + Bayésien
+  qualitative_metrics?: import('./risque/qualitativeChain').DiagnosticQualitatif
   // SNAPSHOT INFRASTRUCTURE (au moment du calcul)
   // Permet aux décisions (type surveillance, filtrage checklist) de refléter
   // les caractéristiques réelles de l'entité sans re-calculer le score numérique.
@@ -1209,6 +1213,8 @@ export interface Planning {
   sgs_evaluation_prepa?: any  // EvaluationSGS — sauvegardée lors de la préparation
   // Délégations préparatoires { domaine_code → inspecteur_id }
   delegations?: Record<string, string>
+  // Fiche de briefing pré-mission générée par l'IA (Préparation / préparation-checklist)
+  briefing_fiche?: FicheBriefing
   // Rappels avant surveillance
   rappels_envoyes?: { j30?: boolean; j15?: boolean; j7?: boolean; overdue?: boolean }
   // Confirmation par l'inspecteur
@@ -1487,9 +1493,106 @@ export interface Dossier {
   }[]
   assignments: DossierAssignment[]
   archived_at?: string | null
+  checklist_traitement?: DossierChecklistItem[]
+  checklist_generee_le?: string
+  analyses_ia?: Record<string, DossierAnalyseResult>
+  formulaires?: DossierFormulaire[]
   created_at: string
   updated_at: string
   created_by: string
+}
+
+export interface DossierChecklistItem {
+  id: string
+  numero: string
+  reference_reglementaire: string
+  point_verification: string
+  directive_sa?: string
+  directive_ns?: string
+  directive_nv?: string
+  directive_na?: string
+  prediction: ResultatChecklist
+  confiance: number
+  domaine?: string
+  resultat?: ResultatChecklist
+  commentaire?: string
+}
+
+export interface DossierAnalyseCritere {
+  nom: string
+  score: number
+  satisfait: boolean
+  commentaire: string
+}
+
+export interface DossierAnalyseResult {
+  nom_fichier: string
+  score_global: number
+  criteres: DossierAnalyseCritere[]
+  references_reglementaires: string[]
+  reserves: string[]
+  recommandations: string[]
+  confiance: number
+  analyse_le: string
+}
+
+export interface DossierFormulaire {
+  id: string
+  nom: string
+  url: string
+  taille: number
+  type: string
+  date_upload: string
+  reference?: string
+}
+
+// Fiche de briefing pré-mission générée par l'IA dans le module Planning
+export interface FicheBriefing {
+  reference: string
+  type_mission: string
+  aerodrome?: string
+  periode: string
+  objectifs: string[]
+  portee: string[]
+  equipe: string[]
+  points_attention: string[]
+  preuves_a_verifier: string[]
+  recommandations: string[]
+  confiance: number
+  genere_le: string
+  // ── Enrichissement contexte — données structurées réelles (pas de contenu inventé)
+  synthese?: string
+  contexte_profil?: {
+    score_global: number
+    niveau: string
+    tendance: string
+    c1: number
+    c2: number
+    c3: number
+    c4: number
+    c5: number
+  }
+  contexte_historique?: Array<{
+    type: string
+    date: string
+    statut: string
+    score_global?: number
+  }>
+  contexte_ecarts?: Array<{
+    reference: string
+    libelle: string
+    niveau_risque: string
+    statut: string
+    ref_reglementaire?: string
+    pac: boolean
+    delai_pac?: string
+  }>
+  contexte_evenements?: Array<{
+    date: string
+    type: string
+    gravite: string
+    description: string
+  }>
 }
 
 export interface Formation {
@@ -1847,6 +1950,8 @@ interface ChecklistSlice {
   updateChecklistItem: (surveillanceId: string, itemId: string, data: Partial<ChecklistItem>) => void
   getItemsNSNV: (surveillanceId: string) => ChecklistItem[]
   getItemsNSNVFromHierarchy: (surveillanceId: string) => ChecklistItem[]
+  /** Renvoie TOUS les items de la hiérarchie (SA/NS/NA/NV) avec le domaine, pour les KPIs de conformité */
+  getChecklistItemsFromHierarchy: (surveillanceId: string) => ChecklistItem[]
   calculerProgression: (surveillanceId: string) => number
 }
 
@@ -1860,7 +1965,24 @@ interface EcartsRedactionSlice {
 }
 
 interface WorkflowSlice {
-  passerEtapeSuivante: (surveillanceId: string) => Promise<void>
+  /**
+   * Point d'entrée UNIQUE pour toute signature de checklist (standard, suivi
+   * écarts, PAC, évaluation SGS). Fusionne les signatures, fait avancer les
+   * délégations du signataire et décide de l'avancement du statut selon la
+   * portée : SGS seul → signature SGS suffisante ; portée mixte → SGS ET
+   * standard requis ; sans portée → avancement direct (types dédiés).
+   */
+  signerChecklistSurveillance: (
+    surveillanceId: string,
+    opts: {
+      signataire_id: string
+      signataire_nom: string
+      signature_url: string
+      score_global?: number
+      marque_sgs?: boolean
+    }
+  ) => Promise<{ ok: boolean; avancee: boolean; raison?: string }>
+  passerEtapeSuivante: (surveillanceId: string) => Promise<{ ok: boolean; raison?: string }>
   peutPasserEtape: (surveillanceId: string) => { peut: boolean; raison?: string }
   verifierAvantTransmission: (surveillanceId: string) => {
     ok: boolean
@@ -2111,6 +2233,12 @@ interface DossierSlice {
   addAssignmentFeedback: (dossierId: string, assignmentId: string, feedback: Omit<DossierFeedback, 'id' | 'date'>) => void
   addAssignmentCollaborateur: (dossierId: string, assignmentId: string, collaborateur: Omit<DossierCollaborateur, 'date'>) => void
   accuserReceptionAssignment: (dossierId: string, assignmentId: string, commentaire: string) => void
+  enregistrerAnalyseIA: (dossierId: string, nomFichier: string, analyse: DossierAnalyseResult) => Promise<void>
+  setChecklistTraitement: (dossierId: string, items: DossierChecklistItem[]) => Promise<void>
+  mettreAJourItemChecklist: (dossierId: string, itemId: string, resultat: ResultatChecklist, commentaire?: string) => Promise<void>
+  ajouterFormulaireDossier: (dossierId: string, formulaire: Omit<DossierFormulaire, 'id' | 'date_upload'>) => Promise<void>
+  retirerFormulaireDossier: (dossierId: string, formulaireId: string) => Promise<void>
+  evaluerTravailInspecteur: (dossierId: string, assignmentId: string, decision: 'valide' | 'retour', commentaire: string) => Promise<void>
 }
 
 interface FormationSlice {
@@ -2512,7 +2640,7 @@ let rappelsTimerId: ReturnType<typeof setInterval> | null = null
 // Aplatit la hiérarchie de checklist (source persistée sur la surveillance) en liste plate d'items.
 // Source de vérité fiable pour la progression : survit au rechargement (contrairement à checklistItems,
 // reflet volatil non persisté dans le store).
-function flattenHierarchyItems(hierarchy: DomaineChecklist[] | undefined | null): ChecklistItem[] {
+export function flattenHierarchyItems(hierarchy: DomaineChecklist[] | undefined | null): ChecklistItem[] {
   if (!hierarchy || hierarchy.length === 0) return []
   const flat: ChecklistItem[] = []
   const pushItems = (items?: ChecklistItem[]) => { if (items) for (const i of items) flat.push(i) }
@@ -3035,8 +3163,11 @@ getActiveAerodromes: () => {
           surveillances: state.surveillances.map((s) => s.id === id ? { ...s, ...data, updated_at: new Date().toISOString() } : s),
           currentSurveillance: state.currentSurveillance?.id === id ? { ...state.currentSurveillance, ...data } : state.currentSurveillance,
         }))
-        const { sgs_evaluation_prepa, sgs_evaluation_signee_le, sgs_ecarts_signes_le, rapport_sections, ...dataSansSGS } = data;
-        const result = await datastore.updateSurveillance(id, dataSansSGS)
+        // Persistance complète : l'évaluation SGS signée, le suivi des écarts,
+        // la checklist PAC et le rapport font partie du dossier légal et
+        // survivent au rechargement (colonnes ajoutées en base — Section 13.A
+        // de SGDA_v5_FINAL_COMPLET.sql).
+        const result = await datastore.updateSurveillance(id, data)
         if (result.error) {
           console.error('Erreur update surveillance Supabase, rollback:', result.error)
           toast('error', 'Échec de la mise à jour', 'Les modifications n\'ont pas pu être sauvegardées')
@@ -4739,6 +4870,117 @@ accuserReceptionAssignment: async (dossierId, assignmentId, commentaire) => {
   }))
 },
 
+enregistrerAnalyseIA: async (dossierId, nomFichier, analyse) => {
+  const now = new Date().toISOString()
+  const dossier = get().dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+  const analyses = { ...(dossier.analyses_ia || {}), [nomFichier]: analyse }
+  await datastore.updateDossier(dossierId, { analyses_ia: analyses, updated_at: now })
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, analyses_ia: analyses, updated_at: now } : d
+    ),
+  }))
+},
+
+setChecklistTraitement: async (dossierId, items) => {
+  const now = new Date().toISOString()
+  const dossier = get().dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+  await datastore.updateDossier(dossierId, { checklist_traitement: items, checklist_generee_le: now, updated_at: now })
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, checklist_traitement: items, checklist_generee_le: now, updated_at: now } : d
+    ),
+  }))
+},
+
+mettreAJourItemChecklist: async (dossierId, itemId, resultat, commentaire) => {
+  const now = new Date().toISOString()
+  const dossier = get().dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+  const items = (dossier.checklist_traitement || []).map(i =>
+    i.id === itemId ? { ...i, resultat, commentaire } : i
+  )
+  await datastore.updateDossier(dossierId, { checklist_traitement: items, updated_at: now })
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, checklist_traitement: items, updated_at: now } : d
+    ),
+  }))
+},
+
+ajouterFormulaireDossier: async (dossierId, formulaire) => {
+  const now = new Date().toISOString()
+  const dossier = get().dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+  const newFormulaire: DossierFormulaire = { id: crypto.randomUUID(), date_upload: now, ...formulaire }
+  const formulaires = [...(dossier.formulaires || []), newFormulaire]
+  await datastore.updateDossier(dossierId, { formulaires, updated_at: now })
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, formulaires, updated_at: now } : d
+    ),
+  }))
+},
+
+retirerFormulaireDossier: async (dossierId, formulaireId) => {
+  const now = new Date().toISOString()
+  const dossier = get().dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+  const formulaires = (dossier.formulaires || []).filter(f => f.id !== formulaireId)
+  await datastore.updateDossier(dossierId, { formulaires, updated_at: now })
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId ? { ...d, formulaires, updated_at: now } : d
+    ),
+  }))
+},
+
+evaluerTravailInspecteur: async (dossierId, assignmentId, decision, commentaire) => {
+  const state = get()
+  const now = new Date().toISOString()
+  const auteur = state.user?.nom || 'Chef'
+  const dossier = state.dossiers.find(d => d.id === dossierId)
+  if (!dossier) return
+
+  const updatedAssignments = dossier.assignments.map(a => {
+    if (a.id !== assignmentId) return a
+    if (decision === 'valide') {
+      return {
+        ...a,
+        statut: 'valide' as const,
+        historique: [...a.historique, { date: now, action: 'Travail validé par le chef', details: commentaire }],
+        feedbacks: [...a.feedbacks, { id: crypto.randomUUID(), date: now, auteur_id: state.user?.id || '', auteur_nom: auteur, role: 'chef' as const, type: 'validation' as const, message: commentaire || 'Travail validé' }],
+      }
+    }
+    return {
+      ...a,
+      statut: 'en_cours' as const,
+      historique: [...a.historique, { date: now, action: 'Travail retourné pour corrections', details: commentaire }],
+      feedbacks: [...a.feedbacks, { id: crypto.randomUUID(), date: now, auteur_id: state.user?.id || '', auteur_nom: auteur, role: 'chef' as const, type: 'retour_travail' as const, message: commentaire || 'Corrections demandées' }],
+    }
+  })
+
+  const allValides = updatedAssignments.length > 0 && updatedAssignments.every(a => a.statut === 'valide' || a.statut === 'termine')
+  const nouveauStatut = allValides ? ('termine' as const) : dossier.statut
+
+  const result = await datastore.updateDossier(dossierId, {
+    assignments: updatedAssignments,
+    statut: nouveauStatut,
+    updated_at: now,
+    historique: [...dossier.historique, { date: now, action: decision === 'valide' ? `Travail de ${auteur} validé` : `Travail retourné pour corrections`, utilisateur: auteur, commentaire }],
+  })
+  if (result.error) console.error('[store] Erreur persistance evaluerTravailInspecteur:', result.error)
+  set((state) => ({
+    dossiers: state.dossiers.map(d =>
+      d.id === dossierId
+        ? { ...d, assignments: updatedAssignments, statut: nouveauStatut, updated_at: now, historique: [...d.historique, { date: now, action: decision === 'valide' ? `Travail de ${auteur} validé` : `Travail retourné pour corrections`, utilisateur: auteur, commentaire }] }
+        : d
+    ),
+  }))
+},
+
       // ============================================================
       // IMPLÉMENTATION DES SLICES DANS LE STORE surveillance
       // ============================================================
@@ -4941,12 +5183,19 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         const surveillancesAerodrome = surveillances.filter(s => s.aerodrome_id === aerodromeId)
         const evenementsAerodrome = (evenements || []).filter((e: EvenementSecurite) => e.aerodrome_id === aerodromeId)
         const existingHistory = historiqueScores[aerodromeId] || []
-        const lastScore = existingHistory.length > 0 ? existingHistory[existingHistory.length - 1].score : null
+        // Fallback : si le store n'a pas (encore) d'historique, le recharger depuis le profil persisté
+        const historiquePersiste = existingHistory.length === 0
+          ? (get().profilsRisque?.[aerodromeId]?.historical_scores || [])
+          : []
+        const historyFusionne = existingHistory.length > 0
+          ? existingHistory
+          : historiquePersiste
+        const lastScore = historyFusionne.length > 0 ? historyFusionne[historyFusionne.length - 1].score : null
         const aerodrome = aerodromes.find(a => a.id === aerodromeId)
         const reponsesEnquetesAerodrome = (reponsesEnquetes || []).filter((r: ReponseEnquete) => r.aerodrome_id === aerodromeId)
 
         // C1 : SGS non applicable → pas de donnée (0), sera exclu du score global
-        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 0 : (aerodrome?.maturite_sgs ?? 10)
+        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 0 : (aerodrome?.maturite_sgs ?? 50)
         const scoreEnquetes = reponsesEnquetesAerodrome.length > 0
           ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length
           : undefined
@@ -4975,7 +5224,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           : aerodrome ? Math.round(
               // Heuristique multi-domaines comme dans initialProfile
               (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
-              ((aerodrome.maturite_sgs ?? 10) * 0.25) +
+              ((aerodrome.maturite_sgs ?? 50) * 0.25) +
               ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
               (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia, 10) || 1) - 3) * 2) * 0.15 +
               ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
@@ -5034,17 +5283,17 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         let prediction3m = scoreGlobal
         let prediction6m = scoreGlobal
         let ensembleConfidence = 30
-        if (existingHistory.length >= 2) {
+        if (historyFusionne.length >= 2) {
           const { predictRiskScore } = await import('./risque')
-          const predictions = predictRiskScore(existingHistory.map(h => ({ date: h.date, score: h.score })))
+          const predictions = predictRiskScore(historyFusionne.map(h => ({ date: h.date, score: h.score })))
           prediction3m = predictions.score3m
           prediction6m = predictions.score6m
           if (predictions.trend) tendance = predictions.trend
         }
         // Ensemble EWMA + régression si assez de données
-        if (existingHistory.length >= 3) {
+        if (historyFusionne.length >= 3) {
           const { predictWithEnsemble } = await import('./risque')
-          const ensemble = predictWithEnsemble(existingHistory.map(h => ({ date: h.date, score: h.score })))
+          const ensemble = predictWithEnsemble(historyFusionne.map(h => ({ date: h.date, score: h.score })))
           prediction3m = Math.round((prediction3m + ensemble.score3m) / 2)
           prediction6m = Math.round((prediction6m + ensemble.score6m) / 2)
           ensembleConfidence = ensemble.confidence
@@ -5052,10 +5301,10 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         // ── IA Ensemble (LSTM + BayesianDynamic + XGBoost + RF) ──
         // S'active automatiquement quand assez de données historiques
         // Fallback → régression actuelle si insuffisant
-        if (existingHistory.length >= 6) {
+        if (historyFusionne.length >= 6) {
           try {
             const { ensembleModel } = await import('./ia/models/ensemble')
-            const iaEnsemble = await ensembleModel.predict(existingHistory, 1)
+            const iaEnsemble = await ensembleModel.predict(historyFusionne, 1)
             if (iaEnsemble.metadata.nModels >= 2 && iaEnsemble.confidence > ensembleConfidence) {
               prediction3m = iaEnsemble.point
               prediction6m = iaEnsemble.point
@@ -5077,10 +5326,10 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
 
         // Scénarios (optimiste, réaliste, pessimiste, catastrophe)
         let scenarios: ProfilRisque['scenarios'] = []
-        if (existingHistory.length >= 3) {
+        if (historyFusionne.length >= 3) {
           try {
             const { generateAllScenarios } = await import('@/lib/risque/scenarios')
-            const scores = existingHistory.map(h => h.score)
+            const scores = historyFusionne.map(h => h.score)
             const existingProfil = get().profilsRisque?.[aerodromeId]
             const hasBlackSwan = existingProfil?.proactive_alert?.niveau_urgence === 'critique'
             scenarios = generateAllScenarios(scores, 1, hasBlackSwan)
@@ -5091,7 +5340,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         let bayesianUpdate = await computeBayesianPosterior(get().profilsRisque?.[aerodromeId] || null, evenementsAerodrome)
 
         // Bayesian Dynamic — prior évolutif (remplace le bayésien statique si assez de données)
-        if (existingHistory.length >= 5) {
+        if (historyFusionne.length >= 5) {
           try {
             const { bayesianDynamicModel } = await import('./ia/models/bayesianDynamic')
             const priors = get().profilsRisque?.[aerodromeId]?.bayesian_prior ?? 0.3
@@ -5129,6 +5378,37 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           }).filter((b: any) => b.barrieresPreventives.some((p: any) => p.efficacite < 80) || b.probabiliteResiduelle > 30)
         } catch { console.warn('[computeRiskProfile] generateDomaineBowTie échoué') }
 
+        // Chaîne qualitative — combine AMDEC + BowTie + FTA + Bayésien par domaine
+        let qualitativeMetrics: ProfilRisque['qualitative_metrics'] = undefined
+        if (bowtieMetrics?.length) {
+          try {
+            const { chainerModelesQualitatifs } = await import('./risque/qualitativeChain')
+            // computeBarrierEfficacite câble les evidences par id de nœud du réseau
+            // (barriere_<id>) à partir de C1/C2/C3/C5 — le réseau répond alors à
+            // « comment la probabilité évolue à chaque indice ? ».
+            const { computeBarrierEfficacite } = await import('./risque/bayesianNetwork')
+            const ftaAnalysesAerodrome = (get().ftaAnalyses || []).filter((a: { aerodromeId: string }) => a.aerodromeId === aerodromeId)
+            const bayesParDomaine: Record<string, { probabiliteResiduelle: number; barrieresCritiques: string[]; confiance: number }> = {}
+            for (const bt of bowtieMetrics) {
+              const bayes = computeBarrierEfficacite(bt, c1, c2, c3Final, c5)
+              const barrieresBayes = [...bayes.barrieresPreventives, ...bayes.barrieresCorrectives]
+                .filter((b) => b.efficacite < 60)
+                .map((b) => b.id)
+              bayesParDomaine[bt.domaine] = {
+                probabiliteResiduelle: bayes.probabiliteResiduelle,
+                barrieresCritiques: barrieresBayes,
+                confiance: bayes.confiance,
+              }
+            }
+            qualitativeMetrics = chainerModelesQualitatifs({
+              bowties: bowtieMetrics,
+              amdecAnalyses: analysesAmdec,
+              ftaArbres: ftaAnalysesAerodrome,
+              bayesParDomaine: Object.keys(bayesParDomaine).length > 0 ? bayesParDomaine : undefined,
+            })
+          } catch { console.warn('[computeRiskProfile] chaîne qualitative échouée') }
+        }
+
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,
           score_global: scoreGlobal,
@@ -5138,7 +5418,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           prediction_6m: prediction6m,
           tendance,
           computed_at: new Date().toISOString(),
-          historical_scores: existingHistory,
+          historical_scores: historyFusionne,
           incident_prediction_3m: incidentPred.probability3m,
           incident_prediction_6m: incidentPred.probability6m,
           incident_prediction_12m: incidentPred.probability12m,
@@ -5152,6 +5432,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           scenarios,
           ...risqueUtils.computeQualityScore(ecartsAerodrome),
           bowtie_metrics: bowtieMetrics?.length ? bowtieMetrics : undefined,
+          qualitative_metrics: qualitativeMetrics,
           ensemble_confidence: ensembleConfidence,
           infrastructure: aerodrome ? {
             type_entite: aerodrome.type_entite,
@@ -5164,8 +5445,8 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           } : undefined,
         }
         // ── Phase 3 : computation et stockage modèles avancés ──
-        if (existingHistory.length >= 3) {
-          const scoresHist = existingHistory.map(h => h.score)
+        if (historyFusionne.length >= 3) {
+          const scoresHist = historyFusionne.map(h => h.score)
           try {
             const { modelCache } = await import('./risque/modelCache')
             const cached = modelCache.computeAll(aerodromeId, scoresHist, nouveauProfil)
@@ -7446,12 +7727,36 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       }, 
       
       getItemsNSNVFromHierarchy: (surveillanceId) => {
-        const hierarchy = get().checklistHierarchy?.[surveillanceId] || []
+        // Source de vérité : hiérarchie persistée sur la surveillance (survit
+        // au rechargement) ; la map volatile sert de repli pendant l'édition.
+        const surv = get().surveillances.find(s => s.id === surveillanceId)
+        const hierarchyMap = get().checklistHierarchy?.[surveillanceId] || []
+        const hierarchy = hierarchyMap.length > 0 ? hierarchyMap : (surv?.checklist_hierarchy || [])
         const itemsNSNV: (ChecklistItem & { domaine: string; sousDomaine: string; sousSousDomaine: string })[] = []
         
         const parcourir = (domaines: DomaineChecklist[]) => {
           for (const domaine of domaines) {
+            for (const item of (domaine.items || [])) {
+              if (item.resultat === 'NS' || item.resultat === 'NV') {
+                itemsNSNV.push({
+                  ...item,
+                  domaine: domaine.nom,
+                  sousDomaine: '',
+                  sousSousDomaine: '',
+                })
+              }
+            }
             for (const sousDomaine of domaine.sousDomaines) {
+              for (const item of (sousDomaine.items || [])) {
+                if (item.resultat === 'NS' || item.resultat === 'NV') {
+                  itemsNSNV.push({
+                    ...item,
+                    domaine: domaine.nom,
+                    sousDomaine: sousDomaine.nom,
+                    sousSousDomaine: '',
+                  })
+                }
+              }
               for (const sousSousDomaine of sousDomaine.sousSousDomaines) {
                 for (const item of sousSousDomaine.items) {
                   if (item.resultat === 'NS' || item.resultat === 'NV') {
@@ -7470,6 +7775,34 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         
         parcourir(hierarchy)
         return itemsNSNV
+      },
+
+      getChecklistItemsFromHierarchy: (surveillanceId) => {
+        const surv = get().surveillances.find(s => s.id === surveillanceId)
+        const hierarchyMap = get().checklistHierarchy?.[surveillanceId] || []
+        const hierarchy = hierarchyMap.length > 0 ? hierarchyMap : (surv?.checklist_hierarchy || [])
+        const items: (ChecklistItem & { domaine: string; sousDomaine: string; sousSousDomaine: string })[] = []
+
+        const parcourir = (domaines: DomaineChecklist[]) => {
+          for (const domaine of domaines) {
+            for (const item of (domaine.items || [])) {
+              items.push({ ...item, domaine: domaine.nom, sousDomaine: '', sousSousDomaine: '' })
+            }
+            for (const sousDomaine of domaine.sousDomaines) {
+              for (const item of (sousDomaine.items || [])) {
+                items.push({ ...item, domaine: domaine.nom, sousDomaine: sousDomaine.nom, sousSousDomaine: '' })
+              }
+              for (const sousSousDomaine of sousDomaine.sousSousDomaines) {
+                for (const item of sousSousDomaine.items) {
+                  items.push({ ...item, domaine: domaine.nom, sousDomaine: sousDomaine.nom, sousSousDomaine: sousSousDomaine.nom })
+                }
+              }
+            }
+          }
+        }
+
+        parcourir(hierarchy)
+        return items
       },
       
       calculerProgression: (surveillanceId) => {
@@ -7675,6 +8008,82 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         return { repaired, surveillances: surveillancesAReparer.length }
       },
 
+      signerChecklistSurveillance: async (surveillanceId, opts) => {
+        const fresh = get().surveillances.find(s => s.id === surveillanceId)
+        if (!fresh) return { ok: false, avancee: false, raison: 'Surveillance introuvable' }
+
+        // Fusion des signatures — dédoublonnage par signataire (une
+        // re-signature remplace la précédente au lieu de l'écraser toutes).
+        const nouvelleSignature = {
+          signataire_id: opts.signataire_id,
+          signataire_nom: opts.signataire_nom,
+          date_signature: new Date().toISOString(),
+          signature_url: opts.signature_url,
+        }
+        const allSigs = [
+          ...(fresh.signatures_checklist || []).filter(s => s.signataire_id !== opts.signataire_id),
+          nouvelleSignature,
+        ]
+
+        const now = new Date().toISOString()
+        const updateData: Partial<Surveillance> = { signatures_checklist: allSigs }
+        if (opts.score_global != null) updateData.score_global = opts.score_global
+        if (opts.marque_sgs) updateData.sgs_evaluation_signee_le = now
+
+        // Toutes les personnes déléguées doivent avoir signé pour avancer
+        const delegations = get().getDelegationsBySurveillance(surveillanceId)
+        const delegatedIds = [...new Set(delegations.map(d => d.assigne_a).filter(Boolean))]
+        const signedIds = new Set(allSigs.map(s => s.signataire_id))
+        const allDelegatedSigned = delegatedIds.every(id => signedIds.has(id))
+
+        // Prérequis par partie de la portée :
+        //  - SGS      : sgs_evaluation_signee_le (posé ici si marque_sgs) —
+        //               requis uniquement si un workflow d'éval SGS existe
+        //               (éval transférée depuis le planning ou signature SGS en cours)
+        //  - standard : score_global renseigné (posé uniquement par la checklist standard)
+        const portee = fresh.portee || []
+        const hasPortee = portee.length > 0
+        const sgsWorkflow = opts.marque_sgs || !!fresh.sgs_evaluation_prepa || !!fresh.sgs_evaluation_signee_le
+        const needSgs = hasPortee && portee.includes('SGS') && sgsWorkflow
+        const needStd = hasPortee && portee.some(c => c !== 'SGS')
+        const sgsDone = !needSgs || !!updateData.sgs_evaluation_signee_le || !!fresh.sgs_evaluation_signee_le
+        const stdDone = !needStd || opts.score_global != null || fresh.score_global != null
+
+        const statutAvant = fresh.statut
+        const peutAvancer =
+          ['planifiee', 'en_cours'].includes(statutAvant) &&
+          allDelegatedSigned &&
+          sgsDone &&
+          stdDone
+
+        if (peutAvancer) updateData.statut = 'checklist_signee'
+
+        await get().updateSurveillance(surveillanceId, updateData)
+
+        // Avancement automatique des délégations du signataire
+        delegations
+          .filter(d => d.assigne_a === opts.signataire_id)
+          .forEach(d => {
+            get().updateDelegation(d.id, {
+              statut: 'checklist_signee',
+              progression: 100,
+              checklist_signature_url: opts.signature_url,
+              checklist_signe_le: now,
+              derniere_activite: now,
+              derniere_sync: now,
+            })
+          })
+
+        let raison: string | undefined
+        if (!peutAvancer && ['planifiee', 'en_cours'].includes(statutAvant)) {
+          if (!allDelegatedSigned) raison = "En attente des signatures des autres membres délégués"
+          else if (!sgsDone) raison = "L'évaluation SGS doit être signée avant de continuer"
+          else if (!stdDone) raison = "La checklist standard doit être signée avant de continuer"
+        }
+
+        return { ok: true, avancee: peutAvancer, raison }
+      },
+
       getProchaineEtape: (surveillance) => {
         const mapping: Record<Surveillance['statut'], { type: 'checklist' | 'ecarts' | 'rapport' | 'lettre' | 'transmission' | null; label: string }> = {
           'planifiee': { type: 'checklist', label: 'Démarrer la checklist' },
@@ -7698,6 +8107,15 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         switch (surveillance.statut) {
           case 'planifiee': return { peut: true }
           case 'en_cours': {
+            // Portée SGS seule : pas d'items de checklist standard — la
+            // signature de l'évaluation SGS (PAOE) fait foi.
+            const portee = surveillance.portee || []
+            const isSgsOnly = portee.length === 1 && portee[0] === 'SGS'
+            if (isSgsOnly) {
+              return surveillance.sgs_evaluation_signee_le
+                ? { peut: true }
+                : { peut: false, raison: "L'évaluation SGS doit être renseignée et signée" }
+            }
             const progression = get().calculerProgression(surveillanceId)
             if (progression < 100) {
               return { peut: false, raison: `${100 - progression}% des items non renseignés` }
@@ -7734,11 +8152,21 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       passerEtapeSuivante: async (surveillanceId) => {
         const { peut, raison } = get().peutPasserEtape(surveillanceId)
         if (!peut) {
-          console.error('Impossible de passer à l\'étape suivante:', raison)
-          return
+          console.warn('[passerEtapeSuivante] Bloqué:', raison)
+          const surveillance = get().surveillances.find(s => s.id === surveillanceId)
+          if (surveillance) {
+            get().addNotification({
+              user_id: get().user?.id || '',
+              type: 'warning',
+              title: 'Étape suivante indisponible',
+              message: raison || 'Les conditions pour passer à l\'étape suivante ne sont pas réunies',
+              canal: 'in_app',
+            })
+          }
+          return { ok: false, raison }
         }
         const surveillance = get().surveillances.find(s => s.id === surveillanceId)
-        if (!surveillance) return
+        if (!surveillance) return { ok: false, raison: 'Surveillance introuvable' }
         const mappingStatut: Record<Surveillance['statut'], Surveillance['statut']> = {
           'planifiee': 'en_cours',
           'en_cours': 'checklist_signee',
@@ -7750,7 +8178,9 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
           'archivee': 'archivee'
         }
         const nouveauStatut = mappingStatut[surveillance.statut]
-        if (nouveauStatut) {
+        // Statut terminal ou inconnu : rien à faire, la transition est un succès no-op
+        if (!nouveauStatut || nouveauStatut === surveillance.statut) return { ok: true }
+        {
           if (nouveauStatut !== 'transmise') {
             const updateData: Partial<Surveillance> = { statut: nouveauStatut }
             // Au moment de la signature checklist, persister la hiérarchie complète sur la surveillance
@@ -7798,7 +8228,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
                 }
               }, 0)
             }
-            return
+            return { ok: true }
           }
 
           // Quand la surveillance est transmise, convertir les ecartsRedaction en ecarts officiels puis basculer à pac_attendu
@@ -7956,9 +8386,11 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
                 created_at: now,
               })
             }
+
+            return { ok: true }
         }
       },
-      
+
       verifierAvantTransmission: (surveillanceId) => {
         const surveillance = get().surveillances.find(s => s.id === surveillanceId)
         if (!surveillance) {
@@ -8352,6 +8784,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         historiqueEcarts: state.historiqueEcarts,
         utilisateurs: state.utilisateurs,
         profilsRisque: state.profilsRisque,
+        historiqueScores: state.historiqueScores,
         certifications: state.certifications,
         homologations: state.homologations,
         exemptions: state.exemptions,

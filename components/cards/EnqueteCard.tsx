@@ -66,7 +66,7 @@ export function EnqueteCard({
   const getCriticiteBadge = (criticite: string) => {
     switch (criticite) {
       case 'basse':    return { label: 'Basse',    cls: 'badge success' }
-      case 'moyenne':  return { label: 'Moyenne',  cls: 'badge primary' }
+      case 'moyenne':  return { label: 'Moyenne',  cls: 'badge teal' }
       case 'haute':    return { label: 'Haute',    cls: 'badge warning' }
       case 'critique': return { label: 'Critique', cls: 'badge danger animate-pulse' }
       default: return { label: criticite, cls: 'badge neutral' }

@@ -69,7 +69,7 @@ export class RiskProfileEngine {
     }
 
     // Synthèse multi-modèles (modelSynthesis)
-    const synthese = synthetiserModeles(profil)
+    const synthese = synthetiserModeles(profil, profil.qualitative_metrics)
     if (synthese.indiceGlobal >= 70) {
       alertes.push(`Synthèse modèles: dégradation confirmée (indice ${synthese.indiceGlobal}/100, confiance ${synthese.confianceGlobale}%)`)
     }

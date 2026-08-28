@@ -4,12 +4,10 @@
 export { SurveillanceChecklistStandard } from './SurveillanceChecklistStandard';
 export { SurveillanceChecklistSuiviEcarts, EcartEvaluationCard } from './SurveillanceChecklistSuiviEcarts';
 export { SurveillanceChecklistPAC } from './SurveillanceChecklistPAC';
-export { SurveillanceChecklistItem } from './SurveillanceChecklistItem';
 export { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 export { FileUploader } from '@/components/ui/FileUploader';
 
 export type { ResultatChecklist } from '@/types/checklist';
-export type { ChecklistItemData, ChecklistItemState } from './SurveillanceChecklistItem';
 export type { EcartEvaluation, NiveauRisque, StatutMesure, CriticiteEvaluation, CritereCriticite, ResultatSuivi, Preuve, PAOELevel } from './SurveillanceChecklistSuiviEcarts';
 
 export const RESULTAT_LABELS = {

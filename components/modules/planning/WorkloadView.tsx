@@ -33,14 +33,25 @@ interface LigneCharge {
   competences: string[];
 }
 
-const MOIS_OPTIONS = [
-  { value: '2025-11', label: 'Novembre 2025' },
-  { value: '2025-12', label: 'Décembre 2025' },
-  { value: '2026-01', label: 'Janvier 2026' },
-  { value: '2026-02', label: 'Février 2026' },
-  { value: '2026-03', label: 'Mars 2026' },
-  { value: '2026-04', label: 'Avril 2026' },
-];
+// Mois couverts par le sélecteur de charge : générés dynamiquement de début d'année
+// précédente à fin d'année suivante (rien de hardcodé — s'adapte à l'année courante).
+function genererMoisOptions(): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = []
+  const now = new Date()
+  const cursor = new Date(now.getFullYear() - 1, 0, 1)
+  const fin = new Date(now.getFullYear() + 1, 11, 31)
+  while (cursor <= fin) {
+    const value = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+    options.push({
+      value,
+      label: cursor.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+    })
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+  return options
+}
+
+const MOIS_OPTIONS = genererMoisOptions();
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -101,7 +112,7 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
       const tauxOccupation = joursOuverts > 0 ? Math.min(100, Math.round((joursTerrain / joursOuverts) * 100)) : 0;
       const enAlerte = joursTerrain > 20;
 
-      const competences = insp.competences?.map((c: any) => c.domaine) || [];
+      const competences = insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [];
 
       return {
         inspecteurId: insp.id,
@@ -200,7 +211,7 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
           <div className="text-center py-8 text-muted-foreground">
             <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">Aucun inspecteur trouvé</p>
-            <p className="text-xs">Vérifiez que des inspecteurs sont configurés dans l'application</p>
+            <p className="text-xs">Vérifiez que des inspecteurs sont configurés dans l&apos;application</p>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(220, lignesCharge.length * 35)}>

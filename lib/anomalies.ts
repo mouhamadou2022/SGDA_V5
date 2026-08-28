@@ -205,12 +205,12 @@ export function detectPACsEnRetard(ecarts: Ecart[], now: Date): Anomalie[] {
 
 export function detectRisqueDegradation(profilsRisque: ProfilRisque[]): Anomalie[] {
   return profilsRisque
-    .filter((p) => p.tendance === 'hausse' || p.niveau === 'critique')
+    .filter((p) => p.tendance === 'baisse' || p.niveau === 'critique')
     .map((p) => ({
       id: `risque_deg_${p.aerodrome_id}`,
       type: 'risque_degradation' as AnomalieType,
       severite: p.niveau === 'critique' ? 'critique' : 'haute',
-      titre: `Risque en hausse`,
+      titre: `Risque en dégradation`,
       description: `Score ${p.score_global}/100 (${p.niveau}) — tendance : ${p.tendance}`,
       entiteId: p.aerodrome_id,
       entiteType: 'aerodrome',

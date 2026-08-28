@@ -134,7 +134,7 @@ export class WeightController {
         if (actualDelta !== 0) {
           this.weights[dim] = newWeight
           const adj: WeightAdjustment = {
-            id: `wadj-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            id: `wadj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             dim,
             delta: actualDelta,
             raison: `${stats.efficace}/${stats.total} efficaces (ratio ${(ratioEfficacite * 100).toFixed(0)}%) → ${actualDelta > 0 ? 'augmentation' : 'réduction'} de ${Math.abs(actualDelta)} pts`,

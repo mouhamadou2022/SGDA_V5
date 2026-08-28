@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import SurveillanceRapport from '@/components/modules/surveillance/SurveillanceRapport';
 import { canEditSurveillanceContent } from '@/lib/config';
-import { ArrowLeft, FileText, Wifi, WifiOff, FileDown, Eye } from 'lucide-react';
+import { ArrowLeft, FileText, Wifi, WifiOff, FileDown, Eye, CheckCircle2, AlertTriangle, ClipboardList } from 'lucide-react';
 
 export default function RapportPage() {
   const params = useParams();
@@ -63,6 +63,26 @@ export default function RapportPage() {
   const estPDF = surveillance.rapport_fichier_url?.startsWith('data:application/pdf');
   const estImage = surveillance.rapport_fichier_url?.startsWith('data:image/');
 
+  // ── Encart d'avancement : étapes du workflow, écarts rédigés, preuves manquantes, verification_report ──
+  const etapes = [
+    { cle: 'checklist', label: 'Checklist évaluée', ok: !!surveillance.checklist_hierarchy?.length },
+    { cle: 'ecarts', label: 'Écarts rédigés', ok: ecartsData.length > 0 },
+    { cle: 'rapport', label: 'Rapport rédigé', ok: !!surveillance.rapport_html || isCharged },
+  ];
+  const etapesFaites = etapes.filter(e => e.ok).length;
+  const etapesRestantes = etapes.filter(e => !e.ok);
+
+  // Items de la checklist avec résultat renseigné (hors observation éventuelle)
+  const itemsRenseignes = (surveillance.checklist_hierarchy || []).flatMap(d => [
+    ...(d.items || []),
+    ...(d.sousDomaines || []).flatMap(sd => [
+      ...(sd.items || []),
+      ...(sd.sousSousDomaines || []).flatMap(ssd => ssd.items || []),
+    ]),
+  ]);
+  const itemsSansPreuve = itemsRenseignes.filter(i => (i.resultat === 'NS' || i.resultat === 'NV') && (!i.fichiers || i.fichiers.length === 0));
+  const verification = surveillance.verification_report;
+
   return (
     <div className="min-h-screen bg-gray-50" data-role={user?.role} data-module="rapport">
       {/* Header */}
@@ -116,6 +136,72 @@ export default function RapportPage() {
 
       {/* Contenu — plein écran avec espacement latéral */}
       <div className="px-6 py-6">
+        {/* Encart d'avancement */}
+        <div className="mb-4 card border-l-4 border-l-role-primary">
+          <div className="card-header flex items-center justify-between flex-wrap gap-2">
+            <div className="card-title text-sm font-medium flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-role-primary" />
+              Avancement de la mission
+            </div>
+            <span className={`badge ${etapesFaites === etapes.length ? 'success' : 'warning'}`}>
+              {etapesFaites}/{etapes.length} étapes
+            </span>
+          </div>
+          <div className="card-content p-4 space-y-3">
+            {etapesRestantes.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {etapesRestantes.length} étape{etapesRestantes.length > 1 ? 's' : ''} restante{etapesRestantes.length > 1 ? 's' : ''} :{' '}
+                {etapesRestantes.map(e => e.label).join(', ')}
+              </p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {etapes.map(e => (
+                <div key={e.cle} className={`flex items-center gap-2 text-xs p-2 rounded-lg border ${e.ok ? 'border-success/40 bg-success/10' : 'border-border bg-muted/30'}`}>
+                  {e.ok ? <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0" />}
+                  <span className={`font-medium ${e.ok ? 'text-success' : 'text-muted-foreground'}`}>{e.label}</span>
+                  {!e.ok && <span className="ml-auto text-[9px] text-muted-foreground">restante</span>}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-3 rounded-lg border border-border">
+                <p className="text-xs text-muted-foreground">Écarts rédigés</p>
+                <p className="text-lg font-bold text-foreground">{ecartsData.length}</p>
+              </div>
+              <div className="p-3 rounded-lg border border-border">
+                <p className="text-xs text-muted-foreground">Points NS/NV sans preuve</p>
+                <p className={`text-lg font-bold ${itemsSansPreuve.length > 0 ? 'text-danger' : 'text-success'}`}>{itemsSansPreuve.length}</p>
+              </div>
+              <div className="p-3 rounded-lg border border-border">
+                <p className="text-xs text-muted-foreground">Items renseignés</p>
+                <p className="text-lg font-bold text-foreground">{itemsRenseignes.length}</p>
+              </div>
+            </div>
+
+            {/* Rapport de vérification documentaire (couverture) */}
+            {verification ? (
+              <div className={`p-3 rounded-lg border ${verification.scoreCouverture >= 80 ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10'}`}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-xs font-semibold flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-role-primary" />
+                    Vérification documentaire — couverture {verification.scoreCouverture}%
+                  </p>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(verification.dateVerification).toLocaleDateString('fr-FR')}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground mt-1.5">{verification.synthese}</p>
+                {verification.documents.some(d => d.aEvolue) && (
+                  <p className="text-xs text-warning mt-1.5">
+                    ⚠ {verification.documents.filter(d => d.aEvolue).length} document(s) ont évolué depuis la génération — une régénération de la checklist est recommandée.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         {isCharged ? (
           <div className="space-y-4">
             <div className="card">

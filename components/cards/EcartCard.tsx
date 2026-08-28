@@ -72,8 +72,8 @@ export function EcartCard({
   const getBadgeNiveau = (niveau: string): { label: string; cls: string } => {
     const variants: Record<string, { label: string; cls: string }> = {
       critique: { label: 'Critique', cls: 'badge danger animate-pulse' },
-      eleve: { label: 'Élevé', cls: 'badge warning' },
-      moyen: { label: 'Moyen', cls: 'badge primary' },
+      eleve: { label: 'Élevé', cls: 'badge eleve' },
+      moyen: { label: 'Moyen', cls: 'badge moyen' },
       faible: { label: 'Faible', cls: 'badge success' },
     }
     return variants[niveau] || { label: niveau, cls: 'badge neutral' }

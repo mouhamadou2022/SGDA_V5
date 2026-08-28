@@ -38,6 +38,13 @@ function getCritereTendance(score: number, globalTendance: string): 'hausse' | '
   return globalTendance as 'hausse' | 'baisse' | 'stable'
 }
 
+function TendanceIcon({ t, s = 'sm' }: { t: string; s?: 'sm' | 'md' }) {
+  const sz = s === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'
+  if (t === 'hausse') return <span className="flex items-center gap-1 text-success text-xs"><TrendingUp className={sz} />Hausse</span>
+  if (t === 'baisse') return <span className="flex items-center gap-1 text-danger text-xs"><TrendingDown className={sz} />Baisse</span>
+  return <span className="flex items-center gap-1 text-foreground text-xs"><Minus className={sz} />Stable</span>
+}
+
 export function TendanceTable({ profil }: Props) {
   const data = useMemo(() => CRITERES.map(c => {
     const s = profil[c.key]; const t = getCritereTendance(s, profil.tendance)
@@ -54,13 +61,6 @@ export function TendanceTable({ profil }: Props) {
     let minC = '', maxC = ''; for (const c of CRITERES) { if (profil[c.key] === min) minC = c.court; if (profil[c.key] === max) maxC = c.court }
     return { avg: Math.round(avg), min, max, ecart: ecart.toFixed(1), minC, maxC }
   }, [profil])
-
-  const TendanceIcon = ({ t, s = 'sm' }: { t: string; s?: 'sm' | 'md' }) => {
-    const sz = s === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'
-    if (t === 'hausse') return <span className="flex items-center gap-1 text-success text-xs"><TrendingUp className={sz} />Hausse</span>
-    if (t === 'baisse') return <span className="flex items-center gap-1 text-danger text-xs"><TrendingDown className={sz} />Baisse</span>
-    return <span className="flex items-center gap-1 text-foreground text-xs"><Minus className={sz} />Stable</span>
-  }
 
   return (
     <div className="space-y-5">
@@ -106,11 +106,11 @@ export function TendanceTable({ profil }: Props) {
           </div>
         </Card>
         <Card variant="role" title="Intervalles de confiance" icon={<CheckCircle2 className="w-4 h-4" />}>
-          <p className="text-xs text-foreground">Les IC (95%) représentent la fourchette probable d'évolution du score. Plus l'intervalle est large, plus l'incertitude est élevée. Prédictions basées sur la tendance historique.</p>
+          <p className="text-xs text-foreground">Les IC (95%) représentent la fourchette probable d&apos;évolution du score. Plus l&apos;intervalle est large, plus l&apos;incertitude est élevée. Prédictions basées sur la tendance historique.</p>
         </Card>
         <Card variant="role" title="Recommandations" icon={<AlertTriangle className="w-4 h-4" />}>
           <div className="space-y-1 text-xs">
-            {stats.min < 40 && <p className="text-warning">Prioriser l'amélioration du critère {stats.minC}</p>}
+            {stats.min < 40 && <p className="text-warning">Prioriser l&apos;amélioration du critère {stats.minC}</p>}
             {profil.tendance === 'baisse' && <p className="text-danger">Tendance baissière globale — renforcer la surveillance</p>}
             {Number(stats.ecart) > 20 && <p className="text-primary">Forte disparité entre critères — approche ciblée recommandée</p>}
             {stats.min >= 60 && profil.tendance !== 'baisse' && <p className="text-success">Profil équilibré — maintenir les bonnes pratiques</p>}

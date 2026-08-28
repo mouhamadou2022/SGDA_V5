@@ -128,10 +128,12 @@ export function predictRandomForest(
     try {
       const arr = featuresToArray(features)
       const pred = rf.predict(arr)
-      // pred.prediction est déjà le label final traité par la version B
-      // (classMapping interne de la classe a déjà fait l'aller-retour index ↔ label)
+      // Le classMapping interne est indexé sur String(LABEL_TO_IDX) ('0'..'3')
+      // → re-convertir l'index prédit vers le label sémantique
       const labelStr = pred.prediction as string
-      return (labelStr as 'critique' | 'eleve' | 'moyen' | 'faible') || 'moyen'
+      const idx = Number(labelStr)
+      const label = Number.isInteger(idx) && IDX_TO_LABEL[idx] ? IDX_TO_LABEL[idx] : labelStr
+      return (label as 'critique' | 'eleve' | 'moyen' | 'faible') || 'moyen'
     } catch {
       return scoreToLabel(features.score_global ?? 50)
     }

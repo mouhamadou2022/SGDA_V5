@@ -34,8 +34,8 @@ const GRAVITE_LABELS: Record<string, string> = {
 
 const GRAVITE_RISK: Record<string, { label: string; classe: string }> = {
   CRITIQUE: { label: 'Critique', classe: 'danger' },
-  ORANGE:   { label: 'Élevé',    classe: 'warning' },
-  JAUNE:    { label: 'Moyen',    classe: 'primary' },
+  ORANGE:   { label: 'Élevé',    classe: 'eleve' },
+  JAUNE:    { label: 'Moyen',    classe: 'moyen' },
   GRIS:     { label: 'Faible',   classe: 'success' },
   BLEU:     { label: 'Faible',   classe: 'success' },
 }
@@ -134,8 +134,8 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
   const getNiveauCouleur = (niveau: NiveauRisqueICAO): string => {
     const map: Record<NiveauRisqueICAO, string> = {
       critique: 'text-danger border-danger/30 bg-danger/5',
-      eleve: 'text-warning border-warning/30 bg-warning/5',
-      moyen: 'text-primary border-primary/30 bg-primary/5',
+      eleve: 'text-eleve border-eleve/30 bg-eleve/5',
+      moyen: 'text-moyen border-moyen/30 bg-moyen/5',
       faible: 'text-success border-success/30 bg-success/5',
     }
     return map[niveau]
@@ -144,8 +144,8 @@ export default function EvenementAnalytics({ aerodromeId, userRole = 'inspector'
   const getBadgeNiveau = (niveau: NiveauRisqueICAO): string => {
     const map: Record<NiveauRisqueICAO, string> = {
       critique: 'badge danger',
-      eleve: 'badge warning',
-      moyen: 'badge primary',
+      eleve: 'badge eleve',
+      moyen: 'badge moyen',
       faible: 'badge success',
     }
     return map[niveau]

@@ -276,11 +276,11 @@ export const getRiskLevel = (score: number): keyof typeof RISK_LEVELS => {
 
 // Fonction de conversion score_global → NiveauRisque (vocabulaire frequency.ts / OACI 5×5 4-niveaux)
 // Centralisée pour éviter les mappings inline incohérents dans computeOptimalFrequency et ailleurs.
-// Seuils alignés sur RISK_LEVELS : <30 critique, <50 eleve, <70 moyen, ≥70 faible.
+// Seuils alignés sur RISK_LEVELS : <30 critique, <60 eleve, <80 moyen, ≥80 faible.
 export function mapScoreToRiskLevel(score: number): 'critique' | 'eleve' | 'moyen' | 'faible' {
   if (score < 30) return 'critique';
-  if (score < 50) return 'eleve';
-  if (score < 70) return 'moyen';
+  if (score < 60) return 'eleve';
+  if (score < 80) return 'moyen';
   return 'faible';
 }
 
@@ -627,35 +627,18 @@ export async function computeBayesianPosterior(
 
 /**
  * Pont vers le réseau bayésien causal (bow-tie + nœuds org)
- * Appelée à côté de computeBayesianPosterior — ne remplace pas le score C1-C5
+ * Prend un BowTie réel (généré par generateDomaineBowTie) plutôt que de
+ * fabriquer des données factices — l'ancienne version câblait des barrières
+ * hardcodées et ignorait bowTieId/aerodromeId.
  */
 export async function computeBayesianNetworkRisk(
-  bowTieId: string,
-  aerodromeId?: string,
+  bowTie: BowTieModele,
   evidences: Record<string, number> = {}
 ): Promise<{ probabiliteResiduelle: number; barrieresCritiques: string[]; confiance: number } | null> {
   try {
     const { construireReseauDepuisBowTie, computeBayesianNetworkRisk: compute } = await import('@/lib/risque/bayesianNetwork')
-    const bt: BowTieModele = {
-      id: bowTieId,
-      domaine: aerodromeId || 'SGS',
-      danger: `Danger ${bowTieId}`,
-      defaillance: `Défaillance ${bowTieId}`,
-      scenario: `Scénario ${bowTieId}`,
-      consequence: `Conséquence ${bowTieId}`,
-      barrieresPreventives: [
-        { id: `${bowTieId}_prev1`, nom: 'Barrière préventive 1', type: 'preventive', efficace: true, efficacite: 80 },
-        { id: `${bowTieId}_prev2`, nom: 'Barrière préventive 2', type: 'preventive', efficace: true, efficacite: 75 },
-      ],
-      barrieresCorrectives: [
-        { id: `${bowTieId}_corr1`, nom: 'Barrière corrective 1', type: 'corrective', efficace: true, efficacite: 70 },
-        { id: `${bowTieId}_corr2`, nom: 'Barrière corrective 2', type: 'corrective', efficace: true, efficacite: 65 },
-      ],
-      probabiliteResiduelle: 50,
-      niveauRisqueResiduel: 'moyen',
-      lastAssessed: new Date().toISOString(),
-    }
-    const result = compute(construireReseauDepuisBowTie(bt), `consequence_${bowTieId}`, evidences)
+    const reseau = construireReseauDepuisBowTie(bowTie)
+    const result = compute(reseau, `consequence_${bowTie.id}`, evidences)
     return {
       probabiliteResiduelle: result.probabiliteResiduelle,
       barrieresCritiques: result.barrieresCritiques,

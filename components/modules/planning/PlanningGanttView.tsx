@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { Planning, Aerodrome } from '@/lib/store';
+import { Planning, Aerodrome, Utilisateur } from '@/lib/store';
 import { Users, AlertCircle, Clock } from 'lucide-react';
 
 interface GanttViewProps {
@@ -10,6 +10,7 @@ interface GanttViewProps {
   aerodromes: Aerodrome[];
   selectedYear: number;
   userRole?: string;
+  utilisateurs?: Utilisateur[];
 }
 
 interface InspecteurCharge {
@@ -28,7 +29,7 @@ interface InspecteurCharge {
   alerteCharge?: boolean;
 }
 
-export default function PlanningGanttView({ plannings, aerodromes, selectedYear, userRole = 'inspector' }: GanttViewProps) {
+export default function PlanningGanttView({ plannings, aerodromes, selectedYear, userRole = 'inspector', utilisateurs = [] }: GanttViewProps) {
   // Calculer les mois de l'année
   const months = React.useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
@@ -53,9 +54,11 @@ export default function PlanningGanttView({ plannings, aerodromes, selectedYear,
       
       planning.equipe_ids.forEach((inspId: string) => {
         if (!inspectorMap.has(inspId)) {
+          const u = utilisateurs.find(x => x.id === inspId);
           inspectorMap.set(inspId, {
             id: inspId,
-            nom: `Inspecteur ${inspId.slice(-4)}`,
+            nom: u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || `Inspecteur ${inspId.slice(-4)}` : `Inspecteur ${inspId.slice(-4)}`,
+            prenom: u?.prenom,
             plannings: [],
             charge: 0,
             chargeMax: chargeMaxAnnuelle,
@@ -82,7 +85,7 @@ export default function PlanningGanttView({ plannings, aerodromes, selectedYear,
 
     return Array.from(inspectorMap.values())
       .sort((a, b) => b.charge - a.charge);
-  }, [plannings]);
+  }, [plannings, utilisateurs]);
 
   // Calculer la position d'un planning dans la timeline
   const getPlanningPosition = (planning: Planning) => {
@@ -133,7 +136,7 @@ export default function PlanningGanttView({ plannings, aerodromes, selectedYear,
     switch (priorite) {
       case 'critique': return 'badge danger';
       case 'haute': return 'badge warning';
-      case 'moyenne': return 'badge primary';
+      case 'moyenne': return 'badge teal';
       default: return 'badge neutral';
     }
   };
@@ -246,7 +249,7 @@ export default function PlanningGanttView({ plannings, aerodromes, selectedYear,
           {planningsByInspector.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p className="text-body">Aucun planning pour l'année {selectedYear}</p>
+              <p className="text-body">Aucun planning pour l&apos;année {selectedYear}</p>
             </div>
           )}
         </div>

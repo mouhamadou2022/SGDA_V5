@@ -50,6 +50,10 @@ export class DecisionTracker {
   private syncCallback: SyncDecisionCallback | null = null
   private ready: boolean = false
   private pendingQueue: Array<() => void> = []
+  // Sérialise les recalibrages bayésiens PAR domaine : le read-modify-write de
+  // recalibrerDepuisDecision (get → incrément → set) n'est pas atomique ; sans
+  // verrou, deux évaluations concurrentes du même domaine perdaient un comptage.
+  private bayesCalibQueues: Record<string, Promise<void>> = {}
 
   constructor() {}
 
@@ -94,7 +98,7 @@ export class DecisionTracker {
           // L'auto-évaluation arrive après une évaluation manuelle différente
           // On garde la manuelle mais on stocke l'auto pour détection de conflit
           existing.effectivenessAuto = r.effectiveness
-        } else if (existing && !r.autoEvaluated && existing.effectiveness !== 'non_evalue' && existing.effectiveness !== r.effectiveness) {
+        } else if (existing && !r.autoEvaluated && !existing.autoEvaluated && existing.effectiveness !== 'non_evalue' && existing.effectiveness !== r.effectiveness) {
           // Deux évaluations manuelles divergentes — on ne les écrase pas
           // On conserve la divergence dans effectivenessAuto pour getEvalConflicts()
           existing.effectivenessAuto = r.effectiveness
@@ -104,6 +108,8 @@ export class DecisionTracker {
           existing.autoEvaluated = false
         } else if (existing && !r.autoEvaluated && existing.autoEvaluated && existing.effectiveness !== r.effectiveness) {
           // Manuel écrase auto : l'humain a le dernier mot
+          // (atteignable désormais : le cas « deux manuelles divergentes » exclut
+          //  explicitement existing.autoEvaluated, sinon il captait ce scénario)
           existing.effectiveness = r.effectiveness
           existing.autoEvaluated = false
         }
@@ -237,9 +243,24 @@ export class DecisionTracker {
   }
 
   private async recalibrerDepuisDecision(record: DecisionRecord): Promise<void> {
+    const domaine = record.recommendation?.domaine
+    if (!domaine) return
+    const storeKey = `cpts_bt-${domaine}`
+    // Enchaîne l'exécution par domaine pour éviter la course read-modify-write.
+    const precedent = this.bayesCalibQueues[storeKey] ?? Promise.resolve()
+    const suivant = precedent.then(() => this.doRecalibrerDepuisDecision(record))
+    // Ne jamais casser la chaîne si une exécution échoue
+    this.bayesCalibQueues[storeKey] = suivant.catch(() => {})
+    return suivant
+  }
+
+  private async doRecalibrerDepuisDecision(record: DecisionRecord): Promise<void> {
     const orgStateMap: Record<string, number | undefined> = {
       'efficace': 0,
-      'partiellement_efficace': 1,
+      // Valeur standard du type EffectivenessRating — 'partiellement_efficace'
+      // était une valeur orpheline qui ne matchait rien, donc les outcomes
+      // "partiel" ne recalibraient jamais (orgState === undefined → return).
+      'partiel': 1,
       'inefficace': 2,
     }
     const orgState = orgStateMap[record.effectiveness]

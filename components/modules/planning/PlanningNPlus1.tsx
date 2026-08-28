@@ -26,7 +26,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   audit_complet: <Target className="w-4 h-4" />, periodique: <Calendar className="w-4 h-4" />,
 }
 const SOURCE_CLS: Record<string, string> = {
-  profil_risque: 'badge primary', carryover_ecart: 'badge danger',
+  profil_risque: 'badge teal', carryover_ecart: 'badge danger',
   carryover_pac: 'badge warning', certification_renouvellement: 'badge success', injection: 'badge neutral',
 }
 const SOURCE_LABEL: Record<string, string> = {
@@ -34,7 +34,7 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 const MOTIFS_REFUS = ['Déjà planifié', 'Fréquence trop élevée', 'Domaines non pertinents', 'Période inadaptée', 'Doublon avec un planning existant']
 const SURVEILLANCE_TYPES = ['periodique', 'maintien', 'suivi_ecarts', 'mise_oeuvre_pac', 'audit_complet', 'certification']
-const PRIORITE_BADGE: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+const PRIORITE_BADGE: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge teal', basse: 'badge success' }
 const PRIORITE_LABEL: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
 
 export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {

@@ -1225,7 +1225,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
     if (enrichedKey.current === key) return;
     if (assistantAgent.isLLMAvailable() === false) {
-      setLlmError('L\'assistant AERORISQ n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+      setLlmError('L\'assistant AERORISQ n\'est pas disponible — démarrez Ollama (ollama serve) ou configurez une clé cloud dans .env.local')
       return
     }
     setLlmError(null)
@@ -1254,7 +1254,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       )
       if (mySeq !== requestSeq.current) return;
       if (result === 'LLM_UNAVAILABLE') {
-        setLlmError('L\'assistant AERORISQ n\'est pas disponible — configurez GROQ_API_KEY dans .env.local')
+        setLlmError('L\'assistant AERORISQ n\'est pas disponible — démarrez Ollama (ollama serve) ou configurez une clé cloud dans .env.local')
         setAiSuggestion(null)
       } else {
         setAiSuggestion(result as AiSuggestion | null)

@@ -81,6 +81,7 @@ export async function GET(request: Request) {
           .from('evenements_securite').select('*').eq('aerodrome_id', aerodromeId)
 
         const ecartsAerodrome = (ecarts || []).filter((e: any) => e.statut !== 'cloture')
+        const ecartsTous = (ecarts || [])
         const surveillancesAerodrome = (surveillances || []).filter((s: any) => s.score_global != null && s.statut === 'checklist_signee')
         const evenementsAerodrome = (evenements || []).map((e: any) => ({
           gravite: e.gravite || 'moyen',
@@ -91,7 +92,7 @@ export async function GET(request: Request) {
         const sgsNonApplicable = aerodrome.statut_sgs === 'non_applicable'
         const maturiteSGS = sgsNonApplicable ? 0 : (aerodrome.maturite_sgs ?? 50)
         const c1 = risqueUtils.calculateC1(maturiteSGS, undefined, aerodrome.statut_sgs)
-        const c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome || [])
+        const c2 = risqueUtils.calculateC2FromEcarts(ecartsTous || [])
         const c3 = surveillancesAerodrome.length > 0
           ? risqueUtils.calculateC3(surveillancesAerodrome.map((s: any) => ({
               score: s.score_global,
@@ -122,12 +123,13 @@ export async function GET(request: Request) {
             : { score3m: scoreGlobal, score6m: scoreGlobal, confidence: 30 }
 
         // Dériver la tendance : delta entre score actuel et prédiction 3m
+        // Convention repo : 'hausse' = score qui monte = amélioration, 'baisse' = dégradation
         const deltaPrediction = predictions.score3m - scoreGlobal
-        const tendance = Math.abs(deltaPrediction) < 5
+        const tendance: 'hausse' | 'baisse' | 'stable' = Math.abs(deltaPrediction) < 5
           ? 'stable'
           : deltaPrediction > 0
-            ? 'amelioration'
-            : 'deterioration'
+            ? 'hausse'
+            : 'baisse'
 
         // 5. Construire le profil
         const now = new Date().toISOString()

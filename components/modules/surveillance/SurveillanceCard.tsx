@@ -33,9 +33,9 @@ export default function SurveillanceCard({ surveillance, onView, onEdit, onDelet
   const canManage = userRole === 'admin' || userRole === 'dg_anacim';
 
   return (
-    <div className={`surveillance-card border-l-${surveillance.statut === 'en_cours' ? 'warning' : 'primary'}`}>
+    <div className={`surveillance-card ${surveillance.statut === 'en_cours' ? 'border-l-warning' : 'border-l-primary'}`}>
       <span>{statutLabels[surveillance.statut] || surveillance.statut}</span>
-      <span>{surveillance.progression}%</span>
+      <span>{surveillance.progression ?? 0}%</span>
       {surveillance.portee?.map((p: string) => <span key={p}>{p}</span>)}
       <div className="flex gap-2 mt-2">
         <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={onView} title="Voir" aria-label="Voir">

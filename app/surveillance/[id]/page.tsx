@@ -155,9 +155,19 @@ export default function SurveillanceDetailPage() {
 
   const handleTransmettre = async (data: { dateLimitePAC: string; messagePersonnalise: string; dateTransmission: string }) => {
     if (!surveillance) return;
-    // passerEtapeSuivante est async — convertit ecartsRedaction → ecarts officiels (avec fallback Supabase)
-    // et passe à 'transmise'
-    await passerEtapeSuivante(surveillanceId);
+    // passerEtapeSuivante convertit ecartsRedaction → ecarts officiels (avec fallback Supabase)
+    // et passe à 'transmise'. En cas de blocage, on affiche la raison et on n'envoie pas.
+    const res = await passerEtapeSuivante(surveillanceId);
+    if (!res.ok) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Transmission impossible',
+        message: res.raison || 'Les conditions de transmission ne sont pas réunies',
+        canal: 'in_app',
+      });
+      return;
+    }
     // Compléter avec transmitted_at (non géré par passerEtapeSuivante)
     updateSurveillance(surveillanceId, { transmitted_at: data.dateTransmission });
     addNotification({
@@ -177,6 +187,18 @@ export default function SurveillanceDetailPage() {
 
   const handleChecklistAction = () => {
     if (hasSGS && !isSgsOnly) {
+      // Portée mixte : si une seule partie (standard ou SGS) reste à signer,
+      // on redirige directement vers elle au lieu d'ouvrir le module de choix.
+      const standardSignee = surveillance?.score_global != null;
+      const sgsSignee = !!surveillance?.sgs_evaluation_signee_le;
+      if (standardSignee && !sgsSignee) {
+        navigateToChecklist('sgs');
+        return;
+      }
+      if (sgsSignee && !standardSignee) {
+        navigateToChecklist('standard');
+        return;
+      }
       setShowSgsChoice('checklist');
     } else if (isSgsOnly) {
       navigateToChecklist('sgs');
@@ -214,12 +236,28 @@ export default function SurveillanceDetailPage() {
     ? `/surveillance/${surveillanceId}/ecarts/sgs`
     : `/surveillance/${surveillanceId}/ecarts`;
 
-  const handleEcartClick = () => {
+  // Ouvre les écarts d'une portée mixte en redirigeant vers la partie restante
+  // (ou vers le module de choix si les deux parties restent à traiter / à consulter).
+  const openEcarts = () => {
     if (hasSGS && !isSgsOnly) {
+      const standardSignee = (surveillance.signatures_ecarts || []).length > 0;
+      const sgsSignee = !!surveillance.sgs_ecarts_signes_le;
+      if (standardSignee && !sgsSignee) {
+        router.push(`/surveillance/${surveillanceId}/ecarts/sgs`);
+        return;
+      }
+      if (sgsSignee && !standardSignee) {
+        router.push(`/surveillance/${surveillanceId}/ecarts`);
+        return;
+      }
       setShowSgsChoice('ecarts');
     } else {
       router.push(ecartsRoute);
     }
+  };
+
+  const handleEcartClick = () => {
+    openEcarts();
   };
 
   const etapeRoutes: Record<string, string> = {
@@ -251,9 +289,9 @@ export default function SurveillanceDetailPage() {
     if (route === '__lettre__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowLettreModal(true); return; }
     if (route === '__rapport__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowRapportModal(true); return; }
     if (route === '__transmission__') { if (equipeReadOnly) { router.push(`/surveillance/${surveillanceId}/rapport`); return; } setShowTransmissionModal(true); return; }
-    // Écarts avec SGS mixte → choix
+    // Écarts avec SGS mixte → redirection intelligente vers la partie restante
     if (route === ecartsRoute && hasSGS && !isSgsOnly) {
-      setShowSgsChoice('ecarts');
+      openEcarts();
       return;
     }
     router.push(route);
@@ -488,19 +526,19 @@ export default function SurveillanceDetailPage() {
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
                           PDF
                         </button>
                         <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />}
                           Word
                         </button>
                       </div>
                       <button
                         onClick={handleChecklistAction}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <ClipboardList className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la checklist</span>
@@ -522,33 +560,31 @@ export default function SurveillanceDetailPage() {
                       )}
                       <button
                         onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
-                          'border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm'
-                        }`}
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Voir le rapport</span>
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
                         </button>
                         <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
                         </button>
                       </div>
                       <button
                         onClick={handleEcartClick}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
                       <button
                         onClick={handleChecklistAction}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <ClipboardList className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la checklist</span>
@@ -572,31 +608,31 @@ export default function SurveillanceDetailPage() {
                       )}
                       <button
                         onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Voir le rapport</span>
                       </button>
                       <button
                         onClick={handleEcartClick}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
                         </button>
                         <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
                         </button>
                       </div>
                       <button
                         onClick={handleChecklistAction}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <ClipboardList className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la checklist</span>
@@ -618,38 +654,38 @@ export default function SurveillanceDetailPage() {
                       )}
                       <button
                         onClick={() => setShowLettreModal(true)}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <Mail className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la lettre de transmission</span>
                       </button>
                       <button
                         onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Voir le rapport</span>
                       </button>
                       <button
                         onClick={handleEcartClick}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
                       <div className="flex gap-2">
                         <button onClick={handleExportChecklistPDF} disabled={exportingPdf}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingPdf ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />} PDF
                         </button>
                         <button onClick={handleExportChecklistDOCX} disabled={exportingDocx}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 text-sm font-medium transition-all disabled:opacity-50">
+                          className="btn btn-secondary flex-1 gap-2 text-sm disabled:opacity-50">
                           {exportingDocx ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />} Word
                         </button>
                       </div>
                       <button
                         onClick={handleChecklistAction}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <ClipboardList className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la checklist</span>
@@ -662,21 +698,21 @@ export default function SurveillanceDetailPage() {
                     <>
                       <button
                         onClick={() => router.push(`/surveillance/${surveillanceId}/rapport`)}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <FileText className="w-5 h-5 flex-shrink-0" />
                         <span>Voir le rapport</span>
                       </button>
                       <button
                         onClick={handleEcartClick}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <span>Voir les écarts</span>
                       </button>
                       <button
                         onClick={handleChecklistAction}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-border bg-muted hover:bg-role-primary/10 hover:border-role-primary/40 hover:text-role-primary text-foreground font-semibold text-sm transition-all duration-200 cursor-pointer"
+                        className="btn btn-secondary w-full justify-start gap-3"
                       >
                         <ClipboardList className="w-5 h-5 flex-shrink-0" />
                         <span>Voir la checklist</span>

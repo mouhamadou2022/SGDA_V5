@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import type { Barriere } from '@/lib/risque/types'
+import type { Barriere, BowTieModele } from '@/lib/risque/types'
 import type { ProfilRisque } from '@/lib/store'
 import { Shield, AlertTriangle, CheckCircle2, Target, Zap, ArrowUp, Brain, X, Plus, FileText } from 'lucide-react'
 import { getRiskLevelVariant } from '@/lib/risque'
@@ -61,7 +61,7 @@ export interface AutoEvalAction {
 }
 
 interface Props {
-  domaines: any[]
+  domaines: BowTieModele[]
   score: number
   aerodromeCode: string
   aerodromeName: string
@@ -80,8 +80,8 @@ export default function BowTieSelfAssessment({
   // Génère les actions pour toutes les barrières faibles des domaines
   const actions = useMemo(() => {
     const result: AutoEvalAction[] = []
-    domaines.forEach((b: any) => {
-      const toutes = [...(b.barrieresPreventives || []), ...(b.barrieresCorrectives || [])]
+    domaines.forEach((b: BowTieModele) => {
+      const toutes = [...b.barrieresPreventives, ...b.barrieresCorrectives]
       toutes.forEach((p: Barriere) => {
         if (p.efficacite >= CIBLE_DEFAUT) return
         const gain = computeGain(p.efficacite, CIBLE_DEFAUT)
@@ -137,7 +137,7 @@ export default function BowTieSelfAssessment({
   // Regroupe les actions par domaine pour l'affichage
   const actionsParDomaine = useMemo(() => {
     const map: Record<string, { domaine: string; danger: string; niveau: string; prob: number; defaillance: string; consequence: string; barrieres: Barriere[]; actions: AutoEvalAction[] }> = {}
-    domaines.forEach((b: any) => {
+    domaines.forEach((b: BowTieModele) => {
       map[b.domaine] = {
         domaine: b.domaine,
         danger: b.danger,
@@ -145,14 +145,14 @@ export default function BowTieSelfAssessment({
         prob: b.probabiliteResiduelle,
         defaillance: b.defaillance || b.scenario || '',
         consequence: b.consequence || '',
-        barrieres: [...(b.barrieresPreventives || []), ...(b.barrieresCorrectives || [])],
+        barrieres: [...b.barrieresPreventives, ...b.barrieresCorrectives],
         actions: [],
       }
     })
     toutesActions.forEach(a => {
       // Trouve le domaine de cette action
       for (const b of domaines) {
-        const toutes = [...(b.barrieresPreventives || []), ...(b.barrieresCorrectives || [])]
+        const toutes = [...b.barrieresPreventives, ...b.barrieresCorrectives]
         if (toutes.some((p: Barriere) => p.id === a.barriereId)) {
           if (map[b.domaine]) map[b.domaine].actions.push(a)
           break

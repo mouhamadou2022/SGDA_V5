@@ -12,16 +12,9 @@ interface Props {
   nbEcartsCritiques: number
 }
 
-function getSeasonIcon(month: number): React.ElementType {
-  if (month >= 6 && month <= 8) return CloudRain
-  if (month >= 11 || month <= 1) return Sun
-  return Calendar
-}
-
 export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
   const now = new Date()
   const month = now.getMonth()
-  const SeasonIcon = getSeasonIcon(month)
 
   const saisonActive = useMemo(() => {
     const t = detectAllTriggers({
@@ -38,10 +31,16 @@ export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
   const [risques, setRisques] = useState<string[]>(() => RISQUES_SAISONNIERS[month] ?? [])
   const [iaEnCours, setIaEnCours] = useState(true)
   const [iaActif, setIaActif] = useState(false)
+  const [prevInputs, setPrevInputs] = useState({ month, profil })
+  if (prevInputs.month !== month || prevInputs.profil !== profil) {
+    setPrevInputs({ month, profil })
+    setIaEnCours(true)
+    setIaActif(false)
+    setRisques(RISQUES_SAISONNIERS[month] ?? [])
+  }
 
   useEffect(() => {
     let actif = true
-    setIaEnCours(true)
     expliquerRisquesSaisoniersEnClair(month, profil).then((res) => {
       if (!actif) return
       setRisques(res.risques)
@@ -60,7 +59,11 @@ export function ExogenousFactorsCard({ profil, nbEcartsCritiques }: Props) {
         {/* Mois et saison */}
         <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-border">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${saisonActive ? 'bg-danger/10' : 'bg-primary-soft'}`}>
-            <SeasonIcon className={`w-5 h-5 ${saisonActive ? 'text-danger' : 'text-role-primary'}`} />
+            {month >= 6 && month <= 8
+              ? <CloudRain className={`w-5 h-5 ${saisonActive ? 'text-danger' : 'text-role-primary'}`} />
+              : month >= 11 || month <= 1
+                ? <Sun className={`w-5 h-5 ${saisonActive ? 'text-danger' : 'text-role-primary'}`} />
+                : <Calendar className={`w-5 h-5 ${saisonActive ? 'text-danger' : 'text-role-primary'}`} />}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">

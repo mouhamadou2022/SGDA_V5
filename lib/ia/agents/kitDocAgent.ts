@@ -9,13 +9,16 @@
 'use client'
 
 import { useAppStore, KitDocument, ProfilRisque, Aerodrome, KitChecklistItemGenere } from '@/lib/store'
+import type { DossierAnalyseResult, DossierAnalyseCritere, DossierChecklistItem, FicheBriefing } from '@/lib/store'
+import type { ResultatChecklist } from '@/types/checklist'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { checklistMemory } from '@/lib/checklistMemory'
 import { aiClient } from '@/lib/ia/aiClient'
-import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT } from '@/lib/ia/prompts'
+import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT, ANALYSER_DOCUMENT_DOSSIER_PROMPT, GENERER_CHECKLIST_TRAITEMENT_PROMPT, GENERER_FICHE_BRIEFING_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
 
 // ============================================================
 // TYPES EXPORTS
@@ -582,6 +585,9 @@ export function toDomaineChecklistArray(result: KitChecklistResult): any[] {
 export class KitDocAgent {
   private initialized = false
   private analysisCache = new Map<string, KitDocAnalysis>()
+  private dossierAnalysisCache = new Map<string, DossierAnalyseResult>()
+  private dossierChecklistCache = new Map<string, DossierChecklistItem[]>()
+  private briefingCache = new Map<string, FicheBriefing>()
 
   async init(): Promise<void> {
     this.initialized = true
@@ -1419,6 +1425,414 @@ Génère un JSON avec cette structure exacte (guide_etapes = tirets, PAS de num�
 
   isReady(): boolean {
     return this.initialized
+  }
+
+  // ============================================================
+  // MODULE DOSSIERS — ANALYSE IA D'UN DOCUMENT UPLOADÉ
+  // ============================================================
+
+  async analyserDocumentDossier(params: {
+    nomFichier: string
+    titre: string
+    categorie: string
+    instructions?: string
+    texte?: string
+    fichierUrl?: string
+    type_entite?: TypeEntite
+    aerodromeId?: string
+  }): Promise<DossierAnalyseResult> {
+    const cacheKey = `${params.nomFichier}_${params.titre}`
+    const cached = this.dossierAnalysisCache.get(cacheKey)
+    if (cached) return cached
+
+    // Extraction du texte si non fourni et URL disponible
+    let texte = params.texte || ''
+    if (!texte && params.fichierUrl) {
+      try {
+        const result = await extractTextFromPDF(params.fichierUrl)
+        texte = result.texte_complet || ''
+      } catch {
+        /* extraction impossible — texte vide */
+      }
+    }
+
+    // Contexte réglementaire RAG (Kit Inspecteur)
+    const contexteReg = construireContexteReglementaire({
+      requete: `${params.titre} ${params.categorie} ${params.instructions || ''}`,
+      domaines: [],
+      type_entite: params.type_entite || 'aerodrome',
+      maxChars: 3500,
+    })
+
+    const userMessage = `DOCUMENT À ÉVALUER :
+Nom du fichier : ${params.nomFichier}
+Titre du dossier : ${params.titre}
+Catégorie du dossier : ${params.categorie}
+${params.instructions ? `Instructions du dossier : ${params.instructions}` : ''}
+
+TEXTE DU DOCUMENT :
+${texte ? texte.substring(0, 30000) : '(texte non disponible — document probablement scanné, non OCRisé)'}
+
+${contexteReg}
+
+Évalue ce document et retourne le JSON demandé.`
+
+    const typePred = async () => {
+      const result = await aiClient.callJSON<{
+        score_global: number
+        criteres: Array<{ nom: string; score: number; satisfait: boolean; commentaire: string }>
+        reserves: string[]
+        recommandations: string[]
+        confiance: number
+      }>(
+        {
+          systemPrompt: ANALYSER_DOCUMENT_DOSSIER_PROMPT,
+          userMessage,
+          temperature: 0.2,
+          maxTokens: 4096,
+          responseFormat: 'json_object',
+        },
+        {
+          score_global: 50,
+          criteres: [],
+          reserves: [],
+          recommandations: [],
+          confiance: 40,
+        }
+      )
+      return result
+    }
+
+    let result: Awaited<ReturnType<typeof typePred>>
+    try {
+      result = await typePred()
+    } catch {
+      result = { score_global: 50, criteres: [], reserves: [], recommandations: [], confiance: 40 }
+    }
+
+    // Noms de critères canoniques
+    const CRITERES_NOMS = ['Lisibilité', 'Exhaustivité', 'Réglementaire', 'Cohérence', 'Pertinence']
+    const texteOk = texte.trim().length > 50
+    const fallbackCriteres: DossierAnalyseCritere[] = CRITERES_NOMS.map(nom => {
+      let score = texteOk ? 65 : 25
+      if (nom === 'Réglementaire') score = contexteReg.includes('## RÉFÉRENCES') ? 55 : 35
+      return {
+        nom,
+        score,
+        satisfait: score >= 50,
+        commentaire: texteOk
+          ? `Critère "${nom}": document exploitable (${score}%)`
+          : `Critère "${nom}": texte du document indisponible — demande OCR ou reformulation`,
+      }
+    })
+
+    const criteres: DossierAnalyseCritere[] = CRITERES_NOMS.map(nom => {
+      const trouve = (result.criteres || []).find(c => c.nom === nom || c.nom.toLowerCase().includes(nom.toLowerCase()))
+      if (trouve) {
+        return {
+          nom,
+          score: Math.max(0, Math.min(100, Math.round(trouve.score))),
+          satisfait: typeof trouve.satisfait === 'boolean' ? trouve.satisfait : trouve.score >= 50,
+          commentaire: trouve.commentaire || '',
+        }
+      }
+      return fallbackCriteres.find(c => c.nom === nom)!
+    })
+
+    const references = contexteReg
+      .split('\n')
+      .filter(l => l.includes('[1]') || l.includes('[2]') || l.includes('[3]') || l.includes('[4]') || l.includes('[5]') || l.includes('[6]'))
+      .map(l => l.replace(/^\[[0-9]+\]\s*/, '').split(' — «')[0].trim())
+      .filter(Boolean)
+      .slice(0, 6)
+
+    const scoreGlobal = Number.isFinite(result.score_global)
+      ? Math.max(0, Math.min(100, Math.round(result.score_global)))
+      : Math.round(criteres.reduce((s, c) => s + c.score, 0) / Math.max(criteres.length, 1))
+
+    const analyse: DossierAnalyseResult = {
+      nom_fichier: params.nomFichier,
+      score_global: scoreGlobal,
+      criteres,
+      references_reglementaires: references,
+      reserves: (result.reserves || []).filter(Boolean).slice(0, 5),
+      recommandations: (result.recommandations || []).filter(Boolean).slice(0, 5),
+      confiance: Math.max(0, Math.min(100, Math.round(result.confiance || 40))),
+      analyse_le: new Date().toISOString(),
+    }
+
+    this.dossierAnalysisCache.set(cacheKey, analyse)
+    return analyse
+  }
+
+  // ============================================================
+  // MODULE DOSSIERS — CHECKLIST DE TRAITEMENT PRÉ-GÉNÉRÉE
+  // ============================================================
+
+  async genererChecklistTraitement(params: {
+    titre: string
+    categorie: string
+    instructions?: string
+    type_entite?: TypeEntite
+    domaines?: string[]
+    aerodromeId?: string
+  }): Promise<DossierChecklistItem[]> {
+    const cacheKey = `${params.titre}_${params.categorie}_${params.instructions || ''}`
+    const cached = this.dossierChecklistCache.get(cacheKey)
+    if (cached) return cached
+
+    const store = useAppStore.getState()
+    const profil = params.aerodromeId ? store.profilsRisque[params.aerodromeId] ?? null : null
+
+    const contexteReg = construireContexteReglementaire({
+      requete: `${params.titre} ${params.categorie} ${params.instructions || ''}`,
+      domaines: params.domaines || [],
+      type_entite: params.type_entite || 'aerodrome',
+      maxChars: 3500,
+    })
+
+    const profilContext = profil
+      ? `PROFIL DE RISQUE DE L'AÉRODROME :\n- Score global : ${profil.score_global}/100 (${profil.niveau})\n- Tendance : ${profil.tendance}\n- C1 (Maturité SGS) : ${profil.c1}/100\n- C5 (Interface) : ${profil.c5}/100\nPriorise les points à risque élevé pour cet aérodrome.`
+      : ''
+
+    const userMessage = `DOSSIER À INSTRUIRE :
+Titre : ${params.titre}
+Catégorie : ${params.categorie}
+${params.instructions ? `Instructions : ${params.instructions}` : ''}
+${profilContext ? `\n${profilContext}` : ''}
+
+${contexteReg}
+
+Génère la checklist de traitement et retourne le JSON demandé.`
+
+    type ChecklistJSON = { items: Array<{
+      numero: string
+      point_verification: string
+      reference_reglementaire: string
+      directive_sa?: string
+      directive_ns?: string
+      directive_nv?: string
+      directive_na?: string
+      prediction: ResultatChecklist
+      confiance: number
+      domaine?: string
+    }> }
+
+    let json: ChecklistJSON
+    try {
+      json = await aiClient.callJSON<ChecklistJSON>(
+        {
+          systemPrompt: GENERER_CHECKLIST_TRAITEMENT_PROMPT,
+          userMessage,
+          temperature: 0.25,
+          maxTokens: 8192,
+          responseFormat: 'json_object',
+        },
+        { items: [] }
+      )
+    } catch {
+      json = { items: [] }
+    }
+
+    const validResults: ResultatChecklist[] = ['SA', 'NS', 'NA', 'NV']
+    const items: DossierChecklistItem[] = (json.items || [])
+      .filter(i => i.point_verification && i.point_verification.trim())
+      .slice(0, 25)
+      .map((i, index) => {
+        const prediction = validResults.includes(i.prediction) ? i.prediction : 'SA'
+        return {
+          id: crypto.randomUUID(),
+          numero: i.numero || String(index + 1).padStart(2, '0'),
+          reference_reglementaire: i.reference_reglementaire || '',
+          point_verification: i.point_verification.trim(),
+          directive_sa: i.directive_sa,
+          directive_ns: i.directive_ns,
+          directive_nv: i.directive_nv,
+          directive_na: i.directive_na,
+          prediction,
+          confiance: Math.max(0, Math.min(100, Math.round(i.confiance || 50))),
+          domaine: i.domaine || '',
+        }
+      })
+
+    this.dossierChecklistCache.set(cacheKey, items)
+    return items
+  }
+
+  // ============================================================
+  // MODULE PLANNING — FICHE DE BRIEFING PRÉ-MISSION
+  // ============================================================
+
+  async genererFicheBriefing(params: {
+    planningId: string
+    aerodromeId: string
+  }): Promise<FicheBriefing> {
+    const cacheKey = `briefing_${params.planningId}`
+    const cached = this.briefingCache.get(cacheKey)
+    if (cached) return cached
+
+    const store = useAppStore.getState()
+    const planning = store.plannings.find(p => p.id === params.planningId)
+    const aerodrome = store.aerodromes.find(a => a.id === params.aerodromeId)
+    const profil = store.profilsRisque[params.aerodromeId] ?? null
+    const ecartsActifs = store.ecarts.filter(e => e.aerodrome_id === params.aerodromeId && e.statut !== 'cloture')
+    const utilisateurs = store.utilisateurs
+
+    const equipeNoms = (planning?.equipe_ids || [])
+      .map(uid => {
+        const u = utilisateurs.find(ut => ut.id === uid)
+        return u ? `${u.prenom} ${u.nom}` : ''
+      })
+      .filter(Boolean)
+
+    const chefUser = planning?.chef_id ? utilisateurs.find(ut => ut.id === planning.chef_id) : null
+    const chefNom = chefUser ? `${chefUser.prenom} ${chefUser.nom}` : ''
+    const equipe = chefNom ? [chefNom, ...equipeNoms.filter(n => n !== chefNom)] : equipeNoms
+
+    const profilContext = profil
+      ? `PROFIL DE RISQUE :
+- Score global : ${profil.score_global}/100 (${profil.niveau})
+- Tendance : ${profil.tendance}
+- C1 (Maturité SGS) : ${profil.c1}/100
+- C2 (Efficacité PAC) : ${profil.c2}/100
+- C3 (Conformité) : ${profil.c3}/100
+- C4 (Charge critique) : ${profil.c4}/100
+- C5 (Résilience) : ${profil.c5}/100`
+      : 'PROFIL DE RISQUE : (non disponible)'
+
+    const historiqueSurveillances = store.surveillances
+      .filter(s => s.aerodrome_id === params.aerodromeId && s.id !== planning?.surveillance_id)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 5)
+
+    const historiqueContext = historiqueSurveillances.length > 0
+      ? `HISTORIQUE DES SURVEILLANCES PASSÉES (${historiqueSurveillances.length} dernières) :
+${historiqueSurveillances.map(s => `- ${new Date(s.created_at).toLocaleDateString('fr-FR')} — ${s.type.replace(/_/g, ' ')} (${s.statut}${s.score_global != null ? `, score ${s.score_global}/100` : ''})`).join('\n')}`
+      : 'HISTORIQUE DES SURVEILLANCES PASSÉES : aucune'
+
+    const ecartsContext = ecartsActifs.length > 0
+      ? `ÉCARTS ACTIFS (${ecartsActifs.length}) :
+${ecartsActifs.slice(0, 15).map(e => `- [${e.niveau_risque}] ${e.reference || e.ref_reglementaire || ''} — ${e.libelle || 'Écart'}${e.pac ? ' (PAC en cours)' : ''}${e.delai_pac ? `, délai: ${e.delai_pac}` : ''}`).join('\n')}`
+      : 'ÉCARTS ACTIFS : aucun'
+
+    const evenementsRecents = store.evenements
+      .filter(ev => ev.aerodrome_id === params.aerodromeId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5)
+
+    const evenementsContext = evenementsRecents.length > 0
+      ? `ÉVÉNEMENTS DE SÉCURITÉ RÉCENTS (${evenementsRecents.length}) :
+${evenementsRecents.map(ev => `- ${new Date(ev.date).toLocaleDateString('fr-FR')} — ${ev.type.replace(/_/g, ' ')} (gravité ${ev.gravite}) : ${ev.description || ''}`).join('\n')}`
+      : 'ÉVÉNEMENTS DE SÉCURITÉ RÉCENTS : aucun'
+
+    const userMessage = `MISSION DE SURVEILLANCE :
+Référence planning : ${planning?.id || params.planningId}
+Type : ${planning?.type?.replace(/_/g, ' ') || 'non précisé'}
+Aérodrome : ${aerodrome?.code_oaci || ''} - ${aerodrome?.nom || ''}
+Période : ${planning?.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : '?'} → ${planning?.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : '?'}
+Portée : ${(planning?.portee || []).join(', ') || 'non précisée'}
+Objectifs : ${planning?.objectifs || 'non précisés'}
+
+${profilContext}
+
+${historiqueContext}
+
+${ecartsContext}
+
+${evenementsContext}
+
+Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
+
+    type BriefingJSON = {
+      reference?: string
+      type_mission?: string
+      aerodrome?: string
+      periode?: string
+      objectifs?: string[]
+      portee?: string[]
+      equipe?: string[]
+      points_attention?: string[]
+      preuves_a_verifier?: string[]
+      recommandations?: string[]
+      synthese?: string
+      confiance?: number
+    }
+
+    let json: BriefingJSON
+    try {
+      json = await aiClient.callJSON<BriefingJSON>(
+        {
+          systemPrompt: GENERER_FICHE_BRIEFING_PROMPT,
+          userMessage,
+          temperature: 0.3,
+          maxTokens: 4096,
+          responseFormat: 'json_object',
+        },
+        {}
+      )
+    } catch {
+      json = {}
+    }
+
+    const contexteProfil = profil
+      ? {
+          score_global: profil.score_global,
+          niveau: profil.niveau,
+          tendance: profil.tendance,
+          c1: profil.c1,
+          c2: profil.c2,
+          c3: profil.c3,
+          c4: profil.c4,
+          c5: profil.c5,
+        }
+      : undefined
+
+    const contexteHistorique = historiqueSurveillances.map(s => ({
+      type: s.type,
+      date: s.created_at,
+      statut: s.statut,
+      score_global: s.score_global,
+    }))
+
+    const contexteEcarts = ecartsActifs.slice(0, 15).map(e => ({
+      reference: e.reference || e.ref_reglementaire || e.id,
+      libelle: e.libelle || 'Écart',
+      niveau_risque: e.niveau_risque,
+      statut: e.statut,
+      ref_reglementaire: e.ref_reglementaire,
+      pac: Boolean(e.pac),
+      delai_pac: e.delai_pac || undefined,
+    }))
+
+    const contexteEvenements = evenementsRecents.map(ev => ({
+      date: ev.date,
+      type: ev.type,
+      gravite: ev.gravite,
+      description: ev.description || '',
+    }))
+
+    const fiche: FicheBriefing = {
+      reference: json.reference || planning?.id?.slice(0, 8) || new Date().getTime().toString(36).toUpperCase(),
+      type_mission: json.type_mission || planning?.type?.replace(/_/g, ' ') || 'Surveillance',
+      aerodrome: json.aerodrome || (aerodrome ? `${aerodrome.code_oaci} - ${aerodrome.nom}` : ''),
+      periode: json.periode || `${planning?.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : ''} → ${planning?.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : ''}`,
+      objectifs: (json.objectifs || []).filter(Boolean).slice(0, 5),
+      portee: (json.portee && json.portee.length > 0 ? json.portee : (planning?.portee || [])).slice(0, 8),
+      equipe: (json.equipe && json.equipe.length > 0 ? json.equipe : equipe).slice(0, 8),
+      points_attention: (json.points_attention || []).filter(Boolean).slice(0, 6),
+      preuves_a_verifier: (json.preuves_a_verifier || []).filter(Boolean).slice(0, 4),
+      recommandations: (json.recommandations || []).filter(Boolean).slice(0, 4),
+      confiance: Math.max(0, Math.min(100, Math.round(json.confiance ?? 55))),
+      genere_le: new Date().toISOString(),
+      synthese: json.synthese?.trim() || undefined,
+      contexte_profil: contexteProfil,
+      contexte_historique: contexteHistorique,
+      contexte_ecarts: contexteEcarts,
+      contexte_evenements: contexteEvenements,
+    }
+
+    this.briefingCache.set(cacheKey, fiche)
+    return fiche
   }
 
   // ============================================================

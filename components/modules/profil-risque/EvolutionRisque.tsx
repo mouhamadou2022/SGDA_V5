@@ -23,7 +23,7 @@ interface Props {
   profil: ProfilRisque
   aerodromeCode: string
   aerodromeName: string
-  ecartsActifs: any[]
+  ecartsActifs: Ecart[]
 }
 
 function scoreClr(s: number): string {
@@ -36,10 +36,10 @@ const STATUTS_ENGAGES = ['pac_soumis', 'pac_accepte', 'preuves_soumises', 'preuv
 
 export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs }: Props) {
   // ── Simulation d'impact des mesures (data-driven, fondée sur C4) ──
-  const ecartsEngages = ecartsActifs.filter((e: any) => STATUTS_ENGAGES.includes(e.statut))
-  const ecartsEnAttente = ecartsActifs.filter((e: any) => !STATUTS_ENGAGES.includes(e.statut))
+  const ecartsEngages = ecartsActifs.filter(e => STATUTS_ENGAGES.includes(e.statut))
+  const ecartsEnAttente = ecartsActifs.filter(e => !STATUTS_ENGAGES.includes(e.statut))
   const c4Actuel = calculateC4FromEcarts(ecartsActifs)
-  const c4AvecMesures = calculateC4FromEcarts(ecartsActifs.filter((e: any) => !STATUTS_ENGAGES.includes(e.statut)))
+  const c4AvecMesures = calculateC4FromEcarts(ecartsActifs.filter(e => !STATUTS_ENGAGES.includes(e.statut)))
   const crit = (c4: number) => ({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4, c5: profil.c5 })
   const scoreActuel = calculateGlobalScore(crit(c4Actuel))
   const scoreAvecMesures = calculateGlobalScore(crit(c4AvecMesures))

@@ -10,7 +10,7 @@ import {
   generateCorrection,
   getPerformanceClass,
 } from '@/lib/risque/calibration'
-import type { FeedbackInspecteur, MatricePerformance } from '@/lib/risque/types'
+import type { FeedbackInspecteur, MatricePerformance, CorrectionModele } from '@/lib/risque/types'
 
 interface Props {
   aerodromeId: string
@@ -67,7 +67,7 @@ export function CalibrationPanel({ aerodromeId, onClose }: Props) {
     const perf = performance
     if (!perf) return
 
-    const corrections: Record<string, any>[] = []
+    const corrections: CorrectionModele[] = []
     if (perf.biais3m != null && Math.abs(perf.biais3m) > 5) {
       corrections.push(generateCorrection('matrix', 'seuil', 50, 50 + computeBiasCorrection(perf.biais3m), 'Correction auto par feedback', true))
     }

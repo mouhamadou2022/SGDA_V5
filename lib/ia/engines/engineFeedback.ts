@@ -64,7 +64,12 @@ class EngineFeedbackStore {
   }
 
   private persist(): void {
-    iaStorage.set('feedbacks', this.storageKey, this.feedbacks.slice(-200))
+    // Conserve TOUT l'historique : getStats().totalFeedbacks et getConfiance()
+    // reflètent l'apprentissage cumulé. Un slice(-200) ici écrase la clé à chaque
+    // persist et perdait définitivement tout feedback au-delà de la fenêtre au
+    // redémarrage (contredisait l'objectif « devenir plus précis à chaque
+    // feedback »). Le volume reste faible (~quelques centaines d'octets/record).
+    iaStorage.set('feedbacks', this.storageKey, this.feedbacks)
   }
 
   /** Charge les feedbacks depuis Supabase (appelé au démarrage) */
@@ -82,7 +87,7 @@ class EngineFeedbackStore {
   enregistrer(record: Omit<EngineFeedbackRecord, 'id' | 'date'>): EngineFeedbackRecord | null {
     const entry: EngineFeedbackRecord = {
       ...record,
-      id: `ef-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      id: `ef-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       date: new Date().toISOString(),
     }
     this.executerOuFile(() => {
@@ -144,8 +149,8 @@ class EngineFeedbackStore {
       if (stats.total >= 5 && stats.taux < 50) {
         tendances.push({
           engine: e,
-          probleme: `Taux de pertinence faible: ${stats.taux}% (${stats.total} feedbacks)`,
-          suggestion: `Revoir les regles de l engine ${e}`,
+          probleme: `Taux de pertinence faible : ${stats.taux}% (${stats.total} feedbacks)`,
+          suggestion: `Revoir les règles de l'engine ${e}`,
         })
       }
     }
@@ -165,8 +170,8 @@ class EngineFeedbackStore {
         const [engine, type] = key.split(':')
         tendances.push({
           engine: engine as EngineType,
-          probleme: `Decision "${type}" rejetee ${count} fois recemment`,
-          suggestion: `Revoir la logique de decision "${type}"`,
+          probleme: `Décision "${type}" rejetée ${count} fois récemment`,
+          suggestion: `Revoir la logique de décision "${type}"`,
         })
       }
     }

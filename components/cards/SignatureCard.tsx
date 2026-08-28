@@ -31,6 +31,8 @@ import {
   Archive,
 } from 'lucide-react'
 import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
+import { useAppStore } from '@/lib/store'
+import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam'
 
 interface SurveillanceCardProps {
   surveillance: Surveillance
@@ -252,6 +254,7 @@ export function SurveillanceCard({
   variant = 'list',
 }: SurveillanceCardProps) {
   const router = useRouter()
+  const plannings = useAppStore(s => s.plannings)
   const statut = STATUT_CONFIG[surveillance.statut]
   const StatutIcon = statut.icon
   const NextActionIcon = statut.nextActionIcon
@@ -669,14 +672,14 @@ export function SurveillanceCard({
             <Users className="h-4 w-4 text-role-primary" />
             <span className="text-sm font-medium">Équipe de surveillance</span>
             <span className="badge outline ml-auto text-xs">
-              {surveillance.equipe_ids.length} inspecteur(s)
+              {getSurveillanceEquipeIds(surveillance, plannings).length} inspecteur(s)
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
-            {surveillance.equipe_ids.map((id: string) => {
+            {getSurveillanceEquipeIds(surveillance, plannings).map((id: string) => {
               const insp = MOCK_INSPECTEURS[id]
               if (!insp) return null
-              const estChef = id === surveillance.chef_id
+              const estChef = id === getSurveillanceChefId(surveillance, plannings)
               return (
                 <div
                   key={id}

@@ -19,6 +19,7 @@ import { ExogenousFactorsCard } from './ExogenousFactorsCard'
 import { TriggersSection } from './TriggersSection'
 import { ResilienceScoreCard } from './ResilienceScoreCard'
 import { computeICaoMatrix, getICaoLabels } from '@/lib/risque'
+import type { ICaoCell } from '@/lib/risque/icaoMatrix'
 import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
 import RecommandationDuJourCard from './RecommandationDuJourCard'
 import ShapExplicationCard from './ShapExplicationCard'
@@ -45,7 +46,7 @@ function getNiveauColor(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'var(--color-danger)'
     case 'eleve': return 'var(--color-warning)'
-    case 'moyen': return 'var(--color-primary)'
+    case 'moyen': return 'var(--color-teal)'
     case 'faible': return 'var(--color-success)'
     default: return 'var(--color-neutral)'
   }
@@ -319,7 +320,7 @@ export function SyntheseTab({
           subtitle={synthLoading ? 'Génération AERORISQ en cours...' : undefined}
           icon={synthLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : diagnostic.indiceGlobal >= 55 ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
           variant="level"
-          levelColor={diagnostic.indiceGlobal >= 75 ? 'danger' : diagnostic.indiceGlobal >= 55 ? 'warning' : 'primary'}
+          levelColor={diagnostic.indiceGlobal >= 75 ? 'danger' : diagnostic.indiceGlobal >= 55 ? 'warning' : 'teal'}
           size="sm"
         >
           {synthLoading ? (
@@ -522,8 +523,8 @@ export function SyntheseTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {[...icaoMat.entries()].map(([type, cell]: [string, any]) => {
-                    const niveauMap: Record<string, { bg: string }> = { critique: { bg: 'bg-danger' }, eleve: { bg: 'bg-warning' }, moyen: { bg: 'bg-primary' }, faible: { bg: 'bg-success' } }
+                  {[...icaoMat.entries()].map(([type, cell]: [string, ICaoCell]) => {
+                    const niveauMap: Record<string, { bg: string }> = { critique: { bg: 'bg-danger' }, eleve: { bg: 'bg-warning' }, moyen: { bg: 'bg-teal' }, faible: { bg: 'bg-success' } }
                     const nivCfg = niveauMap[cell.niveau] || { bg: 'bg-muted' }
                     const probaMap: Record<string, string> = { frequente: 'Fréquente', probable: 'Probable', occasionnelle: 'Occasionnelle', improbable: 'Improbable', tres_improbable: 'Très improbable' }
                     const sevMap: Record<string, string> = { catastrophique: 'Catastrophique', critique: 'Critique', majeur: 'Majeur', mineur: 'Mineur', negligeable: 'Négligeable' }
@@ -545,7 +546,7 @@ export function SyntheseTab({
             <div className="flex flex-wrap gap-3 mt-3 pt-2 border-t border-border">
               {icaoLabels.niveaux.map((n: { value: string; label: string; color: string }) => (
                 <div key={n.value} className="flex items-center gap-1.5 text-xs text-foreground">
-                  <div className={`w-3 h-3 rounded ${n.color === 'danger' ? 'bg-danger' : n.color === 'warning' ? 'bg-warning' : n.color === 'primary' ? 'bg-primary' : 'bg-success'}`} />
+                  <div className={`w-3 h-3 rounded ${n.color === 'danger' ? 'bg-danger' : n.color === 'eleve' ? 'bg-eleve' : n.color === 'moyen' ? 'bg-moyen' : 'bg-success'}`} />
                   {n.label}
                 </div>
               ))}

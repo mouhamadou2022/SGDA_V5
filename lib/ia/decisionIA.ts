@@ -10,7 +10,7 @@
 
 import { aiClient } from './aiClient'
 import { RISK_SYSTEM_PROMPT } from './prompts'
-import type { ProfilRisque, EvenementSecurite } from '@/lib/store'
+import type { ProfilRisque, EvenementSecurite, Ecart, Surveillance } from '@/lib/store'
 
 export interface DecisionDGExplication {
   synthese: string
@@ -26,8 +26,8 @@ export interface DecisionDGInput {
   aerodromeCode: string
   aerodromeName: string
   nbEcartsCritiques: number
-  ecartsActifs: any[]
-  prochainesSurveillances?: any[]
+  ecartsActifs: Ecart[]
+  prochainesSurveillances?: Surveillance[]
   evenements?: EvenementSecurite[]
 }
 

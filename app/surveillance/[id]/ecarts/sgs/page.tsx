@@ -6,12 +6,13 @@
 import React, { useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import { upsertEcartsRedaction } from '@/lib/datastore';
+import { upsertEcartsRedaction, fetchEcartsRedactionBySurveillance } from '@/lib/datastore';
 import SurveillanceEcartsRedaction, {
   QuestionNSNV,
   EcartRedaction,
 } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
 import { canEditSurveillanceContent } from '@/lib/config';
+import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
 import { Card } from '@/components/ui/card';
 import type { EvaluationSGS, PAOELevel } from '@/types/checklist';
 import { getPAOENiveauFromScore, PAOE_LABELS } from '@/types/checklist';
@@ -35,7 +36,24 @@ import {
  * - present  → élément présent mais non approprié (écart)
  * - approprie → niveau minimum atteint mais améliorable (observation/recommandation)
  */
-const NIVEAUX_NON_CONFORMES: PAOELevel[] = ['absent', 'present', 'approprie'];
+// Collecte SGS : les TROIS niveaux PAOE (absent, présent, approprié) alimentent
+// la rédaction des écarts — chaque élément évalué est tracé, quel que soit son niveau.
+const NIVEAUX_COLLECTES: PAOELevel[] = ['absent', 'present', 'approprie'];
+
+/**
+ * Convertit une chaîne en UUID v4 déterministe (SHA-1 tronqué).
+ * Utilisé pour les écarts SGS dont l'ID n'est pas un UUID natif.
+ */
+function stringToUUID(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0;
+  }
+  const h = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${h.slice(0,8)}-${h.slice(0,4)}-4${h.slice(1,4)}-${((parseInt(h.slice(0,2),16)&0x3f)|0x80).toString(16).padStart(2,'0')}${h.slice(2,4)}-${h.slice(0,12).padStart(12,'0')}`;
+}
 
 /** Badge couleur selon le niveau PAOE */
 function getPAOEBadgeCls(niveau: PAOELevel): string {
@@ -75,6 +93,8 @@ export default function SGSEcartsPage() {
 
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes    = useAppStore(s => s.aerodromes);
+  const utilisateurs  = useAppStore(s => s.utilisateurs);
+  const plannings     = useAppStore(s => s.plannings);
   const user          = useAppStore(s => s.user);
   const getEcartsBySurveillance = useAppStore(s => s.getEcartsBySurveillance);
   const setEcartsRedaction = useAppStore(s => s.setEcartsRedaction);
@@ -100,6 +120,29 @@ export default function SGSEcartsPage() {
     );
   };
 
+  // Recharger les écarts SGS rédigés depuis Supabase au chargement de la page
+  // (le store Zustand démarre vide à chaque session → les brouillons étaient perdus)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const persisted = await fetchEcartsRedactionBySurveillance(surveillanceId);
+        if (cancelled || persisted.length === 0) return;
+        const domained = persisted.filter(e => (e as any).domaine === 'SGS');
+        if (domained.length === 0) return;
+        const inStore = getEcartsBySurveillance(surveillanceId);
+        const storeIds = new Set(inStore.map(e => e.id));
+        const toAdd = domained.filter(e => !storeIds.has(e.id));
+        if (toAdd.length > 0) {
+          setEcartsRedaction([...inStore, ...toAdd]);
+        }
+      } catch (err) {
+        console.error('[SGSEcartsPage] chargement écarts persistant échoué:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [surveillanceId, getEcartsBySurveillance, setEcartsRedaction]);
+
   // ── data-role sur body pour les variables CSS de rôle (btn-primary, bg-role-gradient…) ──
   useEffect(() => {
     if (user?.role) {
@@ -111,6 +154,19 @@ export default function SGSEcartsPage() {
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome    = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
   const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids || [], user?.id);
+
+  const equipe = useMemo(() => {
+    if (!surveillance) return [];
+    const ids = getSurveillanceEquipeIds(surveillance, plannings);
+    return utilisateurs.filter(u => ids.includes(u.id));
+  }, [surveillance, utilisateurs, plannings]);
+
+  const chefDeMission = useMemo(() => {
+    if (!surveillance) return null;
+    const chefId = getSurveillanceChefId(surveillance, plannings);
+    if (!chefId) return null;
+    return utilisateurs.find(u => u.id === chefId) || null;
+  }, [surveillance, utilisateurs, plannings]);
 
   // Chargement de l'évaluation PAOE depuis la surveillance
   const sgsEvaluation = useMemo<EvaluationSGS | null>(() => {
@@ -161,30 +217,50 @@ export default function SGSEcartsPage() {
 
     sgsEvaluation.composantes.forEach(composante => {
       composante.elements.forEach(element => {
-        if (!NIVEAUX_NON_CONFORMES.includes(element.niveauGlobal)) return;
+        if (!NIVEAUX_COLLECTES.includes(element.niveauGlobal)) return;
 
         // Référence SGS (ex: "SGS-1.2" pour composante 1, element 2)
         const elementIdx = composante.elements.indexOf(element) + 1;
         const ref = `SGS-${composante.id}.${elementIdx}`;
 
-        // Description issue des questions non conformes ou du label de l'élément
+        // Questions non conformes avec leurs observations (justification)
         const questionsNS = element.questions.filter(
-          q => NIVEAUX_NON_CONFORMES.includes(q.niveau)
+          q => NIVEAUX_COLLECTES.includes(q.niveau)
         );
         const descriptionParts = questionsNS.length > 0
           ? questionsNS.map(q => q.texte).join(' / ')
           : element.label;
 
+        // Récupérer les observations de l'inspecteur (justification des questions)
+        const observations = questionsNS
+          .map(q => q.justification)
+          .filter(Boolean)
+          .join(' ; ');
+
+        // Références réglementaires précises des questions non conformes (ex: "RAS 19 §3.1")
+        const referencesReglementaires = [
+          ...new Set(
+            questionsNS
+              .map(q => q.sourceReglementaire)
+              .filter((r): r is string => Boolean(r))
+          ),
+        ];
+        const refReglementaire = referencesReglementaires.length > 0
+          ? referencesReglementaires.join(' ; ')
+          : `OACI Annexe 19 — Composante ${composante.id}: ${composante.label}`;
+
         items.push({
-          id: `sgs-${composante.id}-${element.elementId}`,
+          id: stringToUUID(`sgs-${surveillanceId}-${composante.id}-${element.elementId}`),
           numero: ref,
-          reference_reglementaire: `OACI Annexe 19 — Composante ${composante.id}: ${composante.label}`,
+          reference_reglementaire: refReglementaire,
           description: `[${element.label}] ${descriptionParts}`,
           domaine: 'SGS',
           sousDomaine: `Composante ${composante.id}: ${composante.label}`,
           sousSousDomaine: element.label,
           resultat: 'NS' as const,
           paoeLevel: element.niveauGlobal as 'absent' | 'present' | 'approprie',
+          // Observations de l'inspecteur liées aux questions (justification)
+          observation: observations,
         });
       });
     });
@@ -197,13 +273,13 @@ export default function SGSEcartsPage() {
     return getEcartsBySurveillance(surveillanceId).filter(
       e => (e as any).domaine === 'SGS'
     ) as unknown as EcartRedaction[];
-  }, [surveillanceId, getEcartsBySurveillance]);
+  }, [surveillanceId, getEcartsBySurveillance, allEcartsRedaction]);
 
   // Statistiques
   const composantesNonConformes = useMemo(() => {
     if (!sgsEvaluation) return [];
     return sgsEvaluation.composantes.filter(c =>
-      NIVEAUX_NON_CONFORMES.includes(c.niveauGlobal)
+      NIVEAUX_COLLECTES.includes(c.niveauGlobal)
     );
   }, [sgsEvaluation]);
 
@@ -213,11 +289,6 @@ export default function SGSEcartsPage() {
   }, [sgsEvaluation]);
 
   const elementsNonConformes = useMemo(() => itemsNonConformes.length, [itemsNonConformes]);
-
-  // Progression de conformité PAOE (éléments conformes / total)
-  const progression = totalElements > 0
-    ? Math.round(((totalElements - elementsNonConformes) / totalElements) * 100)
-    : 100;
 
   // Progression de rédaction des écarts (écarts créés / éléments non conformes)
   const ecartProgress = elementsNonConformes > 0
@@ -377,6 +448,8 @@ export default function SGSEcartsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 text-xs">
+                  <Target className="w-3.5 h-3.5 text-role-primary" />
+                  <span className="text-muted-foreground">Rédaction</span>
                   <div className="progress h-1.5 w-16 bg-gray-200 rounded-full overflow-hidden">
                     <div className={`progress-bar rounded-full transition-all duration-500 ${
                       ecartProgress >= 80 ? 'bg-gradient-to-r from-green-400 to-green-500' :
@@ -384,7 +457,7 @@ export default function SGSEcartsPage() {
                       'bg-gradient-to-r from-red-400 to-red-500'
                     }`} style={{ width: `${ecartProgress}%` }} />
                   </div>
-                  <span className="text-muted-foreground">{ecartsExistants.length}/{elementsNonConformes}</span>
+                  <span className="text-muted-foreground font-medium">{ecartsExistants.length}/{elementsNonConformes}</span>
                 </div>
               </div>
               <span className={`badge font-semibold ${
@@ -431,7 +504,25 @@ export default function SGSEcartsPage() {
                 <Users className="w-4 h-4 text-role-primary flex-shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Équipe</p>
-                  <p className="font-medium">{surveillance.equipe_ids?.length || 0} inspecteur(s)</p>
+                  {chefDeMission && (
+                    <p className="text-xs font-semibold text-foreground">
+                      Chef : {chefDeMission.prenom} {chefDeMission.nom}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {equipe.map(membre => (
+                      <span key={membre.id} className="badge outline text-[10px]">
+                        {membre.prenom} {membre.nom}
+                      </span>
+                    ))}
+                  </div>
+                  {equipe.length === 0 && (
+                    <p className="font-medium">
+                      {getSurveillanceEquipeIds(surveillance, plannings).length > 0
+                        ? `${getSurveillanceEquipeIds(surveillance, plannings).length} inspecteur(s) (introuvable dans la liste utilisateurs)`
+                        : 'Aucun inspecteur affecté'}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -454,14 +545,37 @@ export default function SGSEcartsPage() {
           </div>
         </div>
 
+        {/* Bannière écarts standard pour surveillance mixte (SGS + autres domaines) */}
+        {(surveillance.portee || []).length > 1 && (
+          <div className="alert alert-primary flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-role-primary flex-shrink-0" />
+              <div>
+                <p className="font-semibold text-sm">Surveillance mixte — Écarts physiques inclus</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Les écarts SGS (PAOE) sont traités ici. Les écarts physiques (NS/NV) se traitent sur une page dédiée.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push(`/surveillance/${surveillanceId}/ecarts`)}
+              className="btn btn-primary btn-sm gap-1.5 flex-shrink-0"
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Écarts standard
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Synthèse par composante */}
         <Card heading="Synthèse PAOE par composante" icon={<Shield className="w-4 h-4" />}>
             <div className="space-y-3">
               {sgsEvaluation.composantes.map(composante => {
                 const nonConformes = composante.elements.filter(e =>
-                  NIVEAUX_NON_CONFORMES.includes(e.niveauGlobal)
+                  NIVEAUX_COLLECTES.includes(e.niveauGlobal)
                 );
-                const isNonConforme = NIVEAUX_NON_CONFORMES.includes(composante.niveauGlobal);
+                const isNonConforme = NIVEAUX_COLLECTES.includes(composante.niveauGlobal);
 
                 return (
                   <div

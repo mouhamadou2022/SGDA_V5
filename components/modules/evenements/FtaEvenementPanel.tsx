@@ -158,7 +158,7 @@ export function FtaEvenementPanel({ evenement }: Props) {
   return (
     <Card
       variant="level"
-      levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'warning' : niveauProba === 'moyen' ? 'primary' : 'success'}
+      levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'eleve' : niveauProba === 'moyen' ? 'moyen' : 'success'}
       heading="Analyse causale — Arbre de Défaillance (FTA)"
       subtitle={arbre.evenementLabel}
       icon={<GitBranch className="w-4 h-4" />}

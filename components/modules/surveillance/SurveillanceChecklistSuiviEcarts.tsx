@@ -97,8 +97,8 @@ export const RESULTAT_LABELS = {
 
 const RISQUE_CONFIG = {
   critique: { label: 'Critique', color: 'text-danger', badge: 'badge danger', gradient: 'from-red-500/10 to-transparent', border: 'border-l-danger', icon: AlertTriangle, bg: 'bg-danger/5' },
-  eleve: { label: 'Élevé', color: 'text-warning', badge: 'badge warning', gradient: 'from-orange-500/10 to-transparent', border: 'border-l-warning', icon: AlertTriangle, bg: 'bg-warning/5' },
-  moyen: { label: 'Moyen', color: 'text-primary', badge: 'badge primary', gradient: 'from-blue-500/10 to-transparent', border: 'border-l-primary', icon: Shield, bg: 'bg-primary/5' },
+  eleve: { label: 'Élevé', color: 'text-eleve', badge: 'badge eleve', gradient: 'from-orange-500/10 to-transparent', border: 'border-l-eleve', icon: AlertTriangle, bg: 'bg-eleve/5' },
+  moyen: { label: 'Moyen', color: 'text-moyen', badge: 'badge moyen', gradient: 'from-yellow-500/10 to-transparent', border: 'border-l-moyen', icon: Shield, bg: 'bg-moyen/5' },
   faible: { label: 'Faible', color: 'text-success', badge: 'badge success', gradient: 'from-emerald-500/10 to-transparent', border: 'border-l-success', icon: Shield, bg: 'bg-success/5' },
 };
 
@@ -615,7 +615,7 @@ export function SurveillanceChecklistSuiviEcarts({
 }: {
   surveillanceId: string;
   aerodromeId: string;
-  onSave?: (data: any) => void;
+  onSave?: (data: { items: EcartEvaluation[]; observations_generales?: string }) => void;
   onComplete?: () => void;
   readOnly?: boolean;
   userRole?: string;
@@ -628,8 +628,6 @@ export function SurveillanceChecklistSuiviEcarts({
   const certifications = useAppStore(s => s.certifications);
   const homologations = useAppStore(s => s.homologations);
   const surveillance = useMemo(() => surveillances.find(s => s.id === surveillanceId), [surveillances, surveillanceId]);
-
-  const ecart = useMemo(() => ecarts.find(e => e.surveillance_id === surveillanceId), [ecarts, surveillanceId]);
 
   const [evaluations, setEvaluations] = useState<EcartEvaluation[]>([]);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -664,33 +662,49 @@ export function SurveillanceChecklistSuiviEcarts({
       return;
     }
 
-    const newEvaluations: EcartEvaluation[] = ecartsASuivre.map((ec, idx) => {
-      const domaine = (ec as any).domaine as DomaineCode | undefined;
-      const ref = ec.ref_reglementaire || ec.reference;
-      return {
-        id: `eval-${ec.id}-${Date.now()}`,
-        ecart_id: ec.id,
-        reference: ref,
-        libelle: ec.libelle || 'Écart sans libellé',
-        domaine,
-        niveau_risque: (ec.niveau_risque || 'moyen') as NiveauRisque,
-        statut_mesure: 'aucune',
-        preuves: [],
-        risque_initial: (ec.niveau_risque || 'moyen') as NiveauRisque,
-        criticite: {
+    // Restaure les évaluations persistées (checklist_suivi_ecarts) et préserve la saisie
+    // courante (existing) quand les écarts changent pendant la session.
+    setEvaluations(prev => {
+      const prevMap = new Map(prev.map(e => [e.ecart_id, e]));
+      const saved = surveillance?.checklist_suivi_ecarts;
+      const savedMap = new Map((saved?.items || []).map((e: any) => [e.ecart_id, e]));
+
+      return ecartsASuivre.map((ec, idx) => {
+        const existing = prevMap.get(ec.id);
+        const prevSaved = savedMap.get(ec.id);
+        const domaine = (ec as any).domaine as DomaineCode | undefined;
+        const ref = ec.ref_reglementaire || ec.reference;
+        const criticite = existing?.criticite ?? prevSaved?.criticite ?? {
           defenses_existantes: { valeur: null },
           facteurs_aggravants: { valeur: null },
           recurrence: { valeur: null },
           impact_operationnel: { valeur: null },
           delai_correction: { valeur: null },
-        },
-        ordre: idx,
-        isExpanded: true,
-        niveau_maturite: getNiveauMaturiteForEcartInline(ec, surveillance?.sgs_evaluation_prepa as EvaluationSGS | null | undefined),
-        niveau_maturite_residuel: undefined,
-      };
+        };
+        return {
+          id: existing?.id ?? prevSaved?.id ?? `eval-${ec.id}-${Date.now()}`,
+          ecart_id: ec.id,
+          reference: ref,
+          libelle: ec.libelle || 'Écart sans libellé',
+          domaine,
+          niveau_risque: (ec.niveau_risque || 'moyen') as NiveauRisque,
+          statut_mesure: existing?.statut_mesure ?? prevSaved?.statut_mesure ?? 'aucune',
+          mesure_description: existing?.mesure_description ?? prevSaved?.mesure_description,
+          mesure_incidence: existing?.mesure_incidence ?? prevSaved?.mesure_incidence,
+          preuves: existing?.preuves ?? prevSaved?.preuves ?? [],
+          risque_initial: (ec.niveau_risque || 'moyen') as NiveauRisque,
+          risque_residuel: existing?.risque_residuel ?? prevSaved?.risque_residuel,
+          niveau_maturite: existing?.niveau_maturite ?? prevSaved?.niveau_maturite ?? getNiveauMaturiteForEcartInline(ec, surveillance?.sgs_evaluation_prepa as EvaluationSGS | null | undefined),
+          niveau_maturite_residuel: existing?.niveau_maturite_residuel ?? prevSaved?.niveau_maturite_residuel,
+          criticite,
+          commentaire: existing?.commentaire ?? prevSaved?.commentaire,
+          conclusion: existing?.conclusion ?? prevSaved?.conclusion,
+          ordre: idx,
+          isExpanded: existing?.isExpanded ?? prevSaved?.isExpanded ?? true,
+        } as EcartEvaluation;
+      });
     });
-    setEvaluations(newEvaluations);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aerodromeId, ecarts, surveillanceId, certifications, homologations]);
 
   useEffect(() => {
@@ -726,10 +740,6 @@ export function SurveillanceChecklistSuiviEcarts({
     }
     setSuggestions([]);
   };
-
-  const updateProgression = useCallback((items: EcartEvaluation[]) => {
-    return items;
-  }, []);
 
   const handleUpdateItem = useCallback((updatedItem: EcartEvaluation) => {
     setEvaluations(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
@@ -781,10 +791,12 @@ export function SurveillanceChecklistSuiviEcarts({
     setSignatureDialogOpen(false);
 
     const scoreSuivi = stats.progression;
-    updateSurveillance(surveillanceId, {
-      statut: 'checklist_signee',
+    // Action centrale du store (fusion signatures + avancement statut)
+    await useAppStore.getState().signerChecklistSurveillance(surveillanceId, {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
+      signature_url: signatureUrl,
       score_global: scoreSuivi,
-      signatures_checklist: [{ signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl }],
     });
 
     const { recalculerProfilRisque } = useAppStore.getState();
@@ -793,7 +805,7 @@ export function SurveillanceChecklistSuiviEcarts({
     addNotification({ user_id: user?.id || '', type: 'success', title: 'Suivi des écarts complété', message: 'La vérification des écarts a été signée', canal: 'in_app' });
   };
 
-  if (!evaluations.length || !ecart) {
+  if (!evaluations.length) {
     return (
       <Card className="text-center text-muted-foreground">
         <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />

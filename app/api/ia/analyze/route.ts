@@ -14,6 +14,9 @@ export interface AnalyzeRequest {
   responseFormat?: 'text' | 'json_object'
 }
 
+// Inférence locale possible (Ollama) : laisser jusqu'à 5 min à la requête
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const body: AnalyzeRequest = await request.json()

@@ -1,5 +1,5 @@
--- SGDA v5 — SCHÉMA PRODUCTION
--- Généré le 2026-05-17 | Mis à jour le 2026-08-06
+-- SGDA v5 — SCHÉMA PRODUCTION (SOURCE UNIQUE DE VÉRITÉ)
+-- Généré le 2026-05-17 | Mis à jour le 2026-08-25
 -- ✅ Idempotent : safe à ré-exécuter sur une DB existante
 -- ✅ Sans perte de données (pas de DROP TABLE)
 -- ✅ Rattrapage des colonnes ajoutées par les migrations pour les
@@ -8,6 +8,13 @@
 -- ✅ Inclut les tables des migrations récentes :
 --    ia_langage_clair, ia_training_dataset, ia_training_logs (2026-08-04),
 --    inspecteur_feedback (2026-08-04)
+-- ✅ SECTION 24 — Boucle d'apprentissage AERORISQ complète (rattrapage
+--    migrations 2026-07-08 → 2026-08-25) : ia_model_state, ia_feedback,
+--    ia_thresholds, ia_decisions (+ outcomes & score_history),
+--    ia_bayes_network_state, ml_samples
+-- ✅ Colonnes persistance checklist SGS (2026-08-25) :
+--    sgs_evaluation_prepa, sgs_evaluation_signee_le, sgs_ecarts_signes_le,
+--    checklist_suivi_ecarts, checklist_pac, rapport_sections, rapport_versions
 -- ✅ Corrige TOUTES les causes des erreurs RLS
 -- ✅ Inclut colonnes checklist préparée sur plannings
 -- ✅ Fichiers orphelins nettoyés : CertDashboard.tsx, HomoDashboard.tsx, OperatorPACConsolideModule.tsx
@@ -116,6 +123,7 @@ DO $$ BEGIN
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS checklist_pac          JSONB DEFAULT '[]'::jsonb;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS checklist_suivi_ecarts JSONB DEFAULT '[]'::jsonb;
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS delegations            JSONB DEFAULT '{}'::jsonb;
+  ALTER TABLE plannings ADD COLUMN IF NOT EXISTS briefing_fiche         JSONB;
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
@@ -123,9 +131,10 @@ COMMENT ON COLUMN plannings.checklist_hierarchy    IS 'Checklist hiérarchique p
 COMMENT ON COLUMN plannings.checklist_pac          IS 'Checklist PAC pré-remplie. Transférée à la surveillance lors de l''exécution.';
 COMMENT ON COLUMN plannings.checklist_suivi_ecarts IS 'Checklist suivi écarts pré-remplie. Transférée à la surveillance lors de l''exécution.';
 COMMENT ON COLUMN plannings.delegations            IS 'Délégations préparatoires { domaine_code → inspecteur_id }. Définies lors de la préparation, utilisées par la checklist.';
+COMMENT ON COLUMN plannings.briefing_fiche         IS 'Fiche de briefing pré-mission générée par IA (module Planning / preparation-checklist).';
 
 -- ============================================================
--- SECTION 4 — INDEX DE PERFORMANCE RLS
+-- SECTION 4.A — INDEX DE PERFORMANCE RLS
 -- Les fonctions helper interrogent utilisateurs à chaque ligne
 -- ============================================================
 
@@ -134,7 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_utilisateurs_auth_role
   WHERE deleted_at IS NULL;
 
 -- ============================================================
--- SECTION 4 — FONCTIONS HELPER RLS (inchangées, rappel)
+-- SECTION 4.B — FONCTIONS HELPER RLS (inchangées, rappel)
 -- SECURITY DEFINER → bypass RLS → pas de récursion infinie
 -- ============================================================
 
@@ -248,7 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_suggestion_fb_type ON suggestion_feedbacks(sugges
 CREATE INDEX IF NOT EXISTS idx_suggestion_fb_pertinent ON suggestion_feedbacks(aerodrome_id, etait_pertinent);
 
 -- ============================================================
--- SECTION 5.C — TABLE ML MODEL WEIGHTS (PERSISTANCE CÔTÉ SERVEUR)
+-- SECTION 5.C.1 — TABLE ML MODEL WEIGHTS (PERSISTANCE CÔTÉ SERVEUR)
 -- Stocke les poids du modèle ML pour synchronisation multi-postes
 -- Le localStorage reste la source principale, cette table permet
 -- la persistance cloud et le partage entre inspecteurs
@@ -270,7 +279,7 @@ CREATE TABLE IF NOT EXISTS ml_model_weights (
 CREATE INDEX IF NOT EXISTS idx_ml_weights_aerodrome ON ml_model_weights(aerodrome_id);
 
 -- ============================================================
--- SECTION 5.C — API KEYS (gestion dynamique des clés via UI admin)
+-- SECTION 5.C.2 — API KEYS (gestion dynamique des clés via UI admin)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -1809,8 +1818,15 @@ DO $$ BEGIN
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS created_by             uuid;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS updated_by             uuid;
   ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS progression            integer DEFAULT 0;
-  ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS checklist_hierarchy    jsonb DEFAULT '[]'::jsonb;
-  ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS deleted_by             uuid;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS checklist_hierarchy    jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS sgs_evaluation_prepa     jsonb;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS sgs_evaluation_signee_le timestamptz;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS sgs_ecarts_signes_le     timestamptz;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS checklist_suivi_ecarts   jsonb;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS checklist_pac            jsonb;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_sections         text;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_versions         text;
+ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS deleted_by             uuid;
 END $$;
 
 -- 13.B ECARTS — colonnes core
@@ -1862,6 +1878,17 @@ DO $$ BEGIN
   ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS cellule_ia_suggeree        varchar(10);
   ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS created_at                 timestamptz DEFAULT now();
   ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS updated_at                 timestamptz DEFAULT now();
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS item_ids                   text[];
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS surveillance_id            uuid;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS aerodrome_id               varchar(10);
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS created_by                 uuid;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS updated_by                 uuid;
+  ALTER TABLE ecarts_redaction ADD COLUMN IF NOT EXISTS niveau                     varchar(20);
+  -- Convertir item_ids de uuid[] vers text[] si nécessaire (les IDs checklist ne sont pas des UUID)
+  PERFORM 1 FROM information_schema.columns WHERE table_name = 'ecarts_redaction' AND column_name = 'item_ids' AND udt_name = '_uuid';
+  IF FOUND THEN
+    ALTER TABLE ecarts_redaction ALTER COLUMN item_ids TYPE text[] USING item_ids::text[];
+  END IF;
 END $$;
 
 -- 13.C PLANNINGS — colonnes manquantes
@@ -2039,6 +2066,10 @@ DO $$ BEGIN
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS created_by                uuid;
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS assignments               jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS urgence                   varchar(10) DEFAULT 'normale';
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS checklist_traitement      jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS checklist_generee_le      timestamptz;
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS analyses_ia               jsonb DEFAULT '{}'::jsonb;
+  ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS formulaires               jsonb DEFAULT '[]'::jsonb;
 END $$;
 
 -- 13.H.2 DOSSIERS — index pour la recherche par inspecteur dans les assignments
@@ -2207,6 +2238,16 @@ DO $$ BEGIN
   ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS scenarios           jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS ensemble_confidence numeric(10,4);
   ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS infrastructure      jsonb;
+  -- MODÈLES AVANCÉS Phase 3 (stockés dans le profil côté client)
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS hmm_state       jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS survival_metrics jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS extreme_risk     jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS negbin_metrics   jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS copula_metrics   jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS ts_metrics       jsonb;
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS quality_score    numeric(10,2);
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS qualite          varchar(20);
+  ALTER TABLE profils_risque ADD COLUMN IF NOT EXISTS bowtie_metrics   jsonb;
 END $$;
 
 -- 13.P INDEX pour les colonnes ajoutées
@@ -2345,10 +2386,10 @@ COMMENT ON COLUMN profils_risque.scenarios IS 'Scénarios de risque prédits par
 --      ecarts.justification_risque_ia   TEXT        ← Section 13.B ✅
 --      ecarts.cellule_ia_suggeree       VARCHAR(10) ← Section 13.B ✅
 --
---   Note : surveillances.sgs_evaluation_prepa est intentionnellement
---   absent de Supabase — la donnée est transférée depuis le planning
---   en mémoire (Zustand) lors du lancement de la surveillance et
---   n'est pas persistée (le datastore.ts la supprime du payload).
+--   Note (MAJ 2026-08-25) : surveillances.sgs_evaluation_prepa,
+--   sgs_evaluation_signee_le et sgs_ecarts_signes_le sont PERSISTES.
+--   L'evaluation SGS signee fait partie du dossier legal et doit
+--   survivre au rechargement. Voir Section 13.A (colonnes SURVEILLANCES).
 --
 -- ============================================================
 -- FIN SECTION 14 — SGDA v5 · Session 2026-05-21
@@ -2971,4 +3012,517 @@ GRANT INSERT ON demandes_acces TO authenticated, anon;
 -- ============================================================
 -- FIN SECTION 23 — DEMANDES D'ACCÈS PORTEIL PUBLIC
 -- ============================================================
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  SECTION 24 — BOUCLE D'APPRENTISSAGE AERORISQ            ║
+-- ║  Rattrapage des migrations 2026-07-08 → 2026-08-25       ║
+-- ║                                                          ║
+-- ║  24.A  ia_model_state        — poids des modèles ML      ║
+-- ║  24.B  ia_feedback           — votes utilisateurs         ║
+-- ║  24.C  ia_thresholds         — seuils dynamiques          ║
+-- ║  24.D  ia_decisions          — historique décisions       ║
+-- ║  24.E  decision outcomes     — évaluation auto 6 mois     ║
+-- ║  24.F  ia_bayes_network_state— réseau bayésien causal    ║
+-- ║  24.G  ml_samples            — échantillons ML terrain    ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+-- ------------------------------------------------------------
+-- 24.A — TABLE ia_model_state
+-- Persistance durable des modèles entraînés (Bayesian, LSTM, XGBoost, RF, Ensemble)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ia_model_state (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Clé unique : modèle + aérodrome (optionnel)
+  model_name    TEXT NOT NULL,
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+
+  -- Version du modèle
+  version       INTEGER NOT NULL DEFAULT 1,
+
+  -- Poids et paramètres (JSON)
+  weights       JSONB NOT NULL DEFAULT '{}',
+  biases        JSONB NOT NULL DEFAULT '{}',
+
+  -- Métriques
+  total_feedbacks  INTEGER NOT NULL DEFAULT 0,
+  accuracy_history  JSONB NOT NULL DEFAULT '[]',
+  learning_rate    NUMERIC NOT NULL DEFAULT 0.05,
+
+  -- Données spécifiques au modèle (ex: aerodrome_specific pour Bayesian)
+  model_data    JSONB NOT NULL DEFAULT '{}',
+
+  -- Flag actif
+  actif         BOOLEAN NOT NULL DEFAULT true,
+
+  UNIQUE(model_name, aerodrome_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_model_state_model ON ia_model_state(model_name);
+CREATE INDEX IF NOT EXISTS idx_ia_model_state_aerodrome ON ia_model_state(aerodrome_id);
+
+CREATE OR REPLACE FUNCTION trigger_ia_model_state_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ia_model_state_updated_at ON ia_model_state;
+CREATE TRIGGER trg_ia_model_state_updated_at
+  BEFORE UPDATE ON ia_model_state
+  FOR EACH ROW EXECUTE FUNCTION trigger_ia_model_state_updated_at();
+
+ALTER TABLE ia_model_state ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ia_model_state_select_all ON ia_model_state;
+CREATE POLICY ia_model_state_select_all ON ia_model_state
+  FOR SELECT USING (get_user_role() IN ('admin','super_admin','inspecteur','operateur'));
+
+DROP POLICY IF EXISTS ia_model_state_insert_admin ON ia_model_state;
+CREATE POLICY ia_model_state_insert_admin ON ia_model_state
+  FOR INSERT WITH CHECK (get_user_role() IN ('admin','super_admin'));
+
+DROP POLICY IF EXISTS ia_model_state_update_admin ON ia_model_state;
+CREATE POLICY ia_model_state_update_admin ON ia_model_state
+  FOR UPDATE USING (get_user_role() IN ('admin','super_admin'));
+
+-- ------------------------------------------------------------
+-- 24.B — TABLE ia_feedback + vue d'agrégation
+-- Apprentissage continu AERORISQ : votes des engines décisionnels
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ia_feedback (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Engine qui a produit la décision
+  engine_type   TEXT NOT NULL CHECK (engine_type IN ('riskProfile','compliance','recommendation','certificate','team')),
+
+  -- Contexte
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+  planning_id   UUID REFERENCES plannings(id) ON DELETE SET NULL,
+  surveillance_id UUID REFERENCES surveillances(id) ON DELETE SET NULL,
+  user_id       UUID REFERENCES utilisateurs(id) ON DELETE SET NULL,  -- qui a voté
+
+  -- Décision originale
+  decision_type TEXT NOT NULL,
+  decision_data JSONB DEFAULT '{}',
+
+  -- Feedback
+  vote          TEXT NOT NULL CHECK (vote IN ('pertinent','non_pertinent','partiellement')),
+  commentaire   TEXT,
+
+  -- Flag de synchro
+  synced_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_feedback_aerodrome ON ia_feedback(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_ia_feedback_engine ON ia_feedback(engine_type);
+CREATE INDEX IF NOT EXISTS idx_ia_feedback_user ON ia_feedback(user_id);
+
+CREATE OR REPLACE FUNCTION trigger_ia_feedback_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ia_feedback_updated_at ON ia_feedback;
+CREATE TRIGGER trg_ia_feedback_updated_at
+  BEFORE UPDATE ON ia_feedback
+  FOR EACH ROW EXECUTE FUNCTION trigger_ia_feedback_updated_at();
+
+ALTER TABLE ia_feedback ENABLE ROW LEVEL SECURITY;
+
+-- Lecture : admin et inspecteurs voient tout, operateurs voient leur aérodrome
+DROP POLICY IF EXISTS ia_feedback_select_all ON ia_feedback;
+CREATE POLICY ia_feedback_select_all ON ia_feedback
+  FOR SELECT USING (
+    get_user_role() IN ('admin','super_admin','inspecteur')
+    OR (
+      get_user_role() = 'operateur'
+      AND aerodrome_id IN (
+        SELECT aerodrome_id FROM utilisateurs WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- Écriture : tout utilisateur authentifié peut créer un feedback
+DROP POLICY IF EXISTS ia_feedback_insert_all ON ia_feedback;
+CREATE POLICY ia_feedback_insert_all ON ia_feedback
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- Mise à jour : seul l'auteur ou admin peut modifier
+DROP POLICY IF EXISTS ia_feedback_update_owner ON ia_feedback;
+CREATE POLICY ia_feedback_update_owner ON ia_feedback
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR get_user_role() IN ('admin','super_admin')
+  );
+
+-- Vue aggrégée pour le tableau de bord AERORISQ
+CREATE OR REPLACE VIEW v_ia_feedback_stats AS
+SELECT
+  aerodrome_id,
+  engine_type,
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE vote = 'pertinent') AS pertinents,
+  CASE WHEN COUNT(*) > 0
+    THEN ROUND(COUNT(*) FILTER (WHERE vote = 'pertinent')::numeric / COUNT(*) * 100)
+    ELSE 0
+  END AS taux_pertinence,
+  MAX(created_at) AS dernier_feedback
+FROM ia_feedback
+GROUP BY aerodrome_id, engine_type;
+
+-- ------------------------------------------------------------
+-- 24.C — TABLE ia_thresholds — seuils dynamiques persistés
+-- Chargés par le cron recalculate-risk avant calculateGlobalScore()
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ia_thresholds (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  parametre     TEXT NOT NULL UNIQUE,
+  valeur        NUMERIC NOT NULL,
+  engine        TEXT NOT NULL DEFAULT 'recommendation',
+  raison        TEXT,
+  actif         BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_thresholds_engine ON ia_thresholds(engine);
+CREATE INDEX IF NOT EXISTS idx_ia_thresholds_actif ON ia_thresholds(actif);
+
+CREATE OR REPLACE FUNCTION trigger_ia_thresholds_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ia_thresholds_updated_at ON ia_thresholds;
+CREATE TRIGGER trg_ia_thresholds_updated_at
+  BEFORE UPDATE ON ia_thresholds
+  FOR EACH ROW EXECUTE FUNCTION trigger_ia_thresholds_updated_at();
+
+ALTER TABLE ia_thresholds ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ia_thresholds_select_all ON ia_thresholds;
+CREATE POLICY ia_thresholds_select_all ON ia_thresholds
+  FOR SELECT USING (get_user_role() IN ('admin','super_admin','inspecteur','operateur'));
+
+DROP POLICY IF EXISTS ia_thresholds_insert_admin ON ia_thresholds;
+CREATE POLICY ia_thresholds_insert_admin ON ia_thresholds
+  FOR INSERT WITH CHECK (get_user_role() IN ('admin','super_admin'));
+
+DROP POLICY IF EXISTS ia_thresholds_update_admin ON ia_thresholds;
+CREATE POLICY ia_thresholds_update_admin ON ia_thresholds
+  FOR UPDATE USING (get_user_role() IN ('admin','super_admin'));
+
+-- ------------------------------------------------------------
+-- 24.D — TABLE ia_decisions — historique des décisions AERORISQ
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ia_decisions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+  type          TEXT NOT NULL CHECK (type IN ('recommendation','certificat','declencheur','type_suggestion')),
+  date_decision TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Décision originale
+  recommendation_action TEXT,
+  recommendation_type   TEXT,
+  recommendation_urgence TEXT,
+  certificat_action     TEXT,
+  declencheur_type      TEXT,
+  suggestion_type       TEXT,
+  suggestion_confiance  NUMERIC,
+
+  -- Suivi
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','applied','dismissed','expired')),
+  effectiveness TEXT NOT NULL DEFAULT 'non_evalue' CHECK (effectiveness IN ('efficace','partiel','inefficace','non_evalue')),
+  applied_at    TIMESTAMPTZ,
+  commentaire   TEXT,
+
+  -- Confiance mesurée à l'instant de la décision
+  confiance     NUMERIC DEFAULT 50
+);
+
+CREATE INDEX IF NOT EXISTS idx_ia_decisions_aerodrome ON ia_decisions(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_ia_decisions_status ON ia_decisions(status);
+CREATE INDEX IF NOT EXISTS idx_ia_decisions_type ON ia_decisions(type);
+
+CREATE OR REPLACE FUNCTION trigger_ia_decisions_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ia_decisions_updated_at ON ia_decisions;
+CREATE TRIGGER trg_ia_decisions_updated_at
+  BEFORE UPDATE ON ia_decisions
+  FOR EACH ROW EXECUTE FUNCTION trigger_ia_decisions_updated_at();
+
+ALTER TABLE ia_decisions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ia_decisions_select_all ON ia_decisions;
+CREATE POLICY ia_decisions_select_all ON ia_decisions
+  FOR SELECT USING (
+    get_user_role() IN ('admin','super_admin')
+    OR (
+      get_user_role() IN ('inspecteur','operateur')
+      AND aerodrome_id IN (
+        SELECT aerodrome_id FROM utilisateurs WHERE id = auth.uid()
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS ia_decisions_insert_all ON ia_decisions;
+CREATE POLICY ia_decisions_insert_all ON ia_decisions
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS ia_decisions_update_owner ON ia_decisions;
+CREATE POLICY ia_decisions_update_owner ON ia_decisions
+  FOR UPDATE USING (get_user_role() IN ('admin','super_admin'));
+
+-- Vue agrégée : taux d'application et d'efficacité par aérodrome
+CREATE OR REPLACE VIEW v_ia_decision_stats AS
+SELECT
+  aerodrome_id,
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE status = 'applied') AS appliquees,
+  COUNT(*) FILTER (WHERE effectiveness = 'efficace') AS efficaces,
+  CASE WHEN COUNT(*) > 0
+    THEN ROUND(COUNT(*) FILTER (WHERE status = 'applied')::numeric / COUNT(*) * 100)
+    ELSE 0
+  END AS taux_application,
+  CASE WHEN COUNT(*) FILTER (WHERE status = 'applied') > 0
+    THEN ROUND(COUNT(*) FILTER (WHERE effectiveness = 'efficace')::numeric / COUNT(*) FILTER (WHERE status = 'applied') * 100)
+    ELSE 0
+  END AS taux_efficacite,
+  MAX(created_at) AS derniere_decision
+FROM ia_decisions
+GROUP BY aerodrome_id;
+
+-- ------------------------------------------------------------
+-- 24.E — DECISION OUTCOMES : évaluation automatique des décisions
+-- Relie chaque décision → évolution du score 6 mois après
+-- Boucle d'apprentissage décision → outcome
+-- ------------------------------------------------------------
+
+-- Colonnes de suivi d'évolution à ia_decisions
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS score_before       NUMERIC;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS score_after_3m     NUMERIC;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS score_after_6m     NUMERIC;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS score_delta_6m     NUMERIC;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS score_tendance_at_outcome TEXT;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS evaluated_at       TIMESTAMPTZ;
+ALTER TABLE ia_decisions ADD COLUMN IF NOT EXISTS auto_evaluated     BOOLEAN DEFAULT false;
+
+-- TABLE score_history (si pas déjà créée ailleurs)
+CREATE TABLE IF NOT EXISTS score_history (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE CASCADE,
+  score_global  NUMERIC NOT NULL,
+  c1            NUMERIC,
+  c2            NUMERIC,
+  c3            NUMERIC,
+  c4            NUMERIC,
+  c5            NUMERIC,
+  niveau        TEXT,
+  tendance      TEXT,
+  computed_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_score_history_aerodrome ON score_history(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_score_history_computed ON score_history(aerodrome_id, computed_at);
+
+-- Fonction d'évaluation automatique
+CREATE OR REPLACE FUNCTION evaluate_decision_outcomes()
+RETURNS TABLE (
+  decision_id       UUID,
+  aerodrome_id      UUID,
+  score_before      NUMERIC,
+  score_after_6m    NUMERIC,
+  delta             NUMERIC,
+  effectiveness     TEXT
+) AS $$
+DECLARE
+  rec RECORD;
+  v_score_before NUMERIC;
+  v_score_after_6m NUMERIC;
+  v_score_after_3m NUMERIC;
+  v_tendance TEXT;
+  v_delta NUMERIC;
+  v_effectiveness TEXT;
+BEGIN
+  FOR rec IN
+    SELECT d.id, d.aerodrome_id, d.date_decision
+    FROM ia_decisions d
+    WHERE d.evaluated_at IS NULL
+      AND d.date_decision <= NOW() - INTERVAL '6 months'
+      AND d.status IN ('applied', 'pending')
+    ORDER BY d.date_decision
+  LOOP
+    -- Score à la date de la décision (score_history le plus proche avant la décision)
+    SELECT sh.score_global INTO v_score_before
+    FROM score_history sh
+    WHERE sh.aerodrome_id = rec.aerodrome_id
+      AND sh.computed_at <= rec.date_decision
+    ORDER BY sh.computed_at DESC
+    LIMIT 1;
+
+    -- Score 3 mois après la décision
+    SELECT sh.score_global INTO v_score_after_3m
+    FROM score_history sh
+    WHERE sh.aerodrome_id = rec.aerodrome_id
+      AND sh.computed_at >= rec.date_decision + INTERVAL '3 months'
+      AND sh.computed_at <= rec.date_decision + INTERVAL '4 months'
+    ORDER BY sh.computed_at ASC
+    LIMIT 1;
+
+    -- Score 6 mois après la décision (fenêtre 5-8 mois)
+    SELECT sh.score_global, sh.tendance INTO v_score_after_6m, v_tendance
+    FROM score_history sh
+    WHERE sh.aerodrome_id = rec.aerodrome_id
+      AND sh.computed_at >= rec.date_decision + INTERVAL '5 months'
+      AND sh.computed_at <= rec.date_decision + INTERVAL '8 months'
+    ORDER BY sh.computed_at ASC
+    LIMIT 1;
+
+    -- Si pas de score 6 mois après, prendre le dernier score disponible
+    IF v_score_after_6m IS NULL THEN
+      SELECT sh.score_global, sh.tendance INTO v_score_after_6m, v_tendance
+      FROM score_history sh
+      WHERE sh.aerodrome_id = rec.aerodrome_id
+      ORDER BY sh.computed_at DESC
+      LIMIT 1;
+    END IF;
+
+    -- Calculer le delta et l'effectiveness
+    IF v_score_before IS NOT NULL AND v_score_after_6m IS NOT NULL THEN
+      v_delta := v_score_after_6m - v_score_before;
+
+      IF v_delta > 5 THEN
+        v_effectiveness := 'efficace';
+      ELSIF v_delta >= -5 THEN
+        v_effectiveness := 'partiel';
+      ELSE
+        v_effectiveness := 'inefficace';
+      END IF;
+
+      -- Mettre à jour la décision
+      UPDATE ia_decisions
+      SET
+        score_before = v_score_before,
+        score_after_3m = v_score_after_3m,
+        score_after_6m = v_score_after_6m,
+        score_delta_6m = v_delta,
+        score_tendance_at_outcome = v_tendance,
+        effectiveness = v_effectiveness,
+        evaluated_at = NOW(),
+        auto_evaluated = true
+      WHERE id = rec.id;
+
+      decision_id := rec.id;
+      aerodrome_id := rec.aerodrome_id;
+      score_before := v_score_before;
+      score_after_6m := v_score_after_6m;
+      delta := v_delta;
+      effectiveness := v_effectiveness;
+      RETURN NEXT;
+    END IF;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Vue : bilan des outcomes par aérodrome
+CREATE OR REPLACE VIEW v_decision_outcome_stats AS
+SELECT
+  d.aerodrome_id,
+  COUNT(*) AS total_evaluees,
+  COUNT(*) FILTER (WHERE d.effectiveness = 'efficace') AS efficaces,
+  COUNT(*) FILTER (WHERE d.effectiveness = 'partiel') AS partielles,
+  COUNT(*) FILTER (WHERE d.effectiveness = 'inefficace') AS inefficaces,
+  ROUND(AVG(d.score_delta_6m) FILTER (WHERE d.score_delta_6m IS NOT NULL), 1) AS delta_moyen,
+  MAX(d.evaluated_at) AS derniere_evaluation
+FROM ia_decisions d
+WHERE d.auto_evaluated = true
+GROUP BY d.aerodrome_id;
+
+-- ------------------------------------------------------------
+-- 24.F — TABLE ia_bayes_network_state
+-- État du réseau bayésien causal par aérodrome et domaine bow-tie.
+-- Supabase est l'autorité unique. IndexedDB sert de cache de lecture.
+-- Chaque ligne = les CPT (observations incluses) d'un réseau pour un couple.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ia_bayes_network_state (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  aerodrome_id UUID NOT NULL REFERENCES aerodromes(id) ON DELETE CASCADE,
+  bow_tie_domaine TEXT NOT NULL,
+  noeuds JSONB NOT NULL DEFAULT '[]'::jsonb,
+  nb_observations_total INTEGER NOT NULL DEFAULT 0,
+  derniere_maj TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Une seule ligne par couple (aerodrome, domaine)
+  CONSTRAINT uq_aerodrome_domaine UNIQUE (aerodrome_id, bow_tie_domaine)
+);
+
+-- Index pour chargement rapide par aérodrome
+CREATE INDEX IF NOT EXISTS idx_bayes_network_aerodrome ON ia_bayes_network_state(aerodrome_id);
+
+-- Index pour les mises à jour récentes
+CREATE INDEX IF NOT EXISTS idx_bayes_network_maj ON ia_bayes_network_state(derniere_maj DESC);
+
+COMMENT ON TABLE ia_bayes_network_state IS 'État persistant du réseau bayésien causal (CPT + observations) par aérodrome/domaine';
+COMMENT ON COLUMN ia_bayes_network_state.noeuds IS 'JSON : tableau BayesNode[] avec les CPT complètes (table + observations)';
+COMMENT ON COLUMN ia_bayes_network_state.nb_observations_total IS 'Somme de toutes les observations sur tous les nœuds, utilisée pour calculer la confiance';
+
+-- ------------------------------------------------------------
+-- 24.G — TABLE ml_samples — échantillons ML labellisés terrain
+-- Chaque signature de checklist crée un échantillon :
+--   features = profil de risque AVANT inspection (prédiction formule)
+--   label    = conformité réellement constatée (taux SA/NS → niveau)
+-- Matière première des modèles ML (Random Forest navigateur aujourd'hui,
+-- XGBoost/fine-tuning serveur demain).
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ml_samples (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  aerodrome_id    text NOT NULL,
+  surveillance_id text NOT NULL,
+  features        jsonb NOT NULL,
+  label           text NOT NULL CHECK (label IN ('critique', 'eleve', 'moyen', 'faible')),
+  label_source    text NOT NULL DEFAULT 'terrain',
+  contexte        jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (surveillance_id, aerodrome_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_samples_aero    ON ml_samples (aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_ml_samples_created ON ml_samples (created_at);
+
+-- ============================================================
+-- FIN SECTION 24 — BOUCLE D'APPRENTISSAGE AERORISQ
+-- ============================================================
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║  NOTE : Fichiers migrations archivés (2026-08-25)                         ║
+-- ║                                                                           ║
+-- ║  Les fichiers migrations/ étaient des patches incrémentaux.               ║
+-- ║  Tout est désormais consolidé dans ce fichier unique.                     ║
+-- ║  → Archivés dans _archived_migrations/ (à supprimer après validation)    ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
 

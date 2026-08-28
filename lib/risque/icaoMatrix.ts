@@ -26,13 +26,13 @@ export interface EvenementPourMatrice {
   date: string
 }
 
-// Seuils de fréquence (événements par année)
+// Seuils de fréquence (événements par année) — ordre décroissant, testés en premier match
 const SEUILS_FREQUENCE = [
-  { max: Infinity, label: 'frequente' as ProbabiliteCategorie, desc: '> 12/an' },
-  { max: 12, label: 'probable' as ProbabiliteCategorie, desc: '4-12/an' },
-  { max: 4, label: 'occasionnelle' as ProbabiliteCategorie, desc: '1-4/an' },
-  { max: 1, label: 'improbable' as ProbabiliteCategorie, desc: '< 1/an' },
-  { max: 0.25, label: 'tres_improbable' as ProbabiliteCategorie, desc: '~ 1/4 ans' },
+  { min: 12, label: 'frequente' as ProbabiliteCategorie, desc: '> 12/an' },
+  { min: 4, label: 'probable' as ProbabiliteCategorie, desc: '4-12/an' },
+  { min: 1, label: 'occasionnelle' as ProbabiliteCategorie, desc: '1-4/an' },
+  { min: 0.25, label: 'improbable' as ProbabiliteCategorie, desc: '0.25-1/an' },
+  { min: 0, label: 'tres_improbable' as ProbabiliteCategorie, desc: '< 0.25/an' },
 ]
 
 // Tableau des sévérités observées → catégorie
@@ -84,7 +84,7 @@ const MATRICE_ICAO: Record<ProbabiliteCategorie, Record<SeveriteCategorie, Nivea
 
 function getProbabiliteCategorie(freqAnnuelle: number): ProbabiliteCategorie {
   for (const seuil of SEUILS_FREQUENCE) {
-    if (freqAnnuelle <= seuil.max) return seuil.label
+    if (freqAnnuelle >= seuil.min) return seuil.label
   }
   return 'tres_improbable'
 }
@@ -182,8 +182,8 @@ export function getICaoLabels() {
       { value: 'frequente' as ProbabiliteCategorie, label: 'Fréquente', desc: '> 12/an' },
       { value: 'probable' as ProbabiliteCategorie, label: 'Probable', desc: '4-12/an' },
       { value: 'occasionnelle' as ProbabiliteCategorie, label: 'Occasionnelle', desc: '1-4/an' },
-      { value: 'improbable' as ProbabiliteCategorie, label: 'Improbable', desc: '< 1/an' },
-      { value: 'tres_improbable' as ProbabiliteCategorie, label: 'Très improbable', desc: '~ 1/4 ans' },
+      { value: 'improbable' as ProbabiliteCategorie, label: 'Improbable', desc: '0.25-1/an' },
+      { value: 'tres_improbable' as ProbabiliteCategorie, label: 'Très improbable', desc: '< 0.25/an' },
     ],
     severite: [
       { value: 'catastrophique' as SeveriteCategorie, label: 'Catastrophique', desc: 'Score ≥ 4.5' },
@@ -194,8 +194,8 @@ export function getICaoLabels() {
     ],
     niveaux: [
       { value: 'critique' as NiveauRisqueICAO, label: 'Critique', color: 'danger' },
-      { value: 'eleve' as NiveauRisqueICAO, label: 'Élevé', color: 'warning' },
-      { value: 'moyen' as NiveauRisqueICAO, label: 'Moyen', color: 'primary' },
+      { value: 'eleve' as NiveauRisqueICAO, label: 'Élevé', color: 'eleve' },
+      { value: 'moyen' as NiveauRisqueICAO, label: 'Moyen', color: 'moyen' },
       { value: 'faible' as NiveauRisqueICAO, label: 'Faible', color: 'success' },
     ],
   }

@@ -32,6 +32,7 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { rappelEngine, RappelProgramme, RappelManuel, CanalRappel } from '@/lib/rappelEngine';
 import { FileUploader } from '@/components/ui/FileUploader';
+import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 
 interface RappelSectionProps {
   ecartId: string;
@@ -494,6 +495,8 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configType, setConfigType] = useState<'pac' | 'preuves'>('pac');
   const [refresh, setRefresh] = useState(0);
+  const [courrier, setCourrier] = useState<{ titre: string; contenu: string; delai: string } | null>(null);
+  const [courrierLoading, setCourrierLoading] = useState(false);
   const utilisateurs = useOptimizedStore(s => s.utilisateurs);
   const addNotification = useAppStore(s => s.addNotification);
 
@@ -502,6 +505,37 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
 
   const handleRefresh = () => {
     setRefresh(prev => prev + 1);
+  };
+
+  const handleGenererCourrier = async () => {
+    if (courrierLoading) return;
+    setCourrierLoading(true);
+    try {
+      const result = await ecartAgent.genererCourrierRelance(ecartId);
+      setCourrier(result);
+    } catch (e) {
+      console.error('Erreur génération courrier:', e);
+      addNotification({
+        user_id: userId,
+        type: 'danger',
+        title: 'Erreur',
+        message: 'Impossible de générer le courrier de relance. Réessayez.',
+        canal: 'in_app',
+      });
+    } finally {
+      setCourrierLoading(false);
+    }
+  };
+
+  const handleTelechargerCourrier = () => {
+    if (!courrier) return;
+    const blob = new Blob([courrier.contenu], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${courrier.titre.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const getDestinataireLabel = (dest: string) => {
@@ -648,6 +682,60 @@ export function RappelSection({ ecartId, ecart, readOnly = false, userRole, user
             </div>
         </Card>
       )}
+
+      {/* Projet de courrier de relance */}
+      <Card icon={<FileText className="w-4 h-4 text-role-primary" />} title="Projet de courrier de relance">
+          <div className="space-y-3">
+            {!courrier ? (
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  Génère un projet de courrier officiel ANACIM relançant l&apos;exploitant sur les délais de régularisation de cet écart.
+                </p>
+                {!readOnly && (
+                  <button
+                    onClick={handleGenererCourrier}
+                    disabled={courrierLoading}
+                    className="btn btn-sm btn-secondary gap-1.5 shrink-0"
+                  >
+                    {courrierLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {courrierLoading ? 'Génération...' : 'Générer le courrier'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5 text-role-primary" />
+                    {courrier.titre}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGenererCourrier}
+                      disabled={courrierLoading}
+                      className="btn btn-xs btn-secondary gap-1"
+                    >
+                      {courrierLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Régénérer
+                    </button>
+                    {!readOnly && (
+                      <button onClick={handleTelechargerCourrier} className="btn btn-xs btn-primary gap-1">
+                        <Download className="w-3 h-3" />
+                        Télécharger
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-foreground whitespace-pre-wrap max-h-72 overflow-y-auto">
+                  {courrier.contenu}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Échéance considérée : {new Date(courrier.delai).toLocaleDateString('fr-FR')} — à adapter avant envoi.
+                </p>
+              </>
+            )}
+          </div>
+      </Card>
 
       {/* Modales */}
       {showEnvoiModal && (

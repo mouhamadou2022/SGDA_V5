@@ -106,13 +106,21 @@ export const authService = {
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) throw error
 
-    const { error: updateError } = await supabase
-      .from('utilisateurs')
-      .update({ force_pwd_change: false })
-      .eq('auth_id', userId)
-
-    if (updateError) {
-      console.error('Erreur update force_pwd_change:', updateError)
+    // Le clear du flag force_pwd_change passe par le serveur : côté client,
+    // la policy RLS sur `utilisateurs` peut bloquer l'UPDATE et l'erreur
+    // serait avalée silencieusement (changement demandé à chaque connexion).
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData.session?.access_token
+    const res = await fetch('/api/auth/complete-password-change', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Impossible de finaliser le changement de mot de passe')
     }
   },
 

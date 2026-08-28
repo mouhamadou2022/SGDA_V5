@@ -47,7 +47,7 @@ export function CorrelationSection({ profil }: CorrelationSectionProps) {
     const history = profil.historical_scores
     if (!history || history.length < 2) return null
 
-    const series = KEYS.map(k => history.map(h => (h as any)[k] ?? 0))
+    const series = KEYS.map(k => history.map(h => h[k] ?? 0))
     const corr: number[][] = Array.from({ length: 5 }, () => new Array(5).fill(0))
     for (let i = 0; i < 5; i++) {
       for (let j = 0; j < 5; j++) {

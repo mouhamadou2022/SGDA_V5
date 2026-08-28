@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Planning, Aerodrome, Surveillance, IaSuggestion, Formation } from '@/lib/store';
+import { useAppStore, Planning, Aerodrome, Surveillance, Ecart, Exemption, MesureAtténuation, Certification, Homologation, ChecklistItem, IaSuggestion, Formation } from '@/lib/store';
 import {
   CalendarDays,
   Calendar,
@@ -61,6 +61,9 @@ import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 
 const PLANNING_TERMINES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'annulee']
+// Statuts considérés comme « réalisés » (terminaux réussis hors annulée) — source unique
+// pour les KPIs globaux, le regroupement par aérodrome et le filtre de visibilité.
+const PLANNING_REALISES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee']
 
 // Un planning est « en retard » si son statut l'indique explicitement (en_retard)
 // ou si sa date de fin est dépassée sans qu'il soit clôturé/terminé.
@@ -87,6 +90,7 @@ import { WorkloadView } from './WorkloadView';
 import { SmartAssignment } from './SmartAssignment';
 import PlanningNPlus1 from './PlanningNPlus1';
 import PreparationModal from './PreparationModal'
+import PlanningDetailsModal from './PlanningDetailsModal'
 import { PlanningCard } from '@/components/cards/PlanningCard';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
@@ -131,6 +135,18 @@ const getSurveillanceBadge = (statut: string) => {
   return { label: labels[statut] || statut, cls: classes[statut] || 'neutral' };
 };
 
+// Noeud de hiérarchie checklist (DomaineChecklist → SousDomaine → SousSousDomaine) :
+// tous les champs optionnels pour couvrir les trois niveaux dans le prefill récursif.
+interface NoeudPrefillChecklist {
+  id?: string;
+  nom?: string;
+  items?: ChecklistItem[];
+  sousDomaines?: NoeudPrefillChecklist[];
+  sousSousDomaines?: NoeudPrefillChecklist[];
+  isExpanded?: boolean;
+  ordre?: number;
+}
+
 interface AerodromeRisque extends Aerodrome {
   niveauAlerte: string | null;
   suggestion: string | null;
@@ -161,7 +177,27 @@ interface TablePlanning extends Planning {
   aerodromeCode: string
   aerodromeNom: string
   profilScore?: number
+  risqueNiveau?: string | null
+  isLancee?: boolean
+  surveillanceId?: string
   nomsEquipe: string[]
+}
+
+// Planning enrichi côté accueil du module (champs calculés pour l'affichage
+// des cartes par aérodrome). Hérite de Planning pour rester compatible.
+interface PlanningEnrichi extends Planning {
+  aerodromeNom?: string;
+  aeroCode?: string;
+  risqueNiveau?: string | null;
+  risqueSuggestion?: string | null;
+  profilScore?: number;
+  profilTendance?: string;
+  nbEcartsCritiques: number;
+  aDesExemptions: boolean;
+  aDesMesuresEnRetard: boolean;
+  isLancee: boolean;
+  surveillanceId?: string;
+  estRetard: boolean;
 }
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -211,7 +247,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   const ecartsCritiquesParAerodrome = useMemo(() => {
     const map = new Map<string, number>();
-    ecarts.forEach((e: any) => {
+    ecarts.forEach((e: Ecart) => {
       if (e.niveau_risque === 'critique' && e.statut !== 'cloture') {
         map.set(e.aerodrome_id, (map.get(e.aerodrome_id) || 0) + 1);
       }
@@ -220,7 +256,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   }, [ecarts]);
 
   const exemptionsActivesParAerodrome = useMemo(() => {
-    const map = new Map<string, any[]>();
+    const map = new Map<string, Exemption[]>();
     try {
       const store = useAppStore.getState();
       aerodromesActifs.forEach(aero => {
@@ -251,6 +287,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const propositionsCount = useAppStore(s => s.propositionsN1?.length || 0);
   const [preparationOpen, setPreparationOpen] = useState(false);
   const [preparationPlanning, setPreparationPlanning] = useState<Planning | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsPlanning, setDetailsPlanning] = useState<Planning | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPlanning, setEditingPlanning] = useState<Planning | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -329,17 +367,18 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const profil = profilsRisque[aero.id];
       if (!profil) return null;
       const ecartsAerodrome = ecarts.filter(
-        (e: any) => e.aerodrome_id === aero.id && e.statut !== 'cloture'
+        (e: Ecart) => e.aerodrome_id === aero.id && e.statut !== 'cloture'
       );
       const nbEcartsCritiques = ecartsAerodrome.filter(
-        (e: any) => e.niveau_risque === 'critique'
+        (e: Ecart) => e.niveau_risque === 'critique'
       ).length;
       const exemptions = exemptionsActivesParAerodrome.get(aero.id) || [];
-      const aDesMesuresEnRetard = exemptions.some((e: any) =>
-        e.mesures_atténuation?.some((m: any) => m.statut === 'en_retard')
+      const aDesMesuresEnRetard = exemptions.some((e: Exemption) =>
+        e.mesures?.some((m: MesureAtténuation) => m.statut === 'en_retard')
       );
+      // getRiskLevel() renvoie les clés MAJUSCULES de RISK_LEVELS (FAIBLE/MOYEN/ELEVE/CRITIQUE)
       const niveauAlerte = ({
-        critique: 'critique', eleve: 'haute', moyen: 'moyen', faible: null
+        CRITIQUE: 'critique', ELEVE: 'haute', MOYEN: 'moyen', FAIBLE: null
       } as Record<string, string | null>)[getRiskLevel(profil.score_global)] || null;
 
       // ── Utilise le moteur complet de surveillance continue ──
@@ -349,9 +388,9 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       let hmmState: string | undefined
       try {
         const scoresHist = surveillances
-          .filter(s => s.aerodrome_id === aero.id && (s as any).score_global !== undefined)
+          .filter(s => s.aerodrome_id === aero.id && s.score_global !== undefined)
           .slice(-12)
-          .map(s => (s as any).score_global as number)
+          .map(s => s.score_global as number)
         if (scoresHist.length >= 3) {
           const hmmR = predictHMM(scoresHist)
           hmmState = hmmR.isTransitioning ? 'degrading' : hmmR.currentStateName
@@ -446,7 +485,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         syntheseConfiance,
         suggestionsMaintien,
       };
-    }).filter(a => a !== null && (a.niveauAlerte !== null || (a as any).ecartTriggers?.length > 0)) as AerodromeRisque[];
+    }).filter(a => a !== null && (a.niveauAlerte !== null || a.ecartTriggers.length > 0)) as AerodromeRisque[];
   }, [aerodromesActifs, profilsRisque, ecartsCritiquesParAerodrome, exemptionsActivesParAerodrome, ecarts, suggestionFeedbacks, surveillances, evenements]);
 
   // Pont : aerodromesRisque → iaSuggestions — alimente le bouton "Suggestions AERORISQ"
@@ -466,8 +505,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       if (suggestionAerodromeIds.has(aero.id)) continue
       if (planningsAerodromeIds.has(aero.id)) continue
 
-      const portee = (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: any) => d.domaine).filter(Boolean))
-          .filter(d => d !== 'SGS' || isSGSApplicable(aero as any))
+      const portee = (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: { domaine: string; code: string; seuil: number; group: string | null; score: number }) => d.domaine).filter(Boolean))
+          .filter(d => d !== 'SGS' || isSGSApplicable(aero))
       // Équipe proposée par le moteur teamOptimizer (compétences, charge, disponibilité)
       const propositionEquipe = teamOptimizer.proposer(
         utilisateurs,
@@ -556,7 +595,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       group.plannings.push(planning);
       group.stats.total++;
       
-      if (['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(planning.statut)) group.stats.realisees++;
+      if (PLANNING_REALISES.includes(planning.statut)) group.stats.realisees++;
       if (planning.statut === 'en_retard' || estPlanningEnRetard(planning)) group.stats.enRetard++;
       if (planning.statut === 'planifiee') group.stats.planifiees++;
       
@@ -573,7 +612,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     const total = filteredPlannings.length;
     const planifiees = filteredPlannings.filter(p => p.statut === 'planifiee').length;
     const enCours = filteredPlannings.filter(p => p.statut === 'en_cours').length;
-    const realisees = filteredPlannings.filter(p => p.statut === 'realisee').length;
+    const realisees = filteredPlannings.filter(p => PLANNING_REALISES.includes(p.statut)).length;
     const enRetard = filteredPlannings.filter(p => estPlanningEnRetard(p)).length;
     const executionRate = total > 0 ? Math.round((realisees / total) * 100) : 0;
     return { total, planifiees, enCours, realisees, enRetard, executionRate };
@@ -677,6 +716,27 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   const handleConfirmExecute = async () => {
     if (!executeTarget) return;
+    // Garde de sécurité : les dates réelles sont obligatoires avant lancement.
+    if (!executeDateDebut || !executeDateFin) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Dates requises',
+        message: 'Renseignez les dates réelles de début et de fin avant de lancer la surveillance.',
+        canal: 'in_app',
+      });
+      return;
+    }
+    if (new Date(executeDateFin).getTime() < new Date(executeDateDebut).getTime()) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Dates incohérentes',
+        message: 'La date de fin ne peut pas précéder la date de début.',
+        canal: 'in_app',
+      });
+      return;
+    }
     setExecuteConfirmOpen(false);
     await handleLancer(executeTarget, executeDateDebut, executeDateFin);
   };
@@ -855,7 +915,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
               profil_risque: profil,
               prefix_numero: checklistPrefix,
             });
-            const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodrome) } : result;
+            const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines, aerodrome) } : result;
             kitDocAgent.injectIntoStore(surveillance.id, resultFiltered);
             updateSurveillance(surveillance.id, { checklist_hierarchy: toDomaineChecklistArray(resultFiltered) });
           } catch (err) {
@@ -880,7 +940,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
           const typeSurv = surv?.type || 'programmee'
           let changed = false
 
-          const prefillItems = (domaines: any[]) => {
+          const prefillItems = (domaines: NoeudPrefillChecklist[]) => {
             for (const domaine of domaines) {
               const items = domaine.items || []
               for (const item of items) {
@@ -891,13 +951,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
                     domaine.nom || '',
                     '',
                     '',
-                    item.id || '',
+                    { id: item.id || '', numero: item.numero || '', point_verification: item.point_verification || '' },
                     profil
                   )
                   if (pred && pred.prediction) {
                     item.resultat = pred.prediction
-                    item.prediction = { resultat: pred.prediction, confiance: pred.confiance || 70, justification: pred.justification || '' }
+                    item.prediction = pred.prediction
                     item.confiance = pred.confiance || 70
+                    item.justification = pred.justification || ''
                     changed = true
                   }
                 } catch { /* ignorer les items sans prediction */ }
@@ -913,13 +974,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
                         domaine.nom || '',
                         ssd.nom || '',
                         '',
-                        item.id || '',
+                        { id: item.id || '', numero: item.numero || '', point_verification: item.point_verification || '' },
                         profil
                       )
                       if (pred && pred.prediction) {
                         item.resultat = pred.prediction
-                        item.prediction = { resultat: pred.prediction, confiance: pred.confiance || 70, justification: pred.justification || '' }
+                        item.prediction = pred.prediction
                         item.confiance = pred.confiance || 70
+                        item.justification = pred.justification || ''
                         changed = true
                       }
                     } catch { /* ignorer */ }
@@ -955,12 +1017,12 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const dateDebut = new Date(dateDebutReelleISO).toLocaleDateString('fr-FR');
       const dateFin = new Date(dateFinReelleISO).toLocaleDateString('fr-FR');
       const equipeNoms = (planning.equipe_ids || []).map((id: string) => {
-        const u = utilisateurs.find((x: any) => x.id === id);
+        const u = utilisateurs.find(x => x.id === id);
         return u ? `${u.prenom} ${u.nom}` : id;
       }).join(', ');
-      const aeroCode = (planning as any).aeroCode || '';
-      const message = `Une surveillance ${typeLabel} est programmée du ${dateDebut} au ${dateFin} sur ${aeroCode}.\nDomaines: ${domainesLabels}\nÉquipe: ${equipeNoms}\nPréparez vos documents et registres pour l'équipe ANACIM.`;
       const aerodrome = aerodromes.find(a => a.id === planning.aerodrome_id);
+      const aeroCode = aerodrome?.code_oaci || '';
+      const message = `Une surveillance ${typeLabel} est programmée du ${dateDebut} au ${dateFin} sur ${aeroCode}.\nDomaines: ${domainesLabels}\nÉquipe: ${equipeNoms}\nPréparez vos documents et registres pour l'équipe ANACIM.`;
       utilisateurs
         .filter(u =>
           u.aerodrome_id === planning.aerodrome_id &&
@@ -985,20 +1047,32 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         c => c.aerodrome_id === planning.aerodrome_id && c.phase_active === 3 && c.statut_global === 'en_cours'
       );
       if (relatedCert) {
-        const currentPhase3 = (relatedCert.phases_data as any)?.phase3 || {};
+        const currentPhase3 = relatedCert.phases_data?.phase3;
         store.updateCertification(relatedCert.id, {
-          phases_data: { ...relatedCert.phases_data, phase3: { ...currentPhase3, surveillance_id: surveillance.id } },
-        } as any);
+          phases_data: {
+            ...relatedCert.phases_data,
+            phase3: {
+              ...(currentPhase3 || {}),
+              surveillance_id: surveillance.id,
+            } as NonNullable<Certification['phases_data']['phase3']>,
+          },
+        });
       }
     } else if (planning.type === 'homologation') {
       const relatedHomo = store.homologations.find(
-        (h: any) => h.aerodrome_id === planning.aerodrome_id && h.phase_active === 2 && h.statut_global === 'en_cours'
+        (h: Homologation) => h.aerodrome_id === planning.aerodrome_id && h.phase_active === 2 && h.statut_global === 'en_cours'
       );
       if (relatedHomo) {
-        const currentPhase2 = (relatedHomo.phases_data as any)?.phase2 || {};
+        const currentPhase2 = relatedHomo.phases_data?.phase2;
         store.updateHomologation(relatedHomo.id, {
-          phases_data: { ...relatedHomo.phases_data, phase2: { ...currentPhase2, surveillance_id: surveillance.id } },
-        } as any);
+          phases_data: {
+            ...relatedHomo.phases_data,
+            phase2: {
+              ...(currentPhase2 || {}),
+              surveillance_id: surveillance.id,
+            } as NonNullable<Homologation['phases_data']['phase2']>,
+          },
+        });
       }
     }
     // ─────────────────────────────────────────────────────────────
@@ -1170,6 +1244,11 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     } else {
       router.push(`/preparation-checklist/${planning.id}`);
     }
+  };
+
+  const handleViewDetails = (planning: Planning & { surveillanceId?: string }) => {
+    setDetailsPlanning(planning);
+    startTransition(() => setDetailsOpen(true));
   };
 
   const handleDelete = (planning: Planning & { isLancee?: boolean }) => {
@@ -1351,7 +1430,7 @@ const tableColumns: Column<TablePlanning>[] = [
     key: 'priorite',
     header: 'Priorité',
     render: (item) => {
-      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge success' }
+      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge teal', basse: 'badge success' }
       const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
       return item.priorite ? <span className={`badge text-xs ${pBadge[item.priorite] || 'badge neutral'}`}>{pLabel[item.priorite] || item.priorite}</span> : null
     },
@@ -1380,7 +1459,7 @@ const tableColumns: Column<TablePlanning>[] = [
               <CheckCircle2 className="w-4 h-4" />
             </button>
           )}
-          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleView(item); }} title="Voir">
+          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleViewDetails(item); }} title="Voir détails">
             <Info className="w-4 h-4" />
           </button>
           {canManageTable && (
@@ -1409,10 +1488,10 @@ const tableColumns: Column<TablePlanning>[] = [
         <div className="alert alert-danger">
           <AlertTriangle className="alert-icon" />
           <div className="alert-content flex-1">
-            <div className="alert-title">⚠️ Mesures d'atténuation en retard</div>
+            <div className="alert-title">⚠️ Mesures d&apos;atténuation en retard</div>
             <div className="alert-description">
-              Des mesures d'atténuation liées à des exemptions sont en retard. 
-              Une inspection de type "Mise en œuvre PAC" est recommandée.
+              Des mesures d&apos;atténuation liées à des exemptions sont en retard. 
+              Une inspection de type &quot;Mise en œuvre PAC&quot; est recommandée.
             </div>
           </div>
         </div>
@@ -1425,7 +1504,7 @@ const tableColumns: Column<TablePlanning>[] = [
           <div className="alert-content flex-1">
             <div className="alert-title">Exemptions actives détectées</div>
             <div className="alert-description">
-              Certains aérodromes bénéficient d'exemptions. Les mesures d'atténuation seront automatiquement ajoutées aux checklists.
+              Certains aérodromes bénéficient d&apos;exemptions. Les mesures d&apos;atténuation seront automatiquement ajoutées aux checklists.
             </div>
           </div>
         </div>
@@ -1516,9 +1595,9 @@ const tableColumns: Column<TablePlanning>[] = [
         <div className="p-3 rounded-lg border border-info/40 bg-info-soft/20 flex items-start gap-2">
           <Shield className="w-4 h-4 text-info shrink-0 mt-0.5" />
           <p className="text-xs">
-            <span className="font-semibold text-foreground">Missions en cours d'exécution :</span>{' '}
-            <span className="text-foreground">les plannings avec équipe désignée sont en lecture seule pour l'admin.</span>{' '}
-            La préparation revient au chef d'équipe et aux membres, l'exécution au seul chef d'équipe désigné.
+            <span className="font-semibold text-foreground">Missions en cours d&apos;exécution :</span>{' '}
+            <span className="text-foreground">les plannings avec équipe désignée sont en lecture seule pour l&apos;admin.</span>{' '}
+            La préparation revient au chef d&apos;équipe et aux membres, l&apos;exécution au seul chef d&apos;équipe désigné.
           </p>
         </div>
       )}
@@ -1786,7 +1865,7 @@ const tableColumns: Column<TablePlanning>[] = [
                         estRetard={estPlanningEnRetard(planning)}
                         onPrepare={() => handlePrepare(planning)}
                         onExecute={() => handleRequestExecute(planning)}
-                        onView={() => handleView(planning)}
+                        onView={() => handleViewDetails(planning)}
                         onEdit={() => handleEdit(planning)}
                         onDelete={() => handleDelete(planning)}
                         userRole={userRole}
@@ -1851,8 +1930,8 @@ const tableColumns: Column<TablePlanning>[] = [
                   <div className="alert alert-danger mb-2 p-2 text-sm">
                     <AlertTriangle className="alert-icon" />
                     <div className="alert-content">
-                      <p className="text-small font-medium">Mesures d'atténuation en retard</p>
-                      <p className="text-xs">Une inspection de type "Mise en oeuvre PAC" est recommandée.</p>
+                      <p className="text-small font-medium">Mesures d&apos;atténuation en retard</p>
+                      <p className="text-xs">Une inspection de type &quot;Mise en oeuvre PAC&quot; est recommandée.</p>
                     </div>
                   </div>
                 )}
@@ -1862,7 +1941,7 @@ const tableColumns: Column<TablePlanning>[] = [
                   <div className="alert alert-info mb-2 p-2 text-sm">
                     <Shield className="alert-icon" />
                     <div className="alert-content">
-                      <p className="text-small">Exemptions actives - Les mesures d'atténuation seront ajoutées aux checklists</p>
+                      <p className="text-small">Exemptions actives - Les mesures d&apos;atténuation seront ajoutées aux checklists</p>
                     </div>
                   </div>
                 )}
@@ -1907,24 +1986,24 @@ const tableColumns: Column<TablePlanning>[] = [
                   </Card>
                 )}
                 
-                {aeroPlannings.filter((p: any) => {
+                {aeroPlannings.filter((p: PlanningEnrichi) => {
                   if (visibilityFilter === 'all') return true
                   if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                  if (visibilityFilter === 'retards') return estPlanningEnRetard(p as Planning)
-                  if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
+                  if (visibilityFilter === 'retards') return estPlanningEnRetard(p)
+                  if (visibilityFilter === 'terminees') return PLANNING_REALISES.includes(p.statut)
                   return true
                 }).length === 0 ? (
                   <div className="text-center py-6 text-muted-foreground">
                     <p className="text-sm">Aucun planning {visibilityFilter === 'retards' ? 'en retard' : visibilityFilter === 'terminees' ? 'termine' : ''}</p>
                   </div>
                 ) : (
-                  aeroPlannings.filter((p: any) => {
+                  aeroPlannings.filter((p: PlanningEnrichi) => {
                     if (visibilityFilter === 'all') return true
                     if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                    if (visibilityFilter === 'retards') return estPlanningEnRetard(p as Planning)
-                    if (visibilityFilter === 'terminees') return ['checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(p.statut)
+                    if (visibilityFilter === 'retards') return estPlanningEnRetard(p)
+                    if (visibilityFilter === 'terminees') return PLANNING_REALISES.includes(p.statut)
                   return true
-                }).map((planning: any) => (
+                }).map((planning: PlanningEnrichi) => (
                   <div key={planning.id} className="space-y-1">
                    <PlanningCard
                      key={planning.id}
@@ -1933,7 +2012,7 @@ const tableColumns: Column<TablePlanning>[] = [
                      estRetard={estPlanningEnRetard(planning)}
                      onPrepare={() => handlePrepare(planning)}
                      onExecute={() => handleRequestExecute(planning)}
-                     onView={() => handleView(planning)}
+                     onView={() => handleViewDetails(planning)}
                      onEdit={() => handleEdit(planning)}
                      onDelete={() => handleDelete(planning)}
                      isLancee={planning.isLancee}
@@ -2167,6 +2246,7 @@ const tableColumns: Column<TablePlanning>[] = [
           aerodromes={aerodromes}
           selectedYear={selectedYear}
           userRole={userRole}
+          utilisateurs={utilisateurs}
         />
       )}
 
@@ -2195,6 +2275,17 @@ const tableColumns: Column<TablePlanning>[] = [
         executeDateFin={executeDateFin} setExecuteDateFin={setExecuteDateFin}
       />
       <PreparationModal open={preparationOpen} planning={preparationPlanning} onClose={() => setPreparationOpen(false)} userRole={userRole} />
+      {detailsOpen && (
+        <PlanningDetailsModal
+          planning={detailsPlanning}
+          aerodrome={detailsPlanning ? (aerodromesActifs.find(a => a.id === detailsPlanning.aerodrome_id) || aerodromes.find(a => a.id === detailsPlanning.aerodrome_id)) : undefined}
+          surveillanceId={detailsPlanning ? (surveillances.find(s => s.planning_id === detailsPlanning.id)?.id || detailsPlanning.surveillance_id) : undefined}
+          isLancee={detailsPlanning ? !!surveillances.find(s => s.planning_id === detailsPlanning.id || s.id === detailsPlanning.surveillance_id) : false}
+          userRole={userRole}
+          onClose={() => setDetailsOpen(false)}
+          onPrepare={() => detailsPlanning && handlePrepare(detailsPlanning)}
+        />
+      )}
     </div>
   );
 }

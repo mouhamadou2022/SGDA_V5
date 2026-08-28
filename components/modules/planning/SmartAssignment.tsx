@@ -89,9 +89,9 @@ function extraireDomaines(portee: string[]): string[] {
 
 // Seul un inspecteur titulaire ou principal peut être chef d'équipe
 const TYPES_CHEF_AUTORISES = ['inspecteur_titulaire', 'inspecteur_principal']
-function peutEtreChef(insp: any): boolean {
-  const type = insp?.type_inspecteur || insp?._insp?.type
-  return TYPES_CHEF_AUTORISES.includes(type)
+function peutEtreChef(insp: Utilisateur): boolean {
+  const type = insp.type_inspecteur || (insp as Utilisateur & { _insp?: { type?: string } })._insp?.type
+  return TYPES_CHEF_AUTORISES.includes(type || '')
 }
 
 function calculerScoreInspecteur(
@@ -403,6 +403,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
         message: erreurs.join('. '),
         canal: 'in_app'
       });
+      return;
     }
     
     // ✅ Enregistrer le feedback
@@ -481,7 +482,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
         <div>
           <h2 className="heading-4 text-role-primary">Assignation intelligente</h2>
           <p className="text-small text-muted-foreground mt-1">
-            {planningsSansEquipe.length} planning{planningsSansEquipe.length !== 1 ? 's' : ''} en attente d'assignation
+            {planningsSansEquipe.length} planning{planningsSansEquipe.length !== 1 ? 's' : ''} en attente d&apos;assignation
           </p>
         </div>
       </div>
@@ -491,10 +492,10 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
         <div className="alert alert-danger">
           <AlertTriangle className="alert-icon" />
           <div className="alert-content">
-            <div className="alert-title">⚠️ Plannings avec mesures d'atténuation en retard</div>
+            <div className="alert-title">⚠️ Plannings avec mesures d&apos;atténuation en retard</div>
             <div className="alert-description">
               {nbPlanningsAvecMesuresEnRetard} planning(s) concernent des aérodromes avec des mesures en retard.
-              Priorité haute pour l'assignation.
+              Priorité haute pour l&apos;assignation.
             </div>
           </div>
         </div>
@@ -507,7 +508,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
             <div className="alert-title">Exemptions actives détectées</div>
             <div className="alert-description">
               {nbPlanningsAvecExemptions} planning(s) concernent des aérodromes avec des exemptions actives.
-              Les mesures d'atténuation seront intégrées aux checklists.
+              Les mesures d&apos;atténuation seront intégrées aux checklists.
             </div>
           </div>
         </div>
@@ -602,7 +603,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
               switch (planning.priorite) {
                 case 'critique': return 'badge danger';
                 case 'haute': return 'badge warning';
-                case 'moyenne': return 'badge primary';
+                case 'moyenne': return 'badge teal';
                 default: return 'badge neutral';
               }
             };
@@ -712,8 +713,8 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
                       <div className="alert alert-danger mb-3 p-2 text-sm">
                         <AlertTriangle className="alert-icon" />
                         <div className="alert-content">
-                          <p className="text-small font-medium">⚠️ Mesures d'atténuation en retard</p>
-                          <p className="text-xs">Des mesures d'atténuation sont en retard. Une inspection de type "Mise en œuvre PAC" est recommandée.</p>
+                          <p className="text-small font-medium">⚠️ Mesures d&apos;atténuation en retard</p>
+                          <p className="text-xs">Des mesures d&apos;atténuation sont en retard. Une inspection de type &quot;Mise en œuvre PAC&quot; est recommandée.</p>
                         </div>
                       </div>
                     )}
@@ -723,7 +724,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
                       <div className="alert alert-info mb-3 p-2 text-sm">
                         <Shield className="alert-icon" />
                         <div className="alert-content">
-                          <p className="text-small">📋 {nbExemptions} exemption(s) active(s) - Les mesures d'atténuation seront ajoutées aux checklists</p>
+                          <p className="text-small">📋 {nbExemptions} exemption(s) active(s) - Les mesures d&apos;atténuation seront ajoutées aux checklists</p>
                         </div>
                       </div>
                     )}

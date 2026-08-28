@@ -13,6 +13,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 
@@ -25,6 +26,7 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
   const user = useAppStore(s => s.user);
   const userRole = userRoleProp ?? userProp?.role ?? user?.role ?? ''
   const aerodromes = useAppStore(s => s.aerodromes);
+  const plannings = useAppStore(s => s.plannings);
   const ecarts = useAppStore(s => s.ecarts);
   const surveillances = useAppStore(s => s.surveillances);
   const profilsRisque = useAppStore(s => s.profilsRisque);
@@ -77,7 +79,7 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
   const colonnesPlanifiees: Column<any>[] = [
     { key: 'date', header: 'Date', render: (item) => <span>{new Date(item.date_debut).toLocaleDateString('fr-FR')}</span> },
     { key: 'type', header: 'Type', render: (item) => <span>{item.type}</span> },
-    { key: 'equipe', header: 'Équipe', render: (item) => <span>{item.equipe_ids.length} inspecteur(s)</span> },
+    { key: 'equipe', header: 'Équipe', render: (item) => <span>{getSurveillanceEquipeIds(item, plannings).length} inspecteur(s)</span> },
     { key: 'statut', header: 'Statut', render: () => <span className="badge primary">Planifiée</span> },
   ]
 

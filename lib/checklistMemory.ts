@@ -440,9 +440,9 @@ export function getProblematicItems(
 }
 
 /**
- * ✅ CORRIGÉE : Utilise le store
+ * ✅ CORRIGÉE : Utilise le store + filtrage optionnel par aérodrome
  */
-export function getLearningStats(): {
+export function getLearningStats(aerodrome_id?: string): {
   total_items: number;
   items_avec_historique: number;
   confiance_moyenne: number;
@@ -450,19 +450,21 @@ export function getLearningStats(): {
   items_problematiques: number;
 } {
   const store = getStoreState();
-  const records = store.checklistMemoryRecords;
-  
+  const records = store.checklistMemoryRecords.filter(
+    r => !aerodrome_id || r.aerodrome_id === aerodrome_id
+  );
+
   const totalItems = records.length;
   let confianceSum = 0;
   let ecartsRecurrents = 0;
-  
+
   for (const record of records) {
     confianceSum += record.confiance;
     if (record.alerte_ecart_recurrent) ecartsRecurrents++;
   }
-  
-  const problematiques = getProblematicItems().length;
-  
+
+  const problematiques = getProblematicItems(aerodrome_id).length;
+
   return {
     total_items: totalItems,
     items_avec_historique: totalItems,

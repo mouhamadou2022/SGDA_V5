@@ -1,5 +1,57 @@
 import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
+// Helper : détecte si le texte extrait est probablement un scan (trop court ou peu de contenu)
+function estProbablementScan(texte: string): boolean {
+  const lignes = texte.split('\n').filter(l => l.trim().length > 0)
+  // Si moins de 3 lignes non vides sur une page moyenne, c'est probablement un scan
+  const ratio = lignes.length / Math.max(1, 1)
+  return ratio < 5
+}
+
+// OCR via Tesseract.js sur une page PDF rendue en canvas
+async function ocrPageAvecTesseract(
+  pagePdf: any,
+  pageNumber: number
+): Promise<string> {
+  // Render the page as a canvas
+  const canvas = await pagePdf.getCanvas({
+    viewport: { width: 595, height: 842 }, // A4 par défaut en points
+  })
+
+  // Convertir le canvas en data URI que Tesseract peut traiter
+  const context = canvas.getContext('2d')
+  const dataUrl = canvas.toDataURL('image/jpeg', 1.0)
+
+  // Tesseract.js : initialisation et OCR
+  const { createWorker } = await import('tesseract.js')
+  const worker = createWorker('fra') as any
+
+  // Charger la langue et démarrer reconnaissance
+  await worker.load()
+  await worker.setParameters({ tessedit_ocr_engine_mode: 1 })
+
+  // Lancer reconnaissance et attendre le résultat via promesse
+  const result: any = await new Promise((resolve, reject) => {
+    worker.recognize(dataUrl, (err: any, result: any) => {
+      if (err) reject(err)
+      else resolve(result)
+    })
+  })
+
+  // Nettoyage
+  worker.terminate()
+
+  // Extraire le texte du résultat - accès sécurisé
+  const texte: string = (result && result.data && result.data.text
+    ? result.data.text
+    : '') || ''
+
+  return texte.trim()
+}
+
+// ────────────────────────────────────────────────────────────
+// Extraction principale : pdfjs-dist d'abord, puis OCR fallback
+// ────────────────────────────────────────────────────────────
 export async function extractTextFromPDF(blobUrl: string): Promise<{
   texte_complet: string
   chapitres: { titre: string; contenu: string; debut: number }[]
@@ -13,15 +65,39 @@ export async function extractTextFromPDF(blobUrl: string): Promise<{
     const pdfjs = await import('pdfjs-dist')
     pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
-    const pages: string[] = []
+
+    // D'abord essayer l'extraction texte classique
+    const pagesTexte: string[] = []
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const content = await page.getTextContent()
-      pages.push(content.items.map((item: any) => item.str).join(' '))
+      const textePage = content.items.map((item: any) => item.str).join(' ')
+      pagesTexte.push(textePage)
     }
-    const texte_complet = pages.join('\n')
-    const chapitres = decouperChapitres(texte_complet)
-    return { texte_complet, chapitres, nb_pages: pdf.numPages }
+
+    const texteClassique = pagesTexte.join('\n')
+
+    // Si le texte extrait semble être un scan (peu de contenu), utiliser l'OCR
+    const besoinOCR = estProbablementScan(texteClassique) || pdf.numPages > 50 // OCR pour les très gros docs
+
+    let texteFinal: string
+    if (besoinOCR) {
+      // OCR page par page via Tesseract
+      const pagesOCR: string[] = []
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const texteOcr = await ocrPageAvecTesseract(page, i)
+        pagesOCR.push(texteOcr)
+      }
+      texteFinal = pagesOCR.join('\n')
+      console.log(`[pdfExtractor] OCR appliqué sur ${pdf.numPages} pages (scan détecté)`)
+    } else {
+      texteFinal = texteClassique
+      console.log(`[pdfExtractor] Texte extrait directement (pas de scan détecté)`)
+    }
+
+    const chapitres = decouperChapitres(texteFinal)
+    return { texte_complet: texteFinal, chapitres, nb_pages: pdf.numPages }
   } finally {
     clearTimeout(timeout)
   }

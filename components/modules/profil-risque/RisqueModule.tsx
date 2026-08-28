@@ -57,7 +57,6 @@ export function RisqueModule({ userRole }: Props) {
   const evenements = useOptimizedStore(s => s.evenements)
   const user = useOptimizedStore(s => s.user)
   const recalculerProfilRisque = useAppStore(s => s.recalculerProfilRisque)
-  const computeFullRiskProfile = useAppStore(s => s.computeFullRiskProfile)
 
   const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null)
   const [activeOnglet, setActiveOnglet] = useState<OngletId>('synthese')
@@ -116,16 +115,16 @@ export function RisqueModule({ userRole }: Props) {
 
   const evenementsAerodrome = useMemo(() => {
     if (!aerodrome) return []
-    return evenements.filter(e => (e as any).aerodrome_id === aerodrome.id)
+    return evenements.filter(e => e.aerodrome_id === aerodrome.id)
   }, [evenements, aerodrome])
 
   const handleRecalculer = useCallback(async () => {
     if (!aerodrome) return
     setRefreshing(true)
+    // recalculerProfilRisque enchaîne déjà computeFullRiskProfile (snapshots, alertes, ruptures)
     await recalculerProfilRisque(aerodrome.id)
-    if (computeFullRiskProfile) await computeFullRiskProfile(aerodrome.id)
     setRefreshing(false)
-  }, [aerodrome, recalculerProfilRisque, computeFullRiskProfile])
+  }, [aerodrome, recalculerProfilRisque])
 
   const handleSelectAerodrome = (id: string) => {
     setSelectedAerodromeId(id)
@@ -268,7 +267,7 @@ export function RisqueModule({ userRole }: Props) {
           <div className="text-center py-12">
             <MapPin className="w-12 h-12 mx-auto mb-3 opacity-20" />
             <p className="text-foreground">Aucun aérodrome lié à votre compte</p>
-            <p className="text-xs text-foreground mt-1">Contactez l'administrateur ANACIM</p>
+            <p className="text-xs text-foreground mt-1">Contactez l&apos;administrateur ANACIM</p>
           </div>
         </Card>
       )}

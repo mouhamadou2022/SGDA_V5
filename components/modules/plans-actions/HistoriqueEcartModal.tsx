@@ -222,7 +222,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
               <p className="text-sm text-foreground">{ecart.libelle}</p>
               {ecart.niveau_risque && (
                 <div className="mt-2">
-                  <span className={getRiskLevelClass(ecart.niveau_risque)}>
+                  <span className={`badge ${getRiskLevelClass(ecart.niveau_risque)}`}>
                     {ecart.niveau_risque}
                   </span>
                 </div>

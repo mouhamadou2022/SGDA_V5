@@ -27,8 +27,14 @@ const HF_URL = 'https://api-inference.huggingface.co/v1/chat/completions'
 const OLLAMA_URL = 'http://localhost:11434/v1/chat/completions'
 const AERORISQ_URL = process.env.AERORISQ_API_URL // IA maison — serveur d'inférence propre
 
-const GROQ_PRIMARY = 'llama-3.3-70b-versatile'
-const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
+// Modèles Groq VALIDÉS sur le compte actuel (liste /models vérifiée) :
+// les anciens « llama-3.3-70b-versatile » / « llama-3.1-8b-instant » renvoient 404.
+// IMPORTANT : on choisit des modèles NON-« reasoning » par défaut (groq/compound-mini,
+// groq/compound). Les modèles de raisonnement (openai/gpt-oss-*, qwen3@400 tokens)
+// consomment tout le budget max_tokens en \u003cthink\u003e et renvoient un content VIDE
+// (bug rencontré : response.content="" avec reasoning_tokens=398).
+const GROQ_PRIMARY = 'groq/compound-mini'
+const GROQ_FALLBACK_MODEL = 'groq/compound'
 const OPENROUTER_PRIMARY = 'qwen/qwen-2.5-72b-instruct'
 const OPENROUTER_FALLBACK = 'deepseek/deepseek-chat'
 const GOOGLE_PRIMARY = 'gemini-2.5-flash'
@@ -41,7 +47,19 @@ const HF_PRIMARY = 'mistralai/Mistral-7B-Instruct-v0.3'
 const HF_FALLBACK = 'HuggingFaceH4/zephyr-7b-beta'
 const OLLAMA_PRIMARY = 'mistral'
 const OLLAMA_FALLBACK = 'llama3.2'
-const AERORISQ_PRIMARY = 'aerorisq-sgda' // modèle de l'IA maison AERORISQ
+const AERORISQ_PRIMARY = process.env.AERORISQ_MODEL || 'mistral' // modèle de l'IA maison AERORISQ (Ollama par défaut)
+
+// ── Désactivation explicite des providers ─────────────────────────────
+// Un provider (service cloud) n'est essayé QUE s'il est explicitement activé
+// via IA_ENABLE_<SERVICE>=true dans l'environnement. Sans drapeau, il ne sera
+// JAMAIS appelé → zéro latence ajoutée par les API mortes / payantes.
+// Par défaut seuls AERORISQ et Groq sont actifs pendant la phase de test.
+function isProviderEnabled(service: string): boolean {
+  const flag = process.env[`IA_ENABLE_${service.toUpperCase()}`]
+  if (flag !== undefined) return flag.trim().toLowerCase() === 'true'
+  // Valeurs par défaut : AERORISQ et Groq actifs, le reste inactif.
+  return service === 'aerorisq' || service === 'groq'
+}
 
 interface KeyEntry {
   key_value: string
@@ -102,8 +120,15 @@ async function callAerorisq(apiKey: string, model: string, body: LLMRequest, sig
   return apiFetch(AERORISQ_URL, apiKey || null, body, model, signal)
 }
 
+// Cache des clés API (5 min TTL) — évite 7+ requêtes Supabase à chaque appel LLM
+const keysCache = new Map<string, { data: KeyEntry[]; expiresAt: number }>()
+const KEYS_CACHE_TTL = 5 * 60 * 1000
+
 // Charge les clés depuis Supabase (service role) avec fallback .env
 async function getServiceKeys(service: string): Promise<KeyEntry[]> {
+  const cached = keysCache.get(service)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+
   const keys: KeyEntry[] = []
   // Fallback .env
   const envMap: Record<string, string | undefined> = {
@@ -132,6 +157,8 @@ async function getServiceKeys(service: string): Promise<KeyEntry[]> {
       if (data) keys.push(...data.map(k => ({ key_value: k.key_value, fallback_order: keys.length + k.fallback_order, is_active: k.is_active })))
     }
   } catch { console.warn('[providers] getServiceKeys: Supabase query failed') }
+
+  keysCache.set(service, { data: keys, expiresAt: Date.now() + KEYS_CACHE_TTL })
   return keys
 }
 
@@ -153,61 +180,97 @@ function getProviderMaxInput(providerName: string): number {
   return 60000
 }
 
+// Budget de temps GLOBAL de toute la chaîne de fallback.
+// Borné SOUS le maxDuration de la route (60s) pour que la plateforme ne coupe
+// jamais brutalement avant un échec propre et exploitable. Doit rester <
+// maxDuration de generate/route.ts (et cohérent avec les autres routes IA).
+// 30 s : le cas nominal (Groq compound-mini) répond en ~1-2 s ; ce budget ne
+// borne que le pire cas (tous les providers échouent en chaîne) — au-delà on
+// rend la main à l'UI plutôt que de laisser tourner un spinner interminable.
+export const GLOBAL_BUDGET_MS = 30000
+
+// Heuristique « provider local = lent » : un serveur local doit être dépriorisé
+// (mis en fin de chaîne) car son inférence CPU est lente. Détecte localhost,
+// les IP privées LAN (192.168.x, 10.x, 172.16-31.x, Tailscale 100.x) et les
+// hôtes .local — au lieu de ne reconnaître que localhost/127.0.0.1.
+export function isLocalUrl(url: string | undefined): boolean {
+  if (!url) return false
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/.test(url) || /\.local(\/|$)/.test(url)
+}
+
 export async function callWithFallback(request: LLMRequest): Promise<LLMResult> {
   const errors: string[] = []
-  const groqKeys = await getServiceKeys('groq')
-  const openrouterKeys = await getServiceKeys('openrouter')
+  const budgetDebut = Date.now()
+
+  // Charger en PARALLÈLE les clés des providers ACTIVÉS uniquement
+  const [groqKeys, openrouterKeys, googleKeys, deepseekKeys, mistralKeys, hfKeys, cloudflareKeys, aerorisqKeys] = await Promise.all([
+    isProviderEnabled('groq') ? getServiceKeys('groq') : Promise.resolve([]),
+    isProviderEnabled('openrouter') ? getServiceKeys('openrouter') : Promise.resolve([]),
+    isProviderEnabled('google_ai') ? getServiceKeys('google_ai') : Promise.resolve([]),
+    isProviderEnabled('deepseek') ? getServiceKeys('deepseek') : Promise.resolve([]),
+    isProviderEnabled('mistral') ? getServiceKeys('mistral') : Promise.resolve([]),
+    isProviderEnabled('huggingface') ? getServiceKeys('huggingface') : Promise.resolve([]),
+    isProviderEnabled('cloudflare') ? getServiceKeys('cloudflare') : Promise.resolve([]),
+    (AERORISQ_URL && isProviderEnabled('aerorisq')) ? getServiceKeys('aerorisq') : Promise.resolve([]),
+  ])
+
   const allProviders: { name: string; key: string; call: ProviderCall; model: string }[] = []
 
-  // AERORISQ (IA maison) en PREMIER : prioritaire dès que son serveur est configuré,
-  // les fournisseurs cloud restent en secours tant que l'IA maison n'est pas prête.
-  if (AERORISQ_URL) {
-    const aerorisqKeys = await getServiceKeys('aerorisq')
-    for (const k of aerorisqKeys.length > 0 ? aerorisqKeys : [{ key_value: '', fallback_order: 0, is_active: true }]) {
-      if (!k.is_active) continue
-      allProviders.push({ name: `aerorisq_${k.fallback_order}`, key: k.key_value, call: callAerorisq, model: AERORISQ_PRIMARY })
-    }
+  // AERORISQ (IA maison) en PREMIER : prioritaire dès que son serveur est configuré.
+  // SAUF s'il s'agit d'un Ollama local (localhost/127.0.0.1) : l'inférence locaux CPU est
+  // très lente, on ne la met PAS en priorité — les providers cloud rapides passent d'abord.
+  const aerorisqLocal = isLocalUrl(AERORISQ_URL)
+  const aerorisqEntries: typeof allProviders = []
+  for (const k of aerorisqKeys.length > 0 ? aerorisqKeys : (AERORISQ_URL ? [{ key_value: '', fallback_order: 0, is_active: true }] : [])) {
+    if (!k.is_active) continue
+    aerorisqEntries.push({ name: `aerorisq_${k.fallback_order}`, key: k.key_value, call: callAerorisq, model: AERORISQ_PRIMARY })
   }
+  if (!aerorisqLocal) allProviders.push(...aerorisqEntries)
 
   for (const k of groqKeys) {
+    if (!isProviderEnabled('groq')) break
     if (!k.is_active) continue
     allProviders.push({ name: `groq_${k.fallback_order}`, key: k.key_value, call: callGroq, model: GROQ_PRIMARY })
     allProviders.push({ name: `groq_fallback_${k.fallback_order}`, key: k.key_value, call: callGroq, model: GROQ_FALLBACK_MODEL })
   }
   for (const k of openrouterKeys) {
+    if (!isProviderEnabled('openrouter')) break
     if (!k.is_active) continue
     allProviders.push({ name: `openrouter_${k.fallback_order}`, key: k.key_value, call: callOpenRouter, model: OPENROUTER_PRIMARY })
     allProviders.push({ name: `openrouter_fallback_${k.fallback_order}`, key: k.key_value, call: callOpenRouter, model: OPENROUTER_FALLBACK })
   }
-  const googleKeys = await getServiceKeys('google_ai')
   for (const k of googleKeys) {
+    if (!isProviderEnabled('google_ai')) break
     if (!k.is_active) continue
     allProviders.push({ name: `google_ai_${k.fallback_order}`, key: k.key_value, call: callGoogle, model: GOOGLE_PRIMARY })
     allProviders.push({ name: `google_ai_fallback_${k.fallback_order}`, key: k.key_value, call: callGoogle, model: GOOGLE_FALLBACK })
   }
-  const deepseekKeys = await getServiceKeys('deepseek')
   for (const k of deepseekKeys) {
+    if (!isProviderEnabled('deepseek')) break
     if (!k.is_active) continue
     allProviders.push({ name: `deepseek_${k.fallback_order}`, key: k.key_value, call: callDeepSeek, model: DEEPSEEK_PRIMARY })
     allProviders.push({ name: `deepseek_fallback_${k.fallback_order}`, key: k.key_value, call: callDeepSeek, model: DEEPSEEK_FALLBACK })
   }
-  const mistralKeys = await getServiceKeys('mistral')
   for (const k of mistralKeys) {
+    if (!isProviderEnabled('mistral')) break
     if (!k.is_active) continue
     allProviders.push({ name: `mistral_${k.fallback_order}`, key: k.key_value, call: callMistral, model: MISTRAL_PRIMARY })
     allProviders.push({ name: `mistral_fallback_${k.fallback_order}`, key: k.key_value, call: callMistral, model: MISTRAL_FALLBACK })
   }
-  const hfKeys = await getServiceKeys('huggingface')
   for (const k of hfKeys) {
+    if (!isProviderEnabled('huggingface')) break
     if (!k.is_active) continue
     allProviders.push({ name: `huggingface_${k.fallback_order}`, key: k.key_value, call: callHuggingFace, model: HF_PRIMARY })
     allProviders.push({ name: `huggingface_fallback_${k.fallback_order}`, key: k.key_value, call: callHuggingFace, model: HF_FALLBACK })
   }
-  const cloudflareKeys = await getServiceKeys('cloudflare')
   for (const k of cloudflareKeys) {
+    if (!isProviderEnabled('cloudflare')) break
     if (!k.is_active) continue
     allProviders.push({ name: `cloudflare_${k.fallback_order}`, key: k.key_value, call: callCloudflare, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' })
   }
+
+  // AERORISQ local (Ollama) : on le remet en fin de liste (fallback) — lent.
+  if (aerorisqLocal) allProviders.push(...aerorisqEntries)
 
   // Ollama (local) en DERNIER recours : zéro clé API mais lent (inférence locale).
   // Les providers cloud (Groq, OpenRouter, Google…) sont priorisés pour la rapidité.
@@ -235,16 +298,34 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
   }
 
   for (const provider of filtered) {
+    // Budget global : si on est déjà au-delà, on cesse de tenter les providers
+    // restants (le timeout de la plateforme couperait la requête brutalement,
+    // sans erreur exploitable). Arrêt propre avec erreur agrégée.
+    if (Date.now() - budgetDebut >= GLOBAL_BUDGET_MS) {
+      errors.push('budget de temps global dépassé')
+      break
+    }
     try {
       const controller = new AbortController()
-      const isLocal = provider.name.startsWith('ollama')
-      const providerTimeout = setTimeout(() => controller.abort(), isLocal ? 10000 : 60000)
+      const isLocal = provider.name.startsWith('ollama') || (
+        provider.name.startsWith('aerorisq') && isLocalUrl(AERORISQ_URL)
+      )
+      // Inférence locale : 120 s — le premier appel charge le modèle en mémoire (lent), les suivants sont rapides.
+      const providerTimeout = setTimeout(() => controller.abort(), isLocal ? 120000 : 60000)
       const res = await provider.call(provider.key, provider.model, request, controller.signal)
       clearTimeout(providerTimeout)
       if (res.status === 429) { errors.push(`${provider.name}: quota dépassé (429)`); continue }
       if (!res.ok) { const t = await res.text(); errors.push(`${provider.name}: ${res.status} ${t.slice(0, 200)}`); continue }
       const data = await res.json()
-      return { content: data.choices?.[0]?.message?.content ?? '', provider: provider.name as any, model: data.model || provider.model, usage: data.usage }
+      const content = data.choices?.[0]?.message?.content ?? ''
+      // Un provider peut répondre 200 avec un contenu vide (filtrage,
+      // troncature, contenu refusé) : ce n'est pas un succès exploitable.
+      // On considère ce cas comme un échec et on retente le provider suivant.
+      if (!content || content.trim().length === 0) {
+        errors.push(`${provider.name}: contenu vide (200)`)
+        continue
+      }
+      return { content, provider: provider.name as any, model: data.model || provider.model, usage: data.usage }
     } catch (err: any) { errors.push(`${provider.name}: ${err.message}`) }
   }
   throw new Error(`Tous les providers LLM ont échoué:\n${errors.join('\n')}`)
@@ -260,19 +341,29 @@ export interface LLMResult {
 }
 
 export function isLLMConfigured(): boolean {
-  return !!AERORISQ_URL || !!process.env.GROQ_API_KEY || !!process.env.OPENROUTER_API_KEY || !!process.env.GOOGLE_AI_API_KEY || !!process.env.DEEPSEEK_API_KEY || !!process.env.MISTRAL_API_KEY || !!process.env.HF_API_KEY || !!process.env.CLOUDFLARE_AI_KEY
+  if (AERORISQ_URL && isProviderEnabled('aerorisq')) return true
+  return (
+    (isProviderEnabled('groq') && !!process.env.GROQ_API_KEY) ||
+    (isProviderEnabled('openrouter') && !!process.env.OPENROUTER_API_KEY) ||
+    (isProviderEnabled('google_ai') && !!process.env.GOOGLE_AI_API_KEY) ||
+    (isProviderEnabled('deepseek') && !!process.env.DEEPSEEK_API_KEY) ||
+    (isProviderEnabled('mistral') && !!process.env.MISTRAL_API_KEY) ||
+    (isProviderEnabled('huggingface') && !!process.env.HF_API_KEY) ||
+    (isProviderEnabled('cloudflare') && !!process.env.CLOUDFLARE_AI_KEY)
+  )
 }
 
 export function getAvailableProviders(): string[] {
   const list: string[] = []
-  if (AERORISQ_URL) list.push(`aerorisq (IA maison)`)
-  if (process.env.GROQ_API_KEY) list.push(`groq (env)`)
-  if (process.env.OPENROUTER_API_KEY) list.push(`openrouter (env)`)
-  if (process.env.GOOGLE_AI_API_KEY) list.push(`google_ai (env)`)
-  if (process.env.DEEPSEEK_API_KEY) list.push(`deepseek (env)`)
-  if (process.env.MISTRAL_API_KEY) list.push(`mistral (env)`)
-  if (process.env.HF_API_KEY) list.push(`huggingface (env)`)
-  if (process.env.CLOUDFLARE_AI_KEY) {
+  const push = (enabled: boolean, label: string) => { if (enabled) list.push(label) }
+  push(!!AERORISQ_URL && isProviderEnabled('aerorisq'), `aerorisq (IA maison)`)
+  push(isProviderEnabled('groq') && !!process.env.GROQ_API_KEY, `groq (env)`)
+  push(isProviderEnabled('openrouter') && !!process.env.OPENROUTER_API_KEY, `openrouter (env)`)
+  push(isProviderEnabled('google_ai') && !!process.env.GOOGLE_AI_API_KEY, `google_ai (env)`)
+  push(isProviderEnabled('deepseek') && !!process.env.DEEPSEEK_API_KEY, `deepseek (env)`)
+  push(isProviderEnabled('mistral') && !!process.env.MISTRAL_API_KEY, `mistral (env)`)
+  push(isProviderEnabled('huggingface') && !!process.env.HF_API_KEY, `huggingface (env)`)
+  if (isProviderEnabled('cloudflare') && !!process.env.CLOUDFLARE_AI_KEY) {
     if (process.env.CLOUDFLARE_ACCOUNT_ID) list.push(`cloudflare (env)`)
     else list.push(`cloudflare (env — manque CLOUDFLARE_ACCOUNT_ID)`)
   }

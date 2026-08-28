@@ -36,6 +36,12 @@ export interface AICallOptions {
   temperature?: number
   maxTokens?: number
   responseFormat?: 'text' | 'json_object'
+  /**
+   * Timeout navigateur (ms) pour CET appel précis. Surcharge le défaut dérivé
+   * de maxTokens. Utilisé par callJSON pour borner les tentatives de retry
+   * (2ᵉ/3ᵉ palier) qui n'ont pas besoin de la fenêtre pleine du 1ᵉʳ appel.
+   */
+  timeoutMs?: number
 }
 
 export interface AICallResult {
@@ -80,7 +86,17 @@ class AIClientClass {
         { role: 'user', content: options.userMessage },
       ]
 
-      const timeout = options.maxTokens && options.maxTokens > 12000 ? 120000 : 60000
+      // Délai navigateur aligné sur les timeouts serveur : AERORISQ peut être
+      // servi en inférence locale (Ollama/mistral sur CPU) — chargement du
+      // modèle au premier appel + génération lente. La valeur par défaut borne
+      // l'attente côté navigateur sans laisser un spinner s'éterniser : le
+      // budget serveur de callWithFallback est de 30 s, on laisse une marge
+      // pour les réponses JSON « watch-dog » plus longues (avis + nb_ecarts).
+      // Surchargable via env.
+      const baseTimeout = Number(process.env.NEXT_PUBLIC_IA_TIMEOUT_MS) || 90000
+      // Timeout explicite pour cet appel (ex. paliers de retry JSON) sinon dérivé de maxTokens.
+      const timeout = options.timeoutMs
+        ?? (options.maxTokens && options.maxTokens > 12000 ? baseTimeout * 2 : baseTimeout)
       const res = await fetch('/api/ia/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,9 +125,24 @@ class AIClientClass {
       }
       return { content: data.content ?? '', ok: true }
     } catch (err: any) {
-      this.available = false
-      console.error('[aiClient] Exception appel API:', err.message)
-      return { content: '', ok: false, error: err.message }
+      // Un `AbortSignal.timeout()` expiré rejette avec une DOMException de nom
+      // `TimeoutError` (message « signal timed out »). Ce n'est PAS une panne de
+      // l'IA : le modèle peut simplement être lent (inférence locale Ollama au
+      // premier chargement, gros payload). On ne marque donc PAS l'IA
+      // indisponible dans ce cas — sinon un seul appel dépassant la marge
+      // désactivait toute génération IA pour la session.
+      const isTimeout =
+        err?.name === 'TimeoutError' ||
+        err?.name === 'AbortError' ||
+        /abort|tim(e|ed)[ -]?out/i.test(String(err?.message ?? ''))
+
+      if (!isTimeout) this.available = false
+      if (isTimeout) {
+        console.warn('[aiClient] Appel abandonné (délai dépassé):', err?.message)
+        return { content: '', ok: false, error: 'Délai dépassé — IA lente, réessayez' }
+      }
+      console.error('[aiClient] Exception appel API:', err?.message)
+      return { content: '', ok: false, error: err?.message }
     }
   }
 
@@ -130,13 +161,49 @@ class AIClientClass {
       return cached
     }
 
+    // Déduplication : deux appels callJSON identiques en parallèle (même prompt,
+    // même message, même format) partagent un seul déroulé complet de paliers,
+    // au lieu de lancer deux fois la boucle de retry / deux requêtes réseau.
+    const key = hashOptions({ ...options, responseFormat: 'json_object' })
+    const existing = this.dedupCache.get(key)
+    if (existing) return existing as Promise<T>
+
+    const promise = this._callJSONWithRetry<T>(options, fallback, cacheKey)
+
+    const cleanup = () => {
+      setTimeout(() => this.dedupCache.delete(key), this.dedupTTL)
+    }
+    promise.then(
+      () => cleanup(),
+      () => cleanup()
+    )
+    this.dedupCache.set(key, promise as Promise<AICallResult>)
+
+    return promise
+  }
+
+  private async _callJSONWithRetry<T>(options: AICallOptions, fallback: T, cacheKey: string): Promise<T> {
     // Paliers de maxTokens progressifs pour retry
     const tokenTiers = options.maxTokens
       ? [...new Set([options.maxTokens, Math.floor(options.maxTokens / 2), Math.floor(options.maxTokens / 4)])]
       : [32768, 16000, 8000]
 
-    for (const maxTokens of tokenTiers) {
-      const result = await this._call({ ...options, maxTokens, responseFormat: 'json_object' })
+    // Le 1er palier garde le timeout standard (la génération complète a besoin
+    // de la fenêtre entière pour aboutir). Les paliers de retry, eux, ne servent
+    // qu'à re-tester si un JSON mal formé redevient parseable : ils n'ont pas
+    // besoin de la fenêtre pleine — un timeout réduit borne le pire cas cumulé
+    // (3 paliers × 90 s ≈ 4,5 min) sans jamais raccourcir un appel qui réussit.
+    const retryTimeoutMs = 20000
+
+    for (let i = 0; i < tokenTiers.length; i++) {
+      const isFirst = i === 0
+      const maxTokens = tokenTiers[i]
+      const result = await this._call({
+        ...options,
+        maxTokens,
+        responseFormat: 'json_object',
+        timeoutMs: isFirst ? options.timeoutMs : retryTimeoutMs,
+      })
       if (!result.ok || !result.content) {
         continue
       }

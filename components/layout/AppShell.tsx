@@ -9,6 +9,7 @@ import { engineFeedback } from '@/lib/ia/engines/engineFeedback'
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring'
 import { thresholdController } from '@/lib/ia/thresholdController'
 import { decisionTracker, type DecisionRecord } from '@/lib/ia/decisionTracker'
+import { initRiskIndexFromIDB } from '@/lib/riskIndex'
 import { fetchThresholds, fetchDecisions, upsertThreshold, createDecision, fetchModelState, upsertModelState } from '@/lib/datastore'
 import { suggestionMLAgent } from '@/lib/ia/agents/suggestionMLAgent'
 import { TimerBar } from './TimerBar'
@@ -76,6 +77,7 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
     engineFeedback.initFromIDB()
     inspecteurMonitoring.initFromIDB()
     thresholdController.initFromIDB()
+    initRiskIndexFromIDB()
 
     chargerFeedbacksDepuisSupabase()
     engineFeedback.onSync(synchroniserFeedback)
@@ -229,6 +231,8 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
       utilisateurs: 'Utilisateurs',
       audit: 'Journal Audit',
       codes: "Codes d'Accès",
+      'ml-monitoring': 'ML Monitoring',
+      agents: 'Agents IA',
       'operator-dashboard': 'Mon Dashboard',
       'operator-situation-securite': 'Situation Sécurité',
       'operator-conformite-echeances': 'Conformité & Échéances',

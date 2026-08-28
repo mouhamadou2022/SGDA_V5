@@ -161,7 +161,7 @@ export function TrendSection({ historicalScores }: TrendSectionProps) {
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs text-foreground">
                   <AlertTriangle className="w-3.5 h-3.5 text-warning" />
-                  Points d'inflexion détectés
+                  Points d&apos;inflexion détectés
                 </div>
                 {inflexions.map((inf, idx) => (
                   <div

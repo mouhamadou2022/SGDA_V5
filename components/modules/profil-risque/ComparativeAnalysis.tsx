@@ -16,6 +16,8 @@ const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='ht
 
 interface Props { onSelectAerodrome?: (id: string) => void }
 
+type ComparatifItem = { aerodrome: Aerodrome; profil: ProfilRisque }
+
 function getScoreColor(score: number): string {
   if (score >= 80) return 'text-success'; if (score >= 60) return 'text-primary'
   if (score >= 30) return 'text-warning'; return 'text-danger'
@@ -40,11 +42,11 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
     const list = aerodromes
       .filter(a => !a.deleted_at)
       .map(a => ({ aerodrome: a, profil: profilsRisque[a.id] || null }))
-      .filter(e => e.profil) as { aerodrome: Aerodrome; profil: ProfilRisque }[]
+      .filter(e => e.profil) as ComparatifItem[]
 
     const filtered = filterRegion === 'all' ? list : list.filter(e => e.aerodrome.region === filterRegion)
 
-    const sortFn: Record<string, (a: any, b: any) => number> = {
+    const sortFn: Record<string, (a: ComparatifItem, b: ComparatifItem) => number> = {
       score: (a, b) => b.profil.score_global - a.profil.score_global,
       c1: (a, b) => b.profil.c1 - a.profil.c1, c2: (a, b) => b.profil.c2 - a.profil.c2,
       c3: (a, b) => b.profil.c3 - a.profil.c3, c4: (a, b) => b.profil.c4 - a.profil.c4,
@@ -69,7 +71,7 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
   const regions = useMemo(() => [...new Set(aerodromes.map(a => a.region).filter(Boolean))], [aerodromes])
 
   return (
-    <Card variant="role" heading={<div className="flex items-center justify-between flex-wrap gap-3 w-full"><div><div className="flex items-center gap-2"><BarChart3 className="w-5 h-5 text-role-primary" />Analyse comparative</div><p className="text-xs text-foreground mt-0.5">Benchmarking entre aérodromes</p></div><div className="flex items-center gap-2"><select value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className={`form-select w-36 text-xs ${focusClass}`} style={selectStyle}><option value="all">Toutes régions</option>{regions.map(r => <option key={r} value={r}>{r}</option>)}</select><select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className={`form-select w-32 text-xs ${focusClass}`} style={selectStyle}><option value="score">Score global</option><option value="c1">C1</option><option value="c2">C2</option><option value="c3">C3</option><option value="c4">C4</option><option value="c5">C5</option></select><button type="button" className="action-button w-8 h-8 p-0" onClick={() => setViewMode(m => m === 'list' ? 'grid' : 'list')}>{viewMode === 'list' ? <Eye className="w-4 h-4" /> : <BarChart3 className="w-4 h-4" />}</button></div></div>}>
+    <Card variant="role" heading={<div className="flex items-center justify-between flex-wrap gap-3 w-full"><div><div className="flex items-center gap-2"><BarChart3 className="w-5 h-5 text-role-primary" />Analyse comparative</div><p className="text-xs text-foreground mt-0.5">Benchmarking entre aérodromes</p></div><div className="flex items-center gap-2"><select value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className={`form-select w-36 text-xs ${focusClass}`} style={selectStyle}><option value="all">Toutes régions</option>{regions.map(r => <option key={r} value={r}>{r}</option>)}</select><select value={sortBy} onChange={e => setSortBy(e.target.value as ('score' | 'c1' | 'c2' | 'c3' | 'c4' | 'c5'))} className={`form-select w-32 text-xs ${focusClass}`} style={selectStyle}><option value="score">Score global</option><option value="c1">C1</option><option value="c2">C2</option><option value="c3">C3</option><option value="c4">C4</option><option value="c5">C5</option></select><button type="button" className="action-button w-8 h-8 p-0" onClick={() => setViewMode(m => m === 'list' ? 'grid' : 'list')}>{viewMode === 'list' ? <Eye className="w-4 h-4" /> : <BarChart3 className="w-4 h-4" />}</button></div></div>}>
       <div className="space-y-6">
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-7 gap-3">

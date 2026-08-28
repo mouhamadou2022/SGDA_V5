@@ -15,7 +15,7 @@ const STATUT_SECTIONS = [
 const PRIORITE_CONFIG: Record<string, { label: string; className: string }> = {
   critique: { label: 'Critique', className: 'badge danger animate-pulse' },
   haute:    { label: 'Haute',    className: 'badge warning' },
-  moyenne:  { label: 'Moyenne',  className: 'badge primary' },
+  moyenne:  { label: 'Moyenne',  className: 'badge teal' },
   basse:    { label: 'Basse',    className: 'badge neutral' },
 };
 

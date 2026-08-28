@@ -158,19 +158,19 @@ export function computeFullMatrix(): Record<string, string> {
 
 export function getRiskLevelClass(niveau: string): string {
   switch (niveau) {
-    case 'critique': return 'badge danger'
-    case 'eleve': return 'badge warning'
-    case 'moyen': return 'badge primary'
-    case 'faible': return 'badge success'
-    default: return 'badge neutral'
+    case 'critique': return 'danger'
+    case 'eleve': return 'eleve'
+    case 'moyen': return 'moyen'
+    case 'faible': return 'success'
+    default: return 'neutral'
   }
 }
 
 export function getRiskLevelColor(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'text-danger'
-    case 'eleve': return 'text-warning'
-    case 'moyen': return 'text-primary'
+    case 'eleve': return 'text-eleve'
+    case 'moyen': return 'text-moyen'
     case 'faible': return 'text-success'
     default: return 'text-muted-foreground'
   }
@@ -179,8 +179,8 @@ export function getRiskLevelColor(niveau: string): string {
 export function getRiskLevelVariant(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'danger'
-    case 'eleve': return 'warning'
-    case 'moyen': return 'primary'
+    case 'eleve': return 'eleve'
+    case 'moyen': return 'moyen'
     case 'faible': return 'success'
     default: return 'neutral'
   }
@@ -200,8 +200,8 @@ export function getRiskLevelBgColor(niveau: string): string {
 export function getRiskLevelBgVariant(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'bg-danger'
-    case 'eleve': return 'bg-warning'
-    case 'moyen': return 'bg-primary'
+    case 'eleve': return 'bg-eleve'
+    case 'moyen': return 'bg-moyen'
     case 'faible': return 'bg-success'
     default: return 'bg-neutral'
   }
@@ -210,8 +210,8 @@ export function getRiskLevelBgVariant(niveau: string): string {
 export function getRiskLevelBorderVariant(niveau: string): string {
   switch (niveau) {
     case 'critique': return 'border-danger'
-    case 'eleve': return 'border-warning'
-    case 'moyen': return 'border-primary'
+    case 'eleve': return 'border-eleve'
+    case 'moyen': return 'border-moyen'
     case 'faible': return 'border-success'
     default: return 'border-border'
   }

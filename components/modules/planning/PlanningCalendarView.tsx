@@ -28,7 +28,7 @@ const getBorderClass = (statut: string): string => {
 
 const getPrioriteBadge = (priorite: string) => {
   const labels: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyenne', basse: 'Faible' };
-  const classes: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge primary', basse: 'badge neutral' };
+  const classes: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge teal', basse: 'badge neutral' };
   return { label: labels[priorite] || priorite, cls: classes[priorite] || 'badge neutral' };
 };
 

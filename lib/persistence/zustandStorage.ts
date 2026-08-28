@@ -13,13 +13,39 @@ const forage = localforage.createInstance({
 let pendingWrite: Promise<void> = Promise.resolve()
 const pendingValue = new Map<string, StorageValue<unknown>>()
 
+/**
+ * Sérialisation à l'épreuve des objets circulaires / non-sérialisables.
+ * Un événement DOM (PointerEvent, Event…) ou un objet contenant `window`
+ * stocké accidentellement dans le store rendait `JSON.stringify` impossible
+ * (Error: Converting circular structure to JSON → Window). On neutralise ces
+ * nœuds au lieu de laisser échouer toute la persistance du store.
+ */
+function safeJsonStringify(value: unknown): string {
+  const seen = new WeakSet<object>()
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === 'object') {
+      // Objets de l'environnement navigateur non sérialisables (Window, Event…)
+      if (val === globalThis) return undefined
+      if (typeof Window !== 'undefined' && val instanceof Window) return undefined
+      if (typeof Event !== 'undefined' && val instanceof Event) return undefined
+      if (typeof Node !== 'undefined' && val instanceof Node) return undefined
+      if (seen.has(val)) {
+        // Référence circulaire → on mentionne la clôture plutôt que de crasher.
+        return '[Circular]'
+      }
+      seen.add(val)
+    }
+    return val
+  })
+}
+
 function flushWrite(name: string): void {
   const value = pendingValue.get(name)
   if (value === undefined) return
   pendingValue.delete(name)
   // Chaîne les écritures pour éviter les conflits IndexedDB
   pendingWrite = pendingWrite.then(() =>
-    forage.setItem(name, JSON.stringify(value)).then(() => {})
+    forage.setItem(name, safeJsonStringify(value)).then(() => {})
   )
 }
 
@@ -29,7 +55,7 @@ function syncToLocalStorage(name: string, value: StorageValue<unknown>): void {
   // Commenté pour améliorer les performances - localStorage sync cause des ralentissements significatifs
   /*
   try {
-    const serialized = JSON.stringify(value)
+    const serialized = safeJsonStringify(value)
     // localStorage limit ~5MB — tronque si trop gros, suffit pour le fallback
     if (serialized.length < 4_000_000) {
       localStorage.setItem(`backup_${name}`, serialized)

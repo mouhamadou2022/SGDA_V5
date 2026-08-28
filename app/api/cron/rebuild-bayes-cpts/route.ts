@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
     const { generateDomaineBowTie } = await import('@/lib/risque/bowTieEngine')
     const { construireReseauDepuisBowTie, incrementAndRecalibrate, recomputeCPTFromObservations } = await import('@/lib/risque/bayesianNetwork')
-    const { calculateC1, calculateC2FromEcarts, calculateC3, calculateC4FromEcarts, calculateC5 } = await import('@/lib/risque')
+    const { calculateC1, calculateC2FromEcarts, calculateC3, calculateC4FromEcarts, calculateC5, calculateGlobalScore } = await import('@/lib/risque')
 
     const { data: aerodromes } = await supabase.from('aerodromes').select('*')
     if (!aerodromes || aerodromes.length === 0) {
@@ -41,13 +41,16 @@ export async function GET(request: Request) {
       const { data: feedbacks } = await supabase.from('ia_feedback').select('*').eq('aerodrome_id', aerodromeId)
       const { data: decisions } = await supabase.from('ia_decisions').select('*').eq('aerodrome_id', aerodromeId)
 
-      const ecartsList = (ecarts || []).filter((e: any) => e.statut !== 'cloture')
+      const ecartsAll = (ecarts || [])
+      const ecartsList = ecartsAll.filter((e: any) => e.statut !== 'cloture')
       const surveillancesList = (surveillances || []).filter((s: any) => s.score_global != null && s.statut === 'checklist_signee')
       const evenementsList = (evenements || []).map((e: any) => ({ gravite: e.gravite || 'moyen', date: e.date || e.created_at }))
-      const c2 = calculateC2FromEcarts(ecartsList)
+      const sgsNonApplicable = aerodrome.statut_sgs === 'non_applicable'
+      const c2 = calculateC2FromEcarts(ecartsAll) // C2 exige les écarts clôturés → passer TOUS les écarts
       const c3 = surveillancesList.length > 0 ? calculateC3(surveillancesList.map((s: any) => ({ score: s.score_global, date: s.date_debut }))) : 70
       const c4 = calculateC4FromEcarts(ecartsList)
       const c5 = calculateC5(evenementsList)
+      const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, sgsNonApplicable)
 
       for (const domaine of domaines) {
         try {
@@ -59,7 +62,7 @@ export async function GET(request: Request) {
           )
 
           const bt = generateDomaineBowTie({
-            c1, c2, c3, c5, scoreGlobal: Math.round((c1 + c2 + c3 + c4 + c5) / 5),
+            c1, c2, c3, c5, scoreGlobal,
             ecartsDom, surveillancesDom, evenementsDom: evenements || [],
             domaine, lastAssessed: new Date().toISOString(),
             statut_sgs: aerodrome.statut_sgs,
@@ -85,7 +88,7 @@ export async function GET(request: Request) {
           // Inférer depuis les décisions évaluées
           const evaluated = (decisions || []).filter((d: any) => d.effectiveness)
           for (const dec of evaluated) {
-            const effMap: Record<string, number> = { 'efficace': 0, 'partiellement_efficace': 1, 'inefficace': 2 }
+            const effMap: Record<string, number> = { 'efficace': 0, 'partiel': 1, 'inefficace': 2 }
             const state = effMap[dec.effectiveness as string] ?? 1
             const orgNodeIds = [
               `charge_travail_bt-${domaine}`,

@@ -445,7 +445,7 @@ function ItemCard({
         <div className={`px-3 py-1.5 ${item.ecart_niveau_risque === 'critique' ? 'bg-gradient-to-r from-red-50 to-red-100 border-red-200' : item.ecart_niveau_risque === 'eleve' ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200' : item.ecart_niveau_risque === 'moyen' ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200' : 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200'} border-b flex items-center gap-3 flex-wrap`}>
           <span className={`text-[12px] font-medium ${item.ecart_niveau_risque === 'critique' ? 'text-red-900' : item.ecart_niveau_risque === 'eleve' ? 'text-amber-900' : item.ecart_niveau_risque === 'moyen' ? 'text-blue-900' : 'text-emerald-900'}`}>Écart : {item.ecart_libelle}</span>
           {item.ecart_niveau_risque && (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${item.ecart_niveau_risque === 'critique' ? 'badge danger animate-pulse' : item.ecart_niveau_risque === 'eleve' ? 'badge warning' : item.ecart_niveau_risque === 'moyen' ? 'badge primary' : 'badge success'}`}>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${item.ecart_niveau_risque === 'critique' ? 'badge danger animate-pulse' : item.ecart_niveau_risque === 'eleve' ? 'badge eleve' : item.ecart_niveau_risque === 'moyen' ? 'badge moyen' : 'badge success'}`}>
               {item.ecart_niveau_risque}
             </span>
           )}
@@ -656,7 +656,7 @@ function ItemCard({
                     <button key={niveau} type="button"
                       onClick={() => !readOnly && handleRisqueResiduelChange(risqueResiduel === niveau ? '' : niveau)}
                       className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${risqueResiduel === niveau
-                        ? (niveau === 'critique' ? 'badge danger animate-pulse' : niveau === 'eleve' ? 'badge warning' : niveau === 'moyen' ? 'badge primary' : 'badge success')
+                        ? (niveau === 'critique' ? 'badge danger animate-pulse' : niveau === 'eleve' ? 'badge eleve' : niveau === 'moyen' ? 'badge moyen' : 'badge success')
                         : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>
                       {niveau === 'eleve' ? 'Élevé' : niveau.charAt(0).toUpperCase() + niveau.slice(1)}
                     </button>
@@ -1030,7 +1030,7 @@ export function SurveillanceChecklistPAC({
 }: {
   surveillanceId: string;
   aerodromeId: string;
-  onSave?: (data: any) => void;
+  onSave?: (data: ChecklistMixteData) => void;
   onComplete?: () => void;
   readOnly?: boolean;
   userRole?: string;
@@ -1042,6 +1042,8 @@ export function SurveillanceChecklistPAC({
   const exemptions = useOptimizedStore(s => s.exemptions);
   const certifications = useAppStore(s => s.certifications);
   const homologations = useAppStore(s => s.homologations);
+  const surveillances = useAppStore(s => s.surveillances);
+  const surveillance = useMemo(() => surveillances.find(s => s.id === surveillanceId), [surveillances, surveillanceId]);
   
   // État principal
   const [checklistData, setChecklistData] = useState<ChecklistMixteData | null>(null);
@@ -1154,22 +1156,57 @@ export function SurveillanceChecklistPAC({
     
     // Trier par ordre
     items.sort((a, b) => a.ordre - b.ordre);
-    
-    const totalItems = items.length;
-    const itemsVerifies = items.filter(i => i.resultat).length;
-    const progression = totalItems > 0 ? Math.round((itemsVerifies / totalItems) * 100) : 0;
-    
-    setChecklistData({
-      id: `checklist-${Date.now()}`,
-      aerodrome_id: aerodromeId,
-      aerodrome_nom: 'Aérodrome',
-      items,
-      observations_generales: '',
-      progression,
-      isSigned: false,
-      exemptions_actives: exemptionsActives.map(e => ({ id: e.id, reference: e.reference })),
-      ecart_concerne: ecartsPACAcceptes.length > 0 ? { id: ecartsPACAcceptes[0].id, reference: ecartsPACAcceptes[0].reference, libelle: ecartsPACAcceptes[0].libelle, niveau: ecartsPACAcceptes[0].niveau_risque } : undefined,
+
+    setChecklistData(prev => {
+      // Restaure les résultats persistés (surveillance.checklist_pac) et préserve la saisie courante.
+      // Les items sont reconstruits depuis les écarts/exemptions : on les réassocie par identité stable
+      // (source_id + reference) pour ne pas perdre les évaluations d'une session précédente.
+      const saved = surveillance?.checklist_pac;
+      const savedItems = Array.isArray(saved?.items) ? (saved.items as unknown as ItemVerification[]) : [];
+      const itemKey = (i: ItemVerification) => `${i.source_id}::${i.reference}`;
+      const savedMap = new Map(savedItems.map(i => [itemKey(i), i]));
+      const prevMap = new Map((prev?.items || []).map(i => [itemKey(i), i]));
+
+      const merged = items.map(i => {
+        const prevItem = prevMap.get(itemKey(i)) || savedMap.get(itemKey(i));
+        if (!prevItem) return i;
+        return {
+          ...i,
+          id: prevItem.id ?? i.id,
+          resultat: prevItem.resultat,
+          observation: prevItem.observation,
+          preuves: prevItem.preuves,
+          evaluation_action: prevItem.evaluation_action,
+          risque_residuel: prevItem.risque_residuel,
+          risque_residuel_oaci: prevItem.risque_residuel_oaci,
+          efficacite_validee: prevItem.efficacite_validee,
+          commentaire_feedback: prevItem.commentaire_feedback,
+          prediction: prevItem.prediction ?? i.prediction,
+          confiance: prevItem.confiance ?? i.confiance,
+          justification: prevItem.justification ?? i.justification,
+          prefill: prevItem.prefill ?? i.prefill,
+          alerte: prevItem.alerte ?? i.alerte,
+        };
+      });
+
+      const totalItems = merged.length;
+      const itemsVerifies = merged.filter(i => i.resultat).length;
+      const progression = totalItems > 0 ? Math.round((itemsVerifies / totalItems) * 100) : 0;
+
+      return {
+        ...prev,
+        id: prev?.id ?? `checklist-${Date.now()}`,
+        aerodrome_id: aerodromeId,
+        aerodrome_nom: 'Aérodrome',
+        items: merged,
+        observations_generales: prev?.observations_generales ?? saved?.observations_generales ?? '',
+        progression,
+        isSigned: prev?.isSigned ?? false,
+        exemptions_actives: exemptionsActives.map(e => ({ id: e.id, reference: e.reference })),
+        ecart_concerne: ecartsPACAcceptes.length > 0 ? { id: ecartsPACAcceptes[0].id, reference: ecartsPACAcceptes[0].reference, libelle: ecartsPACAcceptes[0].libelle, niveau: ecartsPACAcceptes[0].niveau_risque } : undefined,
+      } as ChecklistMixteData;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ecartsPACAcceptes, exemptionsActives, aerodromeId]);
   
   // Générer les suggestions
@@ -1386,15 +1423,12 @@ export function SurveillanceChecklistPAC({
       ? Math.round(evaluees.reduce((sum, i) => sum + i.evaluation_action!.score, 0) / evaluees.length)
       : (checklistData?.progression || 0);
 
-    updateSurveillance(surveillanceId, {
-      statut: 'checklist_signee',
+    // Action centrale du store (fusion signatures + avancement statut)
+    await useAppStore.getState().signerChecklistSurveillance(surveillanceId, {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
+      signature_url: signatureUrl,
       score_global: scorePAC,
-      signatures_checklist: [{
-        signataire_id: user?.id || '',
-        signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
-        date_signature: new Date().toISOString(),
-        signature_url: signatureUrl,
-      }],
     });
 
     const { recalculerProfilRisque } = useAppStore.getState();
@@ -1610,7 +1644,7 @@ export function SurveillanceChecklistPAC({
               {checklistData.ecart_concerne?.niveau && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] text-muted-foreground">Risque résiduel :</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${checklistData.ecart_concerne.niveau === 'critique' ? 'badge danger animate-pulse' : checklistData.ecart_concerne.niveau === 'eleve' ? 'badge warning' : checklistData.ecart_concerne.niveau === 'moyen' ? 'badge primary' : 'badge success'}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${checklistData.ecart_concerne.niveau === 'critique' ? 'badge danger animate-pulse' : checklistData.ecart_concerne.niveau === 'eleve' ? 'badge eleve' : checklistData.ecart_concerne.niveau === 'moyen' ? 'badge moyen' : 'badge success'}`}>
                     {checklistData.ecart_concerne.niveau}
                   </span>
                 </div>

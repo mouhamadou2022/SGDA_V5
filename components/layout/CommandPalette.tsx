@@ -10,11 +10,11 @@ import {
   LayoutDashboard, Plane, ShieldCheck, CalendarDays, ClipboardList,
   BarChart3, FileSignature, AlertTriangle, MessageSquare, Users,
   Search, Settings, BookOpen, Wrench, FileText, ChevronRight, Hash,
-  Command, Sparkles, Rocket, Brain, Target, Zap, Globe, Mic,
+  Command, Sparkles, Rocket, Target, Zap, Globe, Mic,
   PenLine, CheckSquare, ListTodo, Quote, Info, AlertCircle,
   Download, Upload, Save, Printer, Eye, Sun, Moon, Maximize2,
   Minimize2, History, RotateCcw, RotateCw, FolderTree, HelpCircle,
-  Loader2, TrendingUp, TrendingDown, Minus, Shield, Scale,
+  Loader2, TrendingDown, Minus, Shield, Scale,
   GraduationCap, Archive, Eye as EyeIcon, AlertOctagon, MapPin,
   Calendar, User, CheckCircle, XCircle, Clock, FileCheck,
 } from 'lucide-react'
@@ -29,10 +29,6 @@ import {
 } from '@/components/ui/command'
 import { useAppStore } from '@/lib/store'
 import { Badge } from '@/components/ui/badge'
-import { assistantAgent } from '@/lib/ia/agents/assistantAgent'
-import { riskAgent } from '@/lib/ia/agents/riskAgent'
-import { registreAgent } from '@/lib/ia/agents/registreAgent'
-
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
@@ -107,16 +103,6 @@ const NAVIGATION_COMMANDS: Command[] = [
   { id: 'plans-actions', label: 'Plans d\'Actions', icon: <Rocket className="w-4 h-4" />, module: 'plans-actions', keywords: ['pac', 'ecarts'], category: 'navigation' },
 ]
 
-const IA_COMMANDS: Command[] = [
-  { id: 'ia-analyze-risk', label: 'Analyser le profil de risque', icon: <BarChart3 className="w-4 h-4" />, description: 'Analyse AERORISQ du risque pour l\'aérodrome sélectionné', module: 'ia', keywords: ['risque', 'score', 'analyse', 'tendance'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-analyze-report', label: 'Analyser le rapport', icon: <FileText className="w-4 h-4" />, description: 'Analyse AERORISQ de la qualité du rapport', module: 'ia', keywords: ['rapport', 'qualité', 'amélioration'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-find-similar', label: 'Trouver des éléments similaires', icon: <Search className="w-4 h-4" />, description: 'Recherche sémantique AERORISQ dans tout le système', module: 'ia', keywords: ['similaire', 'recherche', 'trouve'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-training-needs', label: 'Analyser les besoins formation', icon: <GraduationCap className="w-4 h-4" />, description: 'Analyse AERORISQ des besoins en formation des inspecteurs', module: 'ia', keywords: ['formation', 'besoin', 'inspecteur'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-predict-risk', label: 'Prédire l\'évolution du risque', icon: <TrendingUp className="w-4 h-4" />, description: 'Prédiction AERORISQ du score de risque à 3 et 6 mois', module: 'ia', keywords: ['prédiction', 'évolution', 'futur'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-compare', label: 'Comparer les aérodromes', icon: <Scale className="w-4 h-4" />, description: 'Comparaison AERORISQ entre aérodromes', module: 'ia', keywords: ['comparer', 'analyse', 'performance'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-  { id: 'ia-summarize', label: 'Résumer le contexte actuel', icon: <Sparkles className="w-4 h-4" />, description: 'Génère un résumé AERORISQ de la situation', module: 'ia', keywords: ['résumé', 'synthèse', 'récap'], badge: { label: 'AERORISQ', variant: 'primary' }, category: 'ia' },
-]
-
 const ACTION_COMMANDS: Command[] = [
   { id: 'action-export', label: 'Exporter en PDF', icon: <Download className="w-4 h-4" />, module: 'action', keywords: ['pdf', 'export', 'télécharger'], category: 'action' },
   { id: 'action-print', label: 'Imprimer', icon: <Printer className="w-4 h-4" />, module: 'action', keywords: ['imprimer', 'print'], category: 'action' },
@@ -130,7 +116,7 @@ const ACTION_COMMANDS: Command[] = [
 // COMPOSANT PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 
-export function CommandPalette({ onNavigate, onIaCommand, currentContext }: CommandPaletteProps) {
+export function CommandPalette({ onNavigate }: CommandPaletteProps) {
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
   const [isIaThinking, setIsIaThinking] = useState(false)
@@ -150,7 +136,6 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const setActiveModule = useAppStore(s => s.setActiveModule)
   const user = useAppStore(s => s.user)
-  const addNotification = useAppStore(s => s.addNotification)
 
   // ============================================================
   // RECHERCHE IA SÉMANTIQUE DANS TOUT LE SYSTÈME
@@ -441,80 +426,6 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
   }, [aerodromes, profilsRisque, ecarts, certifications, utilisateurs, formations, setActiveModule, onNavigate])
   
   // ============================================================
-  // GESTION DES COMMANDES IA
-  // ============================================================
-  
-  const handleIaCommand = useCallback(async (commandId: string) => {
-    setOpen(false)
-    
-    switch (commandId) {
-      case 'ia-analyze-risk':
-        if (currentContext?.aerodromeId) {
-          onNavigate?.('risque', { aerodromeId: currentContext.aerodromeId, analyse: true })
-          addNotification?.({
-            user_id: user?.id || '',
-            type: 'info',
-            title: 'Analyse AERORISQ en cours',
-            message: 'Analyse du profil de risque en cours...',
-            canal: 'in_app'
-          })
-        } else {
-          addNotification?.({
-            user_id: user?.id || '',
-            type: 'warning',
-            title: 'Aérodrome requis',
-            message: 'Veuillez d\'abord sélectionner un aérodrome',
-            canal: 'in_app'
-          })
-        }
-        break
-        
-      case 'ia-training-needs':
-        onNavigate?.('formation', { analyse: true })
-        addNotification?.({
-          user_id: user?.id || '',
-          type: 'info',
-          title: 'Analyse AERORISQ',
-          message: 'Analyse des besoins en formation des inspecteurs...',
-          canal: 'in_app'
-        })
-        break
-        
-      case 'ia-find-similar':
-        if (searchValue) {
-          onNavigate?.('recherche', { query: searchValue, semantic: true })
-        } else {
-          onNavigate?.('registres', { search: 'éléments similaires', semantic: true })
-        }
-        break
-        
-      case 'ia-predict-risk':
-        if (currentContext?.aerodromeId) {
-          onNavigate?.('risque', { aerodromeId: currentContext.aerodromeId, predictions: true })
-        }
-        break
-        
-      case 'ia-compare':
-        onNavigate?.('aerodromes', { compare: true })
-        break
-        
-      case 'ia-summarize':
-        onNavigate?.('dashboard', { summary: true })
-        addNotification?.({
-          user_id: user?.id || '',
-          type: 'info',
-          title: 'Génération AERORISQ',
-          message: 'Génération du résumé contextuel...',
-          canal: 'in_app'
-        })
-        break
-        
-      default:
-        if (onIaCommand) onIaCommand(commandId)
-    }
-  }, [currentContext, searchValue, onNavigate, onIaCommand, user, addNotification])
-  
-  // ============================================================
   // EFFETS
   // ============================================================
   
@@ -578,15 +489,6 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
           <Search className="w-14 h-14 text-muted mx-auto mb-4 opacity-30" />
           <p className="text-muted text-base">Aucun résultat trouvé</p>
           <p className="text-sm text-muted/60 mt-2">Essayez "GOBD", "certification", ou "écart critique"</p>
-          {searchValue && (
-            <button 
-              onClick={() => handleIaCommand('ia-find-similar')}
-              className="mt-6 text-role-primary text-sm hover:underline flex items-center gap-2 justify-center"
-            >
-              <Sparkles className="w-4 h-4" />
-              Recherche sémantique IA pour "{searchValue.substring(0, 40)}"
-            </button>
-          )}
         </CommandEmpty>
 
         {/* Suggestions IA proactives */}
@@ -640,30 +542,6 @@ export function CommandPalette({ onNavigate, onIaCommand, currentContext }: Comm
           </>
         )}
 
-        {/* Commandes IA */}
-          <CommandGroup heading="🤖 Commandes AERORISQ" className="mb-2">
-          {IA_COMMANDS.map((cmd) => (
-            <CommandItem
-              key={cmd.id}
-              value={[cmd.label, ...(cmd.keywords ?? [])].join(' ')}
-              onSelect={() => handleIaCommand(cmd.id)}
-              className="group cursor-pointer py-3 my-1"
-            >
-              <div className="mr-3 text-role-primary">{cmd.icon}</div>
-              <span className="flex-1">{cmd.label}</span>
-              {cmd.description && (
-                <span className="text-xs text-muted hidden md:inline mr-2">{cmd.description}</span>
-              )}
-              {cmd.badge && (
-                <Badge variant={cmd.badge.variant as any} className="text-[10px] px-2 py-0.5">
-                  {cmd.badge.label}
-                </Badge>
-              )}
-              <ChevronRight className="ml-3 w-4 h-4 text-muted group-hover:text-role-primary group-hover:translate-x-1 transition-all" />
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        
         <CommandSeparator className="my-3" />
 
         {/* Navigation */}

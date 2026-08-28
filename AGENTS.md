@@ -29,6 +29,7 @@
 - `lib/risque.ts` — logique de calcul du score global et pondération.
 - `components/ui/card.tsx` — composant carte unique.
 - `lib/ia/index.ts` — logique des agents IA (ne pas inverser les conditions).
+- `SGDA_v5_FINAL_COMPLET.sql` — **schéma de référence unique** (source de vérité DB). Les anciens fichiers migrations/ ont été archivés puis supprimés (tout y est consolidé).
 
 ### TypeInspection (`lib/checklistMemory.ts`)
 - Type union pour `type_inspection` : `periodique`, `inopine`, `maintien`, `certification`, `homologation`, `suivi_ecarts`, `mise_oeuvre_pac`, `programmee`, `inopinee`, `speciale`, `surveillance`, `evenement`, `audit_complet`, `urgence`, `ecart`.
@@ -36,6 +37,37 @@
 - Toujours passer le type réel de la surveillance — ne jamais hardcoder `'programmee'`.
 - Les 4 hardcodes `'programmee'` ont été corrigés : `checklistAgent.ts` (3) et `learningEngine.ts` (1).
 - `TypeSurveillanceKit` (`kitDocAgent.ts`) aligné avec `TypeInspection` (inclut certification, homologation).
+
+## Développement en phases — Isolation des modules validés (CRITIQUE)
+
+> Règle n°1 : **on vérrouille ce qui marche et on ne casse JAMAIS un workflow validé.**
+> Phase actuelle : test de 4 workflows — **planning → surveillance → écart → portail exploitant**.
+> Pendant cette phase on n'AJOUTE rien : on s'assure que ces workflows fonctionnent, on les corrige, on ne les touche que si nécessaire.
+
+### Modules / workflows « verrouillés » (à préserver absolument)
+- **Planning** (création/planification des surveillances).
+- **Surveillance** (déroulement, checklist, redaction).
+- **Écart** (`/ecarts` et `/ecarts/sgs`, composant `SurveillanceEcartsRedaction`, suggestion IA watch-dog).
+- **Portail exploitant** (modules qui se voient côté exploitant).
+
+### Règles obligatoires
+1. **Ne rien casser** : avant toute modification, vérifier si le fichier / la fonction touchée est **partagée** par d'autres workflows :
+   - `lib/store.ts` (store Zustand global, ~9000 lignes — le plus sensible).
+   - `lib/datastore.ts` (couche Supabase/IDB).
+   - Composants communs dans `components/` et `components/ui/`.
+   - Fichiers critiques listés ci-dessus (`lib/risque.ts`, `components/ui/card.tsx`, `lib/ia/index.ts`, `SGDA_v5_FINAL_COMPLET.sql`).
+   Si oui → changement à forte attention régression.
+2. **Non-régression obligatoire** : après tout changement touchant du code partagé, rejouer le smoke-test des 4 workflows validés avant de considérer la tâche faite.
+3. **Smoke-test des 4 workflows** (à exécuter manuellement après modif du code partagé) :
+   - Planning → créer/planifier une surveillance.
+   - Surveillance → ouvrir la surveillance, dérouler la checklist.
+   - Écart → rédiger un écart (IA) sur `/ecarts` et `/ecarts/sgs`, sauvegarder, recharger la page (les brouillons doivent réapparaître).
+   - Portail exploitant → vues côté exploitant accessibles et cohérentes.
+4. **Pendant une phase de test, on n'ajoute pas de fonctionnalités nouvelles non demandées** : uniquement corrections/bugfix des workflows en cours.
+5. Toute modification doit passer `npm run typecheck` + le smoke-test ci-dessus avant d'être considérée terminée.
+
+### Architecture (réflexion en cours — pas d'exécution pendant la stabilisation)
+On vise, à terme, un découplage progressif pour réduire le couplage (le store global et le datastore sont les points de friction principaux). **Ce refactor n'est PAS à faire pendant la phase de stabilisation/test** — il sera traité séparément une fois les workflows validés.
 
 ## Build
 - `npm run typecheck` doit passer sans erreur avant tout commit.

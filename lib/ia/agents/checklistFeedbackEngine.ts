@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useAppStore } from '@/lib/store'
+import { useAppStore, ProfilRisque } from '@/lib/store'
 import {
   computeDomaineConformite,
   mapConformiteToEffectiveness,
@@ -13,6 +13,8 @@ import {
 import { decisionTracker } from '@/lib/ia/decisionTracker'
 import { weightController } from '@/lib/ia/weightController'
 import type { DecisionOutcome } from '@/lib/ia/evaluateOutcomes'
+import { advancedModels } from '@/lib/store/models'
+import { profilToFeatures, scoreToLabel } from '@/lib/risque/randomForest'
 
 export interface ChecklistFeedbackReport {
   surveillanceId: string
@@ -30,6 +32,7 @@ export interface ChecklistFeedbackReport {
 
 export class ChecklistFeedbackEngine {
   private initialized = false
+  private processedSurveillances = new Set<string>()
 
   async init(): Promise<void> {
     await decisionTracker.initFromIDB()
@@ -39,6 +42,67 @@ export class ChecklistFeedbackEngine {
 
   isReady(): boolean {
     return this.initialized
+  }
+
+  // Crée un échantillon (features du profil avant inspection → niveau réel
+  // constaté) : alimente la Random Forest locale + persistance centrale Supabase.
+  private async enregistrerEchantillonML(
+    aerodromeId: string,
+    surveillanceId: string,
+    profil: ProfilRisque | undefined,
+    domaines: DomaineConformiteResult[]
+  ): Promise<void> {
+    if (!profil) {
+      console.log('[ChecklistFeedback] Pas de profil de risque — échantillon ML ignoré')
+      return
+    }
+    if (this.processedSurveillances.has(surveillanceId)) return
+
+    const totalSA = domaines.reduce((s, d) => s + d.saCount, 0)
+    const totalNS = domaines.reduce((s, d) => s + d.nsCount, 0)
+    const denom = totalSA + totalNS
+    if (denom === 0) {
+      console.log('[ChecklistFeedback] Aucun item SA/NS — échantillon ML ignoré')
+      return
+    }
+    this.processedSurveillances.add(surveillanceId)
+
+    // Vérité terrain : taux de conformité global → même échelle que scoreToLabel
+    const tauxConformite = Math.round((totalSA / denom) * 100)
+    const niveauTerrain = scoreToLabel(tauxConformite)
+
+    // 1) Random Forest locale (IndexedDB navigateur) — déclenche l'auto-entraînement à ≥ 20 échantillons
+    try {
+      advancedModels.addTrainingSample(profil, niveauTerrain)
+      console.log(`[ChecklistFeedback] Échantillon ML local : formule=${profil.score_global} (${profil.niveau}) → terrain=${tauxConformite}% (${niveauTerrain})`)
+    } catch (err) {
+      console.warn('[ChecklistFeedback] Erreur addTrainingSample:', err)
+    }
+
+    // 2) Persistance centrale (Supabase ml_samples) — best-effort, pour l'entraînement serveur futur
+    try {
+      await fetch('/api/ia/ml-samples', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aerodrome_id: aerodromeId,
+          surveillance_id: surveillanceId,
+          features: profilToFeatures(profil),
+          label: niveauTerrain,
+          contexte: {
+            taux_conformite_global: tauxConformite,
+            total_sa: totalSA,
+            total_ns: totalNS,
+            items_evalues: denom,
+            score_formule: profil.score_global,
+            niveau_formule: profil.niveau,
+            domaines: domaines.map((d) => ({ domaine: d.domaine, taux: d.tauxConformite, niveau: d.niveau })),
+          },
+        }),
+      }).catch(() => { /* réseau indisponible — l'échantillon reste en local */ })
+    } catch {
+      // fetch indisponible — idem
+    }
   }
 
   async ingestSurveillanceResults(surveillanceId: string): Promise<ChecklistFeedbackReport | null> {
@@ -71,6 +135,12 @@ export class ChecklistFeedbackEngine {
 
     const domaines = computeDomaineConformite(items)
     console.log(`[ChecklistFeedback] ${surveillanceId}: ${records.length} items, ${domaines.length} domaines`)
+
+    // ── Échantillon ML labellisé terrain ──
+    // Profil AVANT prise en compte des résultats (prédiction de la formule)
+    // → conformité réellement constatée. Premier maillon réel de l'apprentissage.
+    const profilAvant = store.profilsRisque?.[aerodromeId]
+    await this.enregistrerEchantillonML(aerodromeId, surveillanceId, profilAvant, domaines)
 
     let decisionsCrees = 0
     const effectivenessParDomaine: ChecklistFeedbackReport['effectivenessParDomaine'] = []

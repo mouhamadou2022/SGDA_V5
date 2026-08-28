@@ -249,7 +249,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
     const v: Record<string, { label: string; className: string }> = {
       critique: { label: 'Critique', className: 'badge danger animate-pulse' },
       haute:    { label: 'Haute',    className: 'badge warning' },
-      moyenne:  { label: 'Moyenne',  className: 'badge primary' },
+      moyenne:  { label: 'Moyenne',  className: 'badge teal' },
       basse:    { label: 'Basse',    className: 'badge neutral' },
     };
     return v[priorite] || v.moyenne;

@@ -29,6 +29,42 @@ export interface PresenceEntry {
   ordre: number;
 }
 
+const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
+
+// Conversion locale (surveillanceId) → store (surveillance_id) pour le slice fichesPresence
+const toStoreEntry = (e: PresenceEntry): import('@/lib/store').PresenceEntry => ({
+  id: e.id,
+  surveillance_id: e.surveillanceId,
+  prenom_nom: e.prenom_nom,
+  structure: (e.structure as 'ANACIM' | 'EXPLOITANT' | 'AUTRE') || 'AUTRE',
+  fonction: e.fonction,
+  telephone: e.telephone,
+  email: e.email,
+  signature_url: e.signature_url,
+  signature_date: e.signature_date,
+  heure_arrivee: e.heure_arrivee,
+  heure_depart: e.heure_depart,
+  observations: e.observations,
+  ordre: e.ordre,
+});
+
+// Conversion store → locale pour le rendu
+const fromStoreEntry = (e: import('@/lib/store').PresenceEntry): PresenceEntry => ({
+  id: e.id,
+  surveillanceId: e.surveillance_id,
+  prenom_nom: e.prenom_nom,
+  structure: e.structure,
+  fonction: e.fonction,
+  telephone: e.telephone,
+  email: e.email,
+  signature_url: e.signature_url,
+  signature_date: e.signature_date,
+  heure_arrivee: e.heure_arrivee,
+  heure_depart: e.heure_depart,
+  observations: e.observations,
+  ordre: e.ordre,
+});
+
 export interface PresenceSheetProps {
   surveillanceId: string;
   entries?: PresenceEntry[];
@@ -56,12 +92,22 @@ export function PresenceSheet({
   const [iaSuggestion, setIaSuggestion] = useState<string | null>(null);
   const [isIaLoading, setIsIaLoading] = useState(false);
 
+  // Persiste les fiches de la surveillance dans le slice fichesPresence du store
+  // (source de vérité lue par les annexes du rapport via getFichesBySurveillance).
+  const persistToStore = useCallback((newEntries: PresenceEntry[]) => {
+    const { fichesPresence, setFichesPresence } = useAppStore.getState();
+    setFichesPresence([
+      ...fichesPresence.filter(f => f.surveillance_id !== surveillanceId),
+      ...newEntries.map(toStoreEntry),
+    ]);
+  }, [surveillanceId]);
+
   useEffect(() => {
     if (externalEntries && externalEntries.length > 0) {
       setEntries(externalEntries);
     } else {
-      const defaultEntries: PresenceEntry[] = []
-      setEntries(defaultEntries);
+      const stored = useAppStore.getState().getFichesBySurveillance(surveillanceId);
+      setEntries(stored.map(fromStoreEntry));
     }
   }, [externalEntries, surveillanceId]);
 
@@ -87,6 +133,7 @@ export function PresenceSheet({
   const handleUpdateEntry = (updatedEntry: PresenceEntry) => {
     const newEntries = entries.map(e => e.id === updatedEntry.id ? updatedEntry : e);
     setEntries(newEntries);
+    persistToStore(newEntries);
     onEntriesChange?.(newEntries);
   };
 
@@ -99,6 +146,7 @@ export function PresenceSheet({
     };
     const newEntries = [...entries, newEntry];
     setEntries(newEntries);
+    persistToStore(newEntries);
     onEntriesChange?.(newEntries);
   };
 
@@ -107,11 +155,48 @@ export function PresenceSheet({
     if (entry && window.confirm(`Supprimer ${entry.prenom_nom || 'ce participant'} ?`)) {
       const newEntries = entries.filter(e => e.id !== id);
       setEntries(newEntries);
+      persistToStore(newEntries);
       onEntriesChange?.(newEntries);
     }
   };
 
-  const handleExportPDF = () => addNotification({ user_id: user?.id || '', type: 'info' as const, title: 'Export PDF', message: 'Génération du PDF…', canal: 'in_app' as const });
+  const handleExportPDF = async () => {
+    addNotification({ user_id: user?.id || '', type: 'info' as const, title: 'Export PDF', message: 'Génération du PDF…', canal: 'in_app' as const });
+    try {
+      const { creerRapportPdf } = await import('@/lib/services/pdfRapport');
+      const { downloadBlob } = await import('@/lib/pdfGenerator');
+      const pdf = await creerRapportPdf();
+      pdf.coverPage({
+        titre: 'FICHE DE PRÉSENCE',
+        sousTitre: currentSurveillance ? `${currentSurveillance.type.replace(/_/g, ' ').toUpperCase()}` : 'Surveillance',
+        ref: `PRESENCE-${surveillanceId.slice(0, 8).toUpperCase()}`,
+        meta: [
+          ['Date', new Date().toLocaleDateString('fr-FR')],
+          ['Participants', String(entries.length)],
+          ['Signatures', `${entries.filter(e => e.signature_url).length}/${entries.length}`],
+        ],
+      });
+      pdf.addPage();
+      pdf.sectionTitle('Liste des participants');
+      if (entries.length > 0) {
+        pdf.table({
+          head: [['Nom complet', 'Structure', 'Fonction', 'Téléphone', 'Email', 'Signature']],
+          body: [...entries].sort((a, b) => a.ordre - b.ordre).map(e => [
+            e.prenom_nom || '-',
+            e.structure || '-',
+            e.fonction || '-',
+            e.telephone || '-',
+            e.email || '-',
+            e.signature_url ? 'Signé' : 'Non signé',
+          ]),
+        });
+      }
+      downloadBlob(pdf.blob(), `Fiche_presence_${surveillanceId.slice(0, 8)}.pdf`);
+      addNotification({ user_id: user?.id || '', type: 'success' as const, title: 'PDF généré', message: 'La fiche de présence a été exportée', canal: 'in_app' as const });
+    } catch {
+      addNotification({ user_id: user?.id || '', type: 'danger' as const, title: 'Export impossible', message: 'Impossible de générer le PDF', canal: 'in_app' as const });
+    }
+  };
   const handlePrint = () => window.print();
 
   const stats = {
@@ -179,8 +264,7 @@ export function PresenceSheet({
               </tr>
             </thead>
             <tbody>
-              {entries.sort((a, b) => a.ordre - b.ordre).map(entry => {
-    const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
+              {[...entries].sort((a, b) => a.ordre - b.ordre).map(entry => {
     const inputClass = readOnly ? `bg-muted-soft p-2 w-full rounded text-sm border border-border ${focusClass}` : `form-input p-2 w-full text-sm ${focusClass}`;
     return (
     <tr key={entry.id} className="border-b border-border hover:bg-muted/30 transition-colors">
@@ -234,6 +318,7 @@ export function PresenceSheet({
                   const updated = { ...entry, signature_url: url, signature_date: new Date().toISOString() }
                   const newEntries = entries.map(e => e.id === updated.id ? updated : e)
                   setEntries(newEntries)
+                  persistToStore(newEntries)
                   onEntriesChange?.(newEntries)
                   onSignatureSave?.(entry.id, url)
                 }

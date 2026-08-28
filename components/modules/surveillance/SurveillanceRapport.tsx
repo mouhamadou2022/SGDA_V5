@@ -50,6 +50,7 @@ import { useAppStore } from '@/lib/store';
 import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
+import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
 
 
@@ -613,6 +614,7 @@ export default function SurveillanceRapport({
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes = useAppStore(s => s.aerodromes);
   const utilisateurs = useAppStore(s => s.utilisateurs);
+  const plannings = useAppStore(s => s.plannings);
   const inspecteurs = useAppStore(s => s.inspecteurs);
   const ecarts = useAppStore(s => s.ecarts);
   const checklistItems = useAppStore(s => s.checklistItems);
@@ -679,10 +681,11 @@ export default function SurveillanceRapport({
 
   // Génération du tableau de l'équipe
   const generateEquipeHtml = useCallback(() => {
-    const equipeIds = surveillance?.equipe_ids || [];
+    const equipeIds = getSurveillanceEquipeIds(surveillance, plannings);
     const membres = utilisateurs.filter(u => equipeIds.includes(u.id));
-    return generateEquipeTableHtml(membres, surveillance?.chef_id);
-  }, [surveillance, utilisateurs]);
+    const chefId = getSurveillanceChefId(surveillance, plannings);
+    return generateEquipeTableHtml(membres, chefId);
+  }, [surveillance, utilisateurs, plannings]);
 
   // Génération du tableau des écarts
   const generateEcartsTable = useCallback(() => {
@@ -810,8 +813,8 @@ export default function SurveillanceRapport({
           </div>
           <div class="grid grid-cols-4 gap-2">
             ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'critique').length; return c > 0 ? `<div class="text-center p-2 bg-danger/10 rounded"><div class="text-lg font-bold text-danger">${c}</div><div class="text-xs text-muted-foreground">Critique</div></div>` : ''; })()}
-            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'eleve').length; return c > 0 ? `<div class="text-center p-2 bg-warning/10 rounded"><div class="text-lg font-bold text-warning">${c}</div><div class="text-xs text-muted-foreground">Élevé</div></div>` : ''; })()}
-            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'moyen').length; return c > 0 ? `<div class="text-center p-2 bg-primary/10 rounded"><div class="text-lg font-bold text-primary">${c}</div><div class="text-xs text-muted-foreground">Moyen</div></div>` : ''; })()}
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'eleve').length; return c > 0 ? `<div class="text-center p-2 bg-orange-500/10 rounded"><div class="text-lg font-bold text-orange-500">${c}</div><div class="text-xs text-muted-foreground">Élevé</div></div>` : ''; })()}
+            ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'moyen').length; return c > 0 ? `<div class="text-center p-2 bg-yellow-500/10 rounded"><div class="text-lg font-bold text-yellow-500">${c}</div><div class="text-xs text-muted-foreground">Moyen</div></div>` : ''; })()}
             ${(() => { const c = ecartsList.filter(e => e.niveau_risque === 'faible' || e.niveau_risque === 'tres_faible').length; return c > 0 ? `<div class="text-center p-2 bg-gray-100 rounded"><div class="text-lg font-bold text-gray-600">${c}</div><div class="text-xs text-muted-foreground">Faible</div></div>` : ''; })()}
           </div>
           <p class="text-xs text-muted-foreground mt-2">Se référer à l'<strong>Annexe A-2</strong> pour le détail complet.</p>
@@ -1304,7 +1307,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
       const { exportRapportDOCX } = await import('@/lib/services/rapportDocumentService');
       const ecartsArray = surveillanceEcarts();
       const itemsDoc = checklistItems[surveillanceId] || [];
-      const equipeMembres = utilisateurs.filter(u => surveillance?.equipe_ids?.includes(u.id));
+      const equipeMembres = utilisateurs.filter(u => getSurveillanceEquipeIds(surveillance, plannings).includes(u.id));
       const equipeNoms = equipeMembres.map(u => `${u.prenom} ${u.nom}`).join(', ');
       const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
       const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
@@ -1490,8 +1493,8 @@ N'inclus PAS le titre de la section dans le contenu.`;
     const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
     const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
     const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
-    const totalItems = itemsDoc.length;
-    const tauxConformite = totalItems > 0 ? Math.round((saCount / totalItems) * 100) : 0;
+    const denom = (saCount + nsCount + nvCount);
+    const tauxConformite = denom > 0 ? Math.round((saCount / denom) * 100) : 0;
     const byDomaine: Record<string, { sa: number; ns: number; nv: number }> = {};
     itemsDoc.forEach(item => {
       if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0 };
@@ -1844,14 +1847,44 @@ ${pageGardeHtml}
   };
 
   const handleLoadReport = () => {
-    const versions = JSON.parse(localStorage.getItem(`rapport_versions_${surveillanceId}`) || '[]');
-    setSavedReports(versions);
+    // Source de vérité unique : surveillances.rapport_versions (store),
+    // et non localStorage qui n'est jamais alimenté.
+    interface RapportVersion {
+      version: number;
+      modifie_le: string;
+      modifie_par?: string;
+      modifie_par_nom?: string;
+      sections_modifiees?: string[];
+      diff?: Record<string, unknown>;
+      sections?: Record<string, unknown>;
+    }
+    let versions: RapportVersion[] = [];
+    try { versions = JSON.parse(surveillance?.rapport_versions || '[]'); } catch { versions = []; }
+    setSavedReports(versions.map((v, i) => ({
+      id: v.version != null ? String(v.version) : String(i),
+      date: v.modifie_le || new Date().toISOString(),
+      preview: v.sections_modifiees?.length
+        ? `Version ${v.version} — ${v.sections_modifiees.join(', ')}`
+        : `Version ${v.version}`,
+      content: v.sections ? JSON.stringify(v.sections) : undefined,
+    })));
     setLoadDialogOpen(true);
   };
 
   const handleSelectReport = (report: { id: string; content?: string }) => {
-    if (reportContainerRef.current && report.content) {
-      reportContainerRef.current.innerHTML = report.content;
+    if (report.content) {
+      try {
+        const restored = JSON.parse(report.content) as Record<string, unknown>;
+        setSections(prev => ({ ...prev, ...restored }));
+      } catch {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Rapport illisible',
+          message: 'La version sélectionnée ne peut pas être restaurée',
+          canal: 'in_app',
+        });
+      }
     }
     setLoadDialogOpen(false);
     addNotification({

@@ -21,13 +21,18 @@ export function StatutModelesExplication({ profil, diagnostic }: Props) {
   const rfModelInfo = useAppStore((s) => s.rfModelInfo)
   const [explication, setExplication] = useState<StatutModelesExplication | null>(null)
   const [enCours, setEnCours] = useState(true)
+  const [prevProfil, setPrevProfil] = useState(profil)
+  if (prevProfil !== profil) {
+    setPrevProfil(profil)
+    setEnCours(true)
+    setExplication(null)
+  }
 
   const statuts = enrichirStatutsAvecVotes(calculerStatutModeles(profil, rfModelInfo), diagnostic.votes)
   const inactifs = statuts.filter((s) => !s.actif)
 
   useEffect(() => {
     let actif = true
-    setEnCours(true)
     expliquerStatutModeles(profil, diagnostic, rfModelInfo)
       .then((res) => {
         if (!actif) return

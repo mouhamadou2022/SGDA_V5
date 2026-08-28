@@ -30,7 +30,7 @@ const IMPACT_COLORS: Record<PointMotivation['impact'], string> = {
 const PRIORITE_CONFIG = {
   critique: { label: 'Critique', color: 'text-danger', bg: 'bg-danger-soft', border: 'border-danger/30', badge: 'badge danger' },
   haute: { label: 'Haute', color: 'text-warning', bg: 'bg-warning-soft', border: 'border-warning/30', badge: 'badge warning' },
-  moyenne: { label: 'Moyenne', color: 'text-primary', bg: 'bg-primary-soft', border: 'border-primary/30', badge: 'badge primary' },
+  moyenne: { label: 'Moyenne', color: 'text-teal', bg: 'bg-teal-soft', border: 'border-teal/30', badge: 'badge teal' },
   basse: { label: 'Basse', color: 'text-success', bg: 'bg-success-soft', border: 'border-success/30', badge: 'badge success' },
 } as const
 

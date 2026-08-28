@@ -101,6 +101,12 @@ export function ExplanabilityCard({ profil, ecarts = [], evenements }: Props) {
   const correlation = useAppStore(s => s.getMLRiskCorrelation())
   const [explication, setExplication] = useState<ExplicabiliteExplication | null>(null)
   const [enCours, setEnCours] = useState(true)
+  const [prevProfil, setPrevProfil] = useState(profil)
+  if (prevProfil !== profil) {
+    setPrevProfil(profil)
+    setEnCours(true)
+    setExplication(null)
+  }
 
   const contributions = useMemo(() =>
     computeFeatureContributions(profil, correlation),
@@ -113,7 +119,6 @@ export function ExplanabilityCard({ profil, ecarts = [], evenements }: Props) {
 
   useEffect(() => {
     let actif = true
-    setEnCours(true)
     expliquerScoreEnClair({ profil, ecarts, evenements, correlation })
       .then((res) => {
         if (!actif) return

@@ -29,7 +29,7 @@ function getSeverityColor(severity: string): string {
   switch (severity) {
     case 'critique': return 'var(--color-danger)'
     case 'eleve': return 'var(--color-warning)'
-    case 'moyen': return 'var(--color-primary)'
+    case 'moyen': return 'var(--color-teal)'
     default: return 'var(--color-success)'
   }
 }
@@ -47,7 +47,7 @@ function getSeverityBadge(severity: string): string {
   switch (severity) {
     case 'critique': return 'badge danger'
     case 'eleve': return 'badge warning'
-    case 'moyen': return 'badge primary'
+    case 'moyen': return 'badge teal'
     default: return 'badge success'
   }
 }

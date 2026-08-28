@@ -19,6 +19,8 @@ const badgeVariants = cva(
         danger:         "danger",
         neutral:        "neutral",
         teal:           "teal",
+        moyen:          "moyen",
+        eleve:          "eleve",
         info:           "primary",
         "navy-filled":  "primary",
         "amber-filled": "warning",

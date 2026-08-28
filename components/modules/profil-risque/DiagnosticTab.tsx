@@ -1,21 +1,22 @@
 'use client'
 
-import { ProfilRisque, Ecart, EvenementSecurite } from '@/lib/store'
+import { ProfilRisque, Ecart, EvenementSecurite, Surveillance } from '@/lib/store'
 import { useAppStore } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { useState, useMemo, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
-import { AlertTriangle, Shield, Activity, Zap, BarChart3, Sparkles, Loader2 } from 'lucide-react'
+import { AlertTriangle, Activity, Zap, BarChart3, Sparkles, Loader2 } from 'lucide-react'
 import { expliquerCriteresEnClair, type ExplicationCritere } from '@/lib/ia/critereExplicationIA'
 import { expliquerCygneNoirEnClair, type CygneNoirExplication } from '@/lib/ia/cygneNoirIA'
+import { expliquerCeQuiNeVaPas, type CeQuiNeVaPasExplication } from '@/lib/ia/ceQuiNeVaPasIA'
 import BowTieAnalyzer from './BowTieAnalyzer'
-import { OACIMatrixSection } from './OACIMatrixSection'
 import OaciGraphSection from './OaciGraphSection'
 import { CorrelationSection } from './CorrelationSection'
 import { AmdecModule } from '@/components/modules/amdec/AmdecModule'
 import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
 import { recommanderParmi, getModelesDisponibles, type ModeleAnalyse, type ModeleAnalyseInput } from '@/lib/ia/modelSelector'
 import { ModeleMLAnalysis } from './ModeleMLAnalysis'
+import { QualitativeChainSection } from './QualitativeChainSection'
 import type { Role } from '@/lib/config'
 
 type Niveau = 'critique' | 'eleve' | 'moyen' | 'faible'
@@ -31,7 +32,7 @@ function getTextColor(n: Niveau): string {
   switch (n) {
     case 'critique': return 'text-danger'
     case 'eleve': return 'text-warning'
-    case 'moyen': return 'text-primary'
+    case 'moyen': return 'text-teal'
     case 'faible': return 'text-success'
   }
 }
@@ -40,7 +41,7 @@ function getProgressColor(n: Niveau): string {
   switch (n) {
     case 'critique': return 'bg-danger'
     case 'eleve': return 'bg-warning'
-    case 'moyen': return 'bg-primary'
+    case 'moyen': return 'bg-teal'
     case 'faible': return 'bg-success'
   }
 }
@@ -49,7 +50,7 @@ function getBadgeClass(n: Niveau): string {
   switch (n) {
     case 'critique': return 'badge danger'
     case 'eleve': return 'badge warning'
-    case 'moyen': return 'badge primary'
+    case 'moyen': return 'badge teal'
     case 'faible': return 'badge success'
   }
 }
@@ -63,11 +64,11 @@ function getNiveauLabel(n: Niveau): string {
   }
 }
 
-function getLevelColor(n: Niveau): 'danger' | 'warning' | 'primary' | 'success' {
+function getLevelColor(n: Niveau): 'danger' | 'warning' | 'teal' | 'success' {
   switch (n) {
     case 'critique': return 'danger'
     case 'eleve': return 'warning'
-    case 'moyen': return 'primary'
+    case 'moyen': return 'teal'
     case 'faible': return 'success'
   }
 }
@@ -82,7 +83,7 @@ const CRITERES = [
 
 interface DiagnosticTabProps {
   profil: ProfilRisque
-  surveillances: any[]
+  surveillances: Surveillance[]
   ecarts: Ecart[]
   evenementsCount: number
   evenements?: EvenementSecurite[]
@@ -90,8 +91,11 @@ interface DiagnosticTabProps {
 }
 
 export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements, userRole }: DiagnosticTabProps) {
-  const niveauGlobal = getNiveau(profil.score_global)
-  const scenarioCatastrophe = profil.scenarios?.[3]
+  const scenarioCatastrophe = useMemo(() => {
+    const scenarios = profil.scenarios ?? []
+    if (scenarios.length === 0) return null
+    return scenarios.reduce((pire, s) => (s.scoreProjecte > (pire?.scoreProjecte ?? -1) ? s : pire), scenarios[0])
+  }, [profil.scenarios])
   const amdecAnalyses = useAppStore((s) => s.amdecAnalyses)
   const ftaAnalyses = useAppStore((s) => s.ftaAnalyses)
   const rfModelInfo = useAppStore((s) => s.rfModelInfo)
@@ -113,6 +117,33 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
 
   const predictionRF = useMemo(() => (rfModelInfo ? predictRisk(profil) : null), [rfModelInfo, predictRisk, profil])
 
+  // ── « Ce qui ne va pas » — points de vigilance expliqués par l'IA (AERORISQ) ──
+  const [ceQuiNeVaPas, setCeQuiNeVaPas] = useState<CeQuiNeVaPasExplication | null>(null)
+  const [ceQuiNeVaPasEnCours, setCeQuiNeVaPasEnCours] = useState(true)
+  const [prevVigilanceProfil, setPrevVigilanceProfil] = useState(profil)
+  const [prevEcarts, setPrevEcarts] = useState(ecarts)
+  if (prevVigilanceProfil !== profil || prevEcarts !== ecarts) {
+    setPrevVigilanceProfil(profil)
+    setPrevEcarts(ecarts)
+    setCeQuiNeVaPasEnCours(true)
+    setCeQuiNeVaPas(null)
+  }
+
+  useEffect(() => {
+    let actif = true
+    expliquerCeQuiNeVaPas({ profil, ecarts, evenements, surveillancesCount: surveillances.length })
+      .then((res) => {
+        if (!actif) return
+        setCeQuiNeVaPas(res)
+        setCeQuiNeVaPasEnCours(false)
+      })
+      .catch(() => {
+        if (!actif) return
+        setCeQuiNeVaPasEnCours(false)
+      })
+    return () => { actif = false }
+  }, [profil, ecarts, evenements, surveillances.length])
+
   const [modeleActif, setModeleActif] = useState<ModeleAnalyse>(() => {
     const rec = recommanderParmi(inputModele, modelesDispo)
     return modelesDispo.includes(rec.recommande) ? rec.recommande : (modelesDispo[0] ?? 'bowtie')
@@ -128,10 +159,16 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
   }))
   const [explicationIAEnCours, setExplicationIAEnCours] = useState(true)
   const [explicationIAActif, setExplicationIAActif] = useState(false)
+  const [prevCriteresProfil, setPrevCriteresProfil] = useState(profil)
+  if (prevCriteresProfil !== profil) {
+    setPrevCriteresProfil(profil)
+    setExplicationIAEnCours(true)
+    setExplicationIAActif(false)
+    setExplications({ c1: CRITERES[0].desc, c2: CRITERES[1].desc, c3: CRITERES[2].desc, c4: CRITERES[3].desc, c5: CRITERES[4].desc })
+  }
 
   useEffect(() => {
     let actif = true
-    setExplicationIAEnCours(true)
     expliquerCriteresEnClair({
       profil,
       ecarts,
@@ -151,11 +188,15 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
   // Explication IA de l'alerte cygne noir (fallback déterministe data-driven sinon)
   const [cygneNoir, setCygneNoir] = useState<CygneNoirExplication | null>(null)
   const [cygneNoirEnCours, setCygneNoirEnCours] = useState(true)
+  const [prevCygneProfil, setPrevCygneProfil] = useState(profil)
+  if (prevCygneProfil !== profil) {
+    setPrevCygneProfil(profil)
+    setCygneNoirEnCours(true)
+  }
 
   useEffect(() => {
     if (!profil.bayesian_black_swan) return
     let actif = true
-    setCygneNoirEnCours(true)
     expliquerCygneNoirEnClair({
       profil,
       ecarts,
@@ -173,19 +214,68 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
 
   return (
     <div className="space-y-10">
-      {/* ── Diagnostic du niveau de risque ── */}
+      {/* ── Synthèse « Ce qui ne va pas » — points de vigilance expliqués (AERORISQ) ── */}
       <Card
-        variant="level"
-        levelColor={getLevelColor(niveauGlobal)}
-        heading="Diagnostic du niveau de risque"
-        icon={<Shield className={`w-5 h-5 ${getTextColor(niveauGlobal)}`} />}
-        badge={<span className={`${getBadgeClass(niveauGlobal)}`}>{getNiveauLabel(niveauGlobal)} — {profil.score_global}/100</span>}
+        variant="alert"
+        alertBg={ceQuiNeVaPas && ceQuiNeVaPas.points.some(p => p.gravite === 'critique') ? 'danger' : ceQuiNeVaPas && ceQuiNeVaPas.points.length > 0 ? 'warning' : 'success'}
+        heading="Ce qui ne va pas"
+        icon={<AlertTriangle className={`w-5 h-5 ${ceQuiNeVaPas && ceQuiNeVaPas.points.some(p => p.gravite === 'critique') ? 'text-danger' : ceQuiNeVaPas && ceQuiNeVaPas.points.length > 0 ? 'text-warning' : 'text-success'}`} />}
+        badge={
+          ceQuiNeVaPasEnCours ? (
+            <span className="inline-flex items-center gap-2 text-xs text-primary">
+              <Loader2 className="w-4 h-4 animate-spin" /> Analyse AERORISQ en cours…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">
+              <Sparkles className="w-3.5 h-3.5" />
+              {ceQuiNeVaPas?.fallbackIA ? 'Analyse déterministe' : 'Diagnostic AERORISQ'}
+            </span>
+          )
+        }
         headerGradient={false}
       >
-        <p className="text-sm text-foreground">
-          {surveillances.length} surveillance{surveillances.length !== 1 ? 's' : ''} · {evenementsCount} événement{evenementsCount !== 1 ? 's' : ''}
-        </p>
+        {ceQuiNeVaPasEnCours ? (
+          <p className="text-sm text-foreground leading-relaxed">
+            Construction du diagnostic à partir des critères, écarts, barrières et signaux avancés…
+          </p>
+        ) : ceQuiNeVaPas && ceQuiNeVaPas.points.length > 0 ? (
+          <div className="space-y-4">
+            <p className="text-sm text-foreground leading-relaxed">{ceQuiNeVaPas.synthese}</p>
+            {ceQuiNeVaPas.points.map((p) => (
+              <div key={p.cle} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${p.gravite === 'critique' ? 'text-danger' : p.gravite === 'eleve' ? 'text-warning' : 'text-primary'}`}>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getProgressColor(p.gravite)}`} />
+                    {p.constat}
+                  </span>
+                  <span className={`${getBadgeClass(p.gravite)} text-[10px] shrink-0`}>{getNiveauLabel(p.gravite)}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Cause</span>
+                    <p className="text-foreground mt-0.5">{p.cause}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Conséquence</span>
+                    <p className="text-foreground mt-0.5">{p.consequence}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Action prioritaire</span>
+                    <p className="text-foreground mt-0.5">{p.action}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-foreground leading-relaxed">
+            {ceQuiNeVaPas?.synthese ?? 'Aucun signal de vigilance prioritaire : critères, écarts, barrières et signaux avancés sont sous contrôle.'}
+          </p>
+        )}
       </Card>
+
+      {/* ── Chaîne qualitative : AMDEC + BowTie + FTA + Bayésien combinés ── */}
+      <QualitativeChainSection profil={profil} />
 
       {/* ── Détail par critère C1-C5 ── */}
       <Card
@@ -291,15 +381,34 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
           heading="Dépendance entre critères"
           icon={<Zap className="w-5 h-5 text-warning" />}
         >
-          <p className="text-sm text-foreground leading-relaxed">
-            Dépendance entre critères : {Math.round(profil.copula_metrics.maxTailDependence * 100)} %.
-            Les domaines sont liés — une dégradation de l&apos;un affecte les autres.
-          </p>
-          {profil.copula_metrics.worstCaseDescription && (
-            <p className="text-sm text-foreground mt-2 italic">
-              Pire cas : {profil.copula_metrics.worstCaseDescription}
+          <div className="space-y-3">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <div className="w-full bg-muted rounded-full h-3">
+                  <div
+                    className={`h-3 rounded-full transition-all ${profil.copula_metrics.maxTailDependence > 0.6 ? 'bg-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'bg-warning' : 'bg-primary'}`}
+                    style={{ width: `${Math.min(100, profil.copula_metrics.maxTailDependence * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <span className={`text-sm font-bold ${profil.copula_metrics.maxTailDependence > 0.6 ? 'text-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'text-warning' : 'text-primary'}`}>
+                {(profil.copula_metrics.maxTailDependence * 100).toFixed(0)} %
+              </span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">
+              Dépendance de queue maximale entre domaines —{' '}
+              {profil.copula_metrics.maxTailDependence > 0.6
+                ? 'forte corrélation dans les extrêmes : une défaillance critique dans un domaine risque d\'en entraîner d\'autres.'
+                : profil.copula_metrics.maxTailDependence > 0.3
+                  ? 'corrélation modérée : les domaines sont partiellement liés en situation de stress.'
+                  : 'faible corrélation : les domaines évoluent de façon relativement indépendante.'}
             </p>
-          )}
+            {profil.copula_metrics.worstCaseDescription && (
+              <p className="text-sm text-foreground leading-relaxed italic">
+                Pire cas : {profil.copula_metrics.worstCaseDescription}
+              </p>
+            )}
+          </div>
         </Card>
       )}
 
@@ -434,39 +543,6 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         </Card>
       )}
 
-      {/* ── Force de dépendance ── */}
-      {profil.copula_metrics && profil.copula_metrics.maxTailDependence != null && (
-        <Card
-          variant="role"
-          heading="Force de dépendance"
-          icon={<Zap className="w-5 h-5" />}
-        >
-          <div className="space-y-3">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className="w-full bg-muted rounded-full h-3">
-                  <div
-                    className={`h-3 rounded-full transition-all ${profil.copula_metrics.maxTailDependence > 0.6 ? 'bg-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'bg-warning' : 'bg-primary'}`}
-                    style={{ width: `${Math.min(100, profil.copula_metrics.maxTailDependence * 100)}%` }}
-                  />
-                </div>
-              </div>
-              <span className={`text-sm font-bold ${profil.copula_metrics.maxTailDependence > 0.6 ? 'text-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'text-warning' : 'text-primary'}`}>
-                {(profil.copula_metrics.maxTailDependence * 100).toFixed(0)} %
-              </span>
-            </div>
-            <p className="text-sm text-foreground leading-relaxed">
-              Dépendance de queue maximale entre domaines —{' '}
-              {profil.copula_metrics.maxTailDependence > 0.6
-                ? 'forte corrélation dans les extrêmes : une défaillance critique dans un domaine risque d\'en entraîner d\'autres.'
-                : profil.copula_metrics.maxTailDependence > 0.3
-                  ? 'corrélation modérée : les domaines sont partiellement liés en situation de stress.'
-                  : 'faible corrélation : les domaines évoluent de façon relativement indépendante.'}
-            </p>
-          </div>
-        </Card>
-      )}
-
       {/* Sélecteur de modèle d'analyse — recommandation IA (au-dessus des analyses) */}
       <ModeleAnalyseSelector
         input={inputModele}
@@ -489,9 +565,6 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       {modeleActif !== 'bowtie' && modeleActif !== 'fta' && modeleActif !== 'amdec' && (
         <ModeleMLAnalysis modele={modeleActif} profil={profil} rfModelInfo={rfModelInfo} predictionRF={predictionRF} evenements={evenements} ecarts={ecarts} />
       )}
-
-      {/* Matrice OACI 5×5 */}
-      <OACIMatrixSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
 
       {/* Graphe unifié OACI → risques → écarts */}
       <OaciGraphSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />

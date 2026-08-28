@@ -411,32 +411,64 @@ export async function fetchSurveillanceById(id: string): Promise<DatastoreResult
   return { data: data as Surveillance | null, error: error?.message ?? null }
 }
 
+// ── Auto-réparation des écritures surveillances ──────────────────────────────
+// PostgREST rejette toute écriture mentionnant une colonne absente du schéma
+// (ex : migration pas encore exécutée). On extrait le nom de la colonne fautive
+// du message d'erreur et on réessaie sans elle — le reste de la sauvegarde
+// passe au lieu d'échouer entièrement.
+function extraireColonneInconnue(message: string): string | null {
+  const pgrst204 = message.match(/Could not find the '([^']+)' column/)
+  if (pgrst204) return pgrst204[1]
+  const pg42703 = message.match(/column\s+\S+\.([A-Za-z0-9_]+)\s+does not exist/i)
+  if (pg42703) return pg42703[1]
+  return null
+}
+
+async function ecrireAvecReparation<T>(
+  ecrire: (payload: Record<string, unknown>) => PromiseLike<{ data: T | null; error: { message?: string } | null }>,
+  payloadInitial: Record<string, unknown>
+): Promise<DatastoreResult<T>> {
+  const payload = { ...payloadInitial }
+  for (let tentative = 0; tentative < 10; tentative++) {
+    const { data, error } = await ecrire(payload)
+    if (!error) return { data, error: null }
+    const colonne = extraireColonneInconnue(error.message ?? '')
+    if (!colonne || !(colonne in payload)) {
+      return { data: null, error: error.message ?? 'Erreur inconnue' }
+    }
+    console.warn(`[datastore] Colonne absente en base : "${colonne}" — nouvelle tentative sans elle`)
+    delete payload[colonne]
+  }
+  return { data: null, error: 'Trop de colonnes inconnues, écriture abandonnée' }
+}
+
 export async function createSurveillance(payload: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<Surveillance>> {
   const now = new Date().toISOString()
-  
-  const { equipe_ids, sgs_evaluation_prepa, ...payloadSansSGS } = payload as any
-  
-  let { data, error } = await supabase
-    .from('surveillances')
-    .insert({ ...payloadSansSGS, created_at: now, updated_at: now })
-    .select()
-    .single()
+
+  // equipe_ids est géré via la table junction surveillance_equipe
+  const { equipe_ids, ...payloadClean } = payload as any
+
+  let result = await ecrireAvecReparation<Surveillance>(
+    (p) => supabase.from('surveillances').insert({ ...p, created_at: now, updated_at: now }).select().single(),
+    payloadClean
+  )
+  let data = result.data
+  let error = result.error
 
   // Sécurité : si le planning_id référence un planning inexistant en Supabase
   // (possible avec des bundles JS obsolètes), on réessaie sans planning_id.
-  const isPlanningFkError = (err: unknown) =>
-    typeof err === 'string' && err.toLowerCase().includes('surveillances_planning_id_fkey')
-  if (error && isPlanningFkError(error.message) && 'planning_id' in payloadSansSGS) {
-    const { planning_id: _, ...payloadSansPlanning } = payloadSansSGS
-    const retry = await supabase
-      .from('surveillances')
-      .insert({ ...payloadSansPlanning, created_at: now, updated_at: now })
-      .select()
-      .single()
-    data = retry.data
-    error = retry.error
+  const isPlanningFkError = (err: string | null) =>
+    !!err && err.toLowerCase().includes('surveillances_planning_id_fkey')
+  if (error && isPlanningFkError(error) && 'planning_id' in payloadClean) {
+    const { planning_id: _, ...payloadSansPlanning } = payloadClean
+    result = await ecrireAvecReparation<Surveillance>(
+      (p) => supabase.from('surveillances').insert({ ...p, created_at: now, updated_at: now }).select().single(),
+      payloadSansPlanning
+    )
+    data = result.data
+    error = result.error
   }
-  
+
   if (data && equipe_ids && equipe_ids.length > 0) {
     for (const userId of equipe_ids) {
       try {
@@ -447,19 +479,20 @@ export async function createSurveillance(payload: Omit<Surveillance, 'id' | 'cre
       } catch { /* ignore */ }
     }
   }
-  
-  return { data: data as Surveillance | null, error: error?.message ?? null }
+
+  return { data: data as Surveillance | null, error }
 }
 
 export async function updateSurveillance(id: string, payload: Partial<Surveillance>): Promise<DatastoreResult<Surveillance>> {
-  const { equipe_ids, sgs_evaluation_prepa, ...payloadSansSGS } = payload as any
-  
-  const { data, error } = await supabase
-    .from('surveillances')
-    .update({ ...payloadSansSGS, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single()
+  // equipe_ids est géré via la table junction surveillance_equipe ;
+  // tout le reste (dont les champs SGS) est persisté tel quel — et si une
+  // colonne manque encore en base, ecrireAvecReparation dégrade proprement.
+  const { equipe_ids, ...payloadClean } = payload as any
+
+  const { data, error } = await ecrireAvecReparation<Surveillance>(
+    (p) => supabase.from('surveillances').update({ ...p, updated_at: new Date().toISOString() }).eq('id', id).select().single(),
+    payloadClean
+  )
   
   // Mettre à jour les membres d'équipe dans la table junction
   if (data && equipe_ids !== undefined) {
@@ -475,8 +508,8 @@ export async function updateSurveillance(id: string, payload: Partial<Surveillan
       } catch { /* ignore */ }
     }
   }
-  
-  return { data: data as Surveillance | null, error: error?.message ?? null }
+
+  return { data: data as Surveillance | null, error }
 }
 
 export async function deleteSurveillance(id: string): Promise<DatastoreResult<null>> {
@@ -561,10 +594,34 @@ const ECARTS_REDACTION_COLUMNS = [
   'justification_risque_ia', 'cellule_ia_suggeree',
 ] as const
 
+// Colonnes de type uuid dans `ecarts_redaction` : Postgres rejette les chaînes
+// vides ("invalid input syntax for type uuid: \"\"") pour ces champs.
+const ECARTS_REDACTION_UUID_COLUMNS = new Set(['id', 'surveillance_id', 'created_by', 'updated_by'])
+
 function toEcartRedactionRow(e: Record<string, any>): Record<string, any> {
   const row: Record<string, any> = {}
   for (const col of ECARTS_REDACTION_COLUMNS) {
-    if (e[col] !== undefined) row[col] = e[col]
+    if (e[col] === undefined) continue
+    // On omet toute valeur vide (ex: user non authentifié) pour les colonnes uuid,
+    // sinon Supabase renvoie une erreur de syntaxe.
+    if (ECARTS_REDACTION_UUID_COLUMNS.has(col) && String(e[col]).trim() === '') continue
+    // `item_ids` est un tableau d'identifiants : on force chaque élément en
+    // string et on écarte tout objet non-primitif (garde-fou anti-fuite d'un
+    // objet circulaire/Event dans la persistance).
+    if (col === 'item_ids') {
+      row[col] = (Array.isArray(e[col]) ? e[col] : []).map((id: unknown) =>
+        (typeof id === 'string' || typeof id === 'number') ? String(id) : undefined
+      ).filter((v: unknown): v is string => typeof v === 'string')
+      continue
+    }
+    // Les autres colonnes sont des primitives ; tout objet non-primitif est
+    // converti en chaîne sécurisée pour éviter un JSON.stringify circulaire.
+    const v = e[col]
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
+      row[col] = v
+    } else {
+      row[col] = String(v)
+    }
   }
   return row
 }
@@ -582,6 +639,67 @@ export async function upsertEcartsRedaction(ecarts: any[]): Promise<void> {
       { onConflict: 'id', ignoreDuplicates: false }
     )
   if (error) console.error('[datastore] upsertEcartsRedaction error:', error.message)
+  await purgeEcartsRedaction(ecarts)
+}
+
+/**
+ * Purge Supabase des écarts rédaction supprimés localement.
+ *
+ * Le fallback (fetch au rechargement) réinjectait les écarts supprimés car
+ * l'upsert seul n'efface jamais les lignes absentes de la liste client → ils
+ * « revenaient » après rechargement de la page.
+ *
+ * On ne purge que la famille de domaine portée par L'APPEL (SGS vs non-SGS),
+ * pour que la page standard ne supprime pas les écarts SGS de la page dédiée
+ * (et inversement) sur une surveillance mixte.
+ */
+async function purgeEcartsRedaction(ecarts: any[]): Promise<void> {
+  const surv = String(ecarts[0]?.surveillance_id || '')
+  if (!surv) return
+  const keepIds = new Set(ecarts.map(e => String(e.id)).filter(Boolean))
+  // Famille de domaine de cet appel : SGS si TOUS les écarts sont SGS, sinon standard
+  const isSgsCall = ecarts.every(e => (e as any).domaine === 'SGS')
+  const eq = isSgsCall ? 'SGS' : { neq: 'SGS' }
+
+  // Récupère d'abord les ids réellement présents en base pour la surveillance +
+  // famille de domaine, puis supprime par chunks la différence avec keepIds.
+  //
+  // On évite le filtre `.not('id', 'in', [...])` : avec un grand nombre d'ids
+  // gardés (chaque UUI fait 36 caractères), la clause `in()` dépasse la limite
+  // du proxy PostgREST et l'URL est refusée au parsing ("failed to parse filter").
+  // Charger + différencier + supprimer par petits `.in()` est robuste quel que
+  // soit le volume de la surveillance.
+  let existing = null as any
+  try {
+    const { data, error } = await supabase
+      .from('ecarts_redaction')
+      .select('id')
+      .eq('surveillance_id', surv)
+      .eq('domaine', eq)
+    existing = data
+    if (error) {
+      console.error('[datastore] purgeEcartsRedaction select error:', error.message)
+      return
+    }
+  } catch (e) {
+    console.error('[datastore] purgeEcartsRedaction select error:', (e as Error).message)
+    return
+  }
+
+  const toDelete = (existing || [])
+    .map((r: { id?: unknown }) => String(r?.id ?? ''))
+    .filter((id: string) => id !== '' && !keepIds.has(id))
+
+  const CHUNK = 50
+  for (let i = 0; i < toDelete.length; i += CHUNK) {
+    const chunk = toDelete.slice(i, i + CHUNK)
+    const { error } = await supabase
+      .from('ecarts_redaction')
+      .delete()
+      .eq('surveillance_id', surv)
+      .in('id', chunk)
+    if (error) console.error('[datastore] purgeEcartsRedaction error:', error.message)
+  }
 }
 
 /**
@@ -999,9 +1117,28 @@ export async function fetchProfilsRisque(): Promise<DatastoreResult<ProfilRisque
 }
 
 export async function upsertProfilRisque(profil: ProfilRisque): Promise<DatastoreResult<ProfilRisque>> {
+  // Whitelist : colonnes réellement présentes dans la table profils_risque (voir SQL 13.O).
+  // Les champs Phase 3 (hmm_state, survival_metrics, qualityScore, etc.) n'ont pas de
+  // colonne Supabase → les exclure, sinon l'upsert est rejeté par PostgREST (silencieusement).
+  const allowedCols = [
+    'aerodrome_id', 'score_global', 'niveau', 'c1', 'c2', 'c3', 'c4', 'c5',
+    'prediction_3m', 'prediction_6m', 'prediction_12m',
+    'prediction_interval_3m', 'prediction_interval_6m',
+    'tendance', 'computed_at', 'historical_scores',
+    'velocity_metrics', 'system_stress', 'proactive_alert',
+    'hawkes_intensity', 'effectiveness_score', 'last_change_point',
+    'incident_prediction_3m', 'incident_prediction_6m', 'incident_prediction_12m',
+    'event_frequency', 'event_severity_trend', 'days_since_last_event',
+    'event_trend_acceleration', 'bayesian_posterior', 'bayesian_prior',
+    'bayesian_black_swan', 'scenarios', 'ensemble_confidence', 'infrastructure',
+  ] as const
+  const payload: Record<string, unknown> = {}
+  for (const col of allowedCols) {
+    if (profil[col as keyof ProfilRisque] !== undefined) payload[col] = profil[col as keyof ProfilRisque]
+  }
   const { data, error } = await supabase
     .from('profils_risque')
-    .upsert(profil)
+    .upsert(payload)
     .select()
     .single()
   return { data: data as ProfilRisque | null, error: error?.message ?? null }

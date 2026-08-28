@@ -3,7 +3,7 @@
 
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FlaskConical, RotateCcw, Save, Trash2, ChevronDown, ChevronUp,
@@ -13,6 +13,7 @@ import {
 import { useAppStore, ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { calculateGlobalScore } from '@/lib/risque'
+import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController'
 
 interface Props { profil: ProfilRisque; aerodromeName: string; userRole: string }
 
@@ -52,8 +53,7 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const [dialogOpen, setDialogOpen] = useState(false); const [nomScenario, setNomScenario] = useState(''); const [saveError, setSaveError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [scenarios, setScenarios] = useState<ScenarioSauvegarde[]>(() => { try { const r = localStorage.getItem(`${STORAGE_KEY}_${profil.aerodrome_id}`); return r ? JSON.parse(r) : [] } catch { return [] } })
-  const [listOpen, setListOpen] = useState(false); const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const [listOpen, setListOpen] = useState(false)
 
   const simValues = { c1: simC1, c2: simC2, c3: simC3, c4: simC4, c5: simC5 }
   const setters: Record<string, (v: number) => void> = { c1: setSimC1, c2: setSimC2, c3: setSimC3, c4: setSimC4, c5: setSimC5 }
@@ -65,7 +65,10 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const suggestions = useMemo((): SmartSuggestion[] => {
     const list: SmartSuggestion[] = []
     const current = { c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }
-    const weights: Record<string, number> = { c1: 0.2, c2: 0.2, c3: 0.2, c4: 0.15, c5: 0.25 }
+    const weights: Record<string, number> = {
+      c1: DEFAULT_WEIGHTS.c1 / 100, c2: DEFAULT_WEIGHTS.c2 / 100,
+      c3: DEFAULT_WEIGHTS.c3 / 100, c4: DEFAULT_WEIGHTS.c4 / 100, c5: DEFAULT_WEIGHTS.c5 / 100,
+    }
 
     if (profil.score_global < 80) {
       const target = profil.score_global >= 60 ? 80 : profil.score_global >= 30 ? 60 : 30
@@ -203,7 +206,7 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
       </Card>)}
 
       {/* Save dialog */}
-      {mounted && dialogOpen && createPortal(<div className="modal-overlay" onClick={() => setDialogOpen(false)}><div className="modal-content max-w-md" onClick={e => e.stopPropagation()}><div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary"><div className="modal-header border-b border-border"><div className="modal-title flex items-center gap-2"><Save className="w-4 h-4 text-role-primary" />Nommer le scénario</div><button className="modal-close" onClick={() => setDialogOpen(false)}><X className="w-4 h-4" /></button></div><div className="modal-body space-y-4 py-4"><input type="text" value={nomScenario} onChange={e => { setNomScenario(e.target.value); setSaveError('') }} placeholder="Ex: Amélioration C2 et C4" className="form-input w-full" maxLength={60} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave() }} />{saveError && <p className="text-xs text-danger">{saveError}</p>}<div className={`rounded-xl p-3 ${scoreSimule >= 80 ? 'bg-success-soft' : scoreSimule >= 60 ? 'bg-primary-soft' : scoreSimule >= 30 ? 'bg-warning-soft' : 'bg-danger-soft'}`}><div className="flex justify-between"><span className="text-xs text-foreground">Score</span><span className={`text-lg font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}/100</span></div><div className="grid grid-cols-5 gap-1 mt-2 text-center text-xs font-mono text-foreground"><span>C1:{simC1}</span><span>C2:{simC2}</span><span>C3:{simC3}</span><span>C4:{simC4}</span><span>C5:{simC5}</span></div></div></div><div className="modal-footer border-t border-border gap-2"><button className="btn btn-secondary btn-sm" onClick={() => setDialogOpen(false)}>Annuler</button><button className="btn btn-sm bg-role-primary hover:bg-role-primary/80 text-white" onClick={handleSave}>Sauvegarder</button></div></div></div></div>, document.body)}
+      {dialogOpen && createPortal(<div className="modal-overlay" onClick={() => setDialogOpen(false)}><div className="modal-content max-w-md" onClick={e => e.stopPropagation()}><div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary"><div className="modal-header border-b border-border"><div className="modal-title flex items-center gap-2"><Save className="w-4 h-4 text-role-primary" />Nommer le scénario</div><button className="modal-close" onClick={() => setDialogOpen(false)}><X className="w-4 h-4" /></button></div><div className="modal-body space-y-4 py-4"><input type="text" value={nomScenario} onChange={e => { setNomScenario(e.target.value); setSaveError('') }} placeholder="Ex: Amélioration C2 et C4" className="form-input w-full" maxLength={60} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave() }} />{saveError && <p className="text-xs text-danger">{saveError}</p>}<div className={`rounded-xl p-3 ${scoreSimule >= 80 ? 'bg-success-soft' : scoreSimule >= 60 ? 'bg-primary-soft' : scoreSimule >= 30 ? 'bg-warning-soft' : 'bg-danger-soft'}`}><div className="flex justify-between"><span className="text-xs text-foreground">Score</span><span className={`text-lg font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}/100</span></div><div className="grid grid-cols-5 gap-1 mt-2 text-center text-xs font-mono text-foreground"><span>C1:{simC1}</span><span>C2:{simC2}</span><span>C3:{simC3}</span><span>C4:{simC4}</span><span>C5:{simC5}</span></div></div></div><div className="modal-footer border-t border-border gap-2"><button className="btn btn-secondary btn-sm" onClick={() => setDialogOpen(false)}>Annuler</button><button className="btn btn-sm bg-role-primary hover:bg-role-primary/80 text-white" onClick={handleSave}>Sauvegarder</button></div></div></div></div>, document.body)}
     </div>
   )
 }

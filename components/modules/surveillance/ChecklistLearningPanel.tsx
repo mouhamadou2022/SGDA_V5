@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Brain, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, FileEdit } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { useAppStore } from '@/lib/store';
 import { getLearningStats, getProblematicItems, getTextDeltaStats } from '@/lib/checklistMemory';
 
 interface Props {
@@ -12,9 +13,22 @@ interface Props {
 export function ChecklistLearningPanel({ aerodromeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const stats = useMemo(() => getLearningStats(), []);
-  const problematiques = useMemo(() => getProblematicItems(aerodromeId, 30).slice(0, 5), [aerodromeId]);
-  const textStats = useMemo(() => getTextDeltaStats(aerodromeId), [aerodromeId]);
+  // Abonnement réactif : le panneau se met à jour quand l'inspecteur corrige
+  // un item pendant la session (checklistMemoryRecords change → re-render).
+  const checklistMemoryRecords = useAppStore(s => s.checklistMemoryRecords);
+
+  // Périmètre cohérent : stats ET problématiques ciblent le même aérodrome.
+  const stats = useMemo(() => getLearningStats(aerodromeId), [checklistMemoryRecords, aerodromeId]);
+  // Liste complète (pour le %), tronquée à l'affichage uniquement.
+  const problematiquesToutes = useMemo(
+    () => getProblematicItems(aerodromeId, 30),
+    [checklistMemoryRecords, aerodromeId]
+  );
+  const problematiques = problematiquesToutes.slice(0, 5);
+  const textStats = useMemo(
+    () => getTextDeltaStats(aerodromeId),
+    [checklistMemoryRecords, aerodromeId]
+  );
 
   if (stats.total_items === 0) return null;
 
@@ -111,7 +125,7 @@ export function ChecklistLearningPanel({ aerodromeId }: Props) {
           <p className="text-[10px] text-muted-foreground italic">
             <TrendingUp className="w-3 h-3 inline mr-1" />
             Les corrections des inspecteurs améliorent progressivement les prédictions IA.
-            {stats.total_items > 0 && ` ${Math.round(problematiques.length / stats.total_items * 100)}% des items ont besoin d'attention.`}
+            {stats.total_items > 0 && ` ${Math.round(problematiquesToutes.length / stats.total_items * 100)}% des items ont besoin d'attention.`}
           </p>
         </div>
       )}

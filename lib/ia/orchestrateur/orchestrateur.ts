@@ -28,7 +28,7 @@ const MAX_HISTORIQUE = 20
 // ============================================================
 
 function agentRisque(profil: OrchestrateurInput['profil']): AgentVote {
-  const diag = synthetiserModeles(profil)
+  const diag = synthetiserModeles(profil, profil.qualitative_metrics)
   const confiance = Math.round(diag.confianceGlobale)
   return {
     agent: 'risque',

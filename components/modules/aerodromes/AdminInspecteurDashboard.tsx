@@ -156,7 +156,7 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
       {/* ── LIGNE 1 : 4 MINI-CARTES RÉSUMÉ ── */}
       <div className="grid grid-cols-4 gap-4">
         {profilRisque ? (
-          <Card variant="level" levelColor={profilRisque.niveau === 'critique' ? 'danger' : profilRisque.niveau === 'eleve' ? 'warning' : profilRisque.niveau === 'moyen' ? 'primary' : 'success'} contentClassName="p-4 text-center">
+          <Card variant="level" levelColor={profilRisque.niveau === 'critique' ? 'danger' : profilRisque.niveau === 'eleve' ? 'warning' : profilRisque.niveau === 'moyen' ? 'teal' : 'success'} contentClassName="p-4 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Score risque</p>
             <p className={`text-3xl font-bold mt-1 ${profilRisque.niveau === 'critique' ? 'text-danger' : profilRisque.niveau === 'eleve' ? 'text-warning' : 'text-foreground'}`}>
               {profilRisque.score_global}%

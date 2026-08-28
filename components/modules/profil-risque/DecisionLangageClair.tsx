@@ -7,7 +7,7 @@
 // l'IA vient ensuite enrichir le texte si disponible.
 
 import { useState, useEffect } from 'react'
-import { ProfilRisque, EvenementSecurite } from '@/lib/store'
+import { ProfilRisque, EvenementSecurite, Ecart, Surveillance } from '@/lib/store'
 import { Sparkles, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { expliquerDecisionDG, fallbackDecisionDG, type DecisionDGExplication } from '@/lib/ia/decisionIA'
 import { LangageClairFeedback } from '@/components/modules/profil-risque/LangageClairFeedback'
@@ -17,8 +17,8 @@ interface Props {
   aerodromeCode: string
   aerodromeName: string
   nbEcartsCritiques: number
-  ecartsActifs: any[]
-  prochainesSurveillances?: any[]
+  ecartsActifs: Ecart[]
+  prochainesSurveillances?: Surveillance[]
   evenements?: EvenementSecurite[]
 }
 

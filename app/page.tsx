@@ -13,7 +13,7 @@ import {
   Radar, Compass, Navigation, Wifi,
   Key, HelpCircle, Phone, CheckCircle2, XCircle, RefreshCw
 } from 'lucide-react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, flattenHierarchyItems, type Surveillance, type ChecklistItem, type DomaineChecklist } from '@/lib/store'
 import { loadInitialData, sanitizeEcart } from '@/lib/datastore'
 import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances, subscribeToNotifications, subscribeToMessages, subscribeToEvenements } from '@/lib/subscriptions'
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
@@ -1005,6 +1005,7 @@ const MODULES = {
   'admin-dashboard': lazy(() => import('@/components/modules/dashboard/AdminDashboardModule').then((m) => resolveModule(m, 'AdminDashboardModule'))),
   'staff-dashboard': lazy(() => import('@/components/modules/portail-exploitant/StaffDashboardModule').then((m) => resolveModule(m, 'StaffDashboardModule'))),
   'ml-monitoring': lazy(() => import('@/components/modules/ml-monitoring/MLMonitoringModule').then((m) => resolveModule(m, 'MLMonitoringModule'))),
+  agents: lazy(() => import('@/components/modules/agents/AgentsModule').then((m) => resolveModule(m, 'AgentsModule'))),
 } as Record<string, React.LazyExoticComponent<React.ComponentType<{ user: AuthUser; userRole?: string }>>>
 
 export default function Page() {
@@ -1107,9 +1108,24 @@ export default function Page() {
               !(u.email && existingUserEmails.has(u.email))
             )
           ]
+          // Réhydrater les checklists depuis la colonne persistée
+          // checklist_hierarchy : sans ça, la rédaction des écarts et le
+          // rapport repartent de zéro après un rechargement.
+          const existingHierarchy = useAppStore.getState().checklistHierarchy || {}
+          const existingItems = useAppStore.getState().checklistItems || {}
+          const hierarchyFromDb: Record<string, DomaineChecklist[]> = {}
+          const itemsFromDb: Record<string, ChecklistItem[]> = {}
+          for (const sv of (data.surveillances || []) as Surveillance[]) {
+            if (Array.isArray(sv.checklist_hierarchy) && sv.checklist_hierarchy.length > 0) {
+              hierarchyFromDb[sv.id] = sv.checklist_hierarchy
+              itemsFromDb[sv.id] = flattenHierarchyItems(sv.checklist_hierarchy)
+            }
+          }
           useAppStore.setState({
              aerodromes: data.aerodromes || [],
              surveillances: data.surveillances || [],
+             checklistHierarchy: { ...hierarchyFromDb, ...existingHierarchy },
+             checklistItems: { ...itemsFromDb, ...existingItems },
              ecarts: data.ecarts || [],
              dossiers: mergedDossiers,
              utilisateurs: mergedUtilisateurs,

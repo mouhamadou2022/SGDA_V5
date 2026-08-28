@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   X,
   AlertTriangle,
@@ -15,6 +15,8 @@ import {
   AlertOctagon,
   ChevronRight,
   User,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
@@ -22,6 +24,7 @@ import { Ecart } from '@/lib/store';
 import { RappelSection } from './RappelSection';
 import { getCellColor, getRiskLevelFromCell, getRiskLevelVariant } from '@/lib/risque';
 import { getRiskTrajectory } from '@/lib/risque/bowTieEngine';
+import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +203,27 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
   const ecart = useOptimizedStore(s => s.ecarts.find((e: Ecart) => e.id === ecartId));
   const aerodromes = useOptimizedStore(s => s.aerodromes);
   const user = useOptimizedStore(s => s.user);
+  const [verifIALe, setVerifIALe] = useState<{ conforme: boolean; niveauConfiance: number; elementsManquants: string[]; preuvesSuffisantes: boolean; commentaire: string } | null>(null);
+  const [verifIALoading, setVerifIALoading] = useState(false);
+
+  const runVerificationIA = async () => {
+    if (!ecart?.preuves?.fichiers?.length || verifIALoading) return;
+    setVerifIALoading(true);
+    try {
+      const result = await ecartAgent.verifyPreuves({ ecartId, preuves: ecart.preuves }, {});
+      setVerifIALe({
+        conforme: result.conforme,
+        niveauConfiance: result.niveauConfiance,
+        elementsManquants: result.elementsManquants,
+        preuvesSuffisantes: result.preuvesSuffisantes,
+        commentaire: result.commentaire,
+      });
+    } catch (e) {
+      console.error('Erreur vérification IA:', e);
+    } finally {
+      setVerifIALoading(false);
+    }
+  };
 
   if (!ecart) {
     return (
@@ -380,6 +404,76 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
           <p className="text-sm text-gray-400">Aucun PAC soumis pour le moment.</p>
         </div>
       )}
+
+      {/* Section 4: Avis IA sur les preuves */}
+      {(() => {
+        const iaVerif = verifIALe ?? ecart.validation_preuves?.verification_ia;
+        const commentaire = verifIALe?.commentaire ?? ecart.validation_preuves?.commentaire;
+        const peutVerifier = !!ecart.preuves?.fichiers?.length;
+        if (!iaVerif && !peutVerifier) return null;
+        return (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700 flex items-center justify-between gap-4">
+              <span className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-600" />
+                Avis IA sur les preuves
+              </span>
+              {peutVerifier && (
+                <button
+                  onClick={runVerificationIA}
+                  disabled={verifIALoading}
+                  className="btn btn-xs btn-secondary gap-1"
+                  title={iaVerif ? 'Re-exécuter la vérification IA' : 'Vérifier les preuves soumises avec l\'IA'}
+                >
+                  {verifIALoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  {verifIALoading ? 'Analyse...' : iaVerif ? 'Re-vérifier' : 'Vérifier par IA'}
+                </button>
+              )}
+            </h3>
+            {!iaVerif ? (
+              <Card variant="level" levelColor="primary">
+                <p className="text-xs text-foreground">
+                  {ecart.preuves?.fichiers?.length} fichier(s) soumis en preuve. Lancez la vérification IA pour obtenir un avis sur leur suffisance.
+                </p>
+              </Card>
+            ) : (
+              <Card variant="level" levelColor={iaVerif.preuvesSuffisantes ? 'success' : 'warning'}>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <span className={`badge ${iaVerif.preuvesSuffisantes ? 'success' : 'warning'} gap-1`}>
+                    {iaVerif.preuvesSuffisantes ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                    {iaVerif.preuvesSuffisantes ? 'Preuves suffisantes' : 'Preuves insuffisantes'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Confiance IA : {iaVerif.niveauConfiance}%
+                  </span>
+                </div>
+                <div className="progress h-1.5 mb-3">
+                  <div
+                    className={`progress-bar ${iaVerif.niveauConfiance >= 70 ? 'bg-success' : iaVerif.niveauConfiance >= 50 ? 'bg-warning' : 'bg-danger'}`}
+                    style={{ width: `${iaVerif.niveauConfiance}%` }}
+                  />
+                </div>
+                {iaVerif.elementsManquants?.length > 0 && (
+                  <div className="space-y-1">
+                    {iaVerif.elementsManquants.map((ef: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2 text-xs text-red-700">
+                        <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                        <span>{ef}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {commentaire && (
+                  <p className="text-xs text-foreground mt-2 border-t border-border pt-2">
+                    {commentaire}
+                  </p>
+                )}
+              </Card>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Rappels à l'exploitant */}
       <RappelSection ecartId={ecart.id} ecart={ecart} userRole={user?.role || ''} userId={user?.id || ''} />
     </div>

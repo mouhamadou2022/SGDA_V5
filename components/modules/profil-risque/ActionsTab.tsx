@@ -39,12 +39,12 @@ const STATUT_LABEL: Record<ActionStatus, string> = {
 const PRIORITE_CONFIG: Record<string, {
   label: string
   badge: string
-  levelColor: 'danger' | 'warning' | 'primary' | 'neutral'
+  levelColor: 'danger' | 'warning' | 'teal' | 'neutral'
   dot: string
 }> = {
   immediate: { label: 'Immédiat', badge: 'badge danger', levelColor: 'danger', dot: 'bg-danger' },
   haute: { label: 'Haute', badge: 'badge warning', levelColor: 'warning', dot: 'bg-warning' },
-  moyenne: { label: 'Moyenne', badge: 'badge primary', levelColor: 'primary', dot: 'bg-role-primary' },
+  moyenne: { label: 'Moyenne', badge: 'badge teal', levelColor: 'teal', dot: 'bg-role-primary' },
   basse: { label: 'Basse', badge: 'badge neutral', levelColor: 'neutral', dot: 'bg-foreground/40' },
 }
 
@@ -208,7 +208,7 @@ export function ActionsTab({
           <div className="flex flex-col items-center gap-4 py-8">
             <AlertCircle className="w-10 h-10 text-warning" />
             <p className="text-sm text-foreground">Service AERORISQ momentanément indisponible</p>
-            <p className="text-xs text-foreground text-center max-w-md">Les actions de vérification n'ont pas pu être générées automatiquement. Vérifiez que la clé API Groq est configurée.</p>
+            <p className="text-xs text-foreground text-center max-w-md">Les actions de vérification n&apos;ont pas pu être générées automatiquement. Vérifiez que la clé API Groq est configurée.</p>
             <button onClick={fetchActions} className="btn btn-sm btn-primary gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" />
               Réessayer
@@ -217,7 +217,7 @@ export function ActionsTab({
         ) : actions.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-10 h-10 text-success" />
-            <p className="text-sm text-foreground">Aucune action requise — AERORISQ n'a identifié aucun signal necessitant une verification.</p>
+            <p className="text-sm text-foreground">Aucune action requise — AERORISQ n&apos;a identifié aucun signal necessitant une verification.</p>
           </div>
         ) : (
           <>
@@ -316,7 +316,7 @@ export function ActionsTab({
         </button>
         <button className="btn btn-secondary gap-2" onClick={handleExportReport}>
           <Download className="w-4 h-4" />
-          Exporter le plan d'action
+          Exporter le plan d&apos;action
         </button>
         {userRole === 'admin' && (
           <button className="btn btn-outline gap-2" onClick={() => setCalibrationOpen(v => !v)}>

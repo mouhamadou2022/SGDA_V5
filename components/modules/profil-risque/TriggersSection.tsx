@@ -38,7 +38,7 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
 
   const { triggers, impact } = useMemo(() => {
     const nbDelais = ecartsAerodrome.filter(e => {
-      const d = (e as any).date_limite
+      const d = e.delai_pac
       return d && new Date(d) < new Date() && e.statut !== 'cloture'
     }).length
 
@@ -57,10 +57,16 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
   const [insights, setInsights] = useState<Record<string, string>>({})
   const [iaEnCours, setIaEnCours] = useState(true)
   const [iaActif, setIaActif] = useState(false)
+  const [prevProfil, setPrevProfil] = useState(profil)
+  if (prevProfil !== profil) {
+    setPrevProfil(profil)
+    setIaEnCours(true)
+    setIaActif(false)
+    setInsights({})
+  }
 
   useEffect(() => {
     let actif = true
-    setIaEnCours(true)
     expliquerTriggersEnClair(triggers, profil).then((res) => {
       if (!actif) return
       setInsights(res.insights)
@@ -78,7 +84,7 @@ export function TriggersSection({ profil, nbEcartsCritiques }: Props) {
 
   const impactLevel = impact >= 1.5 ? 'critique' : impact >= 1.2 ? 'eleve' : impact >= 1.0 ? 'moyen' : 'normal'
 
-  const impactColor = impactLevel === 'critique' ? 'var(--color-danger)' : impactLevel === 'eleve' ? 'var(--color-warning)' : impactLevel === 'moyen' ? 'var(--color-primary)' : 'var(--color-success)'
+  const impactColor = impactLevel === 'critique' ? 'var(--color-danger)' : impactLevel === 'eleve' ? 'var(--color-warning)' : impactLevel === 'moyen' ? 'var(--color-teal)' : 'var(--color-success)'
 
   return (
     <Card

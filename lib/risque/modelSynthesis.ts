@@ -7,6 +7,8 @@
 // de sa confiance. Le consensus final alimente une recommandation unique.
 
 import type { ProfilRisque } from '@/lib/store'
+import type { DiagnosticQualitatif } from './qualitativeChain'
+import { voterChaineQualitative } from './qualitativeChain'
 
 // ────────────────────────────────────────────
 // TYPES DE SORTIE
@@ -41,9 +43,11 @@ export interface DiagnosticUnifie {
 }
 
 /**
- * Nombre maximal de votes que le moteur synthetiserModeles peut émettre
- * (1 score global C1-C5 + 11 modèles conditionnels). Sert d'affichage
- * « X modèles actifs / max » dans la carte « Statut des modèles ».
+ * Nombre maximal de votes de base que le moteur synthetiserModeles peut émettre
+ * (1 score global C1-C5 + 11 modèles conditionnels). Le vote optionnel
+ * « Chaîne qualitative » (13ᵉ) est ajouté uniquement si un DiagnosticQualitatif
+ * est fourni par l'appelant — les appels existants n'émettent jamais plus de 12.
+ * Sert d'affichage « X modèles actifs / max » dans la carte « Statut des modèles ».
  */
 export const NOMBRE_MAX_VOTES = 12
 
@@ -71,7 +75,7 @@ export function dataSupportFor(nom: string, profil: ProfilRisque): number {
  * un diagnostic unifié. Chaque modèle qui a suffisamment de données émet
  * un vote. Le consensus final est calculé par moyenne pondérée par la confiance.
  */
-export function synthetiserModeles(profil: ProfilRisque): DiagnosticUnifie {
+export function synthetiserModeles(profil: ProfilRisque, qualitatif?: DiagnosticQualitatif): DiagnosticUnifie {
   const votes: ModeleVote[] = []
 
   // ── 1. Score global C1-C5 ──
@@ -130,6 +134,13 @@ export function synthetiserModeles(profil: ProfilRisque): DiagnosticUnifie {
   // ── 12. Prédiction d'incidents ──
   if (profil.incident_prediction_3m !== undefined) {
     votes.push(voterPredictionIncidents(profil))
+  }
+
+  // ── 13. Chaîne qualitative (BowTie + FTA + AMDEC + Bayésien) ──
+  // Optionnel : ajouté uniquement si le diagnostic qualitatif est fourni par l'appelant.
+  // Ne modifie pas le comportement des appels existants (rétro-compatible).
+  if (qualitatif) {
+    votes.push(voterChaineQualitative(qualitatif))
   }
 
   // ── Agrégation « consciente des données » ──

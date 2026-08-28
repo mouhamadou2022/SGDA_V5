@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore, useDecisionChecklist } from '@/lib/store';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { SurveillanceChecklistStandard } from '@/components/modules/surveillance';
 import { SurveillanceChecklistSuiviEcarts } from '@/components/modules/surveillance';
 import { SurveillanceChecklistPAC } from '@/components/modules/surveillance';
@@ -21,6 +22,8 @@ function ChecklistMixte({
   surveillanceId,
   aerodromeId,
   onSave,
+  onSaveSuivi,
+  onSavePAC,
   onComplete,
   userRole,
   initialTab,
@@ -29,6 +32,8 @@ function ChecklistMixte({
   surveillanceId: string;
   aerodromeId: string;
   onSave?: (domaines: DomaineChecklist[]) => void;
+  onSaveSuivi?: (data: { items: any[]; observations_generales?: string }) => void;
+  onSavePAC?: (data: any) => void;
   onComplete: () => void;
   userRole: string;
   initialTab?: 'standard' | 'suivi' | 'pac' | 'maintien';
@@ -91,6 +96,7 @@ function ChecklistMixte({
               equipe_ids: surveillance.equipe_ids || [],
               chef_id: surveillance.chef_id || '',
               statut: surveillance.statut || '',
+              planning_id: surveillance.planning_id || '',
             }}
             onSave={onSave}
             onComplete={onComplete}
@@ -103,6 +109,7 @@ function ChecklistMixte({
           <SurveillanceChecklistSuiviEcarts
             surveillanceId={surveillanceId}
             aerodromeId={aerodromeId}
+            onSave={onSaveSuivi}
             onComplete={onComplete}
             userRole={userRole}
             readOnly={readOnly}
@@ -112,6 +119,7 @@ function ChecklistMixte({
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={aerodromeId}
+            onSave={onSavePAC}
             onComplete={onComplete}
             userRole={userRole}
             readOnly={readOnly}
@@ -128,119 +136,6 @@ function ChecklistMixte({
           />
         )}
       </div>
-    </div>
-  );
-}
-
-// Composant pour la synthèse (onglet dans la version mixte)
-function ChecklistSynthese({
-  surveillanceId,
-}: {
-  surveillanceId: string;
-}) {
-  const surveillances = useAppStore(s => s.surveillances);
-  const checklistItems = useAppStore(s => s.checklistItems);
-  const surveillance = surveillances.find(s => s.id === surveillanceId);
-  const items = checklistItems[surveillanceId] || [];
-  
-  const total = items.length;
-  const sa = items.filter(i => i.resultat === 'SA').length;
-  const ns = items.filter(i => i.resultat === 'NS').length;
-  const nv = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
-  const na = items.filter(i => i.resultat === 'NA').length;
-  const progression = total > 0 ? Math.round(((sa + ns + na) / total) * 100) : 0;
-  const tauxConformite = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
-
-  return (
-    <div className="space-y-6">
-      {/* Statistiques globales */}
-      <div className="card border-border">
-        <div className="card-header">
-          <div className="card-title">Synthèse de la surveillance</div>
-        </div>
-        <div className="card-content">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="text-center p-3 bg-success/10 rounded-xl">
-              <div className="text-2xl font-bold text-success">{sa}</div>
-              <div className="text-xs text-muted-foreground">Satisfaisant</div>
-            </div>
-            <div className="text-center p-3 bg-danger/10 rounded-xl">
-              <div className="text-2xl font-bold text-danger">{ns}</div>
-              <div className="text-xs text-muted-foreground">Non satisfaisant</div>
-            </div>
-            <div className="text-center p-3 bg-warning/10 rounded-xl">
-              <div className="text-2xl font-bold text-warning">{nv}</div>
-              <div className="text-xs text-muted-foreground">Non vérifié</div>
-            </div>
-            <div className="text-center p-3 bg-gray-100 rounded-xl">
-              <div className="text-2xl font-bold text-gray-600">{na}</div>
-              <div className="text-xs text-muted-foreground">Non applicable</div>
-            </div>
-            <div className="text-center p-3 bg-role-primary-soft rounded-xl">
-              <div className="text-2xl font-bold text-role-primary">{total}</div>
-              <div className="text-xs text-muted-foreground">Total items</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Progression */}
-      <div className="card border-border">
-        <div className="card-header">
-          <div className="card-title">Progression globale</div>
-        </div>
-        <div className="card-content space-y-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Progression</span>
-            <span className="font-semibold">{progression}%</span>
-          </div>
-          <div className="progress h-2">
-            <div className="progress-bar progress-fill" style={{ '--pf': progression } as React.CSSProperties} />
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Taux de conformité réel</span>
-            <span className={`font-semibold ${tauxConformite >= 70 ? 'text-success' : tauxConformite >= 50 ? 'text-warning' : 'text-danger'}`}>
-              {tauxConformite}%
-            </span>
-          </div>
-          <div className="progress h-2">
-            <div
-              className={`progress-bar progress-fill ${tauxConformite >= 70 ? 'bg-success' : tauxConformite >= 50 ? 'bg-warning' : 'bg-danger'}`}
-              style={{ '--pf': tauxConformite } as React.CSSProperties}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            NV sont considérés comme non satisfaisants
-          </p>
-        </div>
-      </div>
-
-      {/* Informations surveillance */}
-      {surveillance && (
-        <div className="card border-border">
-          <div className="card-header">
-            <div className="card-title">Informations</div>
-          </div>
-          <div className="card-content space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Type</span>
-              <span className="font-medium capitalize">{surveillance.type?.replace(/_/g, ' ')}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Date début</span>
-              <span className="font-medium">{new Date(surveillance.date_debut).toLocaleDateString('fr-FR')}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Date fin</span>
-              <span className="font-medium">{new Date(surveillance.date_fin).toLocaleDateString('fr-FR')}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Équipe</span>
-              <span className="font-medium">{surveillance.equipe_ids?.length || 0} inspecteur(s)</span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -263,6 +158,7 @@ export default function ChecklistPage() {
   const profilsRisque = useAppStore(s => s.profilsRisque)
   const checklistItems = useAppStore(s => s.checklistItems)
   const masterChecklists = useAppStore(s => s.masterChecklists)
+  const plannings = useAppStore(s => s.plannings)
 
   const { decision, determineChecklistType } = useDecisionChecklist();
 
@@ -329,40 +225,25 @@ export default function ChecklistPage() {
     updateAerodrome(aerodromeId, { sgs_checklist_template: template as any });
   }, [surveillance?.aerodrome_id]);
 
-  // Signature de l'évaluation SGS
-  const handleSignSGSEvaluation = React.useCallback((signatureUrl: string) => {
-    updateSurveillance(surveillanceId, {
-      sgs_evaluation_signee_le: new Date().toISOString(),
-      signatures_checklist: [
-        ...(surveillance?.signatures_checklist || []),
-        { signataire_id: user?.id || '', signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`, date_signature: new Date().toISOString(), signature_url: signatureUrl },
-      ],
+  // Signature de l'évaluation SGS — déléguée à l'action centrale du store
+  const handleSignSGSEvaluation = React.useCallback(async (signatureUrl: string) => {
+    const res = await useAppStore.getState().signerChecklistSurveillance(surveillanceId, {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`.trim(),
+      signature_url: signatureUrl,
+      marque_sgs: true,
     });
-
-    // Avancement auto du statut de la délégation SGS de l'inspecteur signataire
-    const now = new Date().toISOString();
-    const storeDels = useAppStore.getState();
-    storeDels.getDelegationsBySurveillance(surveillanceId)
-      .filter(d => d.domaine === 'SGS' && d.assigne_a === user?.id)
-      .forEach(d => {
-        storeDels.updateDelegation(d.id, {
-          statut: 'checklist_signee',
-          progression: 100,
-          checklist_signature_url: signatureUrl,
-          checklist_signe_le: now,
-          derniere_activite: now,
-          derniere_sync: now,
-        });
-      });
 
     addNotification({
       user_id: user?.id || '',
-      type: 'success',
+      type: res.avancee ? 'success' : 'warning',
       title: 'Évaluation SGS signée',
-      message: 'L\'évaluation SGS a été signée avec succès',
+      message: res.raison
+        ? `Signature enregistrée. ${res.raison}.`
+        : "L'évaluation SGS a été signée avec succès",
       canal: 'in_app',
     });
-  }, [surveillanceId, updateSurveillance, addNotification, user]);
+  }, [surveillanceId, addNotification, user]);
 
   // Save full hierarchy + flat items to persisted store
   const handleSaveChecklist = React.useCallback((domaines: DomaineChecklist[]) => {
@@ -383,6 +264,17 @@ export default function ChecklistPage() {
     updateSurveillance(surveillanceId, { checklist_hierarchy: domaines as any });
   }, [surveillanceId, setChecklistHierarchy, setChecklistItems, updateSurveillance]);
 
+  // Sauvegarde dédiée « suivi des écarts » — ne touche PAS checklist_hierarchy
+  // (la forme { items, observations_generales } n'est pas une hiérarchie de checklist)
+  const handleSaveSuivi = React.useCallback((data: { items: any[]; observations_generales?: string }) => {
+    updateSurveillance(surveillanceId, { checklist_suivi_ecarts: data });
+  }, [surveillanceId, updateSurveillance]);
+
+  // Sauvegarde dédiée « mise en œuvre PAC » — idem, stockage séparé de la hiérarchie
+  const handleSavePAC = React.useCallback((data: any) => {
+    updateSurveillance(surveillanceId, { checklist_pac: data });
+  }, [surveillanceId, updateSurveillance]);
+
   // Déterminer le composant à afficher en fonction du paramètre type (priorité URL → profil → surveillance.type)
   const getComponentByType = () => {
     // 1) URL prioritaire
@@ -395,6 +287,8 @@ export default function ChecklistPage() {
             initialTab={profileDerivedInitialTab}
             readOnly={checklistReadOnly}
             onSave={handleSaveChecklist}
+            onSaveSuivi={handleSaveSuivi}
+            onSavePAC={handleSavePAC}
             onComplete={() => {
               addNotification({
                 user_id: user?.id || '',
@@ -419,7 +313,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistSuiviEcarts
             surveillanceId={surveillanceId}
             aerodromeId={surveillance?.aerodrome_id || ''}
-            onSave={handleSaveChecklist}
+            onSave={handleSaveSuivi}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -438,7 +332,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={surveillance?.aerodrome_id || ''}
-            onSave={handleSaveChecklist}
+            onSave={handleSavePAC}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -448,6 +342,29 @@ export default function ChecklistPage() {
         ),
         title: 'Mise en œuvre PAC',
         icon: CheckCircle2,
+      };
+    }
+
+    // Cas Maintien explicite (?type=maintien) → checklist de maintien (revérification des items précédemment SA)
+    if (typeParam === 'maintien') {
+      return {
+        component: (
+          <ChecklistMixte
+            surveillanceId={surveillanceId}
+            aerodromeId={surveillance?.aerodrome_id || ''}
+            initialTab="maintien"
+            onSave={handleSaveChecklist}
+            onSaveSuivi={handleSaveSuivi}
+            onSavePAC={handleSavePAC}
+            onComplete={() => {
+              router.push(`/surveillance/${surveillanceId}`);
+            }}
+            readOnly={checklistReadOnly}
+            userRole={user?.role || 'inspector'}
+          />
+        ),
+        title: 'Checklist de maintien',
+        icon: Shield,
       };
     }
 
@@ -516,6 +433,7 @@ export default function ChecklistPage() {
               date_debut: surveillance?.date_debut || '',
               equipe_ids: surveillance?.equipe_ids || [],
               chef_id: surveillance?.chef_id || '',
+              planning_id: surveillance?.planning_id || '',
             }}
             onSave={handleSaveChecklist}
             onComplete={() => {
@@ -549,19 +467,21 @@ export default function ChecklistPage() {
     if (!typeParam && profileDerivedType) {
       if (profileDerivedType === 'mixte') {
         return {
-          component: (
-            <ChecklistMixte
-              surveillanceId={surveillanceId}
-              aerodromeId={surveillance?.aerodrome_id || ''}
-              initialTab={profileDerivedInitialTab}
-              onSave={handleSaveChecklist}
-              onComplete={() => {
-                router.push(`/surveillance/${surveillanceId}`);
-              }}
-              readOnly={checklistReadOnly}
-              userRole={user?.role || 'inspector'}
-            />
-          ),
+component: (
+          <ChecklistMixte
+            surveillanceId={surveillanceId}
+            aerodromeId={surveillance?.aerodrome_id || ''}
+            initialTab={profileDerivedInitialTab}
+            onSave={handleSaveChecklist}
+            onSaveSuivi={handleSaveSuivi}
+            onSavePAC={handleSavePAC}
+            onComplete={() => {
+              router.push(`/surveillance/${surveillanceId}`);
+            }}
+            readOnly={checklistReadOnly}
+            userRole={user?.role || 'inspector'}
+          />
+        ),
           title: 'Checklist mixte',
           icon: LayoutGrid,
         };
@@ -572,7 +492,7 @@ export default function ChecklistPage() {
             <SurveillanceChecklistSuiviEcarts
               surveillanceId={surveillanceId}
               aerodromeId={surveillance?.aerodrome_id || ''}
-              onSave={handleSaveChecklist}
+              onSave={handleSaveSuivi}
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
@@ -590,7 +510,7 @@ export default function ChecklistPage() {
             <SurveillanceChecklistPAC
               surveillanceId={surveillanceId}
               aerodromeId={surveillance?.aerodrome_id || ''}
-              onSave={handleSaveChecklist}
+              onSave={handleSavePAC}
               onComplete={() => {
                 router.push(`/surveillance/${surveillanceId}`);
               }}
@@ -611,7 +531,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistSuiviEcarts
             surveillanceId={surveillanceId}
             aerodromeId={surveillance.aerodrome_id}
-            onSave={handleSaveChecklist}
+            onSave={handleSaveSuivi}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -630,7 +550,7 @@ export default function ChecklistPage() {
           <SurveillanceChecklistPAC
             surveillanceId={surveillanceId}
             aerodromeId={surveillance.aerodrome_id}
-            onSave={handleSaveChecklist}
+            onSave={handleSavePAC}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -698,6 +618,7 @@ export default function ChecklistPage() {
             equipe_ids: surveillance?.equipe_ids || [],
             chef_id: surveillance?.chef_id || '',
             statut: surveillance?.statut || '',
+            planning_id: surveillance?.planning_id || '',
           }}
           onSave={handleSaveChecklist}
           readOnly={checklistReadOnly}
@@ -807,7 +728,7 @@ export default function ChecklistPage() {
   const scoreColor = scoreRisque == null ? 'text-muted-foreground'
     : scoreRisque >= 80 ? 'text-success' : scoreRisque >= 60 ? 'text-warning' : 'text-danger';
   const niveauBadgeClass = niveauRisque === 'faible' ? 'bg-success/20 text-success border-success'
-    : niveauRisque === 'moyen' ? 'bg-warning/20 text-warning border-warning'
+    : niveauRisque === 'moyen' ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500'
     : niveauRisque === 'eleve' ? 'bg-orange-100 text-orange-700 border-orange-300'
     : 'bg-danger/20 text-danger border-danger';
 
@@ -872,10 +793,10 @@ export default function ChecklistPage() {
                     {new Date(surveillance.date_debut).toLocaleDateString('fr-FR')}
                     {surveillance.date_fin && ` → ${new Date(surveillance.date_fin).toLocaleDateString('fr-FR')}`}
                   </span>
-                  {surveillance.equipe_ids?.length > 0 && (
+                  {getSurveillanceEquipeIds(surveillance, plannings).length > 0 && (
                     <span className="badge muted badge-icon">
                       <Users className="w-2.5 h-2.5" />
-                      {surveillance.equipe_ids.length} inspecteur{surveillance.equipe_ids.length > 1 ? 's' : ''}
+                      {getSurveillanceEquipeIds(surveillance, plannings).length} inspecteur{getSurveillanceEquipeIds(surveillance, plannings).length > 1 ? 's' : ''}
                     </span>
                   )}
                   <span className="badge primary badge-icon">

@@ -87,7 +87,7 @@ export class ThresholdController {
 
   private enregistrerAjustement(engine: EngineType, parametre: string, ancienne: number, nouvelle: number, raison: string) {
     this.config.historique.push({
-      id: `hst-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      id: `hst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       date: new Date().toISOString(),
       engine,
       parametre,

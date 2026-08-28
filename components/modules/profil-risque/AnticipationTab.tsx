@@ -6,7 +6,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
+import { ProfilRisque, ScoreHistoryPoint, EvenementSecurite } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { AlertTriangle, Brain, Target, Shield, Clock, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
@@ -22,14 +22,14 @@ import {
 interface AnticipationTabProps {
   profil: ProfilRisque
   historicalScores: ScoreHistoryPoint[]
-  evenements: any[]
+  evenements: EvenementSecurite[]
   aerodromeCode?: string
 }
 
 const PRIORITE_LABEL: Record<string, { label: string; badge: string }> = {
   immediate: { label: 'Immédiat', badge: 'badge danger' },
   haute: { label: 'Prioritaire', badge: 'badge warning' },
-  moyenne: { label: 'À planifier', badge: 'badge primary' },
+  moyenne: { label: 'À planifier', badge: 'badge teal' },
   basse: { label: 'Secondaire', badge: 'badge neutral' },
 }
 
@@ -69,41 +69,43 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
   const [predTexte, setPredTexte] = useState(() => fallbackPredictions(profil).texte)
   const [predEnCours, setPredEnCours] = useState(true)
   const [predIA, setPredIA] = useState(false)
+  const [prevProfilPred, setPrevProfilPred] = useState(profil)
 
   const [incidentTexte, setIncidentTexte] = useState(() => fallbackIncidents(profil).texte)
   const [incidentEnCours, setIncidentEnCours] = useState(true)
   const [incidentIA, setIncidentIA] = useState(false)
+  const [prevProfilIncident, setPrevProfilIncident] = useState(profil)
 
-  useEffect(() => {
-    let actif = true
+  if (prevProfilPred !== profil) {
+    setPrevProfilPred(profil)
     setPredEnCours(true)
     setPredTexte(fallbackPredictions(profil).texte)
+  }
+
+  if (prevProfilIncident !== profil) {
+    setPrevProfilIncident(profil)
+    setIncidentEnCours(true)
+    setIncidentTexte(fallbackIncidents(profil).texte)
+  }
+
+  useEffect(() => {
     expliquerPredictionsEnClair(profil).then((res) => {
-      if (!actif) return
       setPredTexte(res.texte)
       setPredIA(!res.fallbackIA)
       setPredEnCours(false)
     }).catch(() => {
-      if (!actif) return
       setPredEnCours(false)
     })
-    return () => { actif = false }
   }, [profil])
 
   useEffect(() => {
-    let actif = true
-    setIncidentEnCours(true)
-    setIncidentTexte(fallbackIncidents(profil).texte)
     expliquerRisquesIncidentsEnClair(profil).then((res) => {
-      if (!actif) return
       setIncidentTexte(res.texte)
       setIncidentIA(!res.fallbackIA)
       setIncidentEnCours(false)
     }).catch(() => {
-      if (!actif) return
       setIncidentEnCours(false)
     })
-    return () => { actif = false }
   }, [profil])
 
   return (
@@ -189,7 +191,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-10 h-10 text-success" />
             <p className="text-sm text-foreground">Aucun point de vigilance enregistré pour le moment.</p>
-            <p className="text-xs text-foreground text-center max-w-md">Le plan d'action détaillé (avec suivi, filtres et export) est généré dans l'onglet « Actions » — ouvrez-le pour lancer l'analyse AERORISQ et retrouver ici les points de vigilance.</p>
+            <p className="text-xs text-foreground text-center max-w-md">Le plan d&apos;action détaillé (avec suivi, filtres et export) est généré dans l&apos;onglet « Actions » — ouvrez-le pour lancer l&apos;analyse AERORISQ et retrouver ici les points de vigilance.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -210,7 +212,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
             {(() => {
               const eventTypes = new Map<string, number>()
               for (const evt of evenements) {
-                const t = (evt as any).type_incident || (evt as any).type || (evt as any).gravite || 'incident'
+                const t = evt.type || evt.gravite || 'incident'
                 eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
               }
               const sorted = Array.from(eventTypes.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)

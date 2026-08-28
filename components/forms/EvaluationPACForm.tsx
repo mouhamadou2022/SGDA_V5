@@ -249,7 +249,7 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
             <div>
               <p className="text-[10px] text-muted-foreground uppercase">Niveau risque</p>
               <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${ecartNiveau === 'critique' ? 'badge danger animate-pulse' : ecartNiveau === 'eleve' ? 'badge warning' : ecartNiveau === 'moyen' ? 'badge primary' : 'badge success'}`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${ecartNiveau === 'critique' ? 'badge danger animate-pulse' : ecartNiveau === 'eleve' ? 'badge eleve' : ecartNiveau === 'moyen' ? 'badge moyen' : 'badge success'}`}>
                   {ecartNiveau === 'eleve' ? 'Élevé' : ecartNiveau.charAt(0).toUpperCase() + ecartNiveau.slice(1)}
                 </span>
               </div>

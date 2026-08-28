@@ -14,13 +14,15 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import type { Ecart } from '@/lib/store';
+import type { Ecart, FicheBriefing } from '@/lib/store';
 import {
   ArrowLeft, Save, Wifi, WifiOff, ClipboardList, Brain, Sparkles,
   AlertTriangle, Shield, CheckCircle2, AlertCircle, ChevronDown,
   Activity, LayoutGrid, FileText, Eye, Trash2, Upload, X, Check, Loader2,
+  Users, Target, Download,
 } from 'lucide-react';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF';
 import type { DomaineChecklist, ChecklistItem, EvaluationSGS, PAOELevel, EvaluationAction } from '@/types/checklist';
 import { computeEvaluationActionScore } from '@/types/checklist';
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable';
@@ -350,7 +352,7 @@ function PACChecklistItem({ item, onUpdate }: { item: PACItem; onUpdate: (item: 
         <div className={`px-3 py-1.5 ${item.ecart_niveau_risque === 'critique' ? 'bg-gradient-to-r from-red-50 to-red-100 border-red-200' : item.ecart_niveau_risque === 'eleve' ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200' : item.ecart_niveau_risque === 'moyen' ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200' : 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200'} border-b flex items-center gap-3 flex-wrap`}>
           <span className={`text-[12px] font-medium ${item.ecart_niveau_risque === 'critique' ? 'text-red-900' : item.ecart_niveau_risque === 'eleve' ? 'text-amber-900' : item.ecart_niveau_risque === 'moyen' ? 'text-blue-900' : 'text-emerald-900'}`}>Écart : {item.ecart_libelle}</span>
           {item.ecart_niveau_risque && (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${item.ecart_niveau_risque === 'critique' ? 'badge danger animate-pulse' : item.ecart_niveau_risque === 'eleve' ? 'badge warning' : item.ecart_niveau_risque === 'moyen' ? 'badge primary' : 'badge success'}`}>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${item.ecart_niveau_risque === 'critique' ? 'badge danger animate-pulse' : item.ecart_niveau_risque === 'eleve' ? 'badge eleve' : item.ecart_niveau_risque === 'moyen' ? 'badge moyen' : 'badge success'}`}>
               {item.ecart_niveau_risque}
             </span>
           )}
@@ -502,7 +504,7 @@ function PACChecklistItem({ item, onUpdate }: { item: PACItem; onUpdate: (item: 
                     <button key={niveau} type="button"
                       onClick={() => handleRisqueResiduelChange(risqueResiduel === niveau ? '' : niveau)}
                       className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${risqueResiduel === niveau
-                        ? (niveau === 'critique' ? 'badge danger animate-pulse' : niveau === 'eleve' ? 'badge warning' : niveau === 'moyen' ? 'badge primary' : 'badge success')
+                        ? (niveau === 'critique' ? 'badge danger animate-pulse' : niveau === 'eleve' ? 'badge eleve' : niveau === 'moyen' ? 'badge moyen' : 'badge success')
                         : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}>
                       {niveau === 'eleve' ? 'Élevé' : niveau.charAt(0).toUpperCase() + niveau.slice(1)}
                     </button>
@@ -808,6 +810,9 @@ export default function PreparationChecklistPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [iaBatchLoading, setIaBatchLoading] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  const [briefing, setBriefing] = useState<FicheBriefing | null | undefined>(() => planning?.briefing_fiche);
+  const [briefingLoading, setBriefingLoading] = useState(false);
 
   // Onglet actif en mode mixte
   const [mixteTab, setMixteTab] = useState<MixteTab>('standard');
@@ -1308,7 +1313,7 @@ export default function PreparationChecklistPage() {
   const scoreColor = scoreRisque == null ? 'text-muted-foreground'
     : scoreRisque >= 80 ? 'text-success' : scoreRisque >= 60 ? 'text-warning' : 'text-danger';
   const niveauBadgeClass = niveauRisque === 'faible' ? 'bg-success/20 text-success border-success'
-    : niveauRisque === 'moyen' ? 'bg-warning/20 text-warning border-warning'
+    : niveauRisque === 'moyen' ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500'
     : niveauRisque === 'eleve' ? 'bg-orange-100 text-orange-700 border-orange-300'
     : 'bg-danger/20 text-danger border-danger';
 
@@ -1493,6 +1498,240 @@ export default function PreparationChecklistPage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Briefing de mission */}
+        <div className="card border-border">
+          <button
+            type="button"
+            onClick={() => setBriefingOpen(!briefingOpen)}
+            className="w-full flex items-center justify-between gap-3 p-4 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-role-primary" />
+              <span className="text-sm font-semibold text-foreground">Briefing de mission</span>
+              {briefing && (
+                <span className="badge success text-[10px]">Généré {new Date(briefing.genere_le).toLocaleDateString('fr-FR')}</span>
+              )}
+            </div>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${briefingOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {briefingOpen && (
+            <div className="card-content p-4 border-t border-border space-y-3">
+              {briefingLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Génération de la fiche de briefing…
+                </div>
+              ) : briefing ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Référence</p>
+                      <p className="font-medium text-foreground">{briefing.reference}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Type de mission</p>
+                      <p className="font-medium text-foreground capitalize">{briefing.type_mission}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Période</p>
+                      <p className="font-medium text-foreground">{briefing.periode}</p>
+                    </div>
+                  </div>
+                  {briefing.objectifs.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-foreground mb-1">Objectifs</p>
+                      <ul className="space-y-1">
+                        {briefing.objectifs.map((o, i) => (
+                          <li key={i} className="text-xs text-foreground flex items-start gap-1.5">
+                            <Target className="w-3 h-3 text-role-primary mt-0.5 shrink-0" /> {o}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {briefing.portee.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-foreground mb-1">Portée</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {briefing.portee.map(d => (
+                            <span key={d} className="badge outline text-[10px]">{d}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {briefing.equipe.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-foreground mb-1">Équipe</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {briefing.equipe.map((n, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-role-primary-soft text-[10px] font-medium text-foreground">
+                              <Users className="w-3 h-3 text-role-primary" /> {n}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {briefing.points_attention.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-warning mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Points d&apos;attention</p>
+                      <ul className="space-y-1">
+                        {briefing.points_attention.map((p, i) => (
+                          <li key={i} className="text-xs text-foreground flex items-start gap-1.5"><AlertCircle className="w-3 h-3 text-warning mt-0.5 shrink-0" /> {p}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {briefing.preuves_a_verifier.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-foreground mb-1">Preuves à vérifier</p>
+                      <ul className="space-y-1">
+                        {briefing.preuves_a_verifier.map((p, i) => (
+                          <li key={i} className="text-xs text-foreground flex items-start gap-1.5"><CheckCircle2 className="w-3 h-3 text-success mt-0.5 shrink-0" /> {p}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {briefing.recommandations.length > 0 && (
+                    <div className="border-t border-border pt-2">
+                      <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1"><Sparkles className="w-3 h-3 text-role-primary" /> Recommandations IA</p>
+                      <ul className="space-y-1">
+                        {briefing.recommandations.map((r, i) => (
+                          <li key={i} className="text-xs text-foreground flex items-start gap-1.5"><FileText className="w-3 h-3 text-role-primary mt-0.5 shrink-0" /> {r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {briefing.synthese && (
+                    <div className="border-t border-border pt-2">
+                      <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1"><Sparkles className="w-3 h-3 text-role-primary" /> Synthèse AERORISQ</p>
+                      <p className="text-xs text-foreground leading-relaxed">{briefing.synthese}</p>
+                    </div>
+                  )}
+                  {briefing.contexte_profil && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 border-t border-border pt-2">
+                      <div>
+                        <p className="text-muted-foreground text-[10px]">Score global</p>
+                        <p className="font-semibold text-foreground text-sm">{briefing.contexte_profil.score_global}/100</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-[10px]">Niveau</p>
+                        <p className="font-medium text-foreground text-sm capitalize">{briefing.contexte_profil.niveau || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-[10px]">Tendance</p>
+                        <p className="font-medium text-foreground text-sm capitalize">{briefing.contexte_profil.tendance || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-[10px]">C1-C5</p>
+                        <p className="font-medium text-foreground text-sm">{briefing.contexte_profil.c1}/{briefing.contexte_profil.c2}/{briefing.contexte_profil.c3}/{briefing.contexte_profil.c4}/{briefing.contexte_profil.c5}</p>
+                      </div>
+                    </div>
+                  )}
+                  {briefing.contexte_historique && briefing.contexte_historique.length > 0 && (
+                    <div className="border-t border-border pt-2">
+                      <p className="text-xs font-semibold text-foreground mb-1">Historique des surveillances passées</p>
+                      <div className="space-y-1">
+                        {briefing.contexte_historique.map((s, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs gap-2">
+                            <span className="text-foreground capitalize">{s.type.replace(/_/g, ' ')}</span>
+                            <span className="text-muted-foreground">{s.date ? new Date(s.date).toLocaleDateString('fr-FR') : '—'} • {s.statut}{s.score_global != null ? ` • ${s.score_global}/100` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {briefing.contexte_ecarts && briefing.contexte_ecarts.length > 0 && (
+                    <div className="border-t border-border pt-2">
+                      <p className="text-xs font-semibold text-warning mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Écarts actifs & PAC ({briefing.contexte_ecarts.length})</p>
+                      <div className="space-y-1">
+                        {briefing.contexte_ecarts.map((e, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs gap-2">
+                            <span className="text-foreground">[{e.niveau_risque}] {e.reference || e.libelle}</span>
+                            <span className="text-muted-foreground">{e.libelle}{e.pac ? ' • PAC' : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {briefing.contexte_evenements && briefing.contexte_evenements.length > 0 && (
+                    <div className="border-t border-border pt-2">
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">Événements de sécurité récents</p>
+                      <div className="space-y-1">
+                        {briefing.contexte_evenements.map((ev, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs gap-2">
+                            <span className="text-foreground capitalize">{ev.type.replace(/_/g, ' ')}</span>
+                            <span className="text-muted-foreground">{ev.date ? new Date(ev.date).toLocaleDateString('fr-FR') : '—'} • {ev.gravite}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end pt-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => briefing && exporterFicheBriefing({
+                        fiche: briefing,
+                        planning: {
+                          date_debut: planning.date_debut,
+                          date_fin: planning.date_fin,
+                          annee_cible: planning.annee_cible,
+                          priorite: planning.priorite,
+                          statut: planning.statut,
+                          declencheur: planning.declencheur,
+                        },
+                        aerodrome: aerodrome ? { code_oaci: aerodrome.code_oaci, nom: aerodrome.nom } : undefined,
+                        redacteur: user ? `${user.prenom} ${user.nom}`.trim() : undefined,
+                      })}
+                      className="btn btn-sm btn-secondary gap-1.5"
+                      title="Télécharger la fiche de briefing (PDF)"
+                    >
+                      <Download className="w-3 h-3" /> Télécharger PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setBriefingLoading(true);
+                        try {
+                          const fiche = await kitDocAgent.genererFicheBriefing({ planningId, aerodromeId: aerodrome?.id || planning.aerodrome_id });
+                          setBriefing(fiche);
+                          await updatePlanning(planningId, { briefing_fiche: fiche });
+                        } catch { /* silencieux */ }
+                        finally { setBriefingLoading(false); }
+                      }}
+                      className="btn btn-sm btn-secondary gap-1.5"
+                      disabled={briefingLoading}
+                    >
+                      <Brain className="w-3 h-3" /> Régénérer
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="py-4 text-center text-sm text-muted-foreground space-y-2">
+                  <FileText className="w-8 h-8 mx-auto opacity-30" />
+                  <p>Aucune fiche de briefing générée pour cette mission.</p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setBriefingLoading(true);
+                      try {
+                        const fiche = await kitDocAgent.genererFicheBriefing({ planningId, aerodromeId: aerodrome?.id || planning.aerodrome_id });
+                        setBriefing(fiche);
+                        await updatePlanning(planningId, { briefing_fiche: fiche });
+                      } catch { /* silencieux */ }
+                      finally { setBriefingLoading(false); }
+                    }}
+                    className="btn btn-sm btn-primary gap-1.5 mx-auto"
+                    disabled={briefingLoading}
+                  >
+                    <Sparkles className="w-3 h-3" /> Générer la fiche de briefing
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Contenu par type ── */}

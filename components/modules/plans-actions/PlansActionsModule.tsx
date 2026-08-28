@@ -34,7 +34,6 @@ import { EvaluationPreuvesModal } from './EvaluationPreuvesModal'
 import { HistoriqueEcartModal } from './HistoriqueEcartModal'
 import { SoumissionPACModal } from './SoumissionPACModal'
 import { ValidationChefModal } from './ValidationChefModal'
-import { ArchiveEcarts } from './ArchiveEcarts'
 import { computeHawkesContagion, computeProactiveAlert, getRiskLevelFromCell, getRiskLevelClass } from '@/lib/risque'
 import { TYPES_SURVEILLANCE, getTypeSurveillanceLabel, DOMAINES_SURVEILLANCE, getDomaineLabel, DomaineCode, grouperParDomaine, DomaineItems } from '@/lib/domaines'
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent'
@@ -1129,7 +1128,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               {sug.niveau_risque && (
                 <div className="form-field">
                   <label className="filter-label">Niveau de risque suggéré</label>
-                    <span className={getRiskLevelClass(sug.niveau_risque)}>
+                    <span className={`badge ${getRiskLevelClass(sug.niveau_risque)}`}>
                     {sug.niveau_risque}
                   </span>
                 </div>

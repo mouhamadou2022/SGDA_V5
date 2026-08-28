@@ -164,6 +164,7 @@ export function AppNav({ userRole, activeModule, onModuleChange }: AppNavProps) 
     { id: 'audit', label: 'Journal Audit', icon: FileSearch, roles: ['admin'] },
     { id: 'codes', label: "Codes d'Accès", icon: Key, roles: ['admin'] },
     { id: 'ml-monitoring', label: 'ML Monitoring', icon: Activity, roles: ['admin', 'inspector'] },
+    { id: 'agents', label: 'Agents IA', icon: Brain, roles: ['admin', 'inspector', 'dg_anacim'] },
     // ── Portail exploitant ──
     { id: 'operator-situation-securite', label: 'Situation Sécurité', icon: Flame, roles: ['dg_operator'], badge: nbEcartsCritiques, badgeVariant: 'danger' },
     { id: 'operator-conformite-echeances', label: 'Conformité & Échéances', icon: CalendarDays, roles: ['dg_operator'] },

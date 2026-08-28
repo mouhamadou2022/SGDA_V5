@@ -12,6 +12,7 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import type { Aerodrome } from '@/lib/store';
 import { LettreTransmissionUpload } from '@/components/ui/LettreTransmissionUpload';
+import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 
 interface SurveillanceLettreProps {
   surveillanceId: string;
@@ -33,6 +34,7 @@ export default function SurveillanceLettre({
   const addNotification = useAppStore(s => s.addNotification);
   const user = useOptimizedStore(s => s.user);
   const utilisateurs = useOptimizedStore(s => s.utilisateurs);
+  const plannings = useAppStore(s => s.plannings);
   const surveillance = surveillances.find(s => s.id === surveillanceId);
 
   const [lettreFileName, setLettreFileName] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export default function SurveillanceLettre({
       lettre_signee_url: url,
       statut: 'lettre_signee',
     });
-    const inspecteurs = utilisateurs.filter(u => surveillance?.equipe_ids?.includes(u.id));
+    const inspecteurs = utilisateurs.filter(u => getSurveillanceEquipeIds(surveillance, plannings).includes(u.id));
     inspecteurs.forEach(inspecteur => {
       addNotification({
         user_id: inspecteur.id,

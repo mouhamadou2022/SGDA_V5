@@ -9,7 +9,7 @@
 // seul appel IA réel.
 
 import { useState, useEffect } from 'react'
-import { ProfilRisque, EvenementSecurite } from '@/lib/store'
+import { ProfilRisque, EvenementSecurite, Ecart } from '@/lib/store'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { expliquerSituationExploitant, fallbackExploitant } from '@/lib/ia/exploitantIA'
 import { LangageClairFeedback } from '@/components/modules/profil-risque/LangageClairFeedback'
@@ -20,7 +20,7 @@ interface Props {
   profil: ProfilRisque
   aerodromeCode: string
   aerodromeName: string
-  ecartsActifs: any[]
+  ecartsActifs: Ecart[]
   evenements?: EvenementSecurite[]
   section: CarteLangageClairSection
   label?: string

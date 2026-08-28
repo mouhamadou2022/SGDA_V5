@@ -18,7 +18,10 @@ const cardVariants = cva(
         danger: "border-l-danger",
         warning: "border-l-warning",
         primary: "border-l-primary",
+        teal: "border-l-teal",
         success: "border-l-success",
+        moyen: "border-l-moyen",
+        eleve: "border-l-eleve",
         none: "",
       },
       alertBg: {
@@ -60,7 +63,10 @@ const TITLE_COLORS: Record<string, string> = {
   danger: "text-danger",
   warning: "text-warning",
   primary: "text-primary",
+  teal: "text-teal",
   success: "text-success",
+  moyen: "text-moyen",
+  eleve: "text-eleve",
 }
 
 const SHADOW = "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)"
