@@ -165,12 +165,14 @@ async function getServiceKeys(service: string): Promise<KeyEntry[]> {
 // --- Context-aware routing helpers ---
 function estimateInputTokens(messages: Array<{ role: string; content: string }>): number {
   const totalChars = messages.reduce((sum, m) => sum + (m.content?.length ?? 0) + m.role.length, 0)
-  return Math.ceil(totalChars / 4)
+  // chars/3 est plus prudent que /4 pour le français (accents, ponctuation, RAG),
+  // évite de sous-estimer la vraie limite et les erreurs 413 malgré le contrôle.
+  return Math.ceil(totalChars / 3)
 }
 
 function getProviderMaxInput(providerName: string): number {
   if (providerName.startsWith('aerorisq')) return 60000
-  if (providerName.startsWith('groq_fallback')) return 7000
+  if (providerName.startsWith('groq_fallback')) return 5000
   if (providerName.startsWith('groq')) return 60000
   if (providerName.startsWith('cloudflare')) return 20000
   if (providerName.startsWith('mistral')) return 30000
@@ -311,7 +313,15 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
         provider.name.startsWith('aerorisq') && isLocalUrl(AERORISQ_URL)
       )
       // Inférence locale : 120 s — le premier appel charge le modèle en mémoire (lent), les suivants sont rapides.
-      const providerTimeout = setTimeout(() => controller.abort(), isLocal ? 120000 : 60000)
+      // MAIS plafonné par le budget global restant : un provider local ne doit jamais
+      // dépasser à lui seul le budget qui encadre TOUTE la chaîne de fallback (sinon
+      // GLOBAL_BUDGET_MS serait purement décoratif et les providers suivants n'auraient
+      // jamais leur chance).
+      const callElapsed = Date.now() - budgetDebut
+      const remainingBudget = GLOBAL_BUDGET_MS - callElapsed
+      const cap = isLocal ? 120000 : 60000
+      const providerTimeoutMs = Math.max(1000, Math.min(cap, remainingBudget))
+      const providerTimeout = setTimeout(() => controller.abort(), providerTimeoutMs)
       const res = await provider.call(provider.key, provider.model, request, controller.signal)
       clearTimeout(providerTimeout)
       if (res.status === 429) { errors.push(`${provider.name}: quota dépassé (429)`); continue }
