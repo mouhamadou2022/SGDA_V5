@@ -7723,7 +7723,16 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const items = itemsPersistes.length > 0
           ? itemsPersistes
           : (get().checklistItems?.[surveillanceId] || [])
-        return items.filter(i => i.resultat === 'NS' || i.resultat === 'NV')
+        // Déduplication par id : les templates importés avant normalizeChecklistIds
+        // peuvent contenir des items en double (même id) → éviter les clés React
+        // dupliquées et les écarts générés deux fois à partir du même item.
+        const seen = new Set<string>()
+        return items.filter(i => {
+          if (i.resultat !== 'NS' && i.resultat !== 'NV') return false
+          if (seen.has(i.id)) return false
+          seen.add(i.id)
+          return true
+        })
       }, 
       
       getItemsNSNVFromHierarchy: (surveillanceId) => {
@@ -7733,40 +7742,29 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const hierarchyMap = get().checklistHierarchy?.[surveillanceId] || []
         const hierarchy = hierarchyMap.length > 0 ? hierarchyMap : (surv?.checklist_hierarchy || [])
         const itemsNSNV: (ChecklistItem & { domaine: string; sousDomaine: string; sousSousDomaine: string })[] = []
+        // Les templates importés avant la correction normalizeChecklistIds peuvent
+        // contenir des items en double (même id/référence). On déduplique par id pour
+        // garantir des clés React uniques et ne pas générer deux fois le même écart.
+        const seenIds = new Set<string>()
+        const pushUnique = (item: ChecklistItem, domaine: string, sousDomaine: string, sousSousDomaine: string) => {
+          if (item.resultat !== 'NS' && item.resultat !== 'NV') return
+          if (seenIds.has(item.id)) return
+          seenIds.add(item.id)
+          itemsNSNV.push({ ...item, domaine, sousDomaine, sousSousDomaine })
+        }
         
         const parcourir = (domaines: DomaineChecklist[]) => {
           for (const domaine of domaines) {
             for (const item of (domaine.items || [])) {
-              if (item.resultat === 'NS' || item.resultat === 'NV') {
-                itemsNSNV.push({
-                  ...item,
-                  domaine: domaine.nom,
-                  sousDomaine: '',
-                  sousSousDomaine: '',
-                })
-              }
+              pushUnique(item, domaine.nom, '', '')
             }
             for (const sousDomaine of domaine.sousDomaines) {
               for (const item of (sousDomaine.items || [])) {
-                if (item.resultat === 'NS' || item.resultat === 'NV') {
-                  itemsNSNV.push({
-                    ...item,
-                    domaine: domaine.nom,
-                    sousDomaine: sousDomaine.nom,
-                    sousSousDomaine: '',
-                  })
-                }
+                pushUnique(item, domaine.nom, sousDomaine.nom, '')
               }
               for (const sousSousDomaine of sousDomaine.sousSousDomaines) {
                 for (const item of sousSousDomaine.items) {
-                  if (item.resultat === 'NS' || item.resultat === 'NV') {
-                    itemsNSNV.push({
-                      ...item,
-                      domaine: domaine.nom,
-                      sousDomaine: sousDomaine.nom,
-                      sousSousDomaine: sousSousDomaine.nom,
-                    })
-                  }
+                  pushUnique(item, domaine.nom, sousDomaine.nom, sousSousDomaine.nom)
                 }
               }
             }
