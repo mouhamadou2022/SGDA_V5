@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store';
 import { upsertEcartsRedaction, fetchEcartsRedactionBySurveillance } from '@/lib/datastore';
 import { canEditSurveillanceContent } from '@/lib/config';
@@ -97,10 +98,19 @@ export default function EcartsPage() {
 
   const setEcartsRedaction = useAppStore(s => s.setEcartsRedaction);
   const allEcartsRedaction = useAppStore(s => s.ecartsRedaction);
+  const addNotification = useAppStore(s => s.addNotification);
 
-  const surveillanceEcarts = useMemo<EcartRedaction[]>(() =>
-    getEcartsBySurveillance(surveillanceId).filter(e => (e as any).domaine !== 'SGS'),
-    [surveillanceId, getEcartsBySurveillance, allEcartsRedaction]
+  /**
+   * Écarts standard déjà saisis pour cette surveillance.
+   * Sélecteur ciblé (useShallow) : la référence ne change que si les écarts DE CETTE
+   * surveillance changent — pas quand un écart est modifié ailleurs dans l'app
+   * (évite de redéclencher l'effet de synchronisation de l'enfant à chaque fois).
+   */
+  const surveillanceEcarts = useAppStore(
+    useShallow(state =>
+      (state.ecartsRedaction || [])
+        .filter(e => e.surveillance_id === surveillanceId && (e as any).domaine !== 'SGS') as unknown as EcartRedaction[]
+    )
   );
 
   const handleSaveEcarts = (ecarts: EcartRedaction[]) => {
@@ -114,10 +124,19 @@ export default function EcartsPage() {
     }));
     // Mise à jour store (instantanée)
     setEcartsRedaction([...otherEcarts, ...enrichedEcarts]);
-    // Persistance Supabase — en arrière-plan pour survivre aux rechargements de page
-    upsertEcartsRedaction(enrichedEcarts).catch(err =>
-      console.error('[EcartsPage] upsertEcartsRedaction failed:', err)
-    );
+    // Persistance Supabase — en arrière-plan pour survivre aux rechargements de page.
+    // Échec remonté à l'utilisateur : le store local a déjà l'écart, mais sans
+    // sauvegarde serveur il serait perdu au prochain rechargement / changement de page.
+    upsertEcartsRedaction(enrichedEcarts).catch(err => {
+      console.error('[EcartsPage] upsertEcartsRedaction failed:', err);
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Échec de sauvegarde des écarts',
+        message: 'Les écarts sont conservés localement mais n\'ont pas été enregistrés sur le serveur. Merci de réessayer avant de quitter la page.',
+        canal: 'in_app',
+      });
+    });
   };
 
   // Recharger les écarts rédigés depuis Supabase au chargement de la page
