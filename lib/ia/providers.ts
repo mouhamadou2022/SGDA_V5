@@ -172,7 +172,7 @@ function estimateInputTokens(messages: Array<{ role: string; content: string }>)
 
 function getProviderMaxInput(providerName: string): number {
   if (providerName.startsWith('aerorisq')) return 60000
-  if (providerName.startsWith('groq_fallback')) return 5000
+  if (providerName.startsWith('groq_fallback')) return 4000
   if (providerName.startsWith('groq')) return 60000
   if (providerName.startsWith('cloudflare')) return 20000
   if (providerName.startsWith('mistral')) return 30000
