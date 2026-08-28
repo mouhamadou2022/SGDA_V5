@@ -1,5 +1,29 @@
 # CHANGELOG - SGDA V5
 
+## [Stabilisation] - Correctifs runtime & fallback IA - 2026-08-28
+
+### Rédaction d'écarts — robustesse
+- **Dédup NS/NV** (`lib/store.ts`) : `getItemsNSNVFromHierarchy` / `getItemsNSNV` dédupliquent par `item.id`. Corrige les clés React dupliquées (ex. items `QSC_CONTINUE_QSC80/81` présents en double dans des templates importés avant `normalizeChecklistIds`) — évite aussi de générer deux fois le même écart.
+- **Échec de sauvegarde visible** : les pages écarts standard et SGS remontent l'échec de `upsertEcartsRedaction` à l'utilisateur via `addNotification` (au lieu d'un `console.error` silencieux). Le store local garde l'écart, mais l'inspecteur est prévenu de réessayer avant de quitter.
+- **Sélection ciblée par surveillance** (`useShallow`) : `ecartsExistants` n'est plus dérivé de tout le store ; sa référence ne change que si les écarts de CETTE surveillance changent. Stoppe les redéclenchements intempestifs de l'effet de synchronisation de l'enfant.
+
+### Fallback IA / providers (`lib/ia/providers.ts`)
+- **Timeout provider plafonné par le budget global restant** : un provider local ne peut plus consommer à lui seul les 30 s de `GLOBAL_BUDGET_MS` ; Ollama (fin de chaîne) redevient atteignable.
+- **Ollama redondant sauté** quand `AERORISQ_API_URL` pointe vers le même serveur que Ollama (`sameOrigin`) — évite 3 tentatives vers la même machine locale (aerorisq_0 + ollama + ollama_fallback).
+- **Estimation tokens `/3`** au lieu de `/4` (prudent pour le français/RAG) ; **`groq_fallback` 7000 → 4000** pour limiter les 413 sur gros prompts.
+
+### Session / couleurs disparues en accès direct
+- **Nouveau `SessionBootstrap`** (monté dans `GlobalOptimizer`, donc sur toutes les pages) : restaure le user depuis `localStorage('sgda_user')` (n'était restauré que sur l'accueil) et pose `data-role` sur `<body>` après chaque rendu. Corrige la disparition des couleurs/fonds liés au rôle lors d'un hard-refresh direct (Ctrl+Shift+R) vers une page, sans passer par l'accueil.
+
+---
+
+### Idée en réserve — optimisation Ollama (post-stabilisation, NON déployée)
+- **Warm-up / preload** : maintenir `mistral` chargé en mémoire (`ollama keep_alive` ou ping à faible coût) pour éliminer le chargement à froid (10-30 s au premier appel) — les réponses locales deviennent alors systématiquement rapides.
+- **Tâches en arrière-plan** : génération de rapports, simulations, retraining ML pourraient être préparés par Ollama pendant l'inactivité (aucun coût API, serveur local).
+- **Réserve** : uniquement valable en local/dev (pas en déploiement Vercel, sans Ollama). Ne pas lancer pendant la phase de stabilisation des 4 workflows.
+
+---
+
 ## [S16] - Enrichissement modules métier (Dossiers, Planning, Surveillance, Écarts & PAC, Agents IA) - 2026-08-16
 
 ### 🤖 Module Agents IA — Copilote conversationnel libre
