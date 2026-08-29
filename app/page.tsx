@@ -19,6 +19,7 @@ import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances,
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
+import { dedupeHierarchyItems } from '@/lib/checklistNormalize'
 import { AppShell } from '@/components/layout/AppShell'
 import AdminPortal from '@/components/modules/admin/AdminPortal'
 import AerorisqDNAState from '@/components/modules/admin/AerorisqDNAState'
@@ -1117,8 +1118,13 @@ export default function Page() {
           const itemsFromDb: Record<string, ChecklistItem[]> = {}
           for (const sv of (data.surveillances || []) as Surveillance[]) {
             if (Array.isArray(sv.checklist_hierarchy) && sv.checklist_hierarchy.length > 0) {
-              hierarchyFromDb[sv.id] = sv.checklist_hierarchy
-              itemsFromDb[sv.id] = flattenHierarchyItems(sv.checklist_hierarchy)
+              // Normalisation à l'hydratation : les hiérarchies legacy peuvent
+              // contenir des items au même id en double (artefact d'import de
+              // template) → on déduplique avant de les injecter dans le store
+              // pour corriger clés React et comptage (NS/NV, écarts traités).
+              const normalized = dedupeHierarchyItems(sv.checklist_hierarchy as any)
+              hierarchyFromDb[sv.id] = (normalized as any) ?? sv.checklist_hierarchy
+              itemsFromDb[sv.id] = flattenHierarchyItems(hierarchyFromDb[sv.id])
             }
           }
           useAppStore.setState({

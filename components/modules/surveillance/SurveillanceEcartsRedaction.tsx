@@ -931,9 +931,16 @@ export default function SurveillanceEcartsRedaction({
     }
   }, [ecartsExistants]);
 
-  // Calcul des items restants (non encore traités)
+  // Calcul des items restants (non encore traités).
+  // Déduplication par item id : un item référencé par plusieurs écarts (ou en
+  // double via des templates dédoublés) ne doit compter qu'une seule fois, sinon
+  // le compteur "items traités" dépasse le nombre d'items NS/NV détectés.
   const processedItemIds = useMemo(() => {
-    return ecarts.flatMap(e => e.item_ids);
+    const seen = new Set<string>();
+    for (const e of ecarts) {
+      for (const id of e.item_ids || []) seen.add(id);
+    }
+    return Array.from(seen);
   }, [ecarts]);
 
   // Grouper les items par domaine pour l'affichage
@@ -2090,7 +2097,7 @@ export default function SurveillanceEcartsRedaction({
       {!readOnly && (
       <Card
         icon={<FileText className="w-4 h-4 text-role-primary" />}
-        title={`Écarts rédigés (${ecarts.length})`}
+        title={`Écarts rédigés (${ecarts.length} fiches · ${stats.traites}/${stats.total} items couverts)`}
         badge={stats.restants === 0 && ecarts.length > 0 && !readOnly ? (
           <button onClick={handleSigner} className="btn btn-success btn-sm gap-2">
             <Send className="w-4 h-4" />

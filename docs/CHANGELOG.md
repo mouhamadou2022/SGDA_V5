@@ -2,6 +2,13 @@
 
 ## [Stabilisation] - Correctifs runtime & fallback IA - 2026-08-28
 
+### Écarts — incohérence de comptage &ids dupliqués - 2026-08-29
+- **Cause racine : ids d'items dupliqués dans la hiérarchie** (même `id` dans plusieurs domaines, ex. `QSC_CONTINUE_QSC51/78/79/80/81`) → correctif définitif par dédup profonde par `id` qui **ne renomme pas** (les `item_ids` des écarts restent valides). Nouvel utilitaire `lib/checklistNormalize.ts` (`dedupeHierarchyItems`), branché sur le setter `setChecklistHierarchy` (`lib/store.ts`, point d'entrée unique) et sur l'hydratation (`app/page.tsx`). Base de la surveillance de test nettoyée.
+- **Comptage d'items cohérent** : `processedItemIds` (`SurveillanceEcartsRedaction.tsx`) et `itemsRedigesCount` (`app/surveillance/[id]/ecarts/page.tsx`) dédupliqués par Set et bornés aux ids détectés (31 items traités / 6 restants).
+- **Étiquette claire** : la Card « Écarts rédigés » distingue fiches et items (`N fiches · X/Y items couverts`), seule laisser-passer du « 36+6=42 » trompeur.
+- **Références des questions combinées** déjà affichées (bloc « Questions associées ») — rien à corriger.
+- **Contexte reviewer** : `docs/REVIEWER.md` (diagnostic, correctifs, audit écart×items, candidats doublons en lecture seule).
+
 ### Rédaction d'écarts — robustesse
 - **Dédup NS/NV** (`lib/store.ts`) : `getItemsNSNVFromHierarchy` / `getItemsNSNV` dédupliquent par `item.id`. Corrige les clés React dupliquées (ex. items `QSC_CONTINUE_QSC80/81` présents en double dans des templates importés avant `normalizeChecklistIds`) — évite aussi de générer deux fois le même écart.
 - **Échec de sauvegarde visible** : les pages écarts standard et SGS remontent l'échec de `upsertEcartsRedaction` à l'utilisateur via `addNotification` (au lieu d'un `console.error` silencieux). Le store local garde l'écart, mais l'inspecteur est prévenu de réessayer avant de quitter.

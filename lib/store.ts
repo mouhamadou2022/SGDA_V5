@@ -28,6 +28,7 @@ import type { SuggestionDetaillee } from './checklistMemory';
 import type { NiveauRisque, ScoreHistoryPoint } from './risque/types';
 import type { AmdecAnalyse } from './risque/amdecEngine';
 import type { ArbreFTA, NoeudFTA } from './risque/ftaEngine';
+import { dedupeHierarchyItems } from './checklistNormalize';
 // Ré-exporter ScoreHistoryPoint depuis risque/types.ts (type canonique unique)
 // pour les modules qui importent depuis '@/lib/store' sans changer leurs imports.
 export type { ScoreHistoryPoint } from './risque/types';
@@ -7690,9 +7691,16 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       checklistItems: {},
       checklistHierarchy: {},
 
-      setChecklistHierarchy: (surveillanceId, hierarchy) => set((state) => ({
-        checklistHierarchy: { ...state.checklistHierarchy, [surveillanceId]: hierarchy }
-      })),
+      setChecklistHierarchy: (surveillanceId, hierarchy) => {
+        // Normalisation au point de convergence unique : toute hiérarchie qui
+        // entre dans le store est dédupliquée par item id. Évite les clés React
+        // dupliquées et les incohérences de comptage (items NS/NV, écarts traités)
+        // causées par des templates importés avec le même id en plusieurs endroits.
+        const normalized = dedupeHierarchyItems(hierarchy)
+        set((state) => ({
+          checklistHierarchy: { ...state.checklistHierarchy, [surveillanceId]: normalized ?? [] }
+        }))
+      },
 
       setChecklistItems: (surveillanceId, items) => set((state) => ({
         checklistItems: { ...state.checklistItems, [surveillanceId]: items }

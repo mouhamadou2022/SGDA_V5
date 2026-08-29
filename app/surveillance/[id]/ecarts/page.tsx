@@ -207,9 +207,13 @@ export default function EcartsPage() {
   }, [checklistItemsComplets]);
 
   const itemsRedigesCount = useMemo(() => {
+    const idsDetectes = new Set(itemsNSNV.map(i => i.id));
     const processed = new Set(surveillanceEcarts.flatMap(e => e.item_ids));
-    return processed.size;
-  }, [surveillanceEcarts]);
+    // Ne compter que les items réellement détectés (NS/NV) et dédupliqués.
+    // Un item_ids référencé par un écart mais absent des items détectés (résultat
+    // modifié, ancienne version, doublon) ne doit pas gonfler le compteur.
+    return Array.from(processed).filter(id => idsDetectes.has(id)).length;
+  }, [surveillanceEcarts, itemsNSNV]);
   const itemsRestants = itemsNSNV.length - itemsRedigesCount;
   const progression = itemsNSNV.length > 0 ? Math.round((itemsRedigesCount / itemsNSNV.length) * 100) : 100;
 
