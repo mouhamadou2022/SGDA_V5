@@ -28,6 +28,13 @@
   - `qwen` : JSON parse 6/6 MAIS `libelle` en **array** sur les écarts multi-items (4/6 strings) + 241 s/écart (2,3× mistral) + crash. Échec éliminatoire (schéma + latence).
 - **Garde défensive `libelle` (`lib/ia/agents/ecartAgent.ts`)** : le `JSON.parse` ne vérifie que la syntaxe, pas la forme. Normalisation après le parse (`Array.isArray(libelle) ? libelle.join(' ') : String(libelle)`) pour ne jamais casser l'UI avec un array/objet. Strictement défensif, aucun changement pour le cas actuel (mistral produit des strings). Découle directement du test qwen (résurgirait aussi bien avec mistral sur un cas limite / changement de version). Typecheck OK.
 
+### Écarts multi-items sur Ollama CPU - 2026-08-30
+- **Symptôme** : en sélectionnant 2+ questions, l'IA s'arrête avec `[ALL_PROVIDERS_FAILED]` : `groq_0` 429 (quota), `groq_fallback_0` 413 (prompt trop long > fenêtre 4000 tokens d'entrée), et `aerorisq_0: This operation was aborted`.
+- **Cause racine** : `LOCAL_BUDGET_MS=30s` était trop court pour un écart multi-items servi en inférence locale Ollama/mistral sur CPU — chargement à froid ~16s + génération JSON watch-dog (avis + nb_ecarts + libellé long) ~60-100s → le budget coupait Ollama avant la fin.
+- **Correctif (`lib/ia/providers.ts`)** : budgets désormais **env-surchargeables** (`NEXT_PUBLIC_CLOUD_BUDGET_MS` / `NEXT_PUBLIC_LOCAL_BUDGET_MS`) et `LOCAL_BUDGET_MS` relevé par défaut **30s → 120s**. Sans impact production : Ollama n'existe qu'en local (aucun provider local sur Vercel) et la génération d'écarts passe par `/api/ia/analyze` (`maxDuration = 300`), pas `/api/ia/generate` (60s) — donc le serveur tolère largement 120s. `CLOUD_BUDGET_MS` reste 20s (pas le goulot ici).
+- **Timeout navigateur aligné (`lib/ia/aiClient.ts`)** : `NEXT_PUBLIC_IA_TIMEOUT_MS` par défaut **90s → 180s** pour ne jamais couper le navigateur avant la fin d'une réponse locale légitime (avec marge sur le budget serveur cloud 20s + local 120s = 140s). Surchargeable via env.
+- Le 413 de `groq_fallback` (fenêtre d'entrée 4000 tokens) reste un point de robustesse à traiter séparément si un jour on veut que le cloud gère les écarts multi-items sans Ollama ; ici le fallback local prend le relais.
+
 ### Session / couleurs disparues en accès direct
 - **Nouveau `SessionBootstrap`** (monté dans `GlobalOptimizer`, donc sur toutes les pages) : restaure le user depuis `localStorage('sgda_user')` (n'était restauré que sur l'accueil) et pose `data-role` sur `<body>` après chaque rendu. Corrige la disparition des couleurs/fonds liés au rôle lors d'un hard-refresh direct (Ctrl+Shift+R) vers une page, sans passer par l'accueil.
 

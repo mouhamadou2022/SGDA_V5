@@ -203,13 +203,25 @@ function getProviderMaxInput(providerName: string): number {
 // Pire cas total ≈ CLOUD_BUDGET_MS + LOCAL_BUDGET_MS, à garder SOUS le
 // maxDuration le plus bas des routes IA concernées (60s actuellement sur
 // Hobby / generate) pour que la plateforme ne coupe jamais brutalement avant
-// un échec propre. Tant que le plan Vercel n'est pas confirmé (Hobby=60s max,
-// Pro=300s), on reste borné sous 60s : 20s cloud + 30s local = 50s. Une fois
-// le plan Pro confirmé et les maxDuration relevés, LOCAL_BUDGET_MS pourra
-// monter à 45s (voir CHANGELOG) pour mieux couvrir les chargements à froid
-// CPU lents.
-export const CLOUD_BUDGET_MS = 20000
-export const LOCAL_BUDGET_MS = 30000
+// un échec propre.
+//
+// NOTE 2026-08-30 : la génération d'écarts passe par /api/ia/analyze
+// (maxDuration = 300), PAS par /api/ia/generate (60s). Le budget LOCAL est
+// donc libre d'être plus généreux côté serveur. Ollama n'existe qu'en local
+// (aucun provider local en production Vercel) : relever LOCAL_BUDGET_MS
+// n'affecte que le dev. Une correction a montré que 30s était trop court pour
+// un écart multi-items sur CPU (chargement à froid ~16s + génération JSON
+// watch-dog ~60-100s → aerorisq_0 aborted). On monte donc la valeur par
+// défaut à 120s, les deux budgets restent surchargeables par env pour être
+// fins sans toucher au code :
+//   NEXT_PUBLIC_CLOUD_BUDGET_MS / NEXT_PUBLIC_LOCAL_BUDGET_MS
+function envBudget(key: string, def: number): number {
+  const v = process.env[key]
+  const n = v ? Number(v) : NaN
+  return Number.isFinite(n) && n > 0 ? n : def
+}
+export const CLOUD_BUDGET_MS = envBudget('NEXT_PUBLIC_CLOUD_BUDGET_MS', 20000)
+export const LOCAL_BUDGET_MS = envBudget('NEXT_PUBLIC_LOCAL_BUDGET_MS', 120000)
 
 // Heuristique « provider local = lent » : un serveur local doit être dépriorisé
 // (mis en fin de chaîne) car son inférence CPU est lente. Détecte localhost,

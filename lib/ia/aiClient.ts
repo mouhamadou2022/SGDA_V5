@@ -88,12 +88,12 @@ class AIClientClass {
 
       // Délai navigateur aligné sur les timeouts serveur : AERORISQ peut être
       // servi en inférence locale (Ollama/mistral sur CPU) — chargement du
-      // modèle au premier appel + génération lente. La valeur par défaut borne
-      // l'attente côté navigateur sans laisser un spinner s'éterniser : le
-      // budget serveur de callWithFallback est de 30 s, on laisse une marge
-      // pour les réponses JSON « watch-dog » plus longues (avis + nb_ecarts).
-      // Surchargable via env.
-      const baseTimeout = Number(process.env.NEXT_PUBLIC_IA_TIMEOUT_MS) || 90000
+      // modèle au premier appel + génération lente, surtout sur les écarts
+      // multi-items (watch-dog : avis + nb_ecarts + libellé long). Le budget
+      // serveur de callWithFallback est cloud 20s + local 120s par défaut ; on
+      // laisse une marge au-delà pour ne jamais couper le navigateur avant la
+      // fin d'une réponse locale légitime. Surchargable via env.
+      const baseTimeout = Number(process.env.NEXT_PUBLIC_IA_TIMEOUT_MS) || 180000
       // Timeout explicite pour cet appel (ex. paliers de retry JSON) sinon dérivé de maxTokens.
       const timeout = options.timeoutMs
         ?? (options.maxTokens && options.maxTokens > 12000 ? baseTimeout * 2 : baseTimeout)
