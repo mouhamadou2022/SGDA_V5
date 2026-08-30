@@ -128,6 +128,22 @@ function formatDate(val: unknown): string | null {
   }
 }
 
+// Pas « actif » affiché par le stepper. Le statut étant « en cours », une étape
+// dont le livrable est déjà produit (ex : écarts signés → signatures_ecarts ou
+// sgs_ecarts_signes_le remplis) est considérée terminée : le pas actif devient
+// alors l'étape suivante.
+function getWorkflowCurrentIndex(surveillance: Surveillance): number {
+  const statutIndex = STATUT_ORDER[surveillance.statut] ?? 0;
+  if (
+    statutIndex === 3 &&
+    ((surveillance.signatures_ecarts?.length || 0) > 0 ||
+      !!surveillance.sgs_ecarts_signes_le)
+  ) {
+    return 4;
+  }
+  return statutIndex;
+}
+
 // ─── Sous-composant: un step ───────────────────────────────────────────────────
 
 interface StepItemProps {
@@ -210,7 +226,7 @@ function StepItem({ etape, state, isLast, date, onClick }: StepItemProps) {
 // ─── Composant principal ───────────────────────────────────────────────────────
 
 export function SurveillanceStepper({ surveillance, onEtapeClick }: SurveillanceStepperProps) {
-  const currentIndex = STATUT_ORDER[surveillance.statut] ?? 0;
+  const currentIndex = getWorkflowCurrentIndex(surveillance);
   const isTerminal = TERMINAL_STATUTS.includes(surveillance.statut)
   const progression = Math.round((currentIndex / (ETAPES.length - 1)) * 100);
 

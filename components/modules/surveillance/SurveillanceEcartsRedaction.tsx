@@ -9,6 +9,8 @@ import {
   PenLine,
   Trash2,
   Plus,
+  Minus,
+  Scissors,
   AlertTriangle,
   X,
   Save,
@@ -418,6 +420,8 @@ function IaSuggestionBanner({
   suggestion,
   onApply,
   onAdjustAndApply,
+  onApplySplit,
+  onApplyForceSingle,
   onIgnore,
   onRegenerate,
   isLoading,
@@ -427,6 +431,10 @@ function IaSuggestionBanner({
   suggestion: { libelle: string; niveau: string; ref_reglementaire: string; justification: string; confiance: number; cellule: string; probabilite: 1 | 2 | 3 | 4 | 5; gravite: 'A' | 'B' | 'C' | 'D' | 'E'; avis?: string; nbEcarts?: number; pourquoi?: string; intervalleConfiance?: { min: number; max: number } } | null;
   onApply: () => void;
   onAdjustAndApply: (probabilite: 1 | 2 | 3 | 4 | 5, gravite: 'A' | 'B' | 'C' | 'D' | 'E', libelle?: string) => void;
+  /** Applique explicitement le découpage en N écarts (1 par question). */
+  onApplySplit?: (nbEcarts: number) => void;
+  /** Refuse le découpage : valide un seul écart fusionné (désactive le découpage auto). */
+  onApplyForceSingle?: () => void;
   onIgnore: () => void;
   onRegenerate?: (instruction?: string) => void;
   isLoading: boolean;
@@ -439,6 +447,8 @@ function IaSuggestionBanner({
   const [regenMode, setRegenMode] = useState(false);
   const [regenInstruction, setRegenInstruction] = useState('');
   const [numeroMode, setNumeroMode] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitNb, setSplitNb] = useState(2);
   const [adjProb, setAdjProb] = useState<1 | 2 | 3 | 4 | 5>(suggestion?.probabilite ?? 3);
   const [adjGrav, setAdjGrav] = useState<'A' | 'B' | 'C' | 'D' | 'E'>(String(suggestion?.gravite ?? 'C') as 'A' | 'B' | 'C' | 'D' | 'E');
   const [adjLibelle, setAdjLibelle] = useState(suggestion?.libelle || '');
@@ -479,6 +489,8 @@ function IaSuggestionBanner({
     setAdjLibelle(suggestion.libelle);
     setAdjustMode(false);
     setRegenMode(false);
+    setSplitMode(false);
+    setSplitNb(suggestion.nbEcarts && suggestion.nbEcarts > 1 ? suggestion.nbEcarts : (selectedQuestions.length > 1 ? selectedQuestions.length : 2));
   }, [suggestion]);
 
   const adjCellule = `${Number(adjProb)}${String(adjGrav)}`;
@@ -602,6 +614,77 @@ function IaSuggestionBanner({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Découpage en N écarts : l'IA recommande de créer plusieurs écarts
+              (1 par question). Appliquer / Ajuster / Refuser la recommandation. */}
+          {onApplySplit && typeof suggestion.nbEcarts === 'number' && suggestion.nbEcarts > 1 && selectedQuestions.length > 1 && !adjustMode && !regenMode && (
+            <div className="text-xs bg-role-primary-soft rounded-lg p-2.5 border border-role-primary/30">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Scissors className="w-4 h-4 text-role-primary shrink-0" />
+                <span className="font-semibold text-foreground">
+                  L'IA recommande de créer <strong>{suggestion.nbEcarts} écarts</strong> (1 par question)
+                </span>
+              </div>
+
+              {!splitMode ? (
+                <div className="flex items-center gap-2 flex-wrap mt-2">
+                  <button
+                    onClick={() => onApplySplit(suggestion.nbEcarts!)}
+                    className="btn btn-sm px-3 py-1 btn-primary gap-1 whitespace-nowrap"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Appliquer le découpage
+                  </button>
+                  <button
+                    onClick={() => setSplitMode(true)}
+                    className="btn btn-sm px-3 py-1 btn-secondary gap-1 whitespace-nowrap"
+                  >
+                    Ajuster
+                  </button>
+                  <button
+                    onClick={() => (onApplyForceSingle ? onApplyForceSingle() : onApply())}
+                    className="btn btn-sm px-3 py-1 btn-secondary gap-1 whitespace-nowrap"
+                    title="Annuler le découpage et valider un seul écart fusionné"
+                  >
+                    Refuser le découpage
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <label className="text-xs font-medium text-foreground whitespace-nowrap">Nb d'écarts :</label>
+                  <label className="relative">
+                    <Minus
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground cursor-pointer"
+                      onClick={() => setSplitNb(n => Math.max(1, n - 1))}
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedQuestions.length}
+                      value={splitNb}
+                      onChange={e => setSplitNb(Math.max(1, Math.min(selectedQuestions.length, Number(e.target.value) || 1)))}
+                      className="input input-sm w-24 pl-7 text-sm"
+                    />
+                    <Plus
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground cursor-pointer"
+                      onClick={() => setSplitNb(n => Math.min(selectedQuestions.length, n + 1))}
+                    />
+                  </label>
+                  <button
+                    onClick={() => { onApplySplit(splitNb); }}
+                    className="btn btn-sm px-3 py-1 btn-primary gap-1 whitespace-nowrap"
+                    disabled={splitNb < 1}
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Appliquer ({splitNb})
+                  </button>
+                  <button onClick={() => setSplitMode(false)} className="btn btn-sm px-3 py-1 btn-secondary">
+                    Annuler
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1082,10 +1165,73 @@ export default function SurveillanceEcartsRedaction({
     );
   };
 
+  // ── Découpage watch-dog : construit un écart PAR question sélectionnée.
+  // Utilisé à la fois par le découpage automatique (libellé à puces) et par
+  // l'action explicite « Appliquer le découpage en N écarts » du bandeau.
+  const creerEcartsParQuestion = (
+    itemsSel: { id: string; item: QuestionNSNV }[],
+    libelles: string[],
+    opts: {
+      ref: string;
+      niveau: EcartRedaction['niveau'];
+      cellule?: string;
+      probabilite?: 1 | 2 | 3 | 4 | 5;
+      gravite?: 'A' | 'B' | 'C' | 'D' | 'E';
+      justification: string;
+      celluleIa: string;
+    },
+  ): EcartRedaction[] => {
+    const now = new Date().toISOString();
+    const domaineItems = itemsSel.map(x => x.item!.domaine).filter(Boolean);
+    const domaineDeduit = domaineItems[0] || '';
+    return itemsSel.map((x, k) => {
+      const newEcart: EcartRedaction = {
+        id: crypto.randomUUID(),
+        reference: getNouvelleReference(),
+        ref_reglementaire: opts.ref,
+        libelle: libelles[k] || x.item!.description || '',
+        niveau: opts.niveau,
+        item_ids: [x.id],
+        domaine: x.item!.domaine || domaineDeduit,
+        created_at: now,
+        updated_at: now,
+        cellule_risque_oaci: (x.item!.domaine === 'SGS') ? undefined : opts.cellule,
+        probabilite_risque: (x.item!.domaine === 'SGS') ? undefined : opts.probabilite,
+        gravite_risque: (x.item!.domaine === 'SGS') ? undefined : opts.gravite,
+        justification_risque_ia: opts.justification,
+        cellule_ia_suggeree: opts.celluleIa,
+        delai_pac: NIVEAUX.find(n => n.value === opts.niveau)?.delais.pac,
+        delai_regularisation: NIVEAUX.find(n => n.value === opts.niveau)?.delais.regularisation,
+      };
+      return newEcart;
+    });
+  };
+
+  // Enregistre les écarts créés + nettoie l'état de rédaction.
+  const commiterEcartsCrees = (created: EcartRedaction[], message: string) => {
+    const updated = [...ecarts, ...created];
+    setEcarts(updated);
+    onSave?.(updated);
+    addNotification({
+      user_id: user?.id || '',
+      type: 'success',
+      title: `${created.length} écarts créés`,
+      message,
+      canal: 'in_app',
+    });
+    setSelectedItems([]);
+    setFormEcart({ niveau: 'moyen' });
+    setEditingId(null);
+    setErrors({});
+    setIaSuggestion(null);
+    setShowIaSuggestion(true);
+  };
+
   const handleApplyIaSuggestion = (
     adjustedProbabilite?: 1 | 2 | 3 | 4 | 5,
     adjustedGravite?: 'A' | 'B' | 'C' | 'D' | 'E',
     adjustedLibelle?: string,
+    forceSingle = false,
   ) => {
     if (!iaSuggestion) return;
 
@@ -1102,17 +1248,15 @@ export default function SurveillanceEcartsRedaction({
 
     // ── DÉCOUPAGE WATCH-DOG : si l'IA recommande N écarts et que le libellé contient
     // plusieurs puces (1., 2., 3.), on crée un écart distinct PAR question sélectionnée.
+    // forceSingle (Refuser le découpage) désactive cette logique → 1 seul écart fusionné.
     const libelleFinal = adjustedLibelle ?? iaSuggestion.libelle;
     const libelleParts = decouperLibelleEnEcarts(libelleFinal);
-    const doitDecouper = libelleParts.length > 1 && selectedItems.length > 1 && (iaSuggestion.nbEcarts ?? 1) > 1;
+    const doitDecouper = !forceSingle && libelleParts.length > 1 && selectedItems.length > 1 && (iaSuggestion.nbEcarts ?? 1) > 1;
 
     if (doitDecouper) {
-      const now = new Date().toISOString();
       const itemsSel = selectedItems
         .map(id => ({ id, item: itemsNSNV.find(i => i.id === id) }))
-        .filter(x => x.item);
-      const domaineItems = itemsSel.map(x => x.item!.domaine).filter(Boolean);
-      const domaineDeduit = domaineItems[0] || '';
+        .filter((x): x is { id: string; item: QuestionNSNV } => Boolean(x.item));
       const libelles = libelleParts.length >= itemsSel.length
         ? itemsSel.map((_, k) => libelleParts[k % libelleParts.length])
         : (() => {
@@ -1124,44 +1268,16 @@ export default function SurveillanceEcartsRedaction({
             return out;
           })();
 
-      const created = itemsSel.map((x, k) => {
-        const newEcart: EcartRedaction = {
-          id: crypto.randomUUID(),
-          reference: getNouvelleReference(),
-          ref_reglementaire: iaSuggestion.ref_reglementaire || '',
-          libelle: libelles[k] || x.item!.description || '',
-          niveau: finalNiveau as EcartRedaction['niveau'],
-          item_ids: [x.id],
-          domaine: x.item!.domaine || domaineDeduit,
-          created_at: now,
-          updated_at: now,
-          cellule_risque_oaci: (x.item!.domaine === 'SGS') ? undefined : finalCellule,
-          probabilite_risque: (x.item!.domaine === 'SGS') ? undefined : finalProbabilite,
-          gravite_risque: (x.item!.domaine === 'SGS') ? undefined : finalGravite,
-          justification_risque_ia: iaSuggestion.justification,
-          cellule_ia_suggeree: iaSuggestion.cellule,
-          delai_pac: NIVEAUX.find(n => n.value === finalNiveau)?.delais.pac,
-          delai_regularisation: NIVEAUX.find(n => n.value === finalNiveau)?.delais.regularisation,
-        };
-        return newEcart;
+      const created = creerEcartsParQuestion(itemsSel, libelles, {
+        ref: iaSuggestion.ref_reglementaire || '',
+        niveau: finalNiveau as EcartRedaction['niveau'],
+        cellule: finalCellule,
+        probabilite: finalProbabilite,
+        gravite: finalGravite,
+        justification: iaSuggestion.justification,
+        celluleIa: iaSuggestion.cellule,
       });
-
-      const updated = [...ecarts, ...created];
-      setEcarts(updated);
-      onSave?.(updated);
-      addNotification({
-        user_id: user?.id || '',
-        type: 'success',
-        title: `${created.length} écarts créés`,
-        message: `Découpage watch-dog : 1 écart par question (${iaSuggestion.nbEcarts} recommandés)`,
-        canal: 'in_app',
-      });
-      setSelectedItems([]);
-      setFormEcart({ niveau: 'moyen' });
-      setEditingId(null);
-      setErrors({});
-      setIaSuggestion(null);
-      setShowIaSuggestion(true);
+      commiterEcartsCrees(created, `Découpage watch-dog : 1 écart par question (${iaSuggestion.nbEcarts} recommandés)`);
       return;
     }
 
@@ -1258,6 +1374,48 @@ export default function SurveillanceEcartsRedaction({
         : `Champs pré-remplis — Indice OACI : ${finalCellule}`,
       canal: 'in_app',
     });
+  };
+
+  // Action explicite « Appliquer le découpage en N écarts » : force la création
+  // d'un écart PAR question sélectionnée, même si le libellé n'a pas de puces
+  // (cas où l'IA recommande N écarts mais ne rédige qu'un seul libellé).
+  const handleApplySplit = (nbEcarts: number) => {
+    if (!iaSuggestion) return;
+    const itemsSel = selectedItems
+      .map(id => ({ id, item: itemsNSNV.find(i => i.id === id) }))
+      .filter((x): x is { id: string; item: QuestionNSNV } => Boolean(x.item));
+    if (itemsSel.length < 2) return;
+
+    const cible = Math.max(1, Math.min(nbEcarts, itemsSel.length));
+    const libelleBase = iaSuggestion.libelle;
+    const libelleParts = decouperLibelleEnEcarts(libelleBase);
+
+    // On répartit : si autant de puces que de questions cible, on les prend une à
+    // une ; sinon on met le libellé complet sur la 1re puis on enrichit avec la
+    // description de chaque question pour distinguer les écarts entre eux.
+    let libelles: string[];
+    if (libelleParts.length >= cible) {
+      libelles = itemsSel.slice(0, cible).map((_, k) => libelleParts[k % libelleParts.length]);
+    } else {
+      libelles = itemsSel.slice(0, cible).map((_, k) => {
+        const q = itemsSel[k].item!;
+        const base = libelleParts[0] || libelleBase;
+        const suffix = q.description ? ` — ${q.description}` : '';
+        return `${base}${suffix}`.trim();
+      });
+    }
+
+    const created = creerEcartsParQuestion(itemsSel.slice(0, cible), libelles, {
+      ref: iaSuggestion.ref_reglementaire || '',
+      niveau: getRiskLevelFromCell(iaSuggestion.cellule) as EcartRedaction['niveau'],
+      cellule: iaSuggestion.cellule,
+      probabilite: iaSuggestion.probabilite,
+      gravite: iaSuggestion.gravite,
+      justification: iaSuggestion.justification,
+      celluleIa: iaSuggestion.cellule,
+    });
+
+    commiterEcartsCrees(created, `Découpage appliqué : ${created.length} écarts créés (${cible} par question)`);
   };
 
   const handleIgnoreIaSuggestion = () => {
@@ -1701,6 +1859,54 @@ export default function SurveillanceEcartsRedaction({
         </div>
       )}
 
+      {/* Liste des écarts signés — consultation en lecture seule */}
+      {readOnly && (
+        <Card
+          icon={<FileText className="w-4 h-4 text-role-primary" />}
+          title={`Écarts signés (${ecarts.length} fiche${ecarts.length > 1 ? 's' : ''})`}
+        >
+          {ecarts.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-30" />
+              <p className="text-body">Aucun écart enregistré pour cette surveillance</p>
+            </div>
+          ) : (
+            <div className={isAllSGSDomain ? '' : 'max-h-[400px] overflow-y-auto'}>
+              <AccordionGroup spacing="sm">
+                {Object.entries(
+                  ecarts.reduce<Record<string, EcartRedaction[]>>((acc, e) => {
+                    const d = getEcartGroupe(e);
+                    (acc[d] ??= []).push(e);
+                    return acc;
+                  }, {})
+                ).map(([groupe, groupedEcarts]) => (
+                  <AccordionSection
+                    key={groupe}
+                    icon={<FolderTree className="w-4 h-4 !text-white" />}
+                    title={groupe}
+                    subtitle={`${groupedEcarts.length} écart(s)`}
+                    defaultOpen
+                  >
+                    <div className="space-y-2">
+                      {groupedEcarts.map(ecart => (
+                        <EcartCard
+                          key={ecart.id}
+                          ecart={ecart}
+                          onEdit={() => undefined}
+                          onDelete={() => undefined}
+                          onViewDetails={setSelectedEcartDetails}
+                          readOnly
+                        />
+                      ))}
+                    </div>
+                  </AccordionSection>
+                ))}
+              </AccordionGroup>
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Réponse assistant IA */}
       {iaAnswer && (
         <div className="alert alert-info animate-fade-in">
@@ -1882,6 +2088,8 @@ export default function SurveillanceEcartsRedaction({
                 suggestion={iaSuggestion}
                 onApply={handleApplyIaSuggestion}
                 onAdjustAndApply={handleApplyIaSuggestion}
+                onApplySplit={handleApplySplit}
+                onApplyForceSingle={() => handleApplyIaSuggestion(undefined, undefined, undefined, true)}
                 onIgnore={handleIgnoreIaSuggestion}
                 onRegenerate={handleRegenerateIaSuggestion}
                 isLoading={isIaGenerating}
