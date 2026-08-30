@@ -171,6 +171,61 @@ exemples récents + cache (`ecartAgent.ts`), réconciliation auto-vs-manuel
 5. Orchestration multi-étapes (diagnostic → sévérité → plan d'action → suivi,
    avec vérification intermédiaire) — le plus ambitieux, en dernier.
 
+## Reviewer — A/B modèle & feuille de route « inspecteur virtuel » (2026-08-30)
+
+Suite de la préconisation volet 2/3. Specs machine : Ultra 7 255H, RAM 16 Go
+(15,5 utilisables).
+
+### A/B modèles (à exécuter sans toucher aux 4 workflows)
+- **Candidats** (générations récentes, gabarit 7-8B) : `Mistral 3 (8B)`,
+  `Ministral 3 (8B)` (surtout pas 14B — reproduirait le problème RAM/vitesse),
+  `Qwen3 ~7-8B` ; vérifier GLM 5.x ≤8B sur ollama.com.
+- **Piège Ministral 3** : exige Ollama ≥0.13.1 (était en pré-version) → faire
+  `ollama --version` avant `ollama pull ministral-3:8b`, sinon erreur de pull
+  peu claire. Licence Apache 2.0 (usage pro OK).
+- **Jeu de 20-30 écarts validés** (`ecarts_redaction`) rejoués avec le même
+  prompt que `ecartAgent.ts` (même RAG/contexte) pour chaque candidat. Métriques
+  light : taux JSON valide 1er essai (compter les passages hors tentative n°1
+  de `aiClient._tryParseJSON`), cohérence terminologique vs texte validé (note
+  1-5 manuelle), temps (1er token + total). Vitesse CPU typique 2-8 tok/s :
+  keep_alive ≠ instantané, ne pas confondre temps de chargement et de génération.
+- **Seuil relatif (pas absolu)** : un candidat ne remplace `mistral` que s'il
+  améliore nettement le taux JSON 1er essai (critère n°1) sans régresser la
+  terminologie de >~0,5 pt vs mistral, sans latence inacceptable. Gain
+  terminologique seul ≠ switch (JSON est la priorité). Résultats proches (≤1 pt
+  ou quelques % JSON) → **doubler le jeu** avant de conclure ; écart net → OK.
+- **Isolation** : bascule via `OLLAMA_PRIMARY`/`AERORISQ_PRIMARY`. Changement du
+  modèle par défaut en usage réel APRÈS stabilisation.
+
+### Feuille de route « inspecteur virtuel » (par jalons, tout additif)
+Principe : **graduer par capacité, pas globalement** (selon réversibilité des
+erreurs). Rédaction (faible enjeu) peut vite devenir autonome ; sévérité /
+décision d'application (responsabilité réglementaire) reste « suggère sous
+contrôle » durablement.
+- Capacités priorisées vs existant : rédaction d'écarts (maturé via
+  `ecartAgent.ts`, affiner) ; diagnostic par items (`checklistAgent`) ;
+  sévérité/intervalles → **grille de qualification des manquements en règles
+  déterministes**, PAS en jugement libre du LLM (encadre le manuel de mesures
+  d'application AGA — rapport RSI) ; plans d'action → encoder la distinction
+  curative/corrective déjà validée des fiches PAC, ne pas laisser le LLM
+  réinventer ; langage clair public en dernier (pure reformulation).
+- Frontière autonomie/contrôle : traçabilité systématique (toute sortie
+  autonome cite sa source — dépend du RAG, jalon 2) ; seuil de confiance via
+  `thresholdController` appliqué à la rédaction, jamais à la décision finale de
+  sévérité/application ; réversibilité — toute action autonome reste un brouillon
+  révisable dans l'audit trail (`decisionTracker`), pas d'auto-clôture.
+- Souveraineté : AERORISQ_URL (raisonnement) est découplé d'Ollama par
+  conception ; mais Supabase = dépendance cloud externe pour la persistance —
+  « raisonnement souverain » ≠ « chaîne entièrement souveraine ». Versionner la
+  quantification de chaque modèle en prod (dérive de version = risque
+  conformité).
+- Jalons : ① A/B modèle + keep_alive (en cours) ② RAG réglementaire pgvector
+  (citation correcte sur échantillon test) ③ grille de qualification déterministe
+  (testable sans réseau) ④ autonomie graduée — rédaction seule (auto-application
+  au-dessus du seuil, accusé humain avant clôture) ⑤ harnais hors-ligne formalisé
+  (suite répétable sur le jeu A/B) ⑥ orchestration multi-étapes (seulement une
+  fois 1-5 éprouvés).
+
 ## Fichiers touchés
 - `lib/checklistNormalize.ts` (nouveau) — dédup profonde par id.
 - `lib/store.ts` — `setChecklistHierarchy` (normalisation) ; getters
