@@ -21,6 +21,13 @@
 - **Estimation tokens `/3`** au lieu de `/4` (prudent pour le français/RAG) ; **`groq_fallback` 7000 → 4000** pour limiter les 413 sur gros prompts.
 - **Warm-up Ollama (`keep_alive`) appliqué** : `callOllama` et `callAerorisq` (quand `AERORISQ_API_URL` est local = Ollama par défaut) envoient `keep_alive:'30m'` (constante `OLLAMA_KEEP_ALIVE`, `lib/ia/providers.ts`). Garde le modèle chargé en mémoire entre les appels → fin du chargement à froid 10-30s+. Zéro CPU permanent (~4-5 Go de RAM). Local/dev uniquement (un serverless redémarre à froid). Préconisation reviewer, additif, ne touche pas aux 4 workflows.**
 
+### A/B modèles & garde-fou `libelle` - 2026-08-30
+- **Résultat A/B (6 écarts non-SGS réels GOTT, priorité aux cas multi-items du watch-dog)** : **garder `mistral`**, rejeter `ministral-3:8b-Q4_K_M` et `qwen3:8b`. Détail : `docs/REVIEWER.md` → section A/B.
+  - `mistral:latest` (réf) : JSON 1er essai 6/6 (100 %), `libelle` STRING 6/6, ~107 s/écart, stable.
+  - `ministral` : 0/6 JSON 1er essai (sortie ```json markdown) + `libelle` en objet → casserait l'UI + connexion instable sous charge CPU. Échec éliminatoire.
+  - `qwen` : JSON parse 6/6 MAIS `libelle` en **array** sur les écarts multi-items (4/6 strings) + 241 s/écart (2,3× mistral) + crash. Échec éliminatoire (schéma + latence).
+- **Garde défensive `libelle` (`lib/ia/agents/ecartAgent.ts`)** : le `JSON.parse` ne vérifie que la syntaxe, pas la forme. Normalisation après le parse (`Array.isArray(libelle) ? libelle.join(' ') : String(libelle)`) pour ne jamais casser l'UI avec un array/objet. Strictement défensif, aucun changement pour le cas actuel (mistral produit des strings). Découle directement du test qwen (résurgirait aussi bien avec mistral sur un cas limite / changement de version). Typecheck OK.
+
 ### Session / couleurs disparues en accès direct
 - **Nouveau `SessionBootstrap`** (monté dans `GlobalOptimizer`, donc sur toutes les pages) : restaure le user depuis `localStorage('sgda_user')` (n'était restauré que sur l'accueil) et pose `data-role` sur `<body>` après chaque rendu. Corrige la disparition des couleurs/fonds liés au rôle lors d'un hard-refresh direct (Ctrl+Shift+R) vers une page, sans passer par l'accueil.
 

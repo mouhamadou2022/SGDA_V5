@@ -180,6 +180,13 @@ Suite de la préconisation volet 2/3. Specs machine : Ultra 7 255H, RAM 16 Go
 - **Candidats** (générations récentes, gabarit 7-8B) : `Mistral 3 (8B)`,
   `Ministral 3 (8B)` (surtout pas 14B — reproduirait le problème RAM/vitesse),
   `Qwen3 ~7-8B` ; vérifier GLM 5.x ≤8B sur ollama.com.
+- **IMPORTANT ram (16 Go) — quantisation** : le tag par défaut
+  `ministral-3:8b` est en **FP8 ~9.7 GB**, trop lourd en dev simultané (IDE +
+  navigateur). Utiliser la variante **`ministral-3:8b-instruct-2512-q4_K_M`**
+  (~6.0 GB, 8.49B, Apache 2.0) — comparable à l'empreinte du Mistral 7B actuel.
+  Vérifié sur ollama.com (blobs Q4_K_M ~6.0 GB). `qwen3:8b` = 5.2 GB (OK).
+- **Requiert Ollama → déjà vérifié : 0.33.2** (≥ 0.13.1 indispensable pour
+  Ministral 3). ✓
 - **Piège Ministral 3** : exige Ollama ≥0.13.1 (était en pré-version) → faire
   `ollama --version` avant `ollama pull ministral-3:8b`, sinon erreur de pull
   peu claire. Licence Apache 2.0 (usage pro OK).
@@ -196,6 +203,41 @@ Suite de la préconisation volet 2/3. Specs machine : Ultra 7 255H, RAM 16 Go
   ou quelques % JSON) → **doubler le jeu** avant de conclure ; écart net → OK.
 - **Isolation** : bascule via `OLLAMA_PRIMARY`/`AERORISQ_PRIMARY`. Changement du
   modèle par défaut en usage réel APRÈS stabilisation.
+
+#### Résultats A/B (2026-08-30) — premier passage, 6 écarts non-SGS réels (GOTT)
+Harness autonome (hors repo) : reconstitution des `itemsNSNV` depuis la
+hiérarchie + prompt fidèle `ecartAgent.ts` (non-SGS) + appel direct Ollama
+(temperature 0.2, num_predict 700), mode `stream:false`. Métrique automatisée :
+JSON valide 1er essai (parse simple) + `libelle` STRING conforme au schéma
+`ecartAgent` (le JSON.parse seul ne vérifie pas la forme).
+
+| Modèle | JSON 1er essai | `libelle` STRING | Conformité réelle | Temps moy/écart | Stabilité |
+|---|---|---|---|---|---|
+| **mistral:latest** (réf) | 6/6 (100 %) | 6/6 (100 %) | ✅ | ~107 s | ✅ |
+| ministral-3:8b-Q4_K_M | 0/6 (0 %) | 0/6 | ❌ sortie en ```json markdown + `libelle` objet | ~152 s | ❌ connexion instable |
+| qwen3:8b | 6/6 (100 % parse) | 4/6 (66 %) | ⚠️ `libelle` en array (multi-items) | ~241 s | ❌ très lent + crash |
+
+**Conclusion (validée reviewer) : rejeter les deux candidats, garder `mistral`.**
+Échecs structuraux nets, pas une nuance de qualité — jeu à 6 écarts suffisant
+pour trancher (protocole 20-30 gardé en réserve pour départager un futur
+candidat passant ce premier filtre). Le `107s` moyen confirme ~2-8 tok/s CPU.
+
+- **ministral** : 0 % JSON 1er essai (markdown ` ```json ``` `) + `libelle`
+  renvoyé en **objet** (`{"1.": "…", "2.": "…"}`) → casserait l'UI
+  (`[object Object]`) + la connexion Ollama s'effondre sous charge CPU
+  (~220-400s/écart, erreur `wsarecv ... connection closed`). **À écarter
+  définitivement sur RAM 16 Go CPU.**
+- **qwen** : JSON parse bien mais `libelle` en **array** sur les écarts combinés
+  (exactement les cas watch-dog) → violation de schéma. **2,3× plus lent** que
+  mistral (241s vs 107s) + 1 crash. Rejeté malgré un parse correct.
+
+**Correctif appliqué (découlant de ce test, indépendant du choix de modèle)** :
+`ecartAgent.ts` ne validait pas la forme de `libelle` après le JSON.parse
+(qui ne vérifie que la syntaxe). Ajout d'une garde défensive de normalisation
+juste après le parse : `Array.isArray(libelle) ? libelle.join(' ') :
+String(libelle)`. Strictement défensif → aucun changement de comportement pour
+le cas actuel (mistral produit des strings), mais protège contre toute réponse
+atypique future (changement de version de modèle, cas limite). Typecheck OK.
 
 ### Feuille de route « inspecteur virtuel » (par jalons, tout additif)
 Principe : **graduer par capacité, pas globalement** (selon réversibilité des

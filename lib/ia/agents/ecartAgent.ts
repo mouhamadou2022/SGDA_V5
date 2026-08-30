@@ -450,6 +450,12 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
         try {
           const parsed = JSON.parse(jsonMatch[0])
           libelle = parsed.libelle || ''
+          // Garde défensive : le JSON.parse ne vérifie que la syntaxe, pas la forme.
+          // Certains modèles peuvent renvoyer `libelle` en tableau ou objet (cas multi-items).
+          // On normalise toujours vers une chaîne pour ne pas casser l'UI (rendu de type
+          // object/array). Aucun changement de comportement pour le cas string existant.
+          if (Array.isArray(libelle)) libelle = libelle.join(' ')
+          else if (typeof libelle !== 'string') libelle = String(libelle)
           probabilite = Math.min(5, Math.max(1, Number(parsed.probabilite) || 3)) as NiveauProbabiliteOACI
           const g = String(parsed.gravite || 'C').toUpperCase()
           gravite = (['A','B','C','D','E'].includes(g) ? g : 'C') as NiveauGraviteOACI
