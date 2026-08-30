@@ -65,8 +65,16 @@ async function generateWithIA(prompt: string): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
   });
-  const data = await response.json();
-  return data.content || '';
+  let data: { content?: string; error?: string };
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (!response.ok || !data.content) {
+    throw new Error(data.error || `AERORISQ n'a pas pu générer le contenu (HTTP ${response.status}).`);
+  }
+  return data.content;
 }
 
 // Composant: Barre d'outils deux lignes
@@ -618,6 +626,7 @@ export default function SurveillanceRapport({
   const plannings = useAppStore(s => s.plannings);
   const inspecteurs = useAppStore(s => s.inspecteurs);
   const ecarts = useAppStore(s => s.ecarts);
+  const getEcartsEffectifs = useAppStore(s => s.getEcartsEffectifsSurveillance);
   const checklistItems = useAppStore(s => s.checklistItems);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const getFichesBySurveillance = useAppStore(s => s.getFichesBySurveillance);
@@ -663,10 +672,10 @@ export default function SurveillanceRapport({
 
   const reportContainerRef = useRef<HTMLDivElement>(null);
 
-  // Récupération des écarts de la surveillance
+  // Récupération des écarts de la surveillance (brouillons pendant la rédaction)
   const surveillanceEcarts = useCallback(() => {
-    return ecarts.filter(e => e.surveillance_id === surveillanceId);
-  }, [ecarts, surveillanceId]);
+    return getEcartsEffectifs(surveillanceId);
+  }, [getEcartsEffectifs, surveillanceId]);
 
   // Statistiques checklist
   const checklistStats = useMemo(() => {
@@ -1086,7 +1095,9 @@ Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes
         user_id: user?.id || '',
         type: 'danger',
         title: 'Erreur',
-        message: 'Impossible de générer le rapport. Veuillez réessayer.',
+        message: error instanceof Error && error.message
+          ? error.message
+          : 'Impossible de générer le rapport. Veuillez réessayer.',
         canal: 'in_app',
       });
     } finally {
@@ -1159,7 +1170,11 @@ Contexte: ${context}
 
 N'inclus PAS le titre de la section dans le contenu.`;
       const improved = await generateWithIA(prompt);
-      
+
+      if (!improved || improved.trim() === '') {
+        throw new Error('AERORISQ a renvoyé un contenu vide pour cette section.');
+      }
+
       if (sectionKey === 'deroulement') {
         // Pour le déroulement, on ne peut pas améliorer globalement
       } else if (sectionKey === 'resultsIntro') {
@@ -1182,7 +1197,9 @@ N'inclus PAS le titre de la section dans le contenu.`;
         user_id: user?.id || '',
         type: 'danger',
         title: 'Erreur',
-        message: "Impossible d'améliorer la section",
+        message: error instanceof Error && error.message
+          ? error.message
+          : "Impossible d'améliorer la section",
         canal: 'in_app',
       });
     } finally {

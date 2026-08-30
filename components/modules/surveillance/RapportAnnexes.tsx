@@ -212,15 +212,21 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
   const [editedEcarts, setEditedEcarts] = useState<Ecart[]>([]);
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
-  const ecarts = useOptimizedStore(s => s.ecarts);
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes = useAppStore(s => s.aerodromes);
+  const getEcartsEffectifs = useAppStore(s => s.getEcartsEffectifsSurveillance);
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
   const sigs = surveillance?.signatures_ecarts || [];
 
-  const realEcarts = useMemo(() => ecarts.filter(e => e.surveillance_id === surveillanceId), [ecarts, surveillanceId]);
+  // Pendant la rédaction les écarts vivent dans `ecartsRedaction` (brouillons) ;
+  // on lit donc les écarts « effectifs » (brouillons normalisés) pour que
+  // l'annexe A-2 affiche les écarts avant même la transmission.
+  const realEcarts = useMemo(
+    () => getEcartsEffectifs(surveillanceId),
+    [getEcartsEffectifs, surveillanceId]
+  );
   const displayedEcarts = editedEcarts.length > 0 ? editedEcarts : realEcarts;
 
   const stats = {
@@ -828,7 +834,6 @@ export function RapportAnnexes({
   userRole = 'inspector',
 }: RapportAnnexesProps) {
   const surveillances = useAppStore(s => s.surveillances);
-  const ecarts = useAppStore(s => s.ecarts);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const aerodromes = useAppStore(s => s.aerodromes);
   const addNotification = useAppStore(s => s.addNotification);
@@ -846,7 +851,7 @@ export function RapportAnnexes({
     setExportingAnnexes(true);
     try {
       const { exportAnnexeDOCX } = await import('@/lib/services/rapportAnnexeService');
-      const realEcarts = ecarts.filter(e => e.surveillance_id === surveillanceId);
+      const realEcarts = useAppStore.getState().getEcartsEffectifsSurveillance(surveillanceId);
       const items = useAppStore.getState().checklistItems[surveillanceId] || [];
       const fichesPresence = useAppStore.getState().getFichesBySurveillance(surveillanceId);
       const saCount = items.filter(i => i.resultat === 'SA').length;

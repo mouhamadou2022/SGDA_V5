@@ -4695,6 +4695,33 @@ html.dark .cl-btn-success.active {
   margin: 1em 0;
 }
 
+/* ===== Annexes du rapport (A-1..A-4) : texte noir + tableaux sans scrollbar ===== */
+/* Les annexes sont rendues dans .rapport-content ; on impose un texte lisible
+   (noir) et on neutralise le conteneur scrollbar horizontal du composant Table. */
+.rapport-a4 .rapport-content .accordion-content,
+.rapport-a4 .rapport-content .accordion-content p,
+.rapport-a4 .rapport-content .accordion-content span,
+.rapport-a4 .rapport-content .accordion-content td,
+.rapport-a4 .rapport-content .accordion-content li {
+  color: #1a1a1a;
+}
+.rapport-a4 .rapport-content .relative.w-full.overflow-auto {
+  overflow: visible;
+}
+.rapport-a4 .rapport-content table {
+  table-layout: fixed;
+  word-break: break-word;
+}
+.rapport-a4 .rapport-content table th,
+.rapport-a4 .rapport-content table td {
+  color: #1a1a1a;
+}
+@media print {
+  .rapport-a4 .rapport-content .relative.w-full.overflow-auto {
+    overflow: visible !important;
+  }
+}
+
 /* Print overrides for document sections */
 @media print {
   .rapport-heading {

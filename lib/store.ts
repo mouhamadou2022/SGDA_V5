@@ -1963,6 +1963,8 @@ interface EcartsRedactionSlice {
   updateEcartRedaction: (id: string, data: Partial<EcartRedaction>) => void
   deleteEcartRedaction: (id: string) => void
   getEcartsBySurveillance: (surveillanceId: string) => EcartRedaction[]
+  /** Écarts « effectifs » du rapport : brouillons (ecartsRedaction) en priorité, sinon écarts officiels */
+  getEcartsEffectifsSurveillance: (surveillanceId: string) => Ecart[]
 }
 
 interface WorkflowSlice {
@@ -7880,6 +7882,43 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
       
       getEcartsBySurveillance: (surveillanceId) => {
         return get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId)
+      },
+
+      // Écarts « effectifs » pour le rapport (annexe A-2, contexte IA, DOCX).
+      // Pendant la phase de rédaction les écarts vivent dans `ecartsRedaction`
+      // (brouillons) et ne sont convertis en `ecarts` officiels qu'à la
+      // transmission. Le rapport doit donc lire les brouillons en priorité
+      // (normalisés en Ecart[]), avec repli sur les écarts officiels.
+      getEcartsEffectifsSurveillance: (surveillanceId): Ecart[] => {
+        const officiels = get().ecarts.filter(e => e.surveillance_id === surveillanceId)
+        const brouillons = get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId)
+        if (brouillons.length === 0) return officiels
+        const byId = new Map(officiels.map(e => [e.id, e]))
+        return brouillons.map(b => {
+          if (byId.has(b.id)) return byId.get(b.id) as Ecart
+          return {
+            id: b.id,
+            aerodrome_id: b.aerodrome_id || '',
+            surveillance_id: b.surveillance_id,
+            domaine: b.domaine || 'SGS',
+            reference: b.reference,
+            ref_reglementaire: b.ref_reglementaire || '',
+            libelle: b.libelle || '',
+            niveau_risque: (b.niveau || 'moyen') as Ecart['niveau_risque'],
+            cellule_risque_oaci: b.cellule_risque_oaci,
+            probabilite_risque: b.probabilite_risque,
+            gravite_risque: b.gravite_risque,
+            justification_risque_ia: b.justification_risque_ia,
+            cellule_ia_suggeree: b.cellule_ia_suggeree,
+            statut: 'ouvert',
+            delai_pac: '',
+            delai_regularisation: '',
+            inspecteur_ref_id: b.created_by || '',
+            date_detection: b.created_at,
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+          } as Ecart
+        })
       },
 
       // ============================================================
