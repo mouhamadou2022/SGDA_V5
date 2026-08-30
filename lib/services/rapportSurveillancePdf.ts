@@ -55,7 +55,7 @@ export async function batirRapportSurveillancePdf(data: RapportSurveillanceData)
     const ns = items.filter(i => i.resultat === 'NS').length;
     const nv = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
     const na = items.filter(i => i.resultat === 'NA').length;
-    const taux = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
+    const taux = (sa + ns) > 0 ? Math.round((sa / (sa + ns)) * 100) : 0;
     return { total, sa, ns, nv, na, taux };
   })();
 

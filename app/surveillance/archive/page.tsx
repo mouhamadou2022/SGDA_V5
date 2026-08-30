@@ -410,7 +410,7 @@ export default function ArchivePage() {
         ['Conformes (SA)', String(sa)],
         ['Non conformes (NS)', String(ns)],
         ['Non vérifiés (NV)', String(nv)],
-        ['Taux de conformité', (sa + ns + nv) > 0 ? `${Math.round((sa / (sa + ns + nv)) * 100)}%` : '0%'],
+        ['Taux de conformité', (sa + ns) > 0 ? `${Math.round((sa / (sa + ns)) * 100)}%` : '0%'],
         ['Écarts détectés', String(ecarts.length)],
         ['Participants', String(presences.length)],
       ]);

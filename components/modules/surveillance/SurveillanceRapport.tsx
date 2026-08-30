@@ -51,6 +51,7 @@ import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
+import { getSgsMaturiteLabel } from '@/lib/utils';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
 
 
@@ -675,7 +676,7 @@ export default function SurveillanceRapport({
     const ns = items.filter(i => i.resultat === 'NS').length;
     const nv = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
     const na = items.filter(i => i.resultat === 'NA').length;
-    const taux = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
+    const taux = (sa + ns) > 0 ? Math.round((sa / (sa + ns)) * 100) : 0;
     return { total, sa, ns, nv, na, taux };
   }, [checklistItems, surveillanceId]);
 
@@ -714,13 +715,11 @@ export default function SurveillanceRapport({
     const globalTaux = checklistStats.taux;
     const globalColor = globalTaux >= 70 ? 'success' : globalTaux >= 50 ? 'warning' : 'danger';
     const totalDomaines = Object.keys(byDomaine).length;
-    const domainesConformes = Object.entries(byDomaine).filter(([, s]) => (s.total > 0 ? Math.round((s.sa / s.total) * 100) : 100) >= 90).length;
+    const domainesConformes = Object.entries(byDomaine).filter(([, s]) => ((s.sa + s.ns) > 0 ? Math.round((s.sa / (s.sa + s.ns)) * 100) : 0) >= 90).length;
 
     const sgsEval = surveillance?.sgs_evaluation_prepa as any;
     const sgsScore = sgsEval?.scoreGlobal;
-    const sgsNiveau = sgsScore !== undefined
-      ? sgsScore >= 80 ? 'Efficace' : sgsScore >= 60 ? 'Opérationnel' : sgsScore >= 40 ? 'Approprié' : 'Non conforme'
-      : null;
+    const sgsNiveau = sgsScore !== undefined ? getSgsMaturiteLabel(sgsScore) : null;
 
     let html = `
       <div class="space-y-5">
@@ -759,7 +758,7 @@ export default function SurveillanceRapport({
     `;
 
     Object.entries(byDomaine).forEach(([domaine, stats]) => {
-      const taux = stats.total > 0 ? Math.round((stats.sa / (stats.sa + stats.ns + stats.nv)) * 100) : 0;
+      const taux = (stats.sa + stats.ns) > 0 ? Math.round((stats.sa / (stats.sa + stats.ns)) * 100) : 0;
       const colorBar = taux >= 90 ? 'bg-success' : taux >= 70 ? 'bg-warning' : taux >= 50 ? 'bg-orange-400' : 'bg-danger';
       html += `
         <div class="p-3 rounded-lg border border-border">
@@ -909,7 +908,7 @@ export default function SurveillanceRapport({
         else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
       });
       const domainesStr = Object.entries(byDomaine)
-        .map(([d, s]) => `${d}: ${s.sa} SA / ${s.ns} NS / ${s.nv} NV (${s.total} pts, taux ${s.total > 0 ? Math.round((s.sa / s.total) * 100) : 100}%)`)
+        .map(([d, s]) => `${d}: ${s.sa} SA / ${s.ns} NS / ${s.nv} NV (${s.total} pts, taux ${(s.sa + s.ns) > 0 ? Math.round((s.sa / (s.sa + s.ns)) * 100) : 0}%)`)
         .join('\n');
       const pacStatuses = ['pac_attendu', 'pac_soumis', 'pac_accepte', 'preuves_soumises', 'preuves_evaluees', 'en_retard', 'cloture'];
       const pacCount = ecartsList.filter(e => pacStatuses.includes(e.statut)).length;
@@ -974,7 +973,7 @@ ${ecartsStr || 'Aucun écart'}
 ${pacAeroHistorique}
 
 SGS:
-${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% — ${sgsEval.composantes?.length || 0} composante(s)` : 'Non évalué / Non inclus'}
+${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% (${getSgsMaturiteLabel(sgsEval.scoreGlobal)}) — ${sgsEval.composantes?.length || 0} composante(s)` : 'Non évalué / Non inclus'}
 `;
 
       const activeSections = typeMeta.sections;
@@ -1123,7 +1122,7 @@ ${profil?.effectiveness_score != null ? `- Efficacité PAC: ${profil.effectivene
 ÉCARTS:
 ${ecartsStr || 'Aucun écart'}
 
-SGS: ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}%` : 'Non évalué'}
+SGS: ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% (${getSgsMaturiteLabel(sgsEval.scoreGlobal)})` : 'Non évalué'}
 SCORE RISQUE: ${profil?.score_global || 'N/A'}/100 — TENDANCE: ${profil?.tendance || 'stable'}
 `;
       }
@@ -1493,7 +1492,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
     const saCount = itemsDoc.filter(i => i.resultat === 'SA').length;
     const nsCount = itemsDoc.filter(i => i.resultat === 'NS').length;
     const nvCount = itemsDoc.filter(i => i.resultat === 'NV' || !i.resultat).length;
-    const denom = (saCount + nsCount + nvCount);
+    const denom = saCount + nsCount;
     const tauxConformite = denom > 0 ? Math.round((saCount / denom) * 100) : 0;
     const byDomaine: Record<string, { sa: number; ns: number; nv: number }> = {};
     itemsDoc.forEach(item => {
@@ -1506,7 +1505,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
 
     let byDomaineRows = '';
     Object.entries(byDomaine).forEach(([domaine, st]) => {
-      const dTaux = (st.sa + st.ns + st.nv) > 0 ? Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100) : 0;
+      const dTaux = (st.sa + st.ns) > 0 ? Math.round((st.sa / (st.sa + st.ns)) * 100) : 0;
       byDomaineRows += `<tr><td>${domaine}</td><td>${st.sa}</td><td>${st.ns}</td><td>${st.nv}</td><td>${dTaux}%</td></tr>`;
     });
 
@@ -1541,7 +1540,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
       <p>Score global : <strong>${profil?.score_global || 'N/A'}/100</strong> (tendance : ${profil?.tendance || 'stable'})</p>
       <table>
         <tr><th>Critère</th><th>Valeur</th></tr>
-        <tr><td>C1 — Maturité SGS</td><td>${profil?.c1 ?? 'N/A'}/100</td></tr>
+        <tr><td>C1 — Maturité SGS</td><td>${profil?.c1 ?? 'N/A'}/100${profil?.c1 != null ? ` (${getSgsMaturiteLabel(profil.c1)})` : ''}</td></tr>
         <tr><td>C2 — Efficacité PAC</td><td>${profil?.c2 ?? 'N/A'}/100</td></tr>
         <tr><td>C3 — Conformité</td><td>${profil?.c3 ?? 'N/A'}/100</td></tr>
         <tr><td>C4 — Charge critique</td><td>${profil?.c4 ?? 'N/A'}/100</td></tr>
@@ -1553,7 +1552,7 @@ N'inclus PAS le titre de la section dans le contenu.`;
         <div><div class="num">${nsCount}</div><div class="label">NS</div></div>
         <div><div class="num">${nvCount}</div><div class="label">NV</div></div>
       </div>
-      <p>Taux de conformité réel (NV = NS) : <strong>${tauxConformite}%</strong></p>
+      <p>Taux de conformité : <strong>${tauxConformite}%</strong></p>
       ${critCount > 0 ? `<div style="background:#fde8e8;border:1px solid #fecaca;border-radius:4pt;padding:8pt 12pt;margin:12pt 0"><strong style="color:#c53030">⚠ Attention :</strong> ${critCount} écart(s) critique(s) nécessitent une action immédiate.</div>` : ''}
       <h3>6.3 Détail par domaine</h3>
       <table>

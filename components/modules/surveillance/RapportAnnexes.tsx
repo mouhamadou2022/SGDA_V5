@@ -28,9 +28,9 @@ import {
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Ecart, ProfilRisque, type PresenceEntry } from '@/lib/store';
-import { getCellColor, getRiskLevelClass, calculateGlobalScore } from '@/lib/risque';
-import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController';
+import { useAppStore, Ecart, type PresenceEntry } from '@/lib/store';
+import { getCellColor } from '@/lib/risque';
+import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PresenceSheet } from './PresenceSheet';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -41,19 +41,12 @@ const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primar
 
 function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; readOnly: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const [presences, setPresences] = useState<PresenceEntry[]>([]);
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
   const getFichesBySurveillance = useAppStore(s => s.getFichesBySurveillance);
-
-  useEffect(() => {
-    try {
-      const fiches = getFichesBySurveillance?.(surveillanceId) || [];
-      setPresences(fiches);
-    } catch (e) {
-      setPresences([]);
-    }
-  }, [surveillanceId]);
+  // Souscription réactive au store : si les fiches changent (ajout/édition/signature)
+  // pendant que le composant est monté, la liste se met à jour sans rechargement.
+  const presences = getFichesBySurveillance?.(surveillanceId) || [];
 
   const stats = {
     total: presences.length,
@@ -151,61 +144,58 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 
       {expanded && (
         <div className="p-4 animate-fade-in">
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="text-center p-2 bg-primary-soft rounded-lg">
-              <div className="text-lg font-bold text-primary">{stats.anacim}</div>
-              <div className="text-xs text-muted-foreground">ANACIM</div>
-            </div>
-            <div className="text-center p-2 bg-warning-soft rounded-lg">
-              <div className="text-lg font-bold text-warning">{stats.exploitant}</div>
-              <div className="text-xs text-muted-foreground">Exploitant</div>
-            </div>
-            <div className="text-center p-2 bg-success-soft rounded-lg">
-              <div className="text-lg font-bold text-success">{stats.signees}</div>
-              <div className="text-xs text-muted-foreground">Signatures</div>
-            </div>
-          </div>
-
-          <DataTable
-            data={presences}
-            columns={[
-              { key: 'nom', header: 'Nom complet', render: (p) => <span className="font-medium text-foreground">{p.prenom_nom || '-'}</span> },
-              { key: 'structure', header: 'Structure', render: (p) => (
-                <span className={`badge ${p.structure === 'ANACIM' ? 'primary' : p.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
-                  {p.structure}
-                </span>
-              )},
-              { key: 'fonction', header: 'Fonction', render: (p) => <span className="text-muted-foreground">{p.fonction || '-'}</span> },
-              { key: 'telephone', header: 'Téléphone', render: (p) => <span className="text-muted-foreground">{p.telephone || '-'}</span> },
-              { key: 'email', header: 'Email', render: (p) => <span className="text-muted-foreground">{p.email || '-'}</span> },
-              { key: 'signature', header: 'Signature', render: (p) => p.signature_url ? (
-                <div className="flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4 text-success" />
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(p.signature_date).toLocaleDateString('fr-FR')}
-                  </span>
-                  {!readOnly && (
-                    <button className="action-button" onClick={() => window.open(p.signature_url, '_blank')} title="Voir signature">
-                      <Eye className="w-3 h-3" />
-                    </button>
-                  )}
+          {readOnly ? (
+            <>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="text-center p-2 bg-primary-soft rounded-lg">
+                  <div className="text-lg font-bold text-primary">{stats.anacim}</div>
+                  <div className="text-xs text-muted-foreground">ANACIM</div>
                 </div>
-              ) : (
-                <span className="text-danger text-xs">Non signé</span>
-              )},
-            ]}
-            keyExtractor={(p) => p.id}
-            emptyState={{ icon: Users, title: 'Aucune fiche de présence disponible', description: 'Utilisez le composant PresenceSheet pour ajouter des participants' }}
-          />
+                <div className="text-center p-2 bg-warning-soft rounded-lg">
+                  <div className="text-lg font-bold text-warning">{stats.exploitant}</div>
+                  <div className="text-xs text-muted-foreground">Exploitant</div>
+                </div>
+                <div className="text-center p-2 bg-success-soft rounded-lg">
+                  <div className="text-lg font-bold text-success">{stats.signees}</div>
+                  <div className="text-xs text-muted-foreground">Signatures</div>
+                </div>
+              </div>
 
-          {!readOnly && (
-            <div className="mt-4 pt-4 border-t border-border">
-              <PresenceSheet
-                surveillanceId={surveillanceId}
-                readOnly={readOnly}
-                userRole="inspector"
+              <DataTable
+                data={presences}
+                columns={[
+                  { key: 'nom', header: 'Nom complet', render: (p) => <span className="font-medium text-foreground">{p.prenom_nom || '-'}</span> },
+                  { key: 'structure', header: 'Structure', render: (p) => (
+                    <span className={`badge ${p.structure === 'ANACIM' ? 'primary' : p.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
+                      {p.structure}
+                    </span>
+                  )},
+                  { key: 'fonction', header: 'Fonction', render: (p) => <span className="text-muted-foreground">{p.fonction || '-'}</span> },
+                  { key: 'telephone', header: 'Téléphone', render: (p) => <span className="text-muted-foreground">{p.telephone || '-'}</span> },
+                  { key: 'email', header: 'Email', render: (p) => <span className="text-muted-foreground">{p.email || '-'}</span> },
+                  { key: 'signature', header: 'Signature', render: (p) => p.signature_url ? (
+                    <div className="flex items-center gap-1">
+                      <CheckCircle2 className="w-4 h-4 text-success" />
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(p.signature_date).toLocaleDateString('fr-FR')}
+                      </span>
+                      <button className="action-button" onClick={() => window.open(p.signature_url, '_blank')} title="Voir signature">
+                        <Eye className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-danger text-xs">Non signé</span>
+                  )},
+                ]}
+                keyExtractor={(p) => p.id}
+                emptyState={{ icon: Users, title: 'Aucune fiche de présence disponible', description: 'Utilisez le composant PresenceSheet pour ajouter des participants' }}
               />
-            </div>
+            </>
+          ) : (
+            <PresenceSheet
+              surveillanceId={surveillanceId}
+              userRole="inspector"
+            />
           )}
         </div>
       )}
@@ -500,12 +490,8 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
 
 function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; readOnly: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const [editedProfil, setEditedProfil] = useState<ProfilRisque | null>(null);
-  const user = useOptimizedStore(s => s.user);
-  const addNotification = useAppStore(s => s.addNotification);
   const profilsRisque = useOptimizedStore(s => s.profilsRisque);
-  const realProfil = profilsRisque[aerodromeId];
-  const profil = editedProfil || realProfil;
+  const profil = profilsRisque[aerodromeId];
 
   const getNiveauConfig = (score: number) => {
     if (score >= 80) return { label: 'Excellent', color: 'text-success', bg: 'bg-success-soft', badge: 'success' };
@@ -528,34 +514,6 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
   };
 
   const niveauConfig = profil ? getNiveauConfig(profil.score_global) : null;
-
-  const handleEdit = (field: string, value: number) => {
-    const newProfil = { ...profil, [field]: value };
-    // Recalculer le score global avec la pondération officielle (C1:20 C2:25 C3:20 C4:20 C5:15)
-    newProfil.score_global = calculateGlobalScore(
-      { c1: newProfil.c1, c2: newProfil.c2, c3: newProfil.c3, c4: newProfil.c4, c5: newProfil.c5 },
-      { ...DEFAULT_WEIGHTS }
-    );
-    setEditedProfil(newProfil);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Modification locale',
-      message: 'Cette modification ne sera pas persistée dans le système',
-      canal: 'in_app',
-    });
-  };
-
-  const handleReset = () => {
-    setEditedProfil(null);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Réinitialisation',
-      message: 'Le profil a été réinitialisé aux données réelles',
-      canal: 'in_app',
-    });
-  };
 
   if (!profil) {
     return (
@@ -601,11 +559,6 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {editedProfil && (
-            <button onClick={handleReset} className="btn btn-sm px-3 py-1 btn-warning">
-              Réinitialiser
-            </button>
-          )}
           <ChevronDown
             className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
             onClick={() => setExpanded(!expanded)}
@@ -660,22 +613,12 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="text-sm font-medium text-foreground">{crit.label}</span>
-                        <span className={`text-sm font-bold ${critConfig.color}`}>{crit.value}/100</span>
+                        <span className={`text-sm font-bold ${critConfig.color}`}>{crit.value}/100{crit.key === 'c1' && <span className="text-xs text-muted-foreground font-normal ml-1">({getSgsMaturiteLabel(crit.value)})</span>}</span>
                       </div>
                       <div className="progress h-1.5">
                         <div className={`progress-bar ${getProgressClass(crit.value)}`} style={{ width: `${crit.value}%` }} />
                       </div>
                     </div>
-                    {!readOnly && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={crit.value}
-                        onChange={(e) => handleEdit(crit.key, parseInt(e.target.value))}
-                        className="w-20 accent-role-primary"
-                      />
-                    )}
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed pl-10">{crit.interp}</p>
                 </div>
@@ -701,9 +644,6 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
   const [expanded, setExpanded] = useState(true);
   const [expandedDomaines, setExpandedDomaines] = useState<string[]>([]);
   const [expandedSousDomaines, setExpandedSousDomaines] = useState<Record<string, boolean>>({});
-  const [editedItems, setEditedItems] = useState<Record<string, any>>({});
-  const user = useOptimizedStore(s => s.user);
-  const addNotification = useAppStore(s => s.addNotification);
   const checklistHierarchy = useAppStore(s => s.checklistHierarchy);
 
   const hierarchy = checklistHierarchy?.[surveillanceId] || [];
@@ -734,30 +674,8 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
         });
       });
     });
-    const taux = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
+    const taux = (sa + ns) > 0 ? Math.round((sa / (sa + ns)) * 100) : 0;
     return { total, sa, ns, nv, na, taux };
-  };
-
-  const handleEditItem = (itemId: string, field: string, value: string) => {
-    setEditedItems(prev => ({ ...prev, [itemId]: { ...prev[itemId], [field]: value } }));
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Modification locale',
-      message: 'Cette modification ne sera pas persistée dans le système',
-      canal: 'in_app',
-    });
-  };
-
-  const handleReset = () => {
-    setEditedItems({});
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Réinitialisation',
-      message: 'La structure a été réinitialisée',
-      canal: 'in_app',
-    });
   };
 
   if (!hierarchy || hierarchy.length === 0) {
@@ -798,11 +716,6 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
           <span className="badge outline text-xs">{hierarchy.length} domaine(s)</span>
         </div>
         <div className="flex items-center gap-2">
-          {Object.keys(editedItems).length > 0 && (
-            <button onClick={handleReset} className="btn btn-sm px-3 py-1 btn-warning">
-              Réinitialiser
-            </button>
-          )}
           <ChevronDown
             className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
             onClick={() => setExpanded(!expanded)}
@@ -860,28 +773,14 @@ function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId
                                     {ssd.items && ssd.items.length > 0 && (
                                       <div className="ml-4 space-y-1">
                                         {ssd.items.map((item: any) => {
-                                          const editedItem = editedItems[item.id];
-                                          const currentResultat = editedItem?.resultat || item.resultat || 'NV';
+                                          const resultat = item.resultat || 'NV';
                                           return (
                                             <div key={item.id} className="text-xs text-muted-foreground flex items-center gap-2 py-1">
                                               <span className="code-oaci-badge text-xs">{item.numero}</span>
                                               <span className="truncate flex-1">{item.point_verification}</span>
-                                              {readOnly ? (
-                                                <span className={`badge ${currentResultat === 'SA' ? 'success' : currentResultat === 'NS' ? 'danger' : currentResultat === 'NA' ? 'neutral' : 'warning'} text-xs`}>
-                                                  {currentResultat}
-                                                </span>
-                                              ) : (
-                                                <select
-                                                  value={currentResultat}
-                                                  onChange={(e) => handleEditItem(item.id, 'resultat', e.target.value)}
-                                                  className="form-select text-xs w-16 py-0.5"
-                                                >
-                                                  <option value="SA">SA</option>
-                                                  <option value="NS">NS</option>
-                                                  <option value="NA">NA</option>
-                                                  <option value="NV">NV</option>
-                                                </select>
-                                              )}
+                                              <span className={`badge ${resultat === 'SA' ? 'success' : resultat === 'NS' ? 'danger' : resultat === 'NA' ? 'neutral' : 'warning'} text-xs`}>
+                                                {resultat}
+                                              </span>
                                             </div>
                                           );
                                         })}
@@ -1009,9 +908,9 @@ export function RapportAnnexes({
           sa_domaine: st.sa,
           ns_domaine: st.ns,
           nv_domaine: st.nv,
-          taux_domaine: (st.sa + st.ns + st.nv) > 0 ? `${Math.round((st.sa / (st.sa + st.ns + st.nv)) * 100)}%` : '0%',
+          taux_domaine: (st.sa + st.ns) > 0 ? `${Math.round((st.sa / (st.sa + st.ns)) * 100)}%` : '0%',
         })),
-        taux_global: (saCount + nsCount + nvCount) > 0 ? `${Math.round((saCount / (saCount + nsCount + nvCount)) * 100)}%` : '0%',
+        taux_global: (saCount + nsCount) > 0 ? `${Math.round((saCount / (saCount + nsCount)) * 100)}%` : '0%',
         sa_total: saCount,
         ns_total: nsCount,
         nv_total: nvCount,

@@ -966,7 +966,7 @@ Retourne le rapport amélioré en HTML. Conserve la structure globale, améliore
     const saCount = checklistItems.filter((i: ChecklistItem) => i.resultat === 'SA').length
     const nsCount = checklistItems.filter((i: ChecklistItem) => i.resultat === 'NS').length
     const nvCount = checklistItems.filter((i: ChecklistItem) => i.resultat === 'NV' || !i.resultat).length
-    const tauxConformite = checklistItems.length > 0 ? Math.round((saCount / (saCount + nsCount + nvCount || 1)) * 100) : 0
+    const tauxConformite = checklistItems.length > 0 ? ((saCount + nsCount) > 0 ? Math.round((saCount / (saCount + nsCount)) * 100) : 0) : 0
     const ecartsCritiques = ecarts.filter((e: Ecart) => e.niveau_risque === 'critique')
 
     let templateId = request.templateId || 'template_standard'

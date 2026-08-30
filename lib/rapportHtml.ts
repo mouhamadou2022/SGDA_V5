@@ -33,7 +33,7 @@ export function generateEcartsTableHtml(
 export function generateResultsSimpleHtml(
   stats: { total: number; sa: number; ns: number; nv: number },
 ): string {
-  const denominator = stats.sa + stats.ns + stats.nv;
+  const denominator = stats.sa + stats.ns;
   const taux = denominator > 0 ? Math.round((stats.sa / denominator) * 100) : 0;
   const color = taux >= 70 ? '#10b981' : taux >= 50 ? '#f59e0b' : '#ef4444';
   return `
