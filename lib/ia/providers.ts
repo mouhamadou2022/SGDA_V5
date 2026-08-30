@@ -48,6 +48,10 @@ const HF_FALLBACK = 'HuggingFaceH4/zephyr-7b-beta'
 const OLLAMA_PRIMARY = 'mistral'
 const OLLAMA_FALLBACK = 'llama3.2'
 const AERORISQ_PRIMARY = process.env.AERORISQ_MODEL || 'mistral' // modèle de l'IA maison AERORISQ (Ollama par défaut)
+// Durée pendant laquelle Ollama garde le modèle chargé en mémoire après un appel
+// (warm-up : zéro CPU permanent, ~4-5 Go de RAM). '30m' couvre la plupart des
+// sessions ; '1h' voire '-1' (indéfini) possible si la machine a assez de RAM.
+const OLLAMA_KEEP_ALIVE = '30m'
 
 // ── Désactivation explicite des providers ─────────────────────────────
 // Un provider (service cloud) n'est essayé QUE s'il est explicitement activé
@@ -69,10 +73,10 @@ interface KeyEntry {
 
 type ProviderCall = (apiKey: string, model: string, body: LLMRequest, signal?: AbortSignal) => Promise<Response>
 
-const apiFetch = (url: string, apiKey: string | null, body: LLMRequest, model: string, signal?: AbortSignal): Promise<Response> => {
+const apiFetch = (url: string, apiKey: string | null, body: LLMRequest, model: string, signal?: AbortSignal, extraBody?: Record<string, unknown>): Promise<Response> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`
-  return fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...body, model }), signal })
+  return fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...body, ...extraBody, model }), signal })
 }
 
 async function callGroq(apiKey: string, model: string, body: LLMRequest, signal?: AbortSignal): Promise<Response> {
@@ -111,13 +115,19 @@ async function callCloudflare(apiKey: string, model: string, body: LLMRequest, s
 }
 
 async function callOllama(_apiKey: string, model: string, body: LLMRequest, signal?: AbortSignal): Promise<Response> {
-  return apiFetch(OLLAMA_URL, null, body, model, signal)
+  // keep_alive : voir note dans callAerorisq (même objectif warm-up local).
+  return apiFetch(OLLAMA_URL, null, body, model, signal, { keep_alive: OLLAMA_KEEP_ALIVE })
 }
 
 // AERORISQ — IA maison (OpenAI-compatible). Prioritaire quand AERORISQ_API_URL est configuré.
 async function callAerorisq(apiKey: string, model: string, body: LLMRequest, signal?: AbortSignal): Promise<Response> {
   if (!AERORISQ_URL) throw new Error('AERORISQ_API_URL non configuré')
-  return apiFetch(AERORISQ_URL, apiKey || null, body, model, signal)
+  // keep_alive (paramètre Ollama, OpenAI-compatible) : garde le modèle chargé en
+  // mémoire entre les appels — supprime le chargement à froid (10-30s+) au
+  // premier hit après inactivité. Zéro CPU permanent, ~4-5 Go de RAM. Uniquement
+  // pertinent si AERORISQ_URL pointe vers un serveur local (Ollama par défaut).
+  const localOllama = isLocalUrl(AERORISQ_URL)
+  return apiFetch(AERORISQ_URL, apiKey || null, body, model, signal, localOllama ? { keep_alive: OLLAMA_KEEP_ALIVE } : undefined)
 }
 
 // Cache des clés API (5 min TTL) — évite 7+ requêtes Supabase à chaque appel LLM
@@ -182,14 +192,24 @@ function getProviderMaxInput(providerName: string): number {
   return 60000
 }
 
-// Budget de temps GLOBAL de toute la chaîne de fallback.
-// Borné SOUS le maxDuration de la route (60s) pour que la plateforme ne coupe
-// jamais brutalement avant un échec propre et exploitable. Doit rester <
-// maxDuration de generate/route.ts (et cohérent avec les autres routes IA).
-// 30 s : le cas nominal (Groq compound-mini) répond en ~1-2 s ; ce budget ne
-// borne que le pire cas (tous les providers échouent en chaîne) — au-delà on
-// rend la main à l'UI plutôt que de laisser tourner un spinner interminable.
-export const GLOBAL_BUDGET_MS = 30000
+// Budgets de temps SÉPARÉS de la chaîne de fallback : un pour la phase cloud,
+// un pour la phase locale (Ollama / AERORISQ local). Deux phases indépendantes
+// et PLAFONNÉES chacune, plutôt qu'un budget global unique qui plafonnait
+// l'inférence locale par ce qu'avait déjà consommé la phase cloud (bug : un
+// appel cloud échouant vite — Groq 429/413 — réduisait quasiment à rien le
+// temps accordé à Ollama, qui charge son modèle à froid en 10-30s+, donc
+// timeout systématique en dev local).
+//
+// Pire cas total ≈ CLOUD_BUDGET_MS + LOCAL_BUDGET_MS, à garder SOUS le
+// maxDuration le plus bas des routes IA concernées (60s actuellement sur
+// Hobby / generate) pour que la plateforme ne coupe jamais brutalement avant
+// un échec propre. Tant que le plan Vercel n'est pas confirmé (Hobby=60s max,
+// Pro=300s), on reste borné sous 60s : 20s cloud + 30s local = 50s. Une fois
+// le plan Pro confirmé et les maxDuration relevés, LOCAL_BUDGET_MS pourra
+// monter à 45s (voir CHANGELOG) pour mieux couvrir les chargements à froid
+// CPU lents.
+export const CLOUD_BUDGET_MS = 20000
+export const LOCAL_BUDGET_MS = 30000
 
 // Heuristique « provider local = lent » : un serveur local doit être dépriorisé
 // (mis en fin de chaîne) car son inférence CPU est lente. Détecte localhost,
@@ -210,7 +230,6 @@ function sameOrigin(a: string | undefined, b: string): boolean {
 
 export async function callWithFallback(request: LLMRequest): Promise<LLMResult> {
   const errors: string[] = []
-  const budgetDebut = Date.now()
 
   // Charger en PARALLÈLE les clés des providers ACTIVÉS uniquement
   const [groqKeys, openrouterKeys, googleKeys, deepseekKeys, mistralKeys, hfKeys, cloudflareKeys, aerorisqKeys] = await Promise.all([
@@ -317,28 +336,32 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
     if (!p.name.startsWith('ollama')) console.warn(`[providers] Sauté: ${p.name} (contexte insuffisant)`)
   }
 
+  const cloudPhaseStart = Date.now()
+  let localPhaseStart: number | null = null
+
   for (const provider of filtered) {
-    // Budget global : si on est déjà au-delà, on cesse de tenter les providers
-    // restants (le timeout de la plateforme couperait la requête brutalement,
-    // sans erreur exploitable). Arrêt propre avec erreur agrégée.
-    if (Date.now() - budgetDebut >= GLOBAL_BUDGET_MS) {
-      errors.push('budget de temps global dépassé')
-      break
-    }
     try {
       const controller = new AbortController()
       const isLocal = provider.name.startsWith('ollama') || (
         provider.name.startsWith('aerorisq') && isLocalUrl(AERORISQ_URL)
       )
-      // Inférence locale : 120 s — le premier appel charge le modèle en mémoire (lent), les suivants sont rapides.
-      // MAIS plafonné par le budget global restant : un provider local ne doit jamais
-      // dépasser à lui seul le budget qui encadre TOUTE la chaîne de fallback (sinon
-      // GLOBAL_BUDGET_MS serait purement décoratif et les providers suivants n'auraient
-      // jamais leur chance).
-      const callElapsed = Date.now() - budgetDebut
-      const remainingBudget = GLOBAL_BUDGET_MS - callElapsed
-      const cap = isLocal ? 120000 : 60000
-      const providerTimeoutMs = Math.max(1000, Math.min(cap, remainingBudget))
+      // Deux budgets FIXES et INDÉPENDANTS par phase (cloud / local). Le budget
+      // local ne dépend jamais de ce qu'a consommé la phase cloud (bug corrigé :
+      // un provider cloud échouant vite réduisait à rien le temps accordé à
+      // l'inférence locale). Chaque phase reste plafonnée, donc le pire cas total
+      // reste connu à l'avance (CLOUD_BUDGET_MS + LOCAL_BUDGET_MS), borné sous le
+      // maxDuration le plus bas des routes IA.
+      let providerTimeoutMs: number
+      if (isLocal) {
+        if (localPhaseStart === null) localPhaseStart = Date.now()
+        const remaining = LOCAL_BUDGET_MS - (Date.now() - localPhaseStart)
+        if (remaining <= 1000) { errors.push(`${provider.name}: ignoré — budget local épuisé`); continue }
+        providerTimeoutMs = Math.max(1000, Math.min(120000, remaining))
+      } else {
+        const remaining = CLOUD_BUDGET_MS - (Date.now() - cloudPhaseStart)
+        if (remaining <= 1000) { errors.push(`${provider.name}: ignoré — budget cloud épuisé`); continue }
+        providerTimeoutMs = Math.max(1000, Math.min(60000, remaining))
+      }
       const providerTimeout = setTimeout(() => controller.abort(), providerTimeoutMs)
       const res = await provider.call(provider.key, provider.model, request, controller.signal)
       clearTimeout(providerTimeout)

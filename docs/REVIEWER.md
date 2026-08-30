@@ -82,6 +82,95 @@ Une fusion/suppression d'écart candidat-doublon est une **étape séparée et
 délibérée**, après validation manuelle. Ne pas l'enchaîner automatiquement
 avec un correctif d'affichage.
 
+## Correctif chaîne de fallback IA — budget séparé cloud/local (2026-08-30)
+
+### Problème observé
+`ALL_PROVIDERS_FAILED` systématiques en dev local dès que Groq est en défaut :
+```
+groq_0: quota dépassé (429)
+groq_fallback_0: 413/429  (réponses HTTP rapides)
+aerorisq_0: This operation was aborted   ← Ollama cut
+```
+
+### Diagnostic (confirmé par le reviewer)
+Les providers activés sont Groq (+ fallback) et `aerorisq` = Ollama local
+(fin de chaîne). Groq 429/413 = échecs quasi instantanés qui ne consomment
+presque rien du budget global, si bien que le **timeout d'Ollama était
+plafonné par le budget global restant (30s moins le temps cloud déjà
+consommé)**. Ollama charge son modèle à froid en 10-30s+ (CPU) → `aborted`
+avant la 1re réponse. Le vrai blocage était le **plafonnement par le budget
+global**, pas Groq.
+
+### Correctif appliqué et validé (portée `providers.ts` seul)
+- Remplacé l'ancien `GLOBAL_BUDGET_MS` unique par **deux budgets fixes et
+  indépendants** : `CLOUD_BUDGET_MS=20000` + `LOCAL_BUDGET_MS=30000`.
+- Supprimé le `break` global unique et le plafonnement unique ; chaque phase
+  (cloud / local) garde un timestamp de départ et un plafonnement propre.
+  Le budget local ne dépend **jamais** de ce qu'a consommé la phase cloud.
+- Pire cas total = 50s, **borné sous les `maxDuration` actuels (60s)**.
+- Reviewer : confirme que la structure est strictement la sienne ; la
+  calibration 20s/30s est « sûre », seul risque = un chargement froid très
+  lent se fende encore cut (compromis documenté pour remonter à 45s).
+
+### Point d'hébergement à confirmer (action utilisateur)
+Le calibrage « acceptable en prod » dépend du **plan Vercel** :
+- **Hobby** : plafond dur des fonctions serverless à **10s** (maxDuration ne
+  peut pas le dépasser) → même les 50s de pire cas seraient caduques.
+- **Pro** : maxDuration jusqu'à 300s → on peut remonter `LOCAL_BUDGET_MS` à
+  45s **et** monter les `maxDuration` des routes IA (generate 60→90 ;
+  chat/rediger-ecart/ai/* sans valeur = défaut plan) à ≥90s.
+En dev local (npm run dev) il n'y a aucune limite de plateforme : le bug
+corrigé ne peut pas revenir à cause d'un maxDuration en local. À vérifier
+avant de considérer ce calibrage acceptable en prod.
+
+## Warm-up Ollama & feuille de route « inspecteur virtuel » (2026-08-30)
+
+### Volet 1 — Warm-up `keep_alive` (appliqué)
+Préconisation du reviewer : garder le modèle chargé via `keep_alive` (paramètre
+de requête Ollama OpenAI-compatible), pas de changement d'infrastructure.
+- Appliqué : `callOllama` et `callAerorisq` (quand `AERORISQ_API_URL` est local
+  = Ollama par défaut) envoient `keep_alive:'30m'` (constante
+  `OLLAMA_KEEP_ALIVE`, `lib/ia/providers.ts`).
+- Coût : **RAM ~4-5 Go** (modèle 7B quantifié), **zéro CPU permanent** (CPU
+  seulement pendant une génération active). Valable en local/dev uniquement
+  (serverless redémarre à froid ; le warm-up ne s'applique que là où Ollama
+  tourne en continu — machine dev, ou plus tard VPS/mini-PC pointé par
+  `AERORISQ_API_URL`).
+- **Priorité non inversée** (décision utilisateur) : Ollama reste en fin de
+  chaîne pendant la stabilisation. Le levier d'autonomie plus fort (Ollama en
+  premier une fois chaud, Groq en secours) est à revisiter après stabilisation.
+- Cache `aiClient.ts` (`getCached`/`setCached`) déjà présent, rien à ajouter.
+
+### Volet 2 — Choix du modèle (APRÈS stabilisation, tests empiriques)
+- D'abord mesurer si le problème est la **vitesse** (réglée par warm-up) ou la
+  **qualité** avant de changer de modèle.
+- Faiblesses probables de `mistral` 7B : fiabilité JSON (réparation défensive
+  dans `aiClient._tryParseJSON` = indice), vocabulaire réglementaire
+  aéronautique (dépend du RAG/few-shot injecté).
+- Si qualité/JSON : tester **Qwen2.5:7b-instruct** en A/B (même gabarit CPU,
+  meilleur en sortie structurée). Si français rédactionnel : **Mistral-Nemo
+  12B** (2-3× plus lent en CPU, peut réintroduire la lenteur).
+- **En attente de l'utilisateur** : RAM de la machine qui fait tourner Ollama
+  (facteur limitant pour tout > 7B).
+
+### Volet 3 — Feuille de route « inspecteur virtuel autonome » (APRÈS stabilisation)
+Déjà en place (`lib/ia/`) : boucle d'apprentissage fermée (feedback humain →
+tendances → seuils auto-ajustés via `thresholdController`), RAG applicatif +
+exemples récents + cache (`ecartAgent.ts`), réconciliation auto-vs-manuel
+(`decisionTracker`), recalibrage bayésien par domaine (`weightController`).
+À construire, par priorité recommandée (tout additif, sans toucher aux
+4 workflows) :
+1. RAG réglementaire indexé (pgvector sur corpus OACI/ANACIM/PSC/fiches PAC) —
+   faire citer un texte plutôt que généraliser.
+2. Autonomie graduée par seuil de confiance (relier `thresholdController` à une
+   politique : auto-application au-dessus du seuil, validation humaine en
+   dessous) — « assistant qui suggère » → « inspecteur qui agit, sous contrôle ».
+3. Justification citée (chaque suggestion référence le texte réglementaire).
+4. Harnais d'évaluation hors-ligne (mesurer sur un jeu déjà validé par des
+   humains, pas seulement en production).
+5. Orchestration multi-étapes (diagnostic → sévérité → plan d'action → suivi,
+   avec vérification intermédiaire) — le plus ambitieux, en dernier.
+
 ## Fichiers touchés
 - `lib/checklistNormalize.ts` (nouveau) — dédup profonde par id.
 - `lib/store.ts` — `setChecklistHierarchy` (normalisation) ; getters

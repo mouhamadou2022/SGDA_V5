@@ -6,9 +6,10 @@ import { NextResponse } from 'next/server'
 import { callWithFallback } from '@/lib/ia/providers'
 
 // Borne explicite la durée de la route plutôt que de dépendre du seul timeout
-// de la plateforme d'hébergement. Doit rester STRICTEMENT SUPÉRIEUR à
-// GLOBAL_BUDGET_MS (30s) de lib/ia/providers.ts, afin que la chaîne de fallback
-// s'arrête proprement sur son budget interne avant que la plateforme ne coupe.
+// de la plateforme d'hébergement. Doit rester STRICTEMENT SUPÉRIEUR au pire
+// cas de la chaîne de fallback (CLOUD_BUDGET_MS + LOCAL_BUDGET_MS = 50s dans
+// lib/ia/providers.ts), afin que la chaîne s'arrête proprement sur son budget
+// interne avant que la plateforme ne coupe.
 export const maxDuration = 60
 
 function erreurDetail(err: unknown): string {

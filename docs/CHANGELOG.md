@@ -15,9 +15,11 @@
 - **Sélection ciblée par surveillance** (`useShallow`) : `ecartsExistants` n'est plus dérivé de tout le store ; sa référence ne change que si les écarts de CETTE surveillance changent. Stoppe les redéclenchements intempestifs de l'effet de synchronisation de l'enfant.
 
 ### Fallback IA / providers (`lib/ia/providers.ts`)
-- **Timeout provider plafonné par le budget global restant** : un provider local ne peut plus consommer à lui seul les 30 s de `GLOBAL_BUDGET_MS` ; Ollama (fin de chaîne) redevient atteignable.
+- **Deux budgets fixes et INDÉPENDANTS** (remplace l'ancien budget global `GLOBAL_BUDGET_MS` unique) : `CLOUD_BUDGET_MS=20s` + `LOCAL_BUDGET_MS=30s` pour Ollama/AERORISQ local. Première cause d' `aerorisq_0 aborted` : l'inférence locale était plafonnée par ce que la phase cloud avait déjà consommé (Groq 429/413 quasi instantané → presque plus de temps pour Ollama qui charge son modèle en 10-30s+). Le budget local ne dépend plus jamais du cloud. Pire cas total ≈ 50s, borné sous les `maxDuration` actuels (60s).
+- **Calibrage conservateur documenté** : tant que le plan Vercel n'est pas confirmé (Hobby = plafond dur 10s de fonctions, Pro = jusqu'à 300s), le pire cas doit tenir sous 60s. Une fois le plan Pro confirmé, relever `LOCAL_BUDGET_MS` à 45s (pire cas 65s) exige de monter les `maxDuration` des routes IA concernées à ≥90s (`generate` est à 60, `chat`/`rediger-ecart`/`ai/*` n'en ont pas = défaut plan). Action à faire avec la confirmation du plan d'hébergement.
 - **Ollama redondant sauté** quand `AERORISQ_API_URL` pointe vers le même serveur que Ollama (`sameOrigin`) — évite 3 tentatives vers la même machine locale (aerorisq_0 + ollama + ollama_fallback).
 - **Estimation tokens `/3`** au lieu de `/4` (prudent pour le français/RAG) ; **`groq_fallback` 7000 → 4000** pour limiter les 413 sur gros prompts.
+- **Warm-up Ollama (`keep_alive`) appliqué** : `callOllama` et `callAerorisq` (quand `AERORISQ_API_URL` est local = Ollama par défaut) envoient `keep_alive:'30m'` (constante `OLLAMA_KEEP_ALIVE`, `lib/ia/providers.ts`). Garde le modèle chargé en mémoire entre les appels → fin du chargement à froid 10-30s+. Zéro CPU permanent (~4-5 Go de RAM). Local/dev uniquement (un serverless redémarre à froid). Préconisation reviewer, additif, ne touche pas aux 4 workflows.**
 
 ### Session / couleurs disparues en accès direct
 - **Nouveau `SessionBootstrap`** (monté dans `GlobalOptimizer`, donc sur toutes les pages) : restaure le user depuis `localStorage('sgda_user')` (n'était restauré que sur l'accueil) et pose `data-role` sur `<body>` après chaque rendu. Corrige la disparition des couleurs/fonds liés au rôle lors d'un hard-refresh direct (Ctrl+Shift+R) vers une page, sans passer par l'accueil.
@@ -25,9 +27,10 @@
 ---
 
 ### Idée en réserve — optimisation Ollama (post-stabilisation, NON déployée)
-- **Warm-up / preload** : maintenir `mistral` chargé en mémoire (`ollama keep_alive` ou ping à faible coût) pour éliminer le chargement à froid (10-30 s au premier appel) — les réponses locales deviennent alors systématiquement rapides.
-- **Tâches en arrière-plan** : génération de rapports, simulations, retraining ML pourraient être préparés par Ollama pendant l'inactivité (aucun coût API, serveur local).
-- **Réserve** : uniquement valable en local/dev (pas en déploiement Vercel, sans Ollama). Ne pas lancer pendant la phase de stabilisation des 4 workflows.
+- **(DONE 2026-08-30)** Warm-up de base par `keep_alive:'30m'` — voir section « Fallback IA / providers ». Le modèle reste chargé en mémoire après un appel (zéro CPU permanent, ~4-5 Go de RAM), ce qui supprime le chargement à froid. Local/dev uniquement (serverless redémarre à froid). Préconisation du reviewer, additif, sans impact sur les 4 workflows.
+- **Preload périodique** (encore en réserve) : ping à faible coût / garde le modèle chaud en continu sans dépendre d'un appel utilisateur (utile si les sessions sont espacées). Coût : RAM permanente réservée.
+- **Tâches en arrière-plan** (encore en réserve) : génération de rapports, simulations, retraining ML pourraient être préparés par Ollama pendant l'inactivité (aucun coût API, serveur local).
+- **Réserve** : tout reste en local/dev (pas en déploiement Vercel, sans Ollama). Ne pas lancer le preload/tâches pendant la phase de stabilisation des 4 workflows.
 
 ---
 
