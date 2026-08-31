@@ -1,7 +1,7 @@
 ﻿// components/modules/surveillance/RapportAnnexes.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   ChevronDown,
@@ -27,10 +27,12 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore } from '@/lib/store';
+import { useAppStore, type EcartRedaction } from '@/lib/store';
 import { fetchEcartsRedactionBySurveillance } from '@/lib/datastore';
 import { getCellColor } from '@/lib/risque';
 import { getSgsMaturiteLabel } from '@/lib/utils';
+import { PAOE_LABELS } from '@/types/checklist';
+import type { PAOELevel } from '@/types/checklist';
 
 // ============================================================
 // ANNEXE A-1 : FICHES DE PRÉSENCE
@@ -124,6 +126,70 @@ function AnnexePresence({ surveillanceId }: { surveillanceId: string }) {
 // ANNEXE A-2 : ÉCARTS CONSTATÉS (avec vérification de cohérence)
 // ============================================================
 
+/** Ordre de criticité pour le tri (le plus grave en premier). */
+const CRITICITE_ORDER: Record<string, number> = {
+  critique: 0, eleve: 1, moyen: 2, faible: 3, tres_faible: 4,
+};
+
+/** Niveaux PAOE collectés pour les écarts SGS (aligné avec /ecarts/sgs). */
+const NIVEAUX_COLLECTES: PAOELevel[] = ['absent', 'present', 'approprie'];
+
+/** UUID v4 déterministe — même construction que /ecarts/sgs (ids des écarts SGS). */
+function stringToUUID(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0;
+  }
+  const h = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${h.slice(0,8)}-${h.slice(0,4)}-4${h.slice(1,4)}-${((parseInt(h.slice(0,2),16)&0x3f)|0x80).toString(16).padStart(2,'0')}${h.slice(2,4)}-${h.slice(0,12).padStart(12,'0')}`;
+}
+
+/** Badge couleur selon le niveau PAOE (maturité SGS). */
+function getPAOEBadgeNiveau(niveau: PAOELevel): string {
+  switch (niveau) {
+    case 'absent':       return 'badge danger';
+    case 'present':      return 'badge warning';
+    case 'approprie':    return 'badge neutral';
+    case 'operationnel': return 'badge success';
+    case 'efficace':     return 'badge success';
+    default:             return 'badge neutral';
+  }
+}
+
+/** Élément résolu d'un item (référence questionnaire + composante + domaine). */
+interface ItemResolu {
+  numero: string;
+  referenceReglementaire: string;
+  domaine: string;
+  sousDomaine: string;
+  composanteId?: number;
+  maturiteNiveau?: PAOELevel;
+  maturiteScore?: number;
+}
+
+/** Écart enrichi pour l'annexe : item_ids + références questionnaires + composante. */
+interface EcartEnrichi {
+  id: string;
+  reference: string;
+  libelle: string;
+  ref_reglementaire: string;
+  niveau_risque: string;
+  domaine: string;
+  cellule_risque_oaci?: string;
+  probabilite_risque?: number;
+  gravite_risque?: string;
+  inspecteur_ref_id: string;
+  created_at: string;
+  statut: string;
+  item_ids: string[];
+  referencesQuestionnaires: string[];
+  composante?: string;
+  maturiteNiveau?: PAOELevel;
+  maturiteScore?: number;
+}
+
 function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   const [expanded, setExpanded] = useState(true);
   const surveillances = useAppStore(s => s.surveillances);
@@ -175,22 +241,243 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   // Si les écarts ne sont pas encore signés, on n'affiche rien (placeholder).
   const displayedEcarts = ecartsSignes ? ecartsEffectifs : [];
 
+  // Référentiel (items du checklist) + évaluation SGS (composantes/maturité).
+  const getChecklistItemsFlat = useAppStore(s => s.getChecklistItemsFromHierarchy);
+  const evaluationSgs = (surveillance?.sgs_evaluation_prepa || null) as
+    | { composantes: { id: number; label: string; score: number; niveauGlobal: PAOELevel; elements: { elementId: string; label: string; niveauGlobal: PAOELevel }[] }[] }
+    | null;
+
+  // Reconstruit les ids d'items SGS (mêmes que ceux des écarts SGS) en attachant
+  // la référence questionnaire, la composante et sa maturité.
+  const sgsItemsById = useMemo<Map<string, ItemResolu>>(() => {
+    const map = new Map<string, ItemResolu>();
+    if (!evaluationSgs) return map;
+    for (const composante of evaluationSgs.composantes) {
+      const compId = Number(composante.id);
+      composante.elements.forEach((element, idx) => {
+        if (!NIVEAUX_COLLECTES.includes(element.niveauGlobal)) return;
+        const itemId = stringToUUID(`sgs-${surveillanceId}-${compId}-${element.elementId}`);
+        map.set(itemId, {
+          numero: `SGS-${compId}.${idx + 1}`,
+          referenceReglementaire: '',
+          domaine: 'SGS',
+          sousDomaine: `Composante ${compId}: ${composante.label}`,
+          composanteId: compId,
+          maturiteNiveau: composante.niveauGlobal,
+          maturiteScore: composante.score,
+        });
+      });
+    }
+    return map;
+  }, [evaluationSgs, surveillanceId]);
+
+  // Map des items du référentiel (non-SGS principalement) par id.
+  // Souscription réactive à la hiérarchie : recalculée si le référentiel se charge.
+  const checklistHierarchyLen = Object.keys(useAppStore(s => s.checklistHierarchy) || {}).length;
+  const referentielItemsById = useMemo<Map<string, ItemResolu>>(() => {
+    const map = new Map<string, ItemResolu>();
+    for (const item of getChecklistItemsFlat(surveillanceId)) {
+      const it = item as unknown as { id: string; numero?: string; reference_ras14?: string; reference_reglementaire?: string; domaine?: string; sousDomaine?: string; sousSousDomaine?: string };
+      map.set(it.id, {
+        numero: it.numero || it.reference_ras14 || '',
+        referenceReglementaire: it.reference_reglementaire || it.reference_ras14 || '',
+        domaine: it.domaine || '',
+        sousDomaine: it.sousDomaine || it.sousSousDomaine || '',
+      });
+    }
+    return map;
+  }, [surveillanceId, getChecklistItemsFlat, checklistHierarchyLen]);
+
+  // Obtient l'item résolu d'un écart, en priorité SGS puis référentiel.
+  const resolveItem = (id: string): ItemResolu | undefined =>
+    sgsItemsById.get(id) || referentielItemsById.get(id);
+
+  // Associe à chaque écart ses item_ids (depuis le brouillon), ses références
+  // questionnaires et sa composante (SGS) avec maturité.
+  const draftById = useMemo(() => {
+    const m = new Map<string, EcartRedaction>();
+    for (const d of storedRedaction) m.set(d.id, d);
+    return m;
+  }, [storedRedaction]);
+
+  const ecartsEnrichis = useMemo<EcartEnrichi[]>(() => {
+    const risqueNiveau = (e: any): string => (e as any).niveau_risque || (e as any).niveau || 'moyen';
+    return displayedEcarts.map(e => {
+      const draft = draftById.get(e.id);
+      const itemIds = draft?.item_ids || [];
+      const itemsResolus = itemIds.map(resolveItem).filter((i): i is ItemResolu => Boolean(i));
+      const numRefs = [...new Set(itemsResolus.map(i => i.numero).filter(Boolean))];
+      const isSgs = (itemsResolus[0]?.domaine || e.domaine) === 'SGS';
+      const composante = itemsResolus[0]?.sousDomaine;
+      const maturiteNiveau = itemsResolus[0]?.maturiteNiveau;
+      const maturiteScore = itemsResolus[0]?.maturiteScore;
+      return {
+        id: e.id,
+        reference: e.reference,
+        libelle: e.libelle,
+        ref_reglementaire: e.ref_reglementaire || (itemsResolus[0]?.referenceReglementaire || ''),
+        niveau_risque: risqueNiveau(e),
+        domaine: isSgs ? 'SGS' : (itemsResolus[0]?.domaine || e.domaine || 'Autre'),
+        cellule_risque_oaci: e.cellule_risque_oaci,
+        probabilite_risque: e.probabilite_risque as number | undefined,
+        gravite_risque: e.gravite_risque as string | undefined,
+        inspecteur_ref_id: e.inspecteur_ref_id,
+        created_at: e.created_at || new Date().toISOString(),
+        statut: (e as any).statut || 'ouvert',
+        item_ids: itemIds,
+        referencesQuestionnaires: numRefs,
+        composante: composante || (isSgs ? 'SGS' : undefined),
+        maturiteNiveau,
+        maturiteScore,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedEcarts, draftById, sgsItemsById, referentielItemsById]);
+
+  // Groupes : écarts SGS par composante (triés par id) + écarts non-SGS par
+  // domaine (chaque groupe trié par criticité).
+  const sgsGroups = useMemo(() => {
+    const groups = new Map<string, EcartEnrichi[]>();
+    for (const e of ecartsEnrichis) {
+      if (e.domaine !== 'SGS') continue;
+      const comp = e.composante || 'SGS';
+      (groups.get(comp) || groups.set(comp, []).get(comp)!).push(e);
+    }
+    return [...groups.entries()]
+      .map(([composante, ecarts]) => ({
+        composante,
+        numero: composante,
+        maturiteNiveau: ecarts[0]?.maturiteNiveau,
+        maturiteScore: ecarts[0]?.maturiteScore,
+        ecarts,
+      }))
+      .sort((a, b) => {
+        const ca = Number((a.composante.match(/\d+/) || [99])[0]);
+        const cb = Number((b.composante.match(/\d+/) || [99])[0]);
+        return ca - cb;
+      });
+  }, [ecartsEnrichis]);
+
+  const nonSgsGroups = useMemo(() => {
+    const groups = new Map<string, EcartEnrichi[]>();
+    for (const e of ecartsEnrichis) {
+      if (e.domaine === 'SGS') continue;
+      (groups.get(e.domaine) || groups.set(e.domaine, []).get(e.domaine)!).push(e);
+    }
+    return [...groups.entries()]
+      .map(([domaine, ecarts]) => ({
+        domaine,
+        ecarts: [...ecarts].sort(
+          (a, b) => (CRITICITE_ORDER[a.niveau_risque] ?? 9) - (CRITICITE_ORDER[b.niveau_risque] ?? 9)
+        ),
+      }))
+      .sort((a, b) => a.domaine.localeCompare(b.domaine));
+  }, [ecartsEnrichis]);
+
   const stats = {
-    total: displayedEcarts.length,
-    critiques: displayedEcarts.filter(e => e.niveau_risque === 'critique').length,
-    eleves: displayedEcarts.filter(e => e.niveau_risque === 'eleve').length,
-    moyens: displayedEcarts.filter(e => e.niveau_risque === 'moyen').length,
-    faibles: displayedEcarts.filter(e => e.niveau_risque === 'faible').length,
-    clos: displayedEcarts.filter(e => e.statut === 'cloture').length,
+    total: ecartsEnrichis.length,
+    critiques: ecartsEnrichis.filter(e => e.niveau_risque === 'critique').length,
+    eleves: ecartsEnrichis.filter(e => e.niveau_risque === 'eleve').length,
+    moyens: ecartsEnrichis.filter(e => e.niveau_risque === 'moyen').length,
+    faibles: ecartsEnrichis.filter(e => e.niveau_risque === 'faible').length,
+    clos: ecartsEnrichis.filter(e => e.statut === 'cloture').length,
   };
 
-  const getNiveauBadge = (niveau: string) => {
+  const getNiveauBadge = (niveau: any) => {
     switch (niveau) {
       case 'critique': return 'badge danger animate-pulse';
       case 'eleve': return 'badge eleve';
       case 'moyen': return 'badge moyen';
       default: return 'badge neutral';
     }
+  };
+
+  const renderEcartCard = (ecart: EcartEnrichi, showCriticite: boolean) => {
+    const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
+    return (
+      <div key={ecart.id} className="border border-border rounded-xl overflow-hidden bg-white">
+        {/* En-tête: Aérodrome · Date · Référence */}
+        <div className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-border">
+          <div className="flex items-center gap-3 text-xs text-foreground">
+            <span className="flex items-center gap-1">
+              <MapPin className="w-3 h-3" />
+              {aerodrome?.code_oaci || 'N/A'}
+            </span>
+            <span className="text-foreground/40">|</span>
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {surveillance?.date_fin
+                ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
+                : 'N/A'}
+            </span>
+          </div>
+          <span className="font-semibold text-sm text-foreground">{ecart.reference}</span>
+        </div>
+
+        {/* Libellé */}
+        <div className="px-4 py-3 border-b border-border">
+          <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
+        </div>
+
+        {/* Références questionnaires */}
+        {ecart.referencesQuestionnaires.length > 0 && (
+          <div className="px-4 py-2 border-b border-border flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium text-muted-foreground">Questions :</span>
+            {ecart.referencesQuestionnaires.map((ref, i) => (
+              <span key={i} className="badge outline text-[10px] font-mono">{ref}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Ligne: Niveau de risque + Indice OACI (uniquement pour les écarts non-SGS) */}
+        {showCriticite && (
+          <div className="px-4 py-2 bg-muted/10 border-b border-border flex items-center gap-3 flex-wrap">
+            <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
+            {ecart.cellule_risque_oaci && (
+              <>
+                <span className="text-xs text-muted-foreground">|</span>
+                <span className="text-xs text-muted-foreground">Indice OACI :</span>
+                <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                  {ecart.cellule_risque_oaci}
+                </span>
+                {ecart.probabilite_risque && ecart.gravite_risque && (
+                  <span className="text-xs text-muted-foreground">
+                    P{ecart.probabilite_risque} × G{ecart.gravite_risque}
+                  </span>
+                )}
+              </>
+            )}
+            {ecart.ref_reglementaire && (
+              <span className="text-xs text-muted-foreground ml-auto">{ecart.ref_reglementaire}</span>
+            )}
+          </div>
+        )}
+
+        {/* Inspecteur + Signature */}
+        <div className="px-4 py-2 flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <UserCheck className="w-3.5 h-3.5" />
+            <span className="font-medium text-foreground">
+              {sig?.signataire_nom || 'Inspecteur non renseigné'}
+            </span>
+          </div>
+          {sig?.signature_url ? (
+            <img
+              src={sig.signature_url}
+              alt="Signature"
+              className="h-8 w-auto object-contain ml-2"
+            />
+          ) : (
+            <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground ml-2">
+              Signature
+            </div>
+          )}
+          <span className="text-xs text-muted-foreground ml-auto">
+            {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
+          </span>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -244,83 +531,48 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
             </div>
           </div>
 
-          {displayedEcarts.length > 0 ? (
-            <div className="space-y-3">
-              {displayedEcarts.map((ecart) => {
-                const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
-                return (
-                  <div key={ecart.id} className="border border-border rounded-xl overflow-hidden bg-white">
-                    {/* Ligne 1: Aérodrome · Date · Référence (en-tête bleu clair, texte noir) */}
-                    <div className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-border">
-                      <div className="flex items-center gap-3 text-xs text-foreground">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {aerodrome?.code_oaci || 'N/A'}
-                        </span>
-                        <span className="text-foreground/40">|</span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {surveillance?.date_fin
-                            ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
-                            : 'N/A'}
-                        </span>
-                      </div>
-                      <span className="font-semibold text-sm text-foreground">{ecart.reference}</span>
-                    </div>
-
-                    {/* Ligne 2: Libellé */}
-                    <div className="px-4 py-3 border-b border-border">
-                      <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
-                    </div>
-
-                    {/* Ligne 3: Niveau de risque + Indice OACI */}
-                    <div className="px-4 py-2 bg-muted/10 border-b border-border flex items-center gap-3 flex-wrap">
-                      <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
-                      {ecart.cellule_risque_oaci && (
-                        <>
-                          <span className="text-xs text-muted-foreground">|</span>
-                          <span className="text-xs text-muted-foreground">Indice OACI :</span>
-                          <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
-                            {ecart.cellule_risque_oaci}
-                          </span>
-                          {ecart.probabilite_risque && ecart.gravite_risque && (
-                            <span className="text-xs text-muted-foreground">
-                              P{ecart.probabilite_risque} × G{ecart.gravite_risque}
-                            </span>
-                          )}
-                        </>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {ecart.ref_reglementaire}
-                      </span>
-                    </div>
-
-                    {/* Ligne 4: Inspecteur + Signature */}
-                    <div className="px-4 py-2 flex items-center gap-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span className="font-medium text-foreground">
-                          {sig?.signataire_nom || 'Inspecteur non renseigné'}
-                        </span>
-                      </div>
-                      {sig?.signature_url ? (
-                        <img
-                          src={sig.signature_url}
-                          alt="Signature"
-                          className="h-8 w-auto object-contain ml-2"
-                        />
-                      ) : (
-                        <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground ml-2">
-                          Signature
-                        </div>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
-                      </span>
-                    </div>
+          {ecartsEnrichis.length > 0 ? (
+            <div className="space-y-6">
+              {sgsGroups.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Écarts SGS — par composante</span>
+                    <span className="badge outline text-xs">{sgsGroups.length} composante(s)</span>
                   </div>
-                );
-              })}
+                  {sgsGroups.map(group => (
+                    <div key={group.composante} className="border border-border rounded-xl overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 px-4 py-2 bg-role-primary/10 border-b border-border flex-wrap">
+                        <span className="text-sm font-semibold text-foreground">{group.composante}</span>
+                        <span className={`${getPAOEBadgeNiveau(group.maturiteNiveau || 'absent')} text-xs`}>
+                          Maturité : {group.maturiteNiveau ? PAOE_LABELS[group.maturiteNiveau] : 'N/A'}
+                          {group.maturiteScore != null ? ` (${group.maturiteScore}%)` : ''}
+                        </span>
+                      </div>
+                      <div className="space-y-3 p-3">
+                        {group.ecarts.map(e => renderEcartCard(e, false))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {nonSgsGroups.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Écarts par domaine et criticité</span>
+                  </div>
+                  {nonSgsGroups.map(g => (
+                    <div key={g.domaine} className="border border-border rounded-xl overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-2 bg-muted/10 border-b border-border">
+                        <span className="text-sm font-semibold text-foreground">{g.domaine}</span>
+                        <span className="badge outline text-xs">{g.ecarts.length} écart(s)</span>
+                      </div>
+                      <div className="space-y-3 p-3">
+                        {g.ecarts.map(e => renderEcartCard(e, true))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
