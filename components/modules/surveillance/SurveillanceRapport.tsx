@@ -52,6 +52,7 @@ import { SignaturePadWithColor } from '@/components/modules/signatures/Signature
 import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
 import { getSgsMaturiteLabel } from '@/lib/utils';
+import { PAOE_LABELS, type PAOELevel } from '@/types/checklist';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
 
 
@@ -730,14 +731,45 @@ export default function SurveillanceRapport({
     const sgsScore = sgsEval?.scoreGlobal;
     const sgsNiveau = sgsScore !== undefined ? getSgsMaturiteLabel(sgsScore) : null;
 
+    // ── Résultats PAOE (SGS) : répartition des composantes par niveau ──
+    const sgsComposantes: { label?: string; score?: number; niveauGlobal?: PAOELevel; elements?: { niveauGlobal?: PAOELevel }[] }[] =
+      Array.isArray(sgsEval?.composantes) ? sgsEval.composantes : [];
+    const paoeBreakdown: { niveau: PAOELevel; count: number }[] = (['absent', 'present', 'approprie', 'operationnel', 'efficace'] as PAOELevel[])
+      .map((niveau) => ({ niveau, count: sgsComposantes.filter(c => c.niveauGlobal === niveau).length }))
+      .filter(b => b.count > 0);
+    const paoeBadgeColor: Record<PAOELevel, string> = {
+      absent: 'badge danger',
+      present: 'badge eleve',
+      approprie: 'badge moyen',
+      operationnel: 'badge primary',
+      efficace: 'badge success',
+    };
+    const paoeScoreColor = (s: number) => s >= 80 ? 'success' : s >= 60 ? 'primary' : s >= 40 ? 'warning' : 'danger';
+    const sgsColor = sgsScore !== undefined ? paoeScoreColor(sgsScore) : 'muted';
+
     let html = `
       <div class="space-y-5">
 
         <div class="card border-border">
           <div class="card-header">
-            <div class="card-title text-sm">Taux de conformité global</div>
+            <div class="card-title text-sm">${hasSGS ? 'Maturité du SGS (PAOE — OACI Annexe 19)' : 'Taux de conformité global'}</div>
           </div>
           <div class="card-content">
+            ${hasSGS ? `
+            <div class="flex items-center justify-between mb-2">
+              <span>
+                <span class="text-3xl font-bold text-${sgsColor}">${sgsScore !== undefined ? sgsScore + '%' : 'N/A'}</span>
+                <span class="text-sm text-muted-foreground ml-2">sur ${sgsComposantes.length} composante(s)</span>
+              </span>
+              ${sgsNiveau ? `<span class="badge ${sgsColor} text-sm px-3 py-1">${sgsNiveau}</span>` : '<span class="badge muted text-sm px-3 py-1">Non évalué</span>'}
+            </div>
+            <div class="progress h-2">
+              <div class="progress-bar bg-${sgsColor}" style="width: ${sgsScore ?? 0}%"></div>
+            </div>
+            <div class="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+              ${paoeBreakdown.map(b => `<span>${PAOE_LABELS[b.niveau]} : <strong>${b.count}</strong></span>`).join('')}
+            </div>
+            ` : `
             <div class="flex items-center justify-between mb-2">
               <span>
                 <span class="text-3xl font-bold ${globalColor === 'success' ? 'text-success' : globalColor === 'warning' ? 'text-warning' : 'text-danger'}">${checklistStats.taux}%</span>
@@ -756,60 +788,77 @@ export default function SurveillanceRapport({
               <span>NV : <strong class="text-warning">${checklistStats.nv}</strong></span>
               <span class="ml-auto">${domainesConformes}/${totalDomaines} domaine(s) ≥ 90%</span>
             </div>
+            `}
           </div>
         </div>
 
         <div class="card border-border">
           <div class="card-header">
-            <div class="card-title text-sm">Résultats par domaine</div>
+            <div class="card-title text-sm">${hasSGS ? 'Résultats PAOE par composante' : 'Résultats par domaine'}</div>
           </div>
           <div class="card-content space-y-3">
     `;
 
-    Object.entries(byDomaine).forEach(([domaine, stats]) => {
-      const taux = (stats.sa + stats.ns) > 0 ? Math.round((stats.sa / (stats.sa + stats.ns)) * 100) : 0;
-      const colorBar = taux >= 90 ? 'bg-success' : taux >= 70 ? 'bg-warning' : taux >= 50 ? 'bg-orange-400' : 'bg-danger';
-      html += `
-        <div class="p-3 rounded-lg border border-border">
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-semibold text-sm">${domaine}</span>
-            <span class="${taux >= 90 ? 'text-success' : taux >= 70 ? 'text-warning' : 'text-danger'} font-semibold text-sm">${taux}%</span>
-          </div>
-          <div class="progress h-1.5 mb-2">
-            <div class="progress-bar ${colorBar}" style="width: ${taux}%"></div>
-          </div>
-          <div class="flex gap-3 text-xs text-muted-foreground">
-            <span>SA : <strong class="text-success">${stats.sa}</strong></span>
-            <span>NS : <strong class="text-danger">${stats.ns}</strong></span>
-            <span>NV : <strong class="text-warning">${stats.nv}</strong></span>
-            <span class="ml-auto">${stats.total} point(s) vérifié(s)</span>
-          </div>
-        </div>
-      `;
-    });
-
     if (hasSGS) {
-      const sgsColor = sgsScore !== undefined
-        ? sgsScore >= 80 ? 'success' : sgsScore >= 60 ? 'primary' : sgsScore >= 40 ? 'warning' : 'danger'
-        : 'muted';
-      html += `
-        <div class="p-3 rounded-lg border border-${sgsColor}/30 bg-${sgsColor}/5">
-          <div class="flex items-center justify-between mb-1">
-            <span class="font-semibold text-sm">Système de Gestion de la Sécurité (SGS)</span>
-            ${sgsNiveau ? `<span class="badge ${sgsColor}">${sgsNiveau}</span>` : '<span class="badge muted">Non évalué</span>'}
-          </div>
-          ${sgsScore !== undefined ? `
-          <div class="flex items-center gap-2 mt-2">
-            <span class="text-2xl font-bold text-${sgsColor}">${sgsScore}%</span>
-            <div class="flex-1 progress h-1.5">
-              <div class="progress-bar bg-${sgsColor}" style="width: ${sgsScore}%"></div>
+      if (sgsComposantes.length > 0) {
+        sgsComposantes.forEach((comp) => {
+          const cScore = comp.score ?? 0;
+          const cColor = paoeScoreColor(cScore);
+          const cNiveau = comp.niveauGlobal || 'absent';
+          html += `
+            <div class="p-3 rounded-lg border border-border">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-semibold text-sm">${comp.label || 'Composante'}</span>
+                <span class="badge ${paoeBadgeColor[cNiveau]}">${PAOE_LABELS[cNiveau]}</span>
+              </div>
+              <div class="flex items-center justify-between mb-1 text-xs text-muted-foreground">
+                <span>Score : <strong class="text-foreground">${cScore}%</strong></span>
+                <span>${comp.elements?.length || 0} élément(s)</span>
+              </div>
+              <div class="progress h-1.5">
+                <div class="progress-bar bg-${cColor}" style="width: ${cScore}%"></div>
+              </div>
+            </div>
+          `;
+        });
+      } else if (sgsScore !== undefined) {
+        html += `
+          <div class="p-3 rounded-lg border border-${sgsColor}/30 bg-${sgsColor}/5">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-semibold text-sm">Système de Gestion de la Sécurité (SGS)</span>
+              ${sgsNiveau ? `<span class="badge ${sgsColor}">${sgsNiveau}</span>` : '<span class="badge muted">Non évalué</span>'}
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-2xl font-bold text-${sgsColor}">${sgsScore}%</span>
+              <div class="flex-1 progress h-1.5">
+                <div class="progress-bar bg-${sgsColor}" style="width: ${sgsScore}%"></div>
+              </div>
             </div>
           </div>
-          <p class="text-xs text-muted-foreground mt-1">
-            Évaluation PAOE (OACI Annexe 19) — ${sgsEval?.composantes?.length || 0} composante(s) évaluée(s).
-          </p>` : '<p class="text-xs text-muted-foreground mt-1">L\'évaluation PAOE n\'a pas été renseignée.</p>'}
-        </div>
-      `;
+        `;
+      }
+    } else {
+      Object.entries(byDomaine).forEach(([domaine, stats]) => {
+        const taux = (stats.sa + stats.ns) > 0 ? Math.round((stats.sa / (stats.sa + stats.ns)) * 100) : 0;
+        const colorBar = taux >= 90 ? 'bg-success' : taux >= 70 ? 'bg-warning' : taux >= 50 ? 'bg-orange-400' : 'bg-danger';
+        html += `
+          <div class="p-3 rounded-lg border border-border">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-semibold text-sm">${domaine}</span>
+              <span class="${taux >= 90 ? 'text-success' : taux >= 70 ? 'text-warning' : 'text-danger'} font-semibold text-sm">${taux}%</span>
+            </div>
+            <div class="progress h-1.5 mb-2">
+              <div class="progress-bar ${colorBar}" style="width: ${taux}%"></div>
+            </div>
+            <div class="flex gap-3 text-xs text-muted-foreground">
+              <span>SA : <strong class="text-success">${stats.sa}</strong></span>
+              <span>NS : <strong class="text-danger">${stats.ns}</strong></span>
+              <span>NV : <strong class="text-warning">${stats.nv}</strong></span>
+              <span class="ml-auto">${stats.total} point(s) vérifié(s)</span>
+            </div>
+          </div>
+        `;
+      });
     }
 
     if (ecartsList.length > 0) {

@@ -4432,6 +4432,22 @@ html.dark .cl-btn-success.active {
 .rapport-a4 .rapport-content .card-header:focus-within .cl-btn {
   opacity: 1;
 }
+/* Les sections éditables du rapport (EditableSection) placent leurs boutons
+   (Modifier / AERORISQ / Valider / Annuler) dans l'en-tête de .rapport-section,
+   pas dans .card-header. On les révèle au survol pour permettre la rédaction. */
+.rapport-a4 .rapport-content .rapport-section:hover button,
+.rapport-a4 .rapport-content .rapport-section:hover .btn,
+.rapport-a4 .rapport-content .rapport-section:hover .cl-btn,
+.rapport-a4 .rapport-content .rapport-section:focus-within button,
+.rapport-a4 .rapport-content .rapport-section:focus-within .btn {
+  opacity: 1;
+}
+/* En mode édition (bloc contentEditable Valider/Annuler), on force l'affichage
+   des contrôles pour qu'ils restent utilisables même sans survol. */
+.rapport-a4 .rapport-content .rapport-section:has([contenteditable="true"]) button,
+.rapport-a4 .rapport-content .rapport-section:has([contenteditable="true"]) .btn {
+  opacity: 1;
+}
 /* Titres de section dans le rapport */
 .rapport-a4 .rapport-content h2,
 .rapport-a4 .rapport-content h3 {
