@@ -7,7 +7,6 @@ import {
   Download,
   Eye,
   ChevronDown,
-  ChevronRight,
   Users,
   AlertTriangle,
   CheckCircle2,
@@ -17,23 +16,24 @@ import {
   Minus,
   Copy,
   BarChart3,
-  FolderTree,
-  Target,
-  Calendar,
-  MapPin,
   UserCheck,
-  FileArchive,
   Loader2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Ecart, type PresenceEntry } from '@/lib/store';
+import { useAppStore, type PresenceEntry } from '@/lib/store';
 import { getCellColor } from '@/lib/risque';
 import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PresenceSheet } from './PresenceSheet';
-
-const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
 // ============================================================
 // ANNEXE A-1 : FICHES DE PRÉSENCE
@@ -207,9 +207,8 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 // ANNEXE A-2 : ÉCARTS CONSTATÉS (avec vérification de cohérence)
 // ============================================================
 
-function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; readOnly: boolean }) {
+function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   const [expanded, setExpanded] = useState(true);
-  const [editedEcarts, setEditedEcarts] = useState<Ecart[]>([]);
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
   const surveillances = useAppStore(s => s.surveillances);
@@ -227,7 +226,7 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
     () => getEcartsEffectifs(surveillanceId),
     [getEcartsEffectifs, surveillanceId]
   );
-  const displayedEcarts = editedEcarts.length > 0 ? editedEcarts : realEcarts;
+  const displayedEcarts = realEcarts;
 
   const stats = {
     total: displayedEcarts.length,
@@ -245,19 +244,6 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
       case 'moyen': return 'badge moyen';
       default: return 'badge neutral';
     }
-  };
-
-  const handleEditEcart = (index: number, field: string, value: string) => {
-    const newEcarts = [...displayedEcarts];
-    newEcarts[index] = { ...newEcarts[index], [field]: value };
-    setEditedEcarts(newEcarts);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Modification locale',
-      message: 'Cette modification ne sera pas persistée dans le système',
-      canal: 'in_app',
-    });
   };
 
   const handleCopyTable = () => {
@@ -306,17 +292,6 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
     });
   };
 
-  const handleReset = () => {
-    setEditedEcarts([]);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'info',
-      title: 'Réinitialisation',
-      message: 'Les écarts ont été réinitialisés aux données réelles',
-      canal: 'in_app',
-    });
-  };
-
   return (
     <div className="accordion mb-4">
       <div className="accordion-trigger">
@@ -336,29 +311,20 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
           <span className="badge success text-xs">{stats.clos} clôturé(s)</span>
         </div>
         <div className="flex items-center gap-2">
-          {editedEcarts.length > 0 && (
-            <button onClick={handleReset} className="btn btn-sm px-3 py-1 btn-warning">
-              Réinitialiser
-            </button>
-          )}
-          {!readOnly && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyTable(); }}
-                className="action-button"
-                title="Copier le tableau"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleExportEcarts(); }}
-                className="action-button"
-                title="Exporter CSV"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-            </>
-          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCopyTable(); }}
+            className="action-button"
+            title="Copier le tableau"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleExportEcarts(); }}
+            className="action-button"
+            title="Exporter CSV"
+          >
+            <Download className="w-4 h-4" />
+          </button>
           <ChevronDown
             className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
             onClick={() => setExpanded(!expanded)}
@@ -392,91 +358,82 @@ function AnnexeEcarts({ surveillanceId, readOnly }: { surveillanceId: string; re
           </div>
 
           {displayedEcarts.length > 0 ? (
-            <div className="space-y-3">
-              {displayedEcarts.map((ecart, idx) => {
-                const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
-                return (
-                  <div key={ecart.id} className="border border-border rounded-xl overflow-hidden bg-white">
-                    {/* Ligne 1: Aérodrome · Date · Référence */}
-                    <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b border-border">
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {aerodrome?.code_oaci || 'N/A'}
-                        </span>
-                        <span className="text-border">|</span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {surveillance?.date_fin
-                            ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
-                            : 'N/A'}
-                        </span>
-                      </div>
-                      <span className="font-semibold text-sm text-foreground">{ecart.reference}</span>
-                    </div>
-
-                    {/* Ligne 2: Libellé */}
-                    <div className="px-4 py-3 border-b border-border">
-                      {readOnly ? (
-                        <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
-                      ) : (
-                        <textarea
-                          value={ecart.libelle}
-                          onChange={(e) => handleEditEcart(idx, 'libelle', e.target.value)}
-                          className={`form-textarea text-sm w-full ${focusClass}`}
-                          rows={2}
-                        />
-                      )}
-                    </div>
-
-                    {/* Ligne 3: Niveau de risque + Indice OACI */}
-                    <div className="px-4 py-2 bg-muted/10 border-b border-border flex items-center gap-3 flex-wrap">
-                      <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
-                      {ecart.cellule_risque_oaci && (
-                        <>
-                          <span className="text-xs text-muted-foreground">|</span>
-                          <span className="text-xs text-muted-foreground">Indice OACI :</span>
-                          <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
-                            {ecart.cellule_risque_oaci}
-                          </span>
-                          {ecart.probabilite_risque && ecart.gravite_risque && (
-                            <span className="text-xs text-muted-foreground">
-                              P{ecart.probabilite_risque} × G{ecart.gravite_risque}
-                            </span>
+            <div className="rapport-ecarts-table">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-28">Référence</TableHead>
+                    <TableHead>Libellé / constat</TableHead>
+                    <TableHead className="w-24">Niveau</TableHead>
+                    <TableHead className="w-36">Indice OACI</TableHead>
+                    <TableHead className="w-40">Réf. réglementaire</TableHead>
+                    <TableHead className="w-40">Signataire</TableHead>
+                    <TableHead className="w-24">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayedEcarts.map((ecart) => {
+                    const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
+                    return (
+                      <TableRow key={ecart.id}>
+                        <TableCell className="font-semibold text-foreground align-top">{ecart.reference}</TableCell>
+                        <TableCell className="align-top">
+                          <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
+                          {ecart.ref_reglementaire && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              OACI : {aerodrome?.code_oaci || 'N/A'} · {surveillance?.date_fin
+                                ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
+                                : 'N/A'}
+                            </p>
                           )}
-                        </>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {ecart.ref_reglementaire}
-                      </span>
-                    </div>
-
-                    {/* Ligne 4: Inspecteur + Signature */}
-                    <div className="px-4 py-2 flex items-center gap-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span className="font-medium text-foreground">
-                          {sig?.signataire_nom || 'Inspecteur non renseigné'}
-                        </span>
-                      </div>
-                      {sig?.signature_url ? (
-                        <img
-                          src={sig.signature_url}
-                          alt="Signature"
-                          className="h-8 w-auto object-contain ml-2"
-                        />
-                      ) : (
-                        <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground ml-2">
-                          Signature
-                        </div>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {ecart.cellule_risque_oaci ? (
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                                {ecart.cellule_risque_oaci}
+                              </span>
+                              {ecart.probabilite_risque && ecart.gravite_risque && (
+                                <span className="text-xs text-muted-foreground">
+                                  P{ecart.probabilite_risque}×G{ecart.gravite_risque}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground align-top">{ecart.ref_reglementaire}</TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-sm text-foreground">
+                              {sig?.signataire_nom || 'Inspecteur non renseigné'}
+                            </span>
+                          </div>
+                          {sig?.signature_url ? (
+                            <img
+                              src={sig.signature_url}
+                              alt="Signature"
+                              className="h-8 w-auto object-contain mt-1"
+                            />
+                          ) : (
+                            <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground mt-1">
+                              Signé
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground align-top whitespace-nowrap">
+                          {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
@@ -520,6 +477,23 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
   };
 
   const niveauConfig = profil ? getNiveauConfig(profil.score_global) : null;
+
+  const critereLabels: Record<string, string> = {
+    c1: 'Maturité SGS',
+    c2: 'Efficacité des PAC',
+    c3: 'Conformité réglementaire',
+    c4: 'Charge critique',
+    c5: 'Résilience',
+  };
+  const minCritere = profil
+    ? ([
+        { key: 'c1', label: critereLabels.c1, value: profil.c1 },
+        { key: 'c2', label: critereLabels.c2, value: profil.c2 },
+        { key: 'c3', label: critereLabels.c3, value: profil.c3 },
+        { key: 'c4', label: critereLabels.c4, value: profil.c4 },
+        { key: 'c5', label: critereLabels.c5, value: profil.c5 },
+      ] as { key: string; label: string; value: number }[]).sort((a, b) => a.value - b.value)[0]
+    : { key: 'c5', label: 'Résilience', value: 0 };
 
   if (!profil) {
     return (
@@ -580,6 +554,29 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
           </div>
           <div className="progress h-2 mb-4">
             <div className={`progress-bar ${getProgressClass(profil.score_global)}`} style={{ width: `${profil.score_global}%` }} />
+          </div>
+
+          <div className="mb-5 p-3 rounded-lg border border-border/60 bg-white">
+            <p className="text-sm text-foreground leading-relaxed">
+              Le niveau de risque global de cet aérodrome est
+              <strong className="text-foreground"> {niveauConfig?.label.toLowerCase()} </strong>avec un score de{' '}
+              <strong className="text-foreground">{profil.score_global}/100</strong>
+              {profil.tendance === 'hausse' ? ' , en amélioration par rapport aux calculs précédents (tendance haussière).' :
+                profil.tendance === 'baisse' ? ' , en dégradation (tendance baissière) : une attention particulière est requise.' :
+                ' , stable par rapport aux calculs précédents.'}
+            </p>
+            <p className="text-sm text-foreground leading-relaxed mt-2">
+              Le critère le plus fragilisant est la{' '}
+              <strong className="text-foreground">{minCritere.label}</strong> (score {minCritere.value}/100) : c'est sur ce
+              point que les actions de remédiation devraient être priorisées.
+            </p>
+            {typeof profil.prediction_3m === 'number' && (
+              <p className="text-sm text-foreground leading-relaxed mt-2">
+                À 3 mois, le score projeté est de <strong className="text-foreground">{profil.prediction_3m}/100</strong>
+                {typeof profil.prediction_6m === 'number' && <> et de <strong className="text-foreground">{profil.prediction_6m}/100</strong> à 6 mois</>},
+                ce qui permet d'anticiper l'évolution du niveau de risque.
+              </p>
+            )}
           </div>
 
           <div className="space-y-4 mb-4">
@@ -643,180 +640,6 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
 }
 
 // ============================================================
-// ANNEXE A-4 : STRUCTURE DE LA CHECKLIST (arborescence complète)
-// ============================================================
-
-function AnnexeChecklistStructure({ surveillanceId, readOnly }: { surveillanceId: string; readOnly: boolean }) {
-  const [expanded, setExpanded] = useState(true);
-  const [expandedDomaines, setExpandedDomaines] = useState<string[]>([]);
-  const [expandedSousDomaines, setExpandedSousDomaines] = useState<Record<string, boolean>>({});
-  const checklistHierarchy = useAppStore(s => s.checklistHierarchy);
-
-  const hierarchy = checklistHierarchy?.[surveillanceId] || [];
-
-  const toggleDomaine = (domaineId: string) => {
-    setExpandedDomaines(prev =>
-      prev.includes(domaineId) ? prev.filter(id => id !== domaineId) : [...prev, domaineId]
-    );
-  };
-
-  const toggleSousDomaine = (sousDomaineId: string) => {
-    setExpandedSousDomaines(prev => ({
-      ...prev,
-      [sousDomaineId]: !prev[sousDomaineId],
-    }));
-  };
-
-  const getStats = (domaine: any) => {
-    let total = 0, sa = 0, ns = 0, nv = 0, na = 0;
-    domaine.sousDomaines?.forEach((sd: any) => {
-      sd.sousSousDomaines?.forEach((ssd: any) => {
-        ssd.items?.forEach((item: any) => {
-          total++;
-          if (item.resultat === 'SA') sa++;
-          else if (item.resultat === 'NS') ns++;
-          else if (item.resultat === 'NA') na++;
-          else nv++;
-        });
-      });
-    });
-    const taux = (sa + ns) > 0 ? Math.round((sa / (sa + ns)) * 100) : 0;
-    return { total, sa, ns, nv, na, taux };
-  };
-
-  if (!hierarchy || hierarchy.length === 0) {
-    return (
-      <div className="accordion mb-4">
-        <button
-          className="accordion-trigger w-full text-left"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <div className="flex items-center gap-3">
-            <FolderTree className="w-5 h-5 text-role-primary" />
-            <span className="font-semibold text-foreground">Annexe A-4: Structure de la checklist</span>
-          </div>
-          <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        </button>
-        {expanded && (
-          <div className="accordion-content text-center text-muted-foreground">
-            <FolderTree className="w-8 h-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">Aucune structure de checklist disponible</p>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="accordion mb-4">
-      <div className="accordion-trigger">
-        <div
-          className="flex items-center gap-3 flex-1 cursor-pointer"
-          onClick={() => setExpanded(!expanded)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && setExpanded(!expanded)}
-        >
-          <FolderTree className="w-5 h-5 text-role-primary" />
-          <span className="font-semibold text-foreground">Annexe A-4: Structure de la checklist</span>
-          <span className="badge outline text-xs">{hierarchy.length} domaine(s)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <ChevronDown
-            className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
-            onClick={() => setExpanded(!expanded)}
-          />
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="p-4 animate-fade-in">
-          <div className="space-y-4">
-            {hierarchy.map(domaine => {
-              const stats = getStats(domaine);
-              const isExpanded = expandedDomaines.includes(domaine.id);
-              return (
-                <div key={domaine.id} className="border rounded-lg overflow-hidden">
-                  <button
-                    className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
-                    onClick={() => toggleDomaine(domaine.id)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Target className="w-4 h-4 text-role-primary" />
-                      <span className="font-semibold text-sm">{domaine.nom}</span>
-                      <span className="badge outline text-xs">{domaine.sousDomaines?.length || 0} sous-domaine(s)</span>
-                      <span className={`badge ${stats.taux >= 70 ? 'success' : stats.taux >= 50 ? 'warning' : 'danger'} text-xs`}>
-                        {stats.taux}%
-                      </span>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {isExpanded && (
-                    <div className="p-3 space-y-3">
-                      {domaine.sousDomaines?.map((sd: any) => {
-                        const isSdExpanded = expandedSousDomaines[sd.id];
-                        return (
-                          <div key={sd.id} className="ml-4">
-                            <button
-                              className="flex items-center gap-2 w-full text-left"
-                              onClick={() => toggleSousDomaine(sd.id)}
-                            >
-                              <ChevronRight className={`w-3 h-3 transition-transform ${isSdExpanded ? 'rotate-90' : ''}`} />
-                              <span className="font-medium text-sm">{sd.nom}</span>
-                              <span className="badge outline text-xs">{sd.sousSousDomaines?.length || 0} sous-sous-domaine(s)</span>
-                            </button>
-                            
-                            {isSdExpanded && (
-                              <div className="ml-6 mt-2 space-y-3">
-                                {sd.sousSousDomaines?.map((ssd: any) => (
-                                  <div key={ssd.id} className="border-l-2 border-border pl-3">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <span className="text-sm font-medium">{ssd.nom}</span>
-                                      <span className="badge neutral text-xs">{ssd.items?.length || 0} item(s)</span>
-                                    </div>
-                                    
-                                    {ssd.items && ssd.items.length > 0 && (
-                                      <div className="ml-4 space-y-1">
-                                        {ssd.items.map((item: any) => {
-                                          const resultat = item.resultat || 'NV';
-                                          return (
-                                            <div key={item.id} className="text-xs text-muted-foreground flex items-center gap-2 py-1">
-                                              <span className="code-oaci-badge text-xs">{item.numero}</span>
-                                              <span className="truncate flex-1">{item.point_verification}</span>
-                                              <span className={`badge ${resultat === 'SA' ? 'success' : resultat === 'NS' ? 'danger' : resultat === 'NA' ? 'neutral' : 'warning'} text-xs`}>
-                                                {resultat}
-                                              </span>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {(!domaine.sousDomaines || domaine.sousDomaines.length === 0) && (
-                        <div className="text-center text-xs text-muted-foreground py-2">
-                          Aucun sous-domaine
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
 // COMPOSANT PRINCIPAL
 // ============================================================
 
@@ -843,7 +666,7 @@ export function RapportAnnexes({
   const aerodrome = aerodromes.find(a => a.id === aerodromeId);
   const profil = aerodromeId ? profilsRisque[aerodromeId] : undefined;
 
-  const [expandedSections, setExpandedSections] = useState<string[]>(['A1', 'A2', 'A3', 'A4']);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['A1', 'A2', 'A3']);
   const [expandedAll, setExpandedAll] = useState(true);
   const [exportingAnnexes, setExportingAnnexes] = useState(false);
 
@@ -852,21 +675,7 @@ export function RapportAnnexes({
     try {
       const { exportAnnexeDOCX } = await import('@/lib/services/rapportAnnexeService');
       const realEcarts = useAppStore.getState().getEcartsEffectifsSurveillance(surveillanceId);
-      const items = useAppStore.getState().checklistItems[surveillanceId] || [];
       const fichesPresence = useAppStore.getState().getFichesBySurveillance(surveillanceId);
-      const saCount = items.filter(i => i.resultat === 'SA').length;
-      const nsCount = items.filter(i => i.resultat === 'NS').length;
-      const nvCount = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
-      const totalItems = items.length;
-      const byDomaine = new Map<string, { sa: number; ns: number; nv: number }>();
-      items.forEach((item: any) => {
-        const d = item.domaine || 'Général';
-        if (!byDomaine.has(d)) byDomaine.set(d, { sa: 0, ns: 0, nv: 0 });
-        const stats = byDomaine.get(d)!;
-        if (item.resultat === 'SA') stats.sa++;
-        else if (item.resultat === 'NS') stats.ns++;
-        else if (item.resultat === 'NV' || !item.resultat) stats.nv++;
-      });
       const niveauLabel = (s: number) => s >= 80 ? 'Bon' : s >= 60 ? 'Moyen' : s >= 30 ? 'Faible' : 'Critique';
 
       await exportAnnexeDOCX({
@@ -908,18 +717,12 @@ export function RapportAnnexes({
         analyse_profil: profil
           ? `Score global: ${profil.score_global}/100 (${profil.niveau}). C1: ${profil.c1}/100, C2: ${profil.c2}/100, C3: ${profil.c3}/100, C4: ${profil.c4}/100, C5: ${profil.c5}/100. Tendance: ${profil.tendance}.`
           : 'Non disponible.',
-        domaines_checklist: Array.from(byDomaine.entries()).map(([nom, st]) => ({
-          nom_domaine: nom,
-          sa_domaine: st.sa,
-          ns_domaine: st.ns,
-          nv_domaine: st.nv,
-          taux_domaine: (st.sa + st.ns) > 0 ? `${Math.round((st.sa / (st.sa + st.ns)) * 100)}%` : '0%',
-        })),
-        taux_global: (saCount + nsCount) > 0 ? `${Math.round((saCount / (saCount + nsCount)) * 100)}%` : '0%',
-        sa_total: saCount,
-        ns_total: nsCount,
-        nv_total: nvCount,
-        total_items: totalItems,
+        domaines_checklist: [],
+        taux_global: '0%',
+        sa_total: 0,
+        ns_total: 0,
+        nv_total: 0,
+        total_items: 0,
       });
 
       addNotification({
@@ -945,7 +748,7 @@ export function RapportAnnexes({
   const toggleAll = () => {
     setExpandedAll(!expandedAll);
     if (!expandedAll) {
-      setExpandedSections(['A1', 'A2', 'A3', 'A4']);
+      setExpandedSections(['A1', 'A2', 'A3']);
     } else {
       setExpandedSections([]);
     }
@@ -976,7 +779,7 @@ export function RapportAnnexes({
         <div className="flex items-center gap-2">
           <FileText className="w-5 h-5 text-role-primary" />
           <h3 className="font-semibold text-foreground">Annexes du rapport</h3>
-          <span className="badge outline text-xs">A-1, A-2, A-3, A-4</span>
+          <span className="badge outline text-xs">A-1, A-2, A-3</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={toggleAll} className="btn btn-secondary btn-sm gap-1">
@@ -997,15 +800,11 @@ export function RapportAnnexes({
       )}
 
       {expandedSections.includes('A2') && (
-        <AnnexeEcarts surveillanceId={surveillanceId} readOnly={readOnly} />
+        <AnnexeEcarts surveillanceId={surveillanceId} />
       )}
 
       {expandedSections.includes('A3') && aerodromeId && (
         <AnnexeProfilRisque aerodromeId={aerodromeId} readOnly={readOnly} />
-      )}
-
-      {expandedSections.includes('A4') && (
-        <AnnexeChecklistStructure surveillanceId={surveillanceId} readOnly={readOnly} />
       )}
 
       {expandedSections.length === 0 && (
