@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/table';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
+import { fetchEcartsRedactionBySurveillance } from '@/lib/datastore';
 import { getCellColor } from '@/lib/risque';
 import { getSgsMaturiteLabel } from '@/lib/utils';
 
@@ -128,20 +129,51 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes = useAppStore(s => s.aerodromes);
   const getEcartsEffectifs = useAppStore(s => s.getEcartsEffectifsSurveillance);
+  const setEcartsRedaction = useAppStore(s => s.setEcartsRedaction);
   // Souscription réactive aux sources d'écarts : si les brouillons (ecartsRedaction)
   // ou les écarts officiels changent pendant que l'annexe est montée, la liste se
   // met à jour sans rechargement.
+  const storedRedaction = useAppStore(s => s.ecartsRedaction);
   useAppStore(s => s.ecarts);
-  useAppStore(s => s.ecartsRedaction);
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
   const sigs = surveillance?.signatures_ecarts || [];
 
+  // L'annexe A-2 n'affiche QUE les écarts signés : seul le remplissage de
+  // `signatures_ecarts` (signature en lot depuis /ecarts) valide l'affichage.
+  const ecartsSignes = sigs.length > 0;
+
+  // Chargement des brouillons d'écarts depuis Supabase si le store est vide au
+  // moment où l'annexe est montée (rapport ouvert directement sans passer par
+  // /ecarts : le store Zustand démarre vide à chaque session). Une fois chargés,
+  // la souscription à `ecartsRedaction` maintient la liste à jour.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (getEcartsEffectifs(surveillanceId).length > 0) return;
+        const persisted = await fetchEcartsRedactionBySurveillance(surveillanceId);
+        if (cancelled || persisted.length === 0) return;
+        const storeIds = new Set(storedRedaction.map(e => String(e.id)));
+        const toAdd = persisted.filter(e => !storeIds.has(String(e.id)));
+        if (toAdd.length > 0) {
+          setEcartsRedaction([...storedRedaction, ...toAdd]);
+        }
+      } catch (err) {
+        console.error('[AnnexeEcarts] chargement des écarts signés depuis Supabase échoué:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surveillanceId, setEcartsRedaction]);
+
   // Pendant la rédaction les écarts vivent dans `ecartsRedaction` (brouillons) ;
   // on lit donc les écarts « effectifs » (brouillons normalisés) pour que
-  // l'annexe A-2 affiche les écarts avant même la transmission.
-  const displayedEcarts = getEcartsEffectifs(surveillanceId);
+  // l'annexe A-2 puisse les afficher une fois signés.
+  const ecartsEffectifs = getEcartsEffectifs(surveillanceId);
+  // Si les écarts ne sont pas encore signés, on n'affiche rien (placeholder).
+  const displayedEcarts = ecartsSignes ? ecartsEffectifs : [];
 
   const stats = {
     total: displayedEcarts.length,
@@ -292,8 +324,20 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-success" />
-              <p className="text-sm">Aucun écart constaté</p>
+              {ecartsSignes ? (
+                <>
+                  <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-success" />
+                  <p className="text-sm">Aucun écart constaté</p>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-10 h-10 mx-auto mb-2 text-warning" />
+                  <p className="text-sm font-medium text-foreground">Écarts non encore signés</p>
+                  <p className="text-xs mt-1">
+                    Les écarts seront affichés dans l'annexe une fois signés depuis /ecarts.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>
