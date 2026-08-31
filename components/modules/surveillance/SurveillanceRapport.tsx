@@ -34,6 +34,11 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignJustify,
+  Palette,
+  Highlighter,
+  RemoveFormatting,
+  Type,
   List,
   ListOrdered,
   Link2,
@@ -44,6 +49,7 @@ import {
   Brain,
   History,
   Clock,
+  RefreshCw,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
@@ -84,6 +90,8 @@ function RapportToolbar({
   onSave,
   onPrint,
   onExportPDF,
+  onExportDOCX,
+  onRegenerate,
   onLoadReport,
   readOnly,
   onSign,
@@ -99,6 +107,8 @@ function RapportToolbar({
   onSave: () => void;
   onPrint: () => void;
   onExportPDF: () => void;
+  onExportDOCX: () => void;
+  onRegenerate: () => void;
   onLoadReport: () => void;
   readOnly: boolean;
   onSign: () => void;
@@ -135,6 +145,9 @@ function RapportToolbar({
         <button onClick={onExportPDF} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
           <Download className="w-3 h-3" /> PDF
         </button>
+        <button onClick={onExportDOCX} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+          <FileText className="w-3 h-3" /> Word
+        </button>
         <button onClick={onPrint} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
           <Printer className="w-3 h-3" /> Imprimer
         </button>
@@ -147,6 +160,9 @@ function RapportToolbar({
         <div className="w-px h-4 bg-border mx-1" />
         {!readOnly && !isSigned && (
           <>
+            <button onClick={onRegenerate} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
+              <RefreshCw className="w-3 h-3" /> Régénérer
+            </button>
             <button
               onClick={() => setIaPanelOpen(!iaPanelOpen)}
               className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${iaPanelOpen ? 'btn-primary' : ''}`}
@@ -196,6 +212,13 @@ function RapportToolbar({
           <button onMouseDown={(e) => execOnDown(e, 'justifyLeft')} className="action-button p-1" title="Aligner gauche"><AlignLeft className="w-3 h-3" /></button>
           <button onMouseDown={(e) => execOnDown(e, 'justifyCenter')} className="action-button p-1" title="Centrer"><AlignCenter className="w-3 h-3" /></button>
           <button onMouseDown={(e) => execOnDown(e, 'justifyRight')} className="action-button p-1" title="Aligner droite"><AlignRight className="w-3 h-3" /></button>
+          <button onMouseDown={(e) => execOnDown(e, 'justifyFull')} className="action-button p-1" title="Justifier"><AlignJustify className="w-3 h-3" /></button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button onClick={() => { const c = prompt('Couleur du texte (ex: #D32F2F ou red) :'); if (c) onExecCommand('foreColor', c); }} className="action-button p-1" title="Couleur du texte"><Palette className="w-3 h-3" /></button>
+          <button onClick={() => { const c = prompt('Couleur de surlignage (ex: #FFF176 ou yellow) :'); if (c) onExecCommand('hiliteColor', c); }} className="action-button p-1" title="Surligner"><Highlighter className="w-3 h-3" /></button>
+          <button onClick={() => { const f = prompt('Police (ex: Arial, Times New Roman) :', 'Arial'); if (f) onExecCommand('fontName', f); }} className="action-button p-1" title="Police"><Type className="w-3 h-3" /></button>
+          <button onClick={() => { const s = prompt('Taille (1-7, ex: 4) :', '4'); if (s) onExecCommand('fontSize', s); }} className="action-button text-[10px] px-1.5 py-1" title="Taille de police">T</button>
+          <button onMouseDown={(e) => execOnDown(e, 'removeFormat')} className="action-button p-1" title="Effacer la mise en forme"><RemoveFormatting className="w-3 h-3" /></button>
           <div className="w-px h-4 bg-border mx-0.5" />
           <button onClick={() => { const url = prompt('URL du lien :'); if (url) onExecCommand('createLink', url); }} className="action-button p-1" title="Lien"><Link2 className="w-3 h-3" /></button>
           <button onClick={() => { const url = prompt('URL de l\'image :'); if (url) onExecCommand('insertImage', url); }} className="action-button p-1" title="Image"><ImageIcon className="w-3 h-3" /></button>
@@ -258,6 +281,7 @@ function PageGarde({
   const [titreLigne2, setTitreLigne2] = useState(values?.titreLigne2 ?? `Aéroport de ${aerodrome?.nom || ''} (${aerodrome?.code_oaci || ''})`);
   const [dateInspection, setDateInspection] = useState(values?.dateInspection ?? `du ${new Date(surveillance?.date_debut).toLocaleDateString('fr-FR')} au ${new Date(surveillance?.date_fin).toLocaleDateString('fr-FR')}`);
   const [referentiel, setReferentiel] = useState(values?.referentiel ?? `${new Date().getFullYear()}_01_${aerodrome?.code_oaci || 'XXX'}_SURV`);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (values) {
@@ -302,6 +326,24 @@ function PageGarde({
 
   return (
     <div className="page-garde text-center" style={{ pageBreakAfter: 'avoid' }}>
+      {editable && (
+        <div className="flex items-center justify-end mb-4">
+          {!isEditing ? (
+            <button onClick={() => setIsEditing(true)} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
+              <PenLine className="w-3 h-3 mr-1" /> Modifier
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setIsEditing(false)} className="btn btn-sm px-2 py-0.5 btn-success text-xs">
+                <CheckCircle className="w-3 h-3 mr-1" /> Valider
+              </button>
+              <button onClick={() => { setIsEditing(false); }} className="btn btn-sm px-2 py-0.5 btn-danger text-xs">
+                <X className="w-3 h-3 mr-1" /> Annuler
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <h1 className="text-2xl font-bold">République du Sénégal</h1>
       <div className="flex justify-center"><img src="/drapeau_SN.png" className="h-16 my-2" alt="Drapeau Sénégal" onError={(e) => (e.currentTarget.style.display = 'none')} /></div>
       <p className="devise">Un Peuple – Un But – Une Foi</p>
@@ -309,7 +351,7 @@ function PageGarde({
       <hr className="separator" />
 
       <div>
-        {editable ? (
+        {isEditing ? (
           <input
             type="text"
             value={ministere}
@@ -321,7 +363,7 @@ function PageGarde({
         )}
         <div className="flex justify-center"><img src="/logo-anacim.png" className="h-12 my-3" alt="Logo ANACIM" onError={(e) => (e.currentTarget.style.display = 'none')} /></div>
         <p className="text-sm font-bold">AGENCE NATIONALE DE L'AVIATION CIVILE ET DE LA METEOROLOGIE</p>
-        {editable ? (
+        {isEditing ? (
           <input
             type="text"
             value={direction}
@@ -335,7 +377,7 @@ function PageGarde({
 
       <hr className="separator" />
 
-      {editable ? (
+      {isEditing ? (
         <input
           type="text"
           value={titreLigne1}
@@ -345,7 +387,7 @@ function PageGarde({
       ) : (
         <h2 className="sous-titre">{titreLigne1}</h2>
       )}
-      {editable ? (
+      {isEditing ? (
         <input
           type="text"
           value={titreLigne2}
@@ -361,7 +403,7 @@ function PageGarde({
       <div className="infos">
         <div className="flex items-center gap-2">
           <strong>Date de l'inspection :</strong>
-          {editable ? (
+          {isEditing ? (
             <input type="text" value={dateInspection} onChange={handleDateChange} className="form-input flex-1 hg-label" />
           ) : (
             <span>{dateInspection}</span>
@@ -369,7 +411,7 @@ function PageGarde({
         </div>
         <div className="flex items-center gap-2">
           <strong>Référentiel :</strong>
-          {editable ? (
+          {isEditing ? (
             <input type="text" value={referentiel} onChange={handleReferentielChange} className="form-input flex-1 hg-label" />
           ) : (
             <span>{referentiel}</span>
@@ -466,7 +508,7 @@ function EditableSection({
         <div className="flex items-center gap-1">
           {onImprove && (
             <div className="relative">
-              <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-2 py-0.5 text-xs gap-1">
+              <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
                 {isImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
                 AERORISQ
               </button>
@@ -494,7 +536,7 @@ function EditableSection({
               )}
             </div>
           )}
-          <button onClick={() => setIsEditing(true)} className="btn btn-sm px-2 py-0.5 text-xs">
+          <button onClick={() => setIsEditing(true)} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
             <PenLine className="w-3 h-3 mr-1" /> Modifier
           </button>
         </div>
@@ -2019,6 +2061,8 @@ ${pageGardeHtml}
         onExecCommand={execCommand}
         onPrint={handlePrint}
         onExportPDF={handleExportPDF}
+        onExportDOCX={handleExportDOCX}
+        onRegenerate={generateFullReport}
         onSave={handleSave}
         onLoadReport={handleLoadReport}
         readOnly={readOnly}

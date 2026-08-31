@@ -1,10 +1,9 @@
 ﻿// components/modules/surveillance/RapportAnnexes.tsx
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
-  Download,
   ChevronDown,
   Users,
   AlertTriangle,
@@ -13,10 +12,8 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Copy,
   BarChart3,
   UserCheck,
-  Loader2,
   Calendar,
   MapPin,
 } from 'lucide-react';
@@ -33,16 +30,13 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { getCellColor } from '@/lib/risque';
 import { getSgsMaturiteLabel } from '@/lib/utils';
-import { PresenceSheet } from './PresenceSheet';
 
 // ============================================================
 // ANNEXE A-1 : FICHES DE PRÉSENCE
 // ============================================================
 
-function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; readOnly: boolean }) {
+function AnnexePresence({ surveillanceId }: { surveillanceId: string }) {
   const [expanded, setExpanded] = useState(true);
-  const user = useOptimizedStore(s => s.user);
-  const addNotification = useAppStore(s => s.addNotification);
   const getFichesBySurveillance = useAppStore(s => s.getFichesBySurveillance);
   // Souscription réactive au store : si les fiches changent (ajout/édition/signature)
   // pendant que le composant est monté, la liste se met à jour sans rechargement.
@@ -51,52 +45,6 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
   const stats = {
     total: presences.length,
     signees: presences.filter(p => p.signature_url).length,
-  };
-
-  const handleCopyTable = () => {
-    let csv = 'Nom,Structure,Fonction,Téléphone,Email,Signature\n';
-    presences.forEach(p => {
-      csv += `${p.prenom_nom},${p.structure},${p.fonction},${p.telephone},${p.email},${p.signature_url ? 'Signé' : 'Non signé'}\n`;
-    });
-    navigator.clipboard.writeText(csv);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Tableau copié',
-      message: 'Le tableau des présences a été copié',
-      canal: 'in_app',
-    });
-  };
-
-  const handleExportPresences = () => {
-    const csv = [
-      ['Nom', 'Structure', 'Fonction', 'Téléphone', 'Email', 'Signature', 'Date signature'],
-      ...presences.map(p => [
-        p.prenom_nom,
-        p.structure,
-        p.fonction,
-        p.telephone,
-        p.email,
-        p.signature_url ? 'Signé' : 'Non signé',
-        p.signature_date ? new Date(p.signature_date).toLocaleDateString('fr-FR') : '',
-      ]),
-    ].map(row => row.join(',')).join('\n');
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `presences_${surveillanceId.slice(0, 8)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Export effectué',
-      message: 'La liste des présences a été exportée',
-      canal: 'in_app',
-    });
   };
 
   return (
@@ -115,24 +63,6 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
           <span className="badge success text-xs">{stats.signees}/{stats.total} signé(s)</span>
         </div>
         <div className="flex items-center gap-2">
-          {!readOnly && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyTable(); }}
-                className="action-button"
-                title="Copier le tableau"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleExportPresences(); }}
-                className="action-button"
-                title="Exporter CSV"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-            </>
-          )}
           <ChevronDown
             className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
             onClick={() => setExpanded(!expanded)}
@@ -142,18 +72,17 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 
       {expanded && (
         <div className="p-4 animate-fade-in">
-          {readOnly ? (
-            <div className="rapport-presences-table">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Prénom et nom</TableHead>
-                    <TableHead>Fonction</TableHead>
-                    <TableHead>Structure</TableHead>
-                    <TableHead>Signature</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+          <div className="rapport-presences-table">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Prénom et nom</TableHead>
+                  <TableHead>Fonction</TableHead>
+                  <TableHead>Structure</TableHead>
+                  <TableHead>Signature</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                   {presences.map(p => (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium text-foreground">{p.prenom_nom || '-'}</TableCell>
@@ -182,13 +111,8 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
                   <p className="text-sm">Aucune fiche de présence disponible</p>
                 </div>
               )}
+
             </div>
-          ) : (
-            <PresenceSheet
-              surveillanceId={surveillanceId}
-              userRole="inspector"
-            />
-          )}
         </div>
       )}
     </div>
@@ -201,11 +125,14 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 
 function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   const [expanded, setExpanded] = useState(true);
-  const user = useOptimizedStore(s => s.user);
-  const addNotification = useAppStore(s => s.addNotification);
   const surveillances = useAppStore(s => s.surveillances);
   const aerodromes = useAppStore(s => s.aerodromes);
   const getEcartsEffectifs = useAppStore(s => s.getEcartsEffectifsSurveillance);
+  // Souscription réactive aux sources d'écarts : si les brouillons (ecartsRedaction)
+  // ou les écarts officiels changent pendant que l'annexe est montée, la liste se
+  // met à jour sans rechargement.
+  useAppStore(s => s.ecarts);
+  useAppStore(s => s.ecartsRedaction);
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
@@ -214,11 +141,7 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
   // Pendant la rédaction les écarts vivent dans `ecartsRedaction` (brouillons) ;
   // on lit donc les écarts « effectifs » (brouillons normalisés) pour que
   // l'annexe A-2 affiche les écarts avant même la transmission.
-  const realEcarts = useMemo(
-    () => getEcartsEffectifs(surveillanceId),
-    [getEcartsEffectifs, surveillanceId]
-  );
-  const displayedEcarts = realEcarts;
+  const displayedEcarts = getEcartsEffectifs(surveillanceId);
 
   const stats = {
     total: displayedEcarts.length,
@@ -236,52 +159,6 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
       case 'moyen': return 'badge moyen';
       default: return 'badge neutral';
     }
-  };
-
-  const handleCopyTable = () => {
-    let csv = 'Référence,Réf. réglementaire,Libellé,Niveau,Statut\n';
-    displayedEcarts.forEach(e => {
-      csv += `${e.reference},${e.ref_reglementaire},"${e.libelle}",${e.niveau_risque},${e.statut}\n`;
-    });
-    navigator.clipboard.writeText(csv);
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Tableau copié',
-      message: 'Le tableau des écarts a été copié',
-      canal: 'in_app',
-    });
-  };
-
-  const handleExportEcarts = () => {
-    const csv = [
-      ['Référence', 'Réf. réglementaire', 'Libellé', 'Niveau', 'Statut', 'Créé le', 'Délai régularisation'],
-      ...displayedEcarts.map(e => [
-        e.reference,
-        e.ref_reglementaire,
-        e.libelle,
-        e.niveau_risque,
-        e.statut,
-        new Date(e.created_at).toLocaleDateString('fr-FR'),
-        e.delai_regularisation ? new Date(e.delai_regularisation).toLocaleDateString('fr-FR') : '',
-      ]),
-    ].map(row => row.join(',')).join('\n');
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ecarts_${surveillanceId.slice(0, 8)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Export effectué',
-      message: 'La liste des écarts a été exportée',
-      canal: 'in_app',
-    });
   };
 
   return (
@@ -303,20 +180,6 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
           <span className="badge success text-xs">{stats.clos} clôturé(s)</span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopyTable(); }}
-            className="action-button"
-            title="Copier le tableau"
-          >
-            <Copy className="w-4 h-4" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleExportEcarts(); }}
-            className="action-button"
-            title="Exporter CSV"
-          >
-            <Download className="w-4 h-4" />
-          </button>
           <ChevronDown
             className={`w-4 h-4 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
             onClick={() => setExpanded(!expanded)}
@@ -637,105 +500,21 @@ function AnnexeProfilRisque({ aerodromeId, readOnly }: { aerodromeId: string; re
 
 interface RapportAnnexesProps {
   surveillanceId: string;
-  onExport?: (format: string) => void;
   readOnly?: boolean;
   userRole?: string;
 }
 
 export function RapportAnnexes({
   surveillanceId,
-  onExport,
   readOnly = false,
   userRole = 'inspector',
 }: RapportAnnexesProps) {
   const surveillances = useAppStore(s => s.surveillances);
-  const profilsRisque = useAppStore(s => s.profilsRisque);
-  const aerodromes = useAppStore(s => s.aerodromes);
-  const addNotification = useAppStore(s => s.addNotification);
-  const user = useAppStore(s => s.user);
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodromeId = surveillance?.aerodrome_id;
-  const aerodrome = aerodromes.find(a => a.id === aerodromeId);
-  const profil = aerodromeId ? profilsRisque[aerodromeId] : undefined;
 
   const [expandedSections, setExpandedSections] = useState<string[]>(['A1', 'A2', 'A3']);
   const [expandedAll, setExpandedAll] = useState(true);
-  const [exportingAnnexes, setExportingAnnexes] = useState(false);
-
-  const handleExportDocx = async () => {
-    setExportingAnnexes(true);
-    try {
-      const { exportAnnexeDOCX } = await import('@/lib/services/rapportAnnexeService');
-      const realEcarts = useAppStore.getState().getEcartsEffectifsSurveillance(surveillanceId);
-      const fichesPresence = useAppStore.getState().getFichesBySurveillance(surveillanceId);
-      const niveauLabel = (s: number) => s >= 80 ? 'Bon' : s >= 60 ? 'Moyen' : s >= 30 ? 'Faible' : 'Critique';
-
-      await exportAnnexeDOCX({
-        aerodrome_nom: aerodrome?.nom || '',
-        aerodrome_code: aerodrome?.code_oaci || '',
-        reference: `${aerodrome?.code_oaci || 'XXX'}_${new Date().getFullYear()}_ANNEXES`,
-        date_debut: surveillance?.date_debut ? new Date(surveillance.date_debut).toLocaleDateString('fr-FR') : 'N/A',
-        date_fin: surveillance?.date_fin ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR') : 'N/A',
-        date_profil: new Date().toLocaleDateString('fr-FR'),
-        presences: fichesPresence.map(f => ({
-          nom_presence: f.prenom_nom,
-          structure_presence: f.structure,
-          fonction_presence: f.fonction,
-          tel_presence: f.telephone,
-          signature_presence: f.signature_date ? `Signé le ${new Date(f.signature_date).toLocaleDateString('fr-FR')}` : '',
-        })),
-        nb_ecarts: realEcarts.length,
-        ecarts_liste: realEcarts.map(e => ({
-          ref_ecart: e.reference,
-          domaine_ecart: e.domaine,
-          constat_ecart: e.libelle,
-          niveau_ecart: e.niveau_risque,
-          statut_ecart: e.statut,
-        })),
-        score_global: profil ? `${profil.score_global}/100` : 'N/A',
-        tendance: profil?.tendance || 'N/A',
-        prediction_3m: profil?.prediction_3m != null ? `${profil.prediction_3m}/100` : 'N/A',
-        prediction_6m: profil?.prediction_6m != null ? `${profil.prediction_6m}/100` : 'N/A',
-        c1_score: profil ? `${profil.c1}/100` : 'N/A',
-        c1_niveau: profil ? niveauLabel(profil.c1) : 'N/A',
-        c2_score: profil ? `${profil.c2}/100` : 'N/A',
-        c2_niveau: profil ? niveauLabel(profil.c2) : 'N/A',
-        c3_score: profil ? `${profil.c3}/100` : 'N/A',
-        c3_niveau: profil ? niveauLabel(profil.c3) : 'N/A',
-        c4_score: profil ? `${profil.c4}/100` : 'N/A',
-        c4_niveau: profil ? niveauLabel(profil.c4) : 'N/A',
-        c5_score: profil ? `${profil.c5}/100` : 'N/A',
-        c5_niveau: profil ? niveauLabel(profil.c5) : 'N/A',
-        analyse_profil: profil
-          ? `Score global: ${profil.score_global}/100 (${profil.niveau}). C1: ${profil.c1}/100, C2: ${profil.c2}/100, C3: ${profil.c3}/100, C4: ${profil.c4}/100, C5: ${profil.c5}/100. Tendance: ${profil.tendance}.`
-          : 'Non disponible.',
-        domaines_checklist: [],
-        taux_global: '0%',
-        sa_total: 0,
-        ns_total: 0,
-        nv_total: 0,
-        total_items: 0,
-      });
-
-      addNotification({
-        user_id: user?.id || '',
-        type: 'success',
-        title: 'Annexes exportées',
-        message: 'Le document des annexes a été généré au format Word.',
-        canal: 'in_app',
-      });
-    } catch (err) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Erreur',
-        message: err instanceof Error ? err.message : 'Erreur lors de l\'export des annexes',
-        canal: 'in_app',
-      });
-    } finally {
-      setExportingAnnexes(false);
-    }
-  };
 
   const toggleAll = () => {
     setExpandedAll(!expandedAll);
@@ -743,25 +522,6 @@ export function RapportAnnexes({
       setExpandedSections(['A1', 'A2', 'A3']);
     } else {
       setExpandedSections([]);
-    }
-  };
-
-  const handleExportZip = () => {
-    if (onExport) {
-      onExport('zip');
-    } else {
-      const data = {
-        surveillanceId,
-        exported_at: new Date().toISOString(),
-      };
-      const json = JSON.stringify(data, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `annexes_${surveillanceId.slice(0, 8)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
     }
   };
 
@@ -777,18 +537,11 @@ export function RapportAnnexes({
           <button onClick={toggleAll} className="btn btn-secondary btn-sm gap-1">
             {expandedAll ? 'Tout réduire' : 'Tout déployer'}
           </button>
-          <button onClick={handleExportZip} className="btn btn-secondary btn-sm gap-1">
-            Télécharger
-          </button>
-          <button onClick={handleExportDocx} disabled={exportingAnnexes} className="btn btn-primary btn-sm gap-1">
-            {exportingAnnexes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Exporter DOCX
-          </button>
         </div>
       </div>
 
       {expandedSections.includes('A1') && (
-        <AnnexePresence surveillanceId={surveillanceId} readOnly={readOnly} />
+        <AnnexePresence surveillanceId={surveillanceId} />
       )}
 
       {expandedSections.includes('A2') && (
