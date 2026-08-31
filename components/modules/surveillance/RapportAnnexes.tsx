@@ -5,7 +5,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   Download,
-  Eye,
   ChevronDown,
   Users,
   AlertTriangle,
@@ -18,9 +17,10 @@ import {
   BarChart3,
   UserCheck,
   Loader2,
+  Calendar,
+  MapPin,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { DataTable, type Column } from '@/components/ui/DataTable';
 import {
   Table,
   TableHeader,
@@ -30,7 +30,7 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, type PresenceEntry } from '@/lib/store';
+import { useAppStore } from '@/lib/store';
 import { getCellColor } from '@/lib/risque';
 import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PresenceSheet } from './PresenceSheet';
@@ -50,8 +50,6 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
 
   const stats = {
     total: presences.length,
-    anacim: presences.filter(p => p.structure === 'ANACIM').length,
-    exploitant: presences.filter(p => p.structure === 'EXPLOITANT').length,
     signees: presences.filter(p => p.signature_url).length,
   };
 
@@ -145,52 +143,46 @@ function AnnexePresence({ surveillanceId, readOnly }: { surveillanceId: string; 
       {expanded && (
         <div className="p-4 animate-fade-in">
           {readOnly ? (
-            <>
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <div className="text-center p-2 bg-primary-soft rounded-lg">
-                  <div className="text-lg font-bold text-primary">{stats.anacim}</div>
-                  <div className="text-xs text-muted-foreground">ANACIM</div>
+            <div className="rapport-presences-table">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Prénom et nom</TableHead>
+                    <TableHead>Fonction</TableHead>
+                    <TableHead>Structure</TableHead>
+                    <TableHead>Signature</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {presences.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium text-foreground">{p.prenom_nom || '-'}</TableCell>
+                      <TableCell className="text-foreground">{p.fonction || '-'}</TableCell>
+                      <TableCell>
+                        <span className={`badge ${p.structure === 'ANACIM' ? 'primary' : p.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
+                          {p.structure}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {p.signature_url ? (
+                          <button className="action-button" onClick={() => window.open(p.signature_url, '_blank')} title="Voir signature">
+                            <CheckCircle2 className="w-4 h-4 text-success" />
+                          </button>
+                        ) : (
+                          <span className="text-danger text-xs">Non signé</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {presences.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Aucune fiche de présence disponible</p>
                 </div>
-                <div className="text-center p-2 bg-warning-soft rounded-lg">
-                  <div className="text-lg font-bold text-warning">{stats.exploitant}</div>
-                  <div className="text-xs text-muted-foreground">Exploitant</div>
-                </div>
-                <div className="text-center p-2 bg-success-soft rounded-lg">
-                  <div className="text-lg font-bold text-success">{stats.signees}</div>
-                  <div className="text-xs text-muted-foreground">Signatures</div>
-                </div>
-              </div>
-
-              <DataTable
-                data={presences}
-                columns={[
-                  { key: 'nom', header: 'Nom complet', render: (p) => <span className="font-medium text-foreground">{p.prenom_nom || '-'}</span> },
-                  { key: 'structure', header: 'Structure', render: (p) => (
-                    <span className={`badge ${p.structure === 'ANACIM' ? 'primary' : p.structure === 'EXPLOITANT' ? 'warning' : 'neutral'}`}>
-                      {p.structure}
-                    </span>
-                  )},
-                  { key: 'fonction', header: 'Fonction', render: (p) => <span className="text-muted-foreground">{p.fonction || '-'}</span> },
-                  { key: 'telephone', header: 'Téléphone', render: (p) => <span className="text-muted-foreground">{p.telephone || '-'}</span> },
-                  { key: 'email', header: 'Email', render: (p) => <span className="text-muted-foreground">{p.email || '-'}</span> },
-                  { key: 'signature', header: 'Signature', render: (p) => p.signature_url ? (
-                    <div className="flex items-center gap-1">
-                      <CheckCircle2 className="w-4 h-4 text-success" />
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(p.signature_date).toLocaleDateString('fr-FR')}
-                      </span>
-                      <button className="action-button" onClick={() => window.open(p.signature_url, '_blank')} title="Voir signature">
-                        <Eye className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-danger text-xs">Non signé</span>
-                  )},
-                ]}
-                keyExtractor={(p) => p.id}
-                emptyState={{ icon: Users, title: 'Aucune fiche de présence disponible', description: 'Utilisez le composant PresenceSheet pour ajouter des participants' }}
-              />
-            </>
+              )}
+            </div>
           ) : (
             <PresenceSheet
               surveillanceId={surveillanceId}
@@ -358,82 +350,82 @@ function AnnexeEcarts({ surveillanceId }: { surveillanceId: string }) {
           </div>
 
           {displayedEcarts.length > 0 ? (
-            <div className="rapport-ecarts-table">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-28">Référence</TableHead>
-                    <TableHead>Libellé / constat</TableHead>
-                    <TableHead className="w-24">Niveau</TableHead>
-                    <TableHead className="w-36">Indice OACI</TableHead>
-                    <TableHead className="w-40">Réf. réglementaire</TableHead>
-                    <TableHead className="w-40">Signataire</TableHead>
-                    <TableHead className="w-24">Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {displayedEcarts.map((ecart) => {
-                    const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
-                    return (
-                      <TableRow key={ecart.id}>
-                        <TableCell className="font-semibold text-foreground align-top">{ecart.reference}</TableCell>
-                        <TableCell className="align-top">
-                          <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
-                          {ecart.ref_reglementaire && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              OACI : {aerodrome?.code_oaci || 'N/A'} · {surveillance?.date_fin
-                                ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
-                                : 'N/A'}
-                            </p>
-                          )}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {ecart.cellule_risque_oaci ? (
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
-                                {ecart.cellule_risque_oaci}
-                              </span>
-                              {ecart.probabilite_risque && ecart.gravite_risque && (
-                                <span className="text-xs text-muted-foreground">
-                                  P{ecart.probabilite_risque}×G{ecart.gravite_risque}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground align-top">{ecart.ref_reglementaire}</TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex items-center gap-2">
-                            <UserCheck className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <span className="text-sm text-foreground">
-                              {sig?.signataire_nom || 'Inspecteur non renseigné'}
+            <div className="space-y-3">
+              {displayedEcarts.map((ecart) => {
+                const sig = sigs.find(s => s.signataire_id === ecart.inspecteur_ref_id) || sigs[sigs.length - 1];
+                return (
+                  <div key={ecart.id} className="border border-border rounded-xl overflow-hidden bg-white">
+                    {/* Ligne 1: Aérodrome · Date · Référence (en-tête bleu clair, texte noir) */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-border">
+                      <div className="flex items-center gap-3 text-xs text-foreground">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {aerodrome?.code_oaci || 'N/A'}
+                        </span>
+                        <span className="text-foreground/40">|</span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {surveillance?.date_fin
+                            ? new Date(surveillance.date_fin).toLocaleDateString('fr-FR')
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <span className="font-semibold text-sm text-foreground">{ecart.reference}</span>
+                    </div>
+
+                    {/* Ligne 2: Libellé */}
+                    <div className="px-4 py-3 border-b border-border">
+                      <p className="text-sm text-foreground leading-relaxed">{ecart.libelle}</p>
+                    </div>
+
+                    {/* Ligne 3: Niveau de risque + Indice OACI */}
+                    <div className="px-4 py-2 bg-muted/10 border-b border-border flex items-center gap-3 flex-wrap">
+                      <span className={getNiveauBadge(ecart.niveau_risque)}>{ecart.niveau_risque}</span>
+                      {ecart.cellule_risque_oaci && (
+                        <>
+                          <span className="text-xs text-muted-foreground">|</span>
+                          <span className="text-xs text-muted-foreground">Indice OACI :</span>
+                          <span className={`inline-flex items-center justify-center rounded font-bold text-xs px-2 py-0.5 font-mono tracking-wider ${getCellColor(ecart.cellule_risque_oaci)}`}>
+                            {ecart.cellule_risque_oaci}
+                          </span>
+                          {ecart.probabilite_risque && ecart.gravite_risque && (
+                            <span className="text-xs text-muted-foreground">
+                              P{ecart.probabilite_risque} × G{ecart.gravite_risque}
                             </span>
-                          </div>
-                          {sig?.signature_url ? (
-                            <img
-                              src={sig.signature_url}
-                              alt="Signature"
-                              className="h-8 w-auto object-contain mt-1"
-                            />
-                          ) : (
-                            <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground mt-1">
-                              Signé
-                            </div>
                           )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground align-top whitespace-nowrap">
-                          {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                        </>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {ecart.ref_reglementaire}
+                      </span>
+                    </div>
+
+                    {/* Ligne 4: Inspecteur + Signature */}
+                    <div className="px-4 py-2 flex items-center gap-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span className="font-medium text-foreground">
+                          {sig?.signataire_nom || 'Inspecteur non renseigné'}
+                        </span>
+                      </div>
+                      {sig?.signature_url ? (
+                        <img
+                          src={sig.signature_url}
+                          alt="Signature"
+                          className="h-8 w-auto object-contain ml-2"
+                        />
+                      ) : (
+                        <div className="h-8 w-20 border border-dashed border-border rounded flex items-center justify-center text-xs text-muted-foreground ml-2">
+                          Signature
+                        </div>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(ecart.created_at).toLocaleDateString('fr-FR')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
