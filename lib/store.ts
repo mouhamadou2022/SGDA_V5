@@ -212,7 +212,7 @@ export interface Surveillance {
   rapport_html?: string
   rapport_sections?: string  // JSON des sections du rapport (persistance locale)
   rapport_versions?: string  // JSON array: historique des snapshots [{version, sections, modifie_par, modifie_le, diff}]
-  rapport_type?: 'redige' | 'charge'
+  rapport_type?: 'redige' | 'charge' | 'importe'
   rapport_fichier_url?: string
   rapport_fichier_nom?: string
   rapport_signe_par?: string

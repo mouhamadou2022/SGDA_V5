@@ -53,6 +53,7 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useAppStore } from '@/lib/store';
+import { toast } from '@/lib/toast';
 import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
@@ -122,6 +123,7 @@ function RapportToolbar({
 }) {
   const [iaPanelOpen, setIaPanelOpen] = useState(false);
   const [iaInstruction, setIaInstruction] = useState('');
+  const [iaJustSent, setIaJustSent] = useState(false);
 
   const execOnDown = (e: React.MouseEvent, cmd: string, value?: string) => {
     e.preventDefault();
@@ -129,11 +131,21 @@ function RapportToolbar({
   };
 
   const handleIA = () => {
-    if (iaInstruction.trim()) {
+    if (iaInstruction.trim() && !isIaGenerating) {
+      setIaJustSent(true);
       onIACommand(iaInstruction);
-      setIaInstruction('');
     }
   };
+
+  useEffect(() => {
+    if (iaJustSent && !isIaGenerating) {
+      const t = setTimeout(() => {
+        setIaInstruction('');
+        setIaJustSent(false);
+      }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [iaJustSent, isIaGenerating]);
 
   return (
     <div className="mb-4 sticky top-0 z-[100] bg-white border-b border-border shadow-sm">
@@ -240,9 +252,18 @@ function RapportToolbar({
             />
             <button onClick={handleIA} disabled={isIaGenerating || !iaInstruction.trim()} className="btn btn-sm px-3 py-1 btn-primary gap-1 text-xs">
               {isIaGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              Appliquer
+              {isIaGenerating ? 'Génération...' : 'Appliquer'}
             </button>
           </div>
+          {isIaGenerating && (
+            <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-xs text-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+              <span>
+                AERORISQ génère la section… La page peut rester plusieurs secondes sans réaction, puis
+                une notification confirme la mise à jour en haut à droite.
+              </span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-1 mt-2">
             <button onClick={() => onIACommand("Génère un résumé exécutif")} className="btn btn-sm px-2 py-0.5 text-[10px]">Résumé</button>
             <button onClick={() => onIACommand("Ajoute des recommandations")} className="btn btn-sm px-2 py-0.5 text-[10px]">Recommandations</button>
@@ -1266,8 +1287,9 @@ N'inclus PAS le titre de la section dans le contenu.`;
         throw new Error('AERORISQ a renvoyé un contenu vide pour cette section.');
       }
 
-      if (sectionKey === 'deroulement') {
-        // Pour le déroulement, on ne peut pas améliorer globalement
+      if (sectionKey === 'preparation' || sectionKey === 'reunionOuverture'
+        || sectionKey === 'verificationSite' || sectionKey === 'reunionCloture') {
+        setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, [sectionKey]: improved } }));
       } else if (sectionKey === 'resultsIntro') {
         setSections(prev => ({ ...prev, resultsIntro: improved }));
       } else if (sectionKey === 'resultsAnalysis') {
@@ -1283,16 +1305,19 @@ N'inclus PAS le titre de la section dans le contenu.`;
         message: `La section "${sectionTitle}" a été améliorée par AERORISQ`,
         canal: 'in_app',
       });
+      toast('success', `La section "${sectionTitle}" a été mise à jour par AERORISQ.`, 'Section améliorée', 5000);
     } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Impossible d'améliorer la section";
       addNotification({
         user_id: user?.id || '',
         type: 'danger',
         title: 'Erreur',
-        message: error instanceof Error && error.message
-          ? error.message
-          : "Impossible d'améliorer la section",
+        message,
         canal: 'in_app',
       });
+      toast('error', message, 'Erreur AERORISQ', 7000);
     } finally {
       setIsImproving(false);
     }
@@ -2144,24 +2169,28 @@ ${pageGardeHtml}
             content={sections.deroulement.preparation}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, preparation: val } }))}
             editable={!readOnly && !isSigned}
+            onImprove={(instruction?) => improveSection('preparation', sections.deroulement.preparation, '5.1 Préparation', instruction)}
           />
           <EditableSection
             title="5.2. Réunion d'ouverture"
             content={sections.deroulement.reunionOuverture}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionOuverture: val } }))}
             editable={!readOnly && !isSigned}
+            onImprove={(instruction?) => improveSection('reunionOuverture', sections.deroulement.reunionOuverture, "5.2 Réunion d'ouverture", instruction)}
           />
           <EditableSection
             title="5.3. Phase de vérification sur site"
             content={sections.deroulement.verificationSite}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, verificationSite: val } }))}
             editable={!readOnly && !isSigned}
+            onImprove={(instruction?) => improveSection('verificationSite', sections.deroulement.verificationSite, '5.3 Phase de vérification sur site', instruction)}
           />
           <EditableSection
             title="5.4. Réunion de clôture"
             content={sections.deroulement.reunionCloture}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionCloture: val } }))}
             editable={!readOnly && !isSigned}
+            onImprove={(instruction?) => improveSection('reunionCloture', sections.deroulement.reunionCloture, '5.4 Réunion de clôture', instruction)}
           />
         </div>
 

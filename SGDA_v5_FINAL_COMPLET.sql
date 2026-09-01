@@ -1829,6 +1829,17 @@ ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_versions         text
 ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS deleted_by             uuid;
 END $$;
 
+-- 13.A.b RAPPORT_TYPE — contrainte d'intégrité
+-- Le rapport peut être soit rédigé (redige/importe) soit chargé tel quel (charge).
+-- 'importe' = document externe (.docx) importé et modifiable (éditeur TipTap/Word libre).
+DO $$
+BEGIN
+  ALTER TABLE surveillances DROP CONSTRAINT IF EXISTS surveillances_rapport_type_check;
+  ALTER TABLE surveillances ADD CONSTRAINT surveillances_rapport_type_check
+    CHECK (rapport_type IN ('redige','charge','importe'));
+END $$;
+
+
 -- 13.B ECARTS — colonnes core
 DO $$ BEGIN
   ALTER TABLE ecarts ADD COLUMN IF NOT EXISTS surveillance_id             uuid;

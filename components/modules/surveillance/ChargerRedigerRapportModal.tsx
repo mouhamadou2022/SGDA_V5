@@ -101,7 +101,7 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
 
       updateSurveillance(surveillanceId, {
         rapport_sections: JSON.stringify(result.sections),
-        rapport_type: 'redige',
+        rapport_type: 'importe',
         rapport_fichier_nom: file.name,
         rapport_html: result.rawHtml || '<p>Rapport importé et prêt à être modifié.</p>',
       })
@@ -110,7 +110,7 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
         user_id: useAppStore.getState().user?.id || '',
         type: 'success',
         title: 'Rapport importé',
-        message: 'Le document a été parsé et est prêt à être édité.',
+        message: 'Le document a été importé tel quel et est prêt à être modifié librement.',
         canal: 'in_app',
       })
 
