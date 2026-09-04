@@ -1636,6 +1636,7 @@ ${pageGardeHtml}
       statut: 'rapport_signe',
       rapport_html: rapportHtml,
       rapport_sections: JSON.stringify(sections),
+      rapport_signe_le: new Date().toISOString(),
       signatures_rapport: [{
         signataire_id: user?.id || '',
         signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,

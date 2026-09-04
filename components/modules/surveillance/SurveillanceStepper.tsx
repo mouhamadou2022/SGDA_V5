@@ -141,6 +141,15 @@ function getWorkflowCurrentIndex(surveillance: Surveillance): number {
   ) {
     return 4;
   }
+  // Rapport signé → le livrable est produit : on considère l'étape "Rapport
+  // signé" terminée et on avance vers la lettre (comme pour les écarts).
+  if (
+    statutIndex === 4 &&
+    ((surveillance.signatures_rapport?.length || 0) > 0 ||
+      !!surveillance.rapport_signe_le)
+  ) {
+    return 5;
+  }
   return statutIndex;
 }
 
