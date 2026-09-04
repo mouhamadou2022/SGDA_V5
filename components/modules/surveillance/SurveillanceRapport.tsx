@@ -61,6 +61,7 @@ import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveilla
 import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PAOE_LABELS, type PAOELevel } from '@/types/checklist';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
+import RapportRibbon from './RapportRibbon';
 
 
 // Classes CSS réutilisées
@@ -83,201 +84,6 @@ async function generateWithIA(prompt: string): Promise<string> {
     throw new Error(data.error || `AERORISQ n'a pas pu générer le contenu (HTTP ${response.status}).`);
   }
   return data.content;
-}
-
-// Composant: Barre d'outils deux lignes
-function RapportToolbar({
-  onExecCommand,
-  onSave,
-  onPrint,
-  onExportPDF,
-  onExportDOCX,
-  onRegenerate,
-  onLoadReport,
-  readOnly,
-  onSign,
-  isSigned,
-  onIACommand,
-  isIaGenerating,
-  onDictate,
-  isDictating,
-  onAnalyse,
-  onShowVersionHistory,
-}: {
-  onExecCommand: (cmd: string, value?: string) => void;
-  onSave: () => void;
-  onPrint: () => void;
-  onExportPDF: () => void;
-  onExportDOCX: () => void;
-  onRegenerate: () => void;
-  onLoadReport: () => void;
-  readOnly: boolean;
-  onSign: () => void;
-  isSigned: boolean;
-  onIACommand: (instruction: string) => void;
-  isIaGenerating: boolean;
-  onDictate: () => void;
-  isDictating: boolean;
-  onAnalyse?: () => void;
-  onShowVersionHistory: () => void;
-}) {
-  const [iaPanelOpen, setIaPanelOpen] = useState(false);
-  const [iaInstruction, setIaInstruction] = useState('');
-  const [iaJustSent, setIaJustSent] = useState(false);
-
-  const execOnDown = (e: React.MouseEvent, cmd: string, value?: string) => {
-    e.preventDefault();
-    onExecCommand(cmd, value);
-  };
-
-  const handleIA = () => {
-    if (iaInstruction.trim() && !isIaGenerating) {
-      setIaJustSent(true);
-      onIACommand(iaInstruction);
-    }
-  };
-
-  useEffect(() => {
-    if (iaJustSent && !isIaGenerating) {
-      const t = setTimeout(() => {
-        setIaInstruction('');
-        setIaJustSent(false);
-      }, 300);
-      return () => clearTimeout(t);
-    }
-  }, [iaJustSent, isIaGenerating]);
-
-  return (
-    <div className="mb-4 sticky top-0 z-[100] bg-white border-b border-border shadow-sm">
-      {/* Row 1: Actions principales */}
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <button onClick={onSave} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <Save className="w-3 h-3" /> Sauvegarder
-        </button>
-        <button onClick={onExportPDF} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <Download className="w-3 h-3" /> PDF
-        </button>
-        <button onClick={onExportDOCX} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <FileText className="w-3 h-3" /> Word
-        </button>
-        <button onClick={onPrint} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <Printer className="w-3 h-3" /> Imprimer
-        </button>
-        <button onClick={onLoadReport} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <Upload className="w-3 h-3" /> Charger
-        </button>
-        <button onClick={onShowVersionHistory} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-          <Clock className="w-3 h-3" /> Versions
-        </button>
-        <div className="w-px h-4 bg-border mx-1" />
-        {!readOnly && !isSigned && (
-          <>
-            <button onClick={onRegenerate} className="btn btn-sm px-2 py-0.5 gap-1 text-xs">
-              <RefreshCw className="w-3 h-3" /> Régénérer
-            </button>
-            <button
-              onClick={() => setIaPanelOpen(!iaPanelOpen)}
-              className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${iaPanelOpen ? 'btn-primary' : ''}`}
-            >
-              <Brain className="w-3 h-3" /> AERORISQ
-            </button>
-            <button onClick={onDictate} className={`btn btn-sm px-2 py-0.5 gap-1 text-xs ${isDictating ? 'bg-danger text-white' : ''}`}>
-              {isDictating ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
-              {isDictating ? 'Arrêter' : 'Dictée'}
-            </button>
-            <div className="w-px h-4 bg-border mx-1" />
-          </>
-        )}
-        <div className="flex-1" />
-        {!readOnly && !isSigned && (
-          <button onClick={onSign} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
-            <PenLine className="w-3 h-3" /> Signer
-          </button>
-        )}
-        {isSigned && <span className="text-xs text-muted-foreground">✓ Signé</span>}
-        {readOnly && !isSigned && <span className="text-xs text-muted-foreground">👁️ Lecture seule</span>}
-      </div>
-
-      {/* Row 2: Formatage (visible en édition) */}
-      {!readOnly && !isSigned && (
-        <div className="flex items-center gap-1 px-3 py-1 border-t border-border bg-gray-50 flex-wrap">
-          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('undo'); }} className="action-button p-1" title="Annuler">
-            <RotateCcw className="w-3 h-3" />
-          </button>
-          <button onMouseDown={(e) => { e.preventDefault(); document.execCommand('redo'); }} className="action-button p-1" title="Rétablir">
-            <RotateCw className="w-3 h-3" />
-          </button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onMouseDown={(e) => execOnDown(e, 'bold')} className="action-button p-1" title="Gras"><Bold className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'italic')} className="action-button p-1" title="Italique"><Italic className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'underline')} className="action-button p-1" title="Souligné"><Underline className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'strikeThrough')} className="action-button p-1" title="Barré"><Strikethrough className="w-3 h-3" /></button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h1>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 1">H1</button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h2>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 2">H2</button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<h3>')} className="action-button text-[10px] px-1.5 py-1 font-bold" title="Titre 3">H3</button>
-          <button onMouseDown={(e) => execOnDown(e, 'formatBlock', '<p>')} className="action-button text-[10px] px-1.5 py-1" title="Normal">Normal</button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onMouseDown={(e) => execOnDown(e, 'insertUnorderedList')} className="action-button p-1" title="Liste à puces"><List className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'insertOrderedList')} className="action-button p-1" title="Liste numérotée"><ListOrdered className="w-3 h-3" /></button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onMouseDown={(e) => execOnDown(e, 'justifyLeft')} className="action-button p-1" title="Aligner gauche"><AlignLeft className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyCenter')} className="action-button p-1" title="Centrer"><AlignCenter className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyRight')} className="action-button p-1" title="Aligner droite"><AlignRight className="w-3 h-3" /></button>
-          <button onMouseDown={(e) => execOnDown(e, 'justifyFull')} className="action-button p-1" title="Justifier"><AlignJustify className="w-3 h-3" /></button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onClick={() => { const c = prompt('Couleur du texte (ex: #D32F2F ou red) :'); if (c) onExecCommand('foreColor', c); }} className="action-button p-1" title="Couleur du texte"><Palette className="w-3 h-3" /></button>
-          <button onClick={() => { const c = prompt('Couleur de surlignage (ex: #FFF176 ou yellow) :'); if (c) onExecCommand('hiliteColor', c); }} className="action-button p-1" title="Surligner"><Highlighter className="w-3 h-3" /></button>
-          <button onClick={() => { const f = prompt('Police (ex: Arial, Times New Roman) :', 'Arial'); if (f) onExecCommand('fontName', f); }} className="action-button p-1" title="Police"><Type className="w-3 h-3" /></button>
-          <button onClick={() => { const s = prompt('Taille (1-7, ex: 4) :', '4'); if (s) onExecCommand('fontSize', s); }} className="action-button text-[10px] px-1.5 py-1" title="Taille de police">T</button>
-          <button onMouseDown={(e) => execOnDown(e, 'removeFormat')} className="action-button p-1" title="Effacer la mise en forme"><RemoveFormatting className="w-3 h-3" /></button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <button onClick={() => { const url = prompt('URL du lien :'); if (url) onExecCommand('createLink', url); }} className="action-button p-1" title="Lien"><Link2 className="w-3 h-3" /></button>
-          <button onClick={() => { const url = prompt('URL de l\'image :'); if (url) onExecCommand('insertImage', url); }} className="action-button p-1" title="Image"><ImageIcon className="w-3 h-3" /></button>
-          <button onClick={() => { const r = prompt('Lignes:', '3'); const c = prompt('Colonnes:', '3'); if (r && c) { let h = '<table border="1" style="border-collapse:collapse;width:100%">'; for (let i = 0; i < parseInt(r); i++) { h += '<tr>'; for (let j = 0; j < parseInt(c); j++) { h += i === 0 ? '<th style="padding:8px;background:#f0f0f0">&nbsp;</th>' : '<td style="padding:8px">&nbsp;</td>'; } h += '</tr>'; } h += '</table><br>'; onExecCommand('insertHTML', h); } }} className="action-button p-1" title="Tableau"><TableIcon className="w-3 h-3" /></button>
-        </div>
-      )}
-
-      {/* IA Panel (expansible) */}
-      {iaPanelOpen && !readOnly && !isSigned && (
-        <div className="border-t border-border px-3 py-2 bg-primary-soft/20">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={iaInstruction}
-              onChange={(e) => setIaInstruction(e.target.value)}
-              placeholder="Ex: Améliore la conclusion, ajoute des recommandations..."
-              className="flex-1 form-input text-xs"
-              onKeyDown={(e) => e.key === 'Enter' && handleIA()}
-            />
-            <button onClick={handleIA} disabled={isIaGenerating || !iaInstruction.trim()} className="btn btn-sm px-3 py-1 btn-primary gap-1 text-xs">
-              {isIaGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              {isIaGenerating ? 'Génération...' : 'Appliquer'}
-            </button>
-          </div>
-          {isIaGenerating && (
-            <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-xs text-foreground">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
-              <span>
-                AERORISQ génère la section… La page peut rester plusieurs secondes sans réaction, puis
-                une notification confirme la mise à jour en haut à droite.
-              </span>
-            </div>
-          )}
-          <div className="flex flex-wrap gap-1 mt-2">
-            <button onClick={() => onIACommand("Génère un résumé exécutif")} className="btn btn-sm px-2 py-0.5 text-[10px]">Résumé</button>
-            <button onClick={() => onIACommand("Ajoute des recommandations")} className="btn btn-sm px-2 py-0.5 text-[10px]">Recommandations</button>
-            <button onClick={() => onIACommand("Rédige une conclusion")} className="btn btn-sm px-2 py-0.5 text-[10px]">Conclusion</button>
-            <button onClick={() => onIACommand("Analyse les résultats")} className="btn btn-sm px-2 py-0.5 text-[10px]">Analyser</button>
-            <button onClick={() => onIACommand("Reformule la conclusion de manière plus professionnelle")} className="btn btn-sm px-2 py-0.5 text-[10px]">Reformuler</button>
-            <button onClick={() => onIACommand("Développe et détaille l'analyse des résultats")} className="btn btn-sm px-2 py-0.5 text-[10px]">Développer</button>
-            <button onClick={() => onIACommand("Résume et rends plus concis le résumé exécutif")} className="btn btn-sm px-2 py-0.5 text-[10px]">Raccourcir</button>
-            <button onClick={onAnalyse} className="btn btn-sm px-2 py-0.5 text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200">Qualité</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // Composant: Page de garde
@@ -714,6 +520,12 @@ export default function SurveillanceRapport({
   const [analyseResult, setAnalyseResult] = useState<{ score: number; grade: string; forces: string[]; faiblesses: string[] } | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // Layout & Design state for the ribbon
+  const [pageMargins, setPageMargins] = useState('25.4mm');
+  const [pageOrientation, setPageOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [pageColumns, setPageColumns] = useState(1);
+  const [currentTheme, setCurrentTheme] = useState('ANACIM Bleu');
 
   // Contenu du rapport
   const [sections, setSections] = useState({
@@ -2037,6 +1849,16 @@ ${pageGardeHtml}
     document.execCommand(cmd, false, value);
   };
 
+  // Helper: concatenate all section text for word count / stats
+  const sectionsValues = () => {
+    const d = sections.deroulement;
+    return [sections.resume, sections.introduction, sections.methodologie, sections.equipe,
+      d.preparation, d.reunionOuverture, d.verificationSite, d.reunionCloture,
+      sections.preoccupations, sections.recommandations, sections.conclusion,
+      sections.resultsIntro, sections.resultsAnalysis,
+    ].join(' ');
+  };
+
   // ─── Handler IA global (router vers la bonne section) ──────────────
   const handleIACommand = useCallback((instruction: string) => {
     const lower = instruction.toLowerCase();
@@ -2082,14 +1904,13 @@ ${pageGardeHtml}
 
   return (
     <div data-role={userRole} data-module="surveillance-rapport">
-      <RapportToolbar
+      <RapportRibbon
         onExecCommand={execCommand}
         onPrint={handlePrint}
         onExportPDF={handleExportPDF}
         onExportDOCX={handleExportDOCX}
         onRegenerate={generateFullReport}
         onSave={handleSave}
-        onLoadReport={handleLoadReport}
         readOnly={readOnly}
         onSign={handleSign}
         isSigned={isSigned}
@@ -2099,9 +1920,29 @@ ${pageGardeHtml}
         isDictating={isDictating}
         onAnalyse={handleAnalyse}
         onShowVersionHistory={() => setShowVersionHistory(true)}
+        documentStats={{
+          words: sectionsValues().split(/\s+/).filter(Boolean).length,
+          chars: sectionsValues().length,
+          paragraphs: sectionsValues().split(/<\/p>/i).length - 1,
+          readingTime: `${Math.max(1, Math.round(sectionsValues().split(/\s+/).filter(Boolean).length / 200))} min`,
+        }}
+        layoutProps={{
+          margins: pageMargins,
+          orientation: pageOrientation,
+          onSetMargins: setPageMargins,
+          onSetOrientation: setPageOrientation,
+          onSetColumns: setPageColumns,
+        }}
+        designProps={{
+          currentTheme,
+          onApplyTheme: (t) => setCurrentTheme(t.name),
+        }}
       />
 
-      <div ref={reportContainerRef} className="rapport-a4">
+      <div ref={reportContainerRef} className="rapport-a4" style={{
+        padding: pageMargins,
+        columns: pageColumns > 1 ? pageColumns : undefined,
+      }}>
         <div className="rapport-content">
         <PageGarde
           aerodrome={aerodrome}
