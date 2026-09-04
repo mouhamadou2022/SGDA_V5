@@ -792,8 +792,8 @@ export default function RapportRibbon({
   }, [iaJustSent, isIaGenerating]);
 
   const stats = documentStats || { words: 0, chars: 0, paragraphs: 0, readingTime: '0 min' };
-  const defaultLayout = { margins: '25.4mm', orientation: 'portrait', onSetMargins: () => {}, onSetOrientation: () => {}, onSetColumns: () => {},
-    individualMargins: { top: '25.4mm', right: '25.4mm', bottom: '25.4mm', left: '25.4mm' }, onSetIndividualMargins: () => {} };
+  const defaultLayout = { margins: '15mm', orientation: 'portrait', onSetMargins: () => {}, onSetOrientation: () => {}, onSetColumns: () => {},
+    individualMargins: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' }, onSetIndividualMargins: () => {} };
   const layout = layoutProps || defaultLayout;
   const defaultDesign = { currentTheme: 'ANACIM Bleu', onApplyTheme: () => {} };
   const design = designProps || defaultDesign;

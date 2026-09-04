@@ -473,7 +473,7 @@ export default function SurveillanceRapport({
   const recognitionRef = useRef<any>(null);
 
   // Layout & Design state for the ribbon
-  const [pageMargins, setPageMargins] = useState('25.4mm');
+  const [pageMargins, setPageMargins] = useState('15mm');
   const [pageOrientation, setPageOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [pageColumns, setPageColumns] = useState(1);
   const [currentTheme, setCurrentTheme] = useState('ANACIM Bleu');
@@ -865,6 +865,7 @@ ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% (${getSgsMaturiteLabel(sgsEval.
         resume: '"resume": "RÉSUMÉ EXÉCUTIF — Synthèse des constats clés"',
         introduction: '"introduction": "INTRODUCTION ET CONTEXTE — Objectifs, cadre réglementaire, périmètre"',
         methodologie: '"methodologie": "MÉTHODOLOGIE — Approche utilisée (revue documentaire, inspection sur site, entretiens, checklist)"',
+        equipe: '"equipe": "ÉQUIPE D\'INSPECTION — 1 à 2 phrases introductives présentant la composition et les rôles de l\'équipe de surveillance (chef d\'équipe et membres, répartition des responsabilités). Le tableau des membres est généré automatiquement, l\'IA rédige uniquement le paragraphe d\'introduction."',
         deroulement: [
           '"preparation": "DÉROULEMENT - Préparation"',
           '"reunionOuverture": "DÉROULEMENT - Réunion d\'ouverture"',
@@ -882,6 +883,7 @@ ${sgsEval ? `Score PAOE: ${sgsEval.scoreGlobal}% (${getSgsMaturiteLabel(sgsEval.
         ...(activeSections.includes('resume') ? [sectionKeys.resume] : []),
         ...(activeSections.includes('introduction') ? [sectionKeys.introduction] : []),
         ...(activeSections.includes('methodologie') ? [sectionKeys.methodologie] : []),
+        sectionKeys.equipe,
         ...(activeSections.includes('deroulement') ? [sectionKeys.deroulement] : []),
         ...(activeSections.includes('resultats') ? [sectionKeys.resultats] : []),
         ...(activeSections.includes('recommandations') ? [sectionKeys.recommandations] : []),
@@ -913,6 +915,7 @@ Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple et SANS styl
         if (parsed.resume) newSections.resume = harmoniserHtml(parsed.resume);
         if (parsed.introduction) newSections.introduction = harmoniserHtml(parsed.introduction);
         if (parsed.methodologie) newSections.methodologie = harmoniserHtml(parsed.methodologie);
+        if (parsed.equipe) newSections.equipe = harmoniserHtml(parsed.equipe);
         if (parsed.preoccupations) newSections.preoccupations = harmoniserHtml(parsed.preoccupations);
         if (parsed.recommandations) newSections.recommandations = harmoniserHtml(parsed.recommandations);
         if (parsed.conclusion) newSections.conclusion = harmoniserHtml(parsed.conclusion);
@@ -1826,6 +1829,8 @@ ${pageGardeHtml}
       improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction);
     else if (lower.includes('méthodo') || lower.includes('methodo'))
       improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction);
+    else if (lower.includes('équipe') || lower.includes('equipe') || lower.includes('inspecteur'))
+      improveSection('equipe', sections.equipe, 'ÉQUIPE D\'INSPECTION', instruction);
     else
       improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction);
   }, [sections, improveSection]);
@@ -1984,6 +1989,17 @@ ${pageGardeHtml}
         <div className="page-break-before"></div>
         <div className="rapport-section">
           <h2 className="rapport-heading">4. ÉQUIPE D'INSPECTION</h2>
+          {(!readOnly && !isSigned) ? (
+            <div
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => setSections(prev => ({ ...prev, equipe: e.currentTarget.innerHTML }))}
+              className="rapport-text-editable min-h-[60px] mb-4"
+              dangerouslySetInnerHTML={{ __html: sections.equipe || '<em>Une introduction de l\'équipe sera générée par AERORISQ.</em>' }}
+            />
+          ) : (
+            sections.equipe && <div className="rapport-text mb-4" dangerouslySetInnerHTML={{ __html: sections.equipe }} />
+          )}
           <div dangerouslySetInnerHTML={{ __html: generateEquipeHtml() }} />
         </div>
 
