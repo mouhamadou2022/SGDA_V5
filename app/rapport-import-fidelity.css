@@ -1,0 +1,264 @@
+/*
+ * Rapport importé — fidélité Word
+ * Ce fichier ne s'applique QU'aux contenus importés via mammoth (.import-mammoth).
+ * Le mode "redige" (rapport standard) n'est JAMAIS touché.
+ *
+ * Objectif : coller au rendu par défaut de Microsoft Word (Calibri 11pt,
+ * interligne 1,15, tableaux fins, couleurs d'en-tête…).
+ */
+
+/* ── Reset Rapport-content pour .import-mammoth ─────────────────────── */
+.import-mammoth,
+.import-mammoth .rapport-content {
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.15;
+  color: #000;
+  text-align: left;
+}
+
+/* ── Titres ─────────────────────────────────────────────────────────── */
+.import-mammoth h1,
+.import-mammoth h2,
+.import-mammoth h3,
+.import-mammoth h4,
+.import-mammoth h5,
+.import-mammoth h6 {
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  color: #000;
+  font-weight: 700;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+.import-mammoth h1 { font-size: 20pt; margin: 12pt 0 4pt 0; }
+.import-mammoth h2 { font-size: 16pt; margin: 12pt 0 4pt 0; }
+.import-mammoth h3 { font-size: 12pt; margin: 8pt 0 4pt 0; }
+.import-mammoth h4 { font-size: 11pt; margin: 8pt 0 4pt 0; font-style: italic; }
+
+/* Titres de section style « Titre section » / « Section » */
+.import-mammoth h2.rapport-section-accent {
+  border-left: 5px solid #1e5fa8;
+  border-bottom: 2px solid #1e5fa8;
+  padding: 4px 0 6px 10px;
+  color: #1a3a6b;
+  background: linear-gradient(90deg, #e8f0fe 0%, transparent 100%);
+  font-size: 14pt;
+  margin: 16pt 0 8pt 0;
+}
+
+/* ── Paragraphes ────────────────────────────────────────────────────── */
+.import-mammoth p {
+  margin: 0 0 8pt 0;
+  line-height: 1.15;
+  text-align: justify;
+  color: #000;
+}
+
+.import-mammoth p:first-child { margin-top: 0; }
+.import-mammoth p:last-child { margin-bottom: 0; }
+
+/* ── Listes ─────────────────────────────────────────────────────────── */
+.import-mammoth ul,
+.import-mammoth ol {
+  margin: 0 0 8pt 0;
+  padding-left: 24pt;
+  line-height: 1.15;
+}
+
+.import-mammoth li {
+  margin-bottom: 2pt;
+  line-height: 1.15;
+}
+
+/* ── Tableaux (fidélité Word) ───────────────────────────────────────── */
+.import-mammoth table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6pt 0;
+  table-layout: fixed;
+  word-break: break-word;
+  page-break-inside: auto;
+  break-inside: auto;
+}
+
+.import-mammoth th,
+.import-mammoth td {
+  border: 1px solid #000;
+  padding: 4pt 6pt;
+  vertical-align: top;
+  text-align: left;
+  font-size: 10pt;
+  line-height: 1.15;
+  color: #000;
+}
+
+.import-mammoth th {
+  background: #dce6f4;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Tableaux « synthèse » (style alternant) */
+.import-mammoth table.rapport-table-colored th {
+  background: #dce6f4;
+  font-weight: 700;
+}
+.import-mammoth table.rapport-table-colored td {
+  background: #fff;
+}
+
+/* Pas de césure à l'intérieur d'un tableau */
+.import-mammoth tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* ── Encadrés / Callouts ────────────────────────────────────────────── */
+.import-mammoth p.rapport-callout,
+.import-mammoth .rapport-callout {
+  border-left: 4px solid #1e5fa8;
+  background: #eef4fb;
+  padding: 8px 14px;
+  margin: 10pt 0 10pt 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 10.5pt;
+  line-height: 1.2;
+}
+
+/* ── Images ─────────────────────────────────────────────────────────── */
+.import-mammoth img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 8pt auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.import-mammoth figure {
+  margin: 8pt 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.import-mammoth figure img {
+  margin: 0 auto;
+}
+
+/* ── Liens ──────────────────────────────────────────────────────────── */
+.import-mammoth a {
+  color: #0563c1;
+  text-decoration: underline;
+}
+
+/* ── Gras / Italique ────────────────────────────────────────────────── */
+.import-mammoth strong,
+.import-mammoth b {
+  font-weight: 700;
+}
+
+.import-mammoth em,
+.import-mammoth i {
+  font-style: italic;
+}
+
+/* ── Souligné ───────────────────────────────────────────────────────── */
+.import-mammoth u {
+  text-decoration: underline;
+}
+
+/* ── Barré ──────────────────────────────────────────────────────────── */
+.import-mammoth s,
+.import-mammoth strike {
+  text-decoration: line-through;
+}
+
+/* ── Cadré de bordure double (page de garde) ────────────────────────── */
+.import-mammoth .page-garde,
+.import-mammoth .rapport-page-garde {
+  border: 3px double #1a3a6b;
+  padding: 20mm 15mm;
+  min-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* ── En-tête / Pied de page ─────────────────────────────────────────── */
+.import-mammoth .rapport-header,
+.import-mammoth .rapport-footer,
+.import-mammoth header,
+.import-mammoth footer {
+  font-size: 9pt;
+  color: #666;
+  text-align: center;
+}
+
+.import-mammoth .rapport-header { margin-bottom: 8pt; border-bottom: 1px solid #ccc; padding-bottom: 4pt; }
+.import-mammoth .rapport-footer { margin-top: 8pt; border-top: 1px solid #ccc; padding-top: 4pt; }
+
+/* ── TipTap editor inside import-mammoth ────────────────────────────── */
+.import-mammoth .rapport-text-editable,
+.import-mammoth [contenteditable="true"] {
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.15;
+  color: #000;
+  text-align: justify;
+  min-height: 120px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  outline: none;
+}
+
+.import-mammoth .rapport-text-editable:focus,
+.import-mammoth [contenteditable="true"]:focus {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.import-mammoth .rapport-text-editable p,
+.import-mammoth [contenteditable="true"] p {
+  margin: 0 0 8pt 0;
+}
+
+/* ── Toolbar intégrée dans l'éditeur import ─────────────────────────── */
+.import-mammoth-toolbar {
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+}
+
+/* ── Export Word/PDF — garder la fidélité ────────────────────────────── */
+@media print {
+  .import-mammoth {
+    font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.15;
+    color: #000;
+  }
+
+  .import-mammoth p { margin: 0 0 8pt 0; }
+  .import-mammoth h1 { font-size: 20pt; }
+  .import-mammoth h2 { font-size: 16pt; }
+  .import-mammoth h3 { font-size: 12pt; }
+
+  .import-mammoth th,
+  .import-mammoth td {
+    border: 1px solid #000;
+    padding: 4pt 6pt;
+    font-size: 10pt;
+  }
+
+  .import-mammoth .rapport-text-editable,
+  .import-mammoth [contenteditable="true"] {
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+}
