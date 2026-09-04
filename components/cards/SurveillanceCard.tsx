@@ -13,7 +13,7 @@ import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
 import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/ChargerRedigerRapportModal'
 import { useAppStore } from '@/lib/store'
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
-import { getBadgeClassFromScore, canManageRole } from '@/lib/config'
+import { getBadgeClassFromScore, canManageRole, canEditSurveillanceContent } from '@/lib/config'
 
 const TypeEntiteBadge = ({ typeEntite }: { typeEntite?: string }) => {
   switch (typeEntite) {
@@ -261,6 +261,15 @@ export function SurveillanceCard({
   const router = useRouter()
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const inspecteurs = useAppStore(s => s.inspecteurs)
+  const currentUser = useAppStore(s => s.user)
+
+  // Lecture seule stricte : dès qu'une équipe est désignée, seuls le chef et les
+  // membres éditent ; les autres inspecteurs et l'admin ANACIM consultent en lecture seule.
+  const equipeReadOnly = !canEditSurveillanceContent(
+    surveillance?.chef_id,
+    surveillance?.equipe_ids || [],
+    currentUser?.id,
+  )
 
   const getInspectorLabel = (u: typeof utilisateurs[0]) => {
     const specs = (u.specialites || []).map((s: string) => SPECIALITES_INSPECTEUR.find(sp => sp.code === s)?.label || s).join(', ')
@@ -330,6 +339,9 @@ export function SurveillanceCard({
   const handleRapportClick = () => {
     if ((STATUTS_RAPPORT_FINALISE as readonly string[]).includes(surveillance.statut)) {
       naviguerVersRapport()
+    } else if (equipeReadOnly) {
+      // Les lecteurs non impliqués consultent le rapport en lecture seule
+      router.push(`/surveillance/${surveillance.id}/rapport`)
     } else {
       setShowRapportModal(true)
     }
@@ -579,7 +591,7 @@ export function SurveillanceCard({
                   <FileText className="h-3 w-3" />
                 </button>
               )}
-              {peutContinuer && NextActionIcon && (
+              {peutContinuer && !equipeReadOnly && NextActionIcon && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onContinue?.(); }}
@@ -694,17 +706,17 @@ export function SurveillanceCard({
                   <Edit3 className="h-4 w-4" />
                 </button>
               )}
-              {peutContinuer && NextActionIcon && (
+              {peutContinuer && !equipeReadOnly && NextActionIcon && (
                 <button
                   type="button"
                   className="action-button hover:text-success hover:bg-success/10 transition-all duration-200"
                   onClick={(e) => { e.stopPropagation(); onContinue?.(); }}
                   title={statut.nextAction}
                 >
-                  <NextActionIcon className="h-4 w-4" />
+                  <NextActionIcon className="w-4 h-4" />
                 </button>
               )}
-              {peutTransmettre && (
+              {peutTransmettre && !equipeReadOnly && (
                 <button
                   type="button"
                   className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200"
