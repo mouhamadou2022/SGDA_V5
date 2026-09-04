@@ -16,7 +16,7 @@ import { useAppStore, Certification, Homologation, Aerodrome, ProfilRisque, Util
 import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { CERT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
-import { construireContexteReglementaire, recupererExtraitsReglementaires, type ExtraitCite } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteReglementaire, recupererExtraitsReglementaires, type ExtraitCite } from '@/lib/ia/rag/reglementaireRagClient'
 
 // ============================================================
 // TYPES

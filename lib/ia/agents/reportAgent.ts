@@ -12,7 +12,7 @@ import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { REPORT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 import { generateEquipeTableHtml, generateEcartsTableHtml, generateResultsSimpleHtml } from '@/lib/rapportHtml'
-import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 
 // ============================================================
 // TYPES

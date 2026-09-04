@@ -4,7 +4,16 @@
 
 import { NextResponse } from 'next/server'
 import { callWithFallback } from '@/lib/ia/providers'
-import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteAvecDocs } from '@/lib/ia/rag/reglementaireRag'
+import type { KitDocument } from '@/lib/store'
+import { supabase } from '@/lib/supabase'
+
+// RAG serveur : charge le Kit Inspecteur depuis Supabase (le store Zustand est
+// client uniquement — ne pas l'importer dans une route serveur).
+async function construireContexteReglementaireServeur(params: Parameters<typeof construireContexteAvecDocs>[1]) {
+  const { data } = await supabase.from('kit_documents').select('*')
+  return construireContexteAvecDocs((data ?? []) as KitDocument[], params)
+}
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +23,7 @@ export async function POST(request: Request) {
     // au lieu de générer un libellé depuis les items NS/NV sélectionnés.
     const constatationTexte = (constatation || '').trim()
     if (constatationTexte.length > 0) {
-      const contexteReglementaire = construireContexteReglementaire({
+      const contexteReglementaire = await construireContexteReglementaireServeur({
         domaines: [domaine],
         requete: constatationTexte,
         maxChars: 2500,
@@ -53,7 +62,7 @@ Ne retourne que le texte brut reformulé (puces ou phrases courtes), pas de JSON
     }
 
     // Contexte réglementaire RAG
-    const contexteReglementaire = construireContexteReglementaire({
+    const contexteReglementaire = await construireContexteReglementaireServeur({
       domaines: [domaine],
       requete: items.map((i: any) => i.description || i.point_verification || '').join(' '),
       maxChars: 2500,

@@ -6,7 +6,7 @@ import {
   recupererExtraitsReglementaires,
   formaterContexteReglementaire,
   construireContexteReglementaire,
-} from '../ia/rag/reglementaireRag'
+} from '../ia/rag/reglementaireRagClient'
 
 function makeDoc(overrides: Partial<KitDocument> = {}): KitDocument {
   return {

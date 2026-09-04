@@ -10,7 +10,7 @@
 
 import { aiClient } from '@/lib/ia/aiClient'
 import { extractTextFromPDF } from '@/lib/services/pdfExtractor'
-import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 import { REPONDRE_COPILOTE_PROMPT } from '@/lib/ia/prompts'
 
 // ============================================================

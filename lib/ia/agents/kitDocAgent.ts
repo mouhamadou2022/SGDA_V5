@@ -18,7 +18,7 @@ import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUEST
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
-import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
+import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 
 // ============================================================
 // TYPES EXPORTS

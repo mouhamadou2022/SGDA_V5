@@ -7,7 +7,7 @@
 // Garantie : l'IA ne cite que des références réellement présentes dans le Kit
 // (règle anti-fabrication intégrée au formateur).
 
-import { useAppStore, type KitDocument, type KitDocExtrait } from '@/lib/store'
+import type { KitDocument, KitDocExtrait } from '@/lib/store'
 import { getDomaineCode } from '@/lib/domaines'
 import { getSourcesForDomaine } from '@/lib/kitDocMapping'
 
@@ -141,7 +141,7 @@ function prioriteSource(domaine: string, reference: string, type_entite: TypeEnt
 // Récupération
 // ────────────────────────────────────────────────────────────
 
-export function recupererExtraitsReglementaires(params: RecuperationParams = {}): ExtraitCite[] {
+export function recupererExtraitsAvecDocs(docsInput: KitDocument[], params: RecuperationParams = {}): ExtraitCite[] {
   const {
     domaines = [],
     type_entite = 'aerodrome',
@@ -150,8 +150,7 @@ export function recupererExtraitsReglementaires(params: RecuperationParams = {})
     maxChars = 6000,
   } = params
 
-  const store = useAppStore.getState()
-  const docs = (store.kitDocuments || []).filter(d => d.etat !== 'obsolete')
+  const docs = (docsInput || []).filter(d => d.etat !== 'obsolete')
   const requested = new Set(domaines.map(d => getDomaineCode(d).toUpperCase()))
 
   const candidats: Array<{ cite: ExtraitCite; score: number }> = []
@@ -259,6 +258,6 @@ export function formaterContexteReglementaire(extraits: ExtraitCite[]): string {
   ].join('\n')
 }
 
-export function construireContexteReglementaire(params: RecuperationParams): string {
-  return formaterContexteReglementaire(recupererExtraitsReglementaires(params))
+export function construireContexteAvecDocs(docs: KitDocument[], params: RecuperationParams): string {
+  return formaterContexteReglementaire(recupererExtraitsAvecDocs(docs, params))
 }
