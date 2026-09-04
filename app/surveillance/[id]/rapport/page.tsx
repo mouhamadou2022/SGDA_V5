@@ -18,6 +18,8 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function RapportPage() {
@@ -35,6 +37,13 @@ export default function RapportPage() {
   const replaceFileRef = useRef<HTMLInputElement>(null)
   const [action, setAction] = useState<'idle' | 'generating' | 'uploading'>('idle')
   const [actionError, setActionError] = useState<string | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    variant: 'warning' | 'danger';
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', variant: 'warning', onConfirm: () => {} });
 
   useEffect(() => {
     if (user?.role) {
@@ -45,7 +54,6 @@ export default function RapportPage() {
 
   const surveillance = surveillances.find(s => s.id === surveillanceId);
   const aerodrome = aerodromes.find(a => a.id === surveillance?.aerodrome_id);
-  const ecartsData = ecarts.filter(e => e.surveillance_id === surveillanceId);
   const isSigned = surveillance?.statut === 'rapport_signe'
     || surveillance?.statut === 'lettre_signee'
     || surveillance?.statut === 'transmise'
@@ -68,7 +76,9 @@ export default function RapportPage() {
   }
 
   const isCharged = surveillance.rapport_type === 'charge' && !!surveillance.rapport_fichier_url;
+  const isRedige = surveillance.rapport_type === 'redige' || (!surveillance.rapport_type && !!surveillance.rapport_sections);
   const canEdit = !isSigned && canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id);
+  const hasExistingRapport = isCharged || isRedige;
 
   const handleSave = (contenu: string) => {
     updateSurveillance(surveillanceId, { rapport_html: contenu });
@@ -78,15 +88,48 @@ export default function RapportPage() {
     router.push(`/surveillance/${surveillanceId}`);
   };
 
+  // Passer en mode rédaction IA (depuis mode charge)
   const handlePasserEnRedaction = () => {
-    setAction('generating')
-    setActionError(null)
-    updateSurveillance(surveillanceId, { rapport_type: 'redige' })
-    setAction('idle')
+    if (isCharged && surveillance.rapport_sections) {
+      setConfirmDialog({
+        open: true,
+        title: 'Remplacer le rapport chargé ?',
+        message: 'Un rapport chargé existe déjà. Si vous passez en mode rédaction AERORISQ, le rapport chargé sera remplacé par un rapport généré par l\'IA. Voulez-vous continuer ?',
+        variant: 'danger',
+        onConfirm: () => {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          setAction('generating');
+          updateSurveillance(surveillanceId, {
+            rapport_type: 'redige',
+            rapport_fichier_url: undefined,
+            rapport_fichier_nom: undefined,
+          });
+          setAction('idle');
+        },
+      });
+    } else {
+      setAction('generating');
+      updateSurveillance(surveillanceId, { rapport_type: 'redige' });
+      setAction('idle');
+    }
   }
 
+  // Remplacer le fichier chargé
   const handleReplaceCharged = () => {
-    replaceFileRef.current?.click()
+    if (isCharged) {
+      setConfirmDialog({
+        open: true,
+        title: 'Remplacer le fichier ?',
+        message: 'Le fichier chargé existant sera remplacé. Cette action est irréversible. Continuer ?',
+        variant: 'warning',
+        onConfirm: () => {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          replaceFileRef.current?.click();
+        },
+      });
+    } else {
+      replaceFileRef.current?.click();
+    }
   }
 
   const handleReplaceFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,6 +162,13 @@ export default function RapportPage() {
         rapport_type: 'charge',
         rapport_html: `<p>Rapport chargé : ${file.name}</p>`,
       })
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Fichier chargé',
+        message: `Le fichier "${file.name}" a été chargé avec succès.`,
+        canal: 'in_app',
+      });
     } catch {
       setActionError('Erreur lors du chargement du fichier')
     } finally {
@@ -128,7 +178,6 @@ export default function RapportPage() {
 
   const estPDF = surveillance.rapport_fichier_url?.startsWith('data:application/pdf');
   const estImage = surveillance.rapport_fichier_url?.startsWith('data:image/');
-  const estWord = surveillance.rapport_fichier_nom?.match(/\.(doc|docx)$/i);
 
   return (
     <div className="min-h-screen bg-gray-50" data-role={user?.role} data-module="rapport">
@@ -183,85 +232,69 @@ export default function RapportPage() {
 
       {/* Contenu */}
       <div className="px-6 py-6">
+        {/* Mode charge : header fichier + SurveillanceRapport directEdit */}
         {isCharged ? (
           <div className="space-y-4">
+            {/* Barre d'infos du fichier chargé */}
             <div className="card">
-              <div className="card-header pb-2 flex items-center justify-between flex-wrap gap-2">
-                <div className="card-title text-sm font-medium flex items-center gap-2">
+              <div className="card-content p-3 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
                   <Eye className="h-4 w-4 text-role-primary" />
-                  Rapport chargé — {surveillance.rapport_fichier_nom || 'fichier'}
+                  <span className="text-sm font-medium text-foreground">
+                    {surveillance.rapport_fichier_nom || 'Fichier chargé'}
+                  </span>
+                  {estPDF && <span className="badge primary text-[10px]">PDF</span>}
+                  {estImage && <span className="badge primary text-[10px]">Image</span>}
                 </div>
-                <a
-                  href={surveillance.rapport_fichier_url}
-                  download={surveillance.rapport_fichier_nom || 'rapport'}
-                  className="btn btn-sm btn-primary gap-1.5"
-                >
-                  <FileDown className="h-4 w-4" />
-                  Télécharger
-                </a>
-              </div>
-              <div className="card-content p-0">
-                {estPDF ? (
-                  <iframe
-                    src={surveillance.rapport_fichier_url}
-                    className="w-full h-[80vh] rounded-b-xl"
-                    title="Rapport de surveillance"
-                  />
-                ) : estImage ? (
-                  <div className="p-4 flex justify-center bg-accent/30">
-                    <img
-                      src={surveillance.rapport_fichier_url}
-                      alt="Rapport de surveillance"
-                      className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-md"
-                    />
-                  </div>
-                ) : (
-                  <div className="p-12 text-center text-muted">
-                    <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                    <p className="font-medium">Aperçu non disponible</p>
-                    <p className="text-sm mt-1">
-                      {estWord
-                        ? 'Ce document est au format Word (.doc/.docx) : téléchargez-le pour le consulter, ou passez en mode rédaction pour le modifier avec l\'IA.'
-                        : 'Téléchargez le fichier pour le consulter.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {canEdit && (
-              <div className="card">
-                <div className="card-content p-4 space-y-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Modifier ce rapport :
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={handlePasserEnRedaction}
-                      disabled={action !== 'idle'}
-                      className="btn btn-primary gap-2 text-sm"
-                    >
-                      {action === 'generating' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      Rédiger avec AERORISQ
-                    </button>
-                    <button
-                      onClick={handleReplaceCharged}
-                      disabled={action !== 'idle'}
-                      className="btn btn-secondary gap-2 text-sm"
-                    >
-                      {action === 'uploading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                      Remplacer le fichier
-                    </button>
-                  </div>
-                  {actionError && (
-                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-danger/10 border border-danger/20 text-xs text-danger">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span>{actionError}</span>
-                    </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={surveillance.rapport_fichier_url}
+                    download={surveillance.rapport_fichier_nom || 'rapport'}
+                    className="btn btn-sm btn-secondary gap-1.5 text-xs"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Télécharger
+                  </a>
+                  {canEdit && (
+                    <>
+                      <button
+                        onClick={handlePasserEnRedaction}
+                        disabled={action !== 'idle'}
+                        className="btn btn-sm btn-primary gap-1.5 text-xs"
+                      >
+                        {action === 'generating' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                        Rédiger avec AERORISQ
+                      </button>
+                      <button
+                        onClick={handleReplaceCharged}
+                        disabled={action !== 'idle'}
+                        className="btn btn-sm btn-secondary gap-1.5 text-xs"
+                      >
+                        {action === 'uploading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        Remplacer
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
+            </div>
+
+            {actionError && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-danger/10 border border-danger/20 text-xs text-danger">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>{actionError}</span>
+              </div>
             )}
+
+            {/* Le rapport éditable directement */}
+            <SurveillanceRapport
+              surveillanceId={surveillanceId}
+              onSave={handleSave}
+              onSigner={handleSigner}
+              readOnly={isSigned || !canEdit}
+              userRole={user?.role || 'inspector'}
+              rapportType="charge"
+            />
           </div>
         ) : (
           <SurveillanceRapport
@@ -270,6 +303,7 @@ export default function RapportPage() {
             onSigner={handleSigner}
             readOnly={isSigned || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
             userRole={user?.role || 'inspector'}
+            rapportType="redige"
           />
         )}
 
@@ -281,6 +315,37 @@ export default function RapportPage() {
           className="hidden"
         />
       </div>
+
+      {/* Modal de confirmation */}
+      {confirmDialog.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>
+          <div className="bg-white rounded-2xl max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${confirmDialog.variant === 'danger' ? 'bg-danger/10' : 'bg-warning/10'}`}>
+                  <AlertTriangle className={`w-5 h-5 ${confirmDialog.variant === 'danger' ? 'text-danger' : 'text-warning'}`} />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">{confirmDialog.title}</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-6">{confirmDialog.message}</p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                  className="btn btn-secondary"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className={`btn ${confirmDialog.variant === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+                >
+                  Confirmer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -62,6 +62,7 @@ import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PAOE_LABELS, type PAOELevel } from '@/types/checklist';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
 import RapportRibbon from './RapportRibbon';
+import { ChatIALateralRapport } from './ChatIALateralRapport';
 
 
 // Classes CSS réutilisées
@@ -265,6 +266,7 @@ function EditableSection({
   editable,
   onImprove,
   isImproving,
+  directEdit,
 }: {
   title: string;
   content: string;
@@ -272,6 +274,7 @@ function EditableSection({
   editable: boolean;
   onImprove?: (instruction: string) => void;
   isImproving?: boolean;
+  directEdit?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [localContent, setLocalContent] = useState(content);
@@ -298,6 +301,23 @@ function EditableSection({
       <div className="rapport-section">
         <h2 className="rapport-heading">{title}</h2>
         <div className="rapport-text" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
+      </div>
+    );
+  }
+
+  // Mode directEdit : édition inline permanente, pas de boutons Modifier/AERORISQ
+  if (directEdit) {
+    return (
+      <div className="rapport-section">
+        <h2 className="rapport-heading">{title}</h2>
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={() => editorRef.current && onContentChange(editorRef.current.innerHTML)}
+          className="rapport-text-editable min-h-[80px]"
+          dangerouslySetInnerHTML={{ __html: content }}
+        />
       </div>
     );
   }
@@ -480,12 +500,14 @@ export default function SurveillanceRapport({
   onSigner,
   readOnly = false,
   userRole = 'inspector',
+  rapportType = 'redige',
 }: {
   surveillanceId: string;
   onSave?: (contenu: string) => void;
   onSigner?: (signatureUrl: string) => void;
   readOnly?: boolean;
   userRole?: string;
+  rapportType?: 'redige' | 'charge';
 }) {
   const user = useAppStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
@@ -519,6 +541,7 @@ export default function SurveillanceRapport({
   const [showAnalyse, setShowAnalyse] = useState(false);
   const [analyseResult, setAnalyseResult] = useState<{ score: number; grade: string; forces: string[]; faiblesses: string[] } | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   // Layout & Design state for the ribbon
@@ -1235,12 +1258,13 @@ N'inclus PAS le titre de la section dans le contenu.`;
   // - le rapport n'est pas déjà signé/transmis
   // - aucune section sauvegardée n'a été trouvée
   // - les données aérodrome/surveillance sont chargées
+  // - le type n'est PAS 'charge' (rapport chargé = pas de génration auto)
   useEffect(() => {
-    if (readOnly || isSigned) return;
+    if (readOnly || isSigned || rapportType === 'charge') return;
     if (!sections.resume && aerodrome && surveillance && !surveillance.rapport_sections) {
       generateFullReport();
     }
-  }, [aerodrome?.code_oaci, readOnly, isSigned]);
+  }, [aerodrome?.code_oaci, readOnly, isSigned, rapportType]);
 
   // ─── Helper: convertit le HTML du rapport en texte clair pour DOCX ─────
   const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
@@ -1878,6 +1902,29 @@ ${pageGardeHtml}
       improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction);
   }, [sections, improveSection]);
 
+  // ─── Handler pour les mises à jour sections via le chat IA lateral ──
+  const handleChatSectionsUpdate = useCallback((updated: Partial<typeof sections>) => {
+    setSections(prev => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(updated)) {
+        if (key === 'deroulement' && typeof value === 'object' && value !== null) {
+          next.deroulement = { ...prev.deroulement, ...(value as any) };
+        } else {
+          (next as any)[key] = value;
+        }
+      }
+      return next;
+    });
+    addNotification({
+      user_id: user?.id || '',
+      type: 'success',
+      title: 'Rapport modifié',
+      message: 'Les sections ont été mises à jour par AERORISQ',
+      canal: 'in_app',
+    });
+    toast('success', 'Les sections modifiées ont été appliquées.', 'Rapport mis à jour', 5000);
+  }, [addNotification, user]);
+
   if (isSigned) {
     return (
       <Card variant="level" levelColor="success" className="border-success bg-success/10 text-center" data-role={userRole}>
@@ -1937,13 +1984,26 @@ ${pageGardeHtml}
           currentTheme,
           onApplyTheme: (t) => setCurrentTheme(t.name),
         }}
+        onToggleChat={() => setChatOpen(!chatOpen)}
+        chatOpen={chatOpen}
       />
 
-      <div ref={reportContainerRef} className="rapport-a4" style={{
-        padding: pageMargins,
-        columns: pageColumns > 1 ? pageColumns : undefined,
-      }}>
-        <div className="rapport-content">
+      <div className="flex h-[calc(100vh-80px)]">
+        {chatOpen && (
+          <ChatIALateralRapport
+            sections={sections}
+            rapportType={rapportType}
+            onSectionsUpdate={handleChatSectionsUpdate}
+            onClose={() => setChatOpen(false)}
+          />
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          <div ref={reportContainerRef} className="rapport-a4" style={{
+            padding: pageMargins,
+            columns: pageColumns > 1 ? pageColumns : undefined,
+          }}>
+            <div className="rapport-content">
         <PageGarde
           aerodrome={aerodrome}
           surveillance={surveillance}
@@ -1974,6 +2034,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -1984,6 +2045,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -1994,6 +2056,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -2011,6 +2074,7 @@ ${pageGardeHtml}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, preparation: val } }))}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('preparation', sections.deroulement.preparation, '5.1 Préparation', instruction)}
+            directEdit={rapportType === 'charge'}
           />
           <EditableSection
             title="5.2. Réunion d'ouverture"
@@ -2018,6 +2082,7 @@ ${pageGardeHtml}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionOuverture: val } }))}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('reunionOuverture', sections.deroulement.reunionOuverture, "5.2 Réunion d'ouverture", instruction)}
+            directEdit={rapportType === 'charge'}
           />
           <EditableSection
             title="5.3. Phase de vérification sur site"
@@ -2025,6 +2090,7 @@ ${pageGardeHtml}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, verificationSite: val } }))}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('verificationSite', sections.deroulement.verificationSite, '5.3 Phase de vérification sur site', instruction)}
+            directEdit={rapportType === 'charge'}
           />
           <EditableSection
             title="5.4. Réunion de clôture"
@@ -2032,6 +2098,7 @@ ${pageGardeHtml}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionCloture: val } }))}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('reunionCloture', sections.deroulement.reunionCloture, '5.4 Réunion de clôture', instruction)}
+            directEdit={rapportType === 'charge'}
           />
         </div>
 
@@ -2045,6 +2112,7 @@ ${pageGardeHtml}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('resultsIntro', sections.resultsIntro, 'Introduction des résultats', instruction)}
             isImproving={isImproving}
+            directEdit={rapportType === 'charge'}
           />
           <div className="rapport-results" dangerouslySetInnerHTML={{ __html: generateResultsHtml() }} />
           <EditableSection
@@ -2054,6 +2122,7 @@ ${pageGardeHtml}
             editable={!readOnly && !isSigned}
             onImprove={(instruction?) => improveSection('resultsAnalysis', sections.resultsAnalysis, 'Analyse des résultats', instruction)}
             isImproving={isImproving}
+            directEdit={rapportType === 'charge'}
           />
         </div>
 
@@ -2065,6 +2134,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('preoccupations', sections.preoccupations, 'PRÉOCCUPATIONS DE SÉCURITÉ', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -2083,6 +2153,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('recommandations', sections.recommandations, 'RECOMMANDATIONS', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -2093,6 +2164,7 @@ ${pageGardeHtml}
           editable={!readOnly && !isSigned}
           onImprove={(instruction?) => improveSection('conclusion', sections.conclusion, 'CONCLUSION', instruction)}
           isImproving={isImproving}
+          directEdit={rapportType === 'charge'}
         />
 
         <div className="page-break-before"></div>
@@ -2105,7 +2177,9 @@ ${pageGardeHtml}
           />
         </div>
         </div>
-      </div>
+        </div>
+        </div>
+        </div>
 
       {!sections.resume && !isGenerating && !readOnly && !isSigned && (
         <div className="fixed bottom-4 right-4 z-50">

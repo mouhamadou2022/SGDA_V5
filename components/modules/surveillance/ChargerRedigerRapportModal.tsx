@@ -4,7 +4,7 @@
 import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
-import { FileText, FileUp, X, AlertCircle, Loader2, Sparkles } from 'lucide-react'
+import { FileText, FileUp, X, AlertCircle, AlertTriangle, Loader2, Sparkles } from 'lucide-react'
 
 interface ChargerRedigerRapportModalProps {
   surveillanceId: string
@@ -18,10 +18,40 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<'charger' | 'rediger' | null>(null)
   const surveillance = surveillances.find(s => s.id === surveillanceId)
 
+  const isCharged = surveillance?.rapport_type === 'charge' && !!surveillance?.rapport_fichier_url
+  const isRedige = surveillance?.rapport_type === 'redige' || (!surveillance?.rapport_type && !!surveillance?.rapport_sections)
+  const hasExistingRapport = isCharged || isRedige
+
   const handleCharger = () => {
+    if (hasExistingRapport) {
+      const variant = isCharged ? 'charger' : 'rediger'
+      setConfirmAction(variant)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
+
+  const handleRediger = () => {
+    if (hasExistingRapport) {
+      setConfirmAction('rediger')
+    } else {
+      onClose()
+      router.push(`/surveillance/${surveillanceId}/rapport`)
+    }
+  }
+
+  const handleConfirmCharger = () => {
+    setConfirmAction(null)
     fileInputRef.current?.click()
+  }
+
+  const handleConfirmRediger = () => {
+    setConfirmAction(null)
+    onClose()
+    router.push(`/surveillance/${surveillanceId}/rapport`)
   }
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,11 +105,6 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
     }
   }
 
-  const handleRediger = () => {
-    onClose()
-    router.push(`/surveillance/${surveillanceId}/rapport`)
-  }
-
   const typeLabel = (surveillance?.type || 'surveillance').replace(/_/g, ' ')
 
   return (
@@ -100,6 +125,20 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
             Comment souhaitez-vous procéder pour le rapport de cette {typeLabel} ?
           </p>
 
+          {/* Alerte si un rapport existe déjà */}
+          {hasExistingRapport && (
+            <div className="mb-4 p-3 rounded-lg bg-warning/10 border border-warning/20 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+              <div className="text-xs text-warning-800">
+                <p className="font-semibold">Un rapport existe déjà</p>
+                <p className="mt-0.5">
+                  {isCharged && 'Un rapport chargé est présent. Choisir une option l\'écrasera.'}
+                  {isRedige && 'Un rapport généré par l\'IA est présent. Choisir une option l\'écrasera.'}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             {/* Option 1: Rédiger avec AERORISQ */}
             <button
@@ -113,13 +152,15 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
                 <div className="flex-1">
                   <p className="font-semibold text-foreground">Rédiger avec AERORISQ</p>
                   <p className="text-xs text-muted mt-0.5">
-                    L'IA génère un rapport automatique depuis les données de la surveillance — vous pouvez ensuite le modifier librement
+                    {isCharged
+                      ? 'Remplacer le rapport chargé par un rapport généré par l\'IA — vous pourrez ensuite le modifier librement'
+                      : 'L\'IA génère un rapport automatique depuis les données de la surveillance — vous pouvez ensuite le modifier librement'}
                   </p>
                 </div>
               </div>
             </button>
 
-            {/* Option 2: Charger un fichier existant (lecture seule) */}
+            {/* Option 2: Charger un fichier existant */}
             <button
               onClick={handleCharger}
               disabled={uploadState === 'loading'}
@@ -132,7 +173,9 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
                 <div className="flex-1">
                   <p className="font-semibold text-foreground">Charger un rapport existant</p>
                   <p className="text-xs text-muted mt-0.5">
-                    PDF, Word ou image — rapport déjà rédigé et signé en dehors du système (lecture seule)
+                    {isCharged
+                      ? 'Remplacer le fichier chargé actuel (PDF, Word ou image)'
+                      : 'PDF, Word ou image — rapport déjà rédigé et signé en dehors du système, modifiable directement'}
                   </p>
                 </div>
               </div>
@@ -165,6 +208,43 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
           className="hidden"
         />
       </div>
+
+      {/* Modal de confirmation garde-fou */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]" onClick={() => setConfirmAction(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-warning" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">
+                  {confirmAction === 'charger' ? 'Remplacer le rapport chargé ?' : 'Remplacer le rapport IA ?'}
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-6">
+                {confirmAction === 'charger'
+                  ? 'Un rapport chargé est déjà présent. Le charger de nouveau l\'écrasera. Cette action est irréversible.'
+                  : 'Un rapport généré par l\'IA est déjà présent. Choisir une action l\'écrasera. Voulez-vous continuer ?'}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="btn btn-secondary"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmAction === 'charger' ? handleConfirmCharger : handleConfirmRediger}
+                  className="btn btn-primary"
+                >
+                  Confirmer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

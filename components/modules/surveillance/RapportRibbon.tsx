@@ -762,6 +762,7 @@ interface RapportRibbonProps {
   };
   designProps?: { currentTheme: string; onApplyTheme: (theme: typeof THEMES[0]) => void };
   zoom?: number; onSetZoom?: (z: number) => void;
+  onToggleChat?: () => void; chatOpen?: boolean;
 }
 
 export default function RapportRibbon({
@@ -769,6 +770,7 @@ export default function RapportRibbon({
   readOnly, onSign, isSigned, onIACommand, isIaGenerating,
   onDictate, isDictating, onAnalyse, onShowVersionHistory,
   documentStats, layoutProps, designProps, zoom = 100, onSetZoom,
+  onToggleChat, chatOpen,
 }: RapportRibbonProps) {
   const [activeTab, setActiveTab] = useState<RibbonTab>('accueil');
   const [iaPanelOpen, setIaPanelOpen] = useState(false);
@@ -837,7 +839,7 @@ export default function RapportRibbon({
           <div className="w-px h-4 bg-gray-200 mx-1" />
           {!readOnly && !isSigned && (<>
             <button onClick={onRegenerate} className="btn btn-sm px-2 py-0.5 gap-1 text-[10px]"><RefreshCw className="w-3 h-3" /> Régénérer</button>
-            <button onClick={() => setIaPanelOpen(!iaPanelOpen)} className={`btn btn-sm px-2 py-0.5 gap-1 text-[10px] ${iaPanelOpen ? 'btn-primary' : ''}`}><Brain className="w-3 h-3" /> AERORISQ</button>
+            <button onClick={() => onToggleChat?.()} className={`btn btn-sm px-2 py-0.5 gap-1 text-[10px] ${chatOpen ? 'btn-primary' : ''}`}><Brain className="w-3 h-3" /> AERORISQ</button>
             <button onClick={onDictate} className={`btn btn-sm px-2 py-0.5 gap-1 text-[10px] ${isDictating ? 'bg-red-500 text-white' : ''}`}>
               {isDictating ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
             </button>
