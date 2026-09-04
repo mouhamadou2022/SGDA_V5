@@ -1090,6 +1090,29 @@ CREATE INDEX IF NOT EXISTS idx_reg_entries_type ON registre_entries(type);
 CREATE INDEX IF NOT EXISTS idx_reg_entries_aerodrome ON registre_entries(aerodrome_id);
 CREATE INDEX IF NOT EXISTS idx_reg_entries_date ON registre_entries(date_entree DESC);
 
+-- Migrations idempotentes : colonnes ajoutées APRÈS la création de la table
+-- (sinon CREATE TABLE IF NOT EXISTS ne les applique pas aux bases existantes)
+DO $$ BEGIN
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS type          TEXT NOT NULL DEFAULT '' CHECK (type IN ('certification','homologation','surveillance','evenement','ecart','dossier','document','formation'));
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS reference     TEXT NOT NULL DEFAULT '';
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS titre         TEXT NOT NULL DEFAULT '';
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS description   TEXT NOT NULL DEFAULT '';
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS date_entree   TIMESTAMPTZ NOT NULL DEFAULT now();
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS aerodrome_id  UUID REFERENCES aerodromes(id) ON DELETE SET NULL;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS fichiers      JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS timeline      JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS statut        TEXT NOT NULL DEFAULT 'valide' CHECK (statut IN ('valide','archive'));
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS source_id     TEXT;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS source_type   TEXT;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS metadata      JSONB;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS ia_analysis   JSONB;
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS created_by    TEXT NOT NULL DEFAULT '';
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ NOT NULL DEFAULT now();
+  ALTER TABLE registre_entries ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ NOT NULL DEFAULT now();
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
 DROP POLICY IF EXISTS "reg_entries_select" ON registre_entries;
 CREATE POLICY "reg_entries_select" ON registre_entries
   FOR SELECT USING (
