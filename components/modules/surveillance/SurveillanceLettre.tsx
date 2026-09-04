@@ -2,10 +2,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   CheckCircle, Mail, AlertCircle, Info, Upload,
-  X, Eye, Trash2, FileText, Calendar, Tag, Activity,
+  Eye, Trash2, Calendar, Tag, Activity,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
@@ -39,7 +38,7 @@ export default function SurveillanceLettre({
 
   const [lettreFileName, setLettreFileName] = useState<string | null>(null);
   const [lettreDate, setLettreDate] = useState<string | null>(null);
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [showReplace, setShowReplace] = useState(false);
 
   const lettreUrl = surveillance?.lettre_signee_url ?? null;
   const isLettreChargee = !!lettreUrl;
@@ -64,7 +63,7 @@ export default function SurveillanceLettre({
       });
     });
     onLettreSignee?.(url);
-    setUploadModalOpen(false);
+    setShowReplace(false);
   };
 
   const handleRemove = () => {
@@ -135,7 +134,7 @@ export default function SurveillanceLettre({
               {!isReadOnly && (
                 <>
                   <button
-                    onClick={() => setUploadModalOpen(true)}
+                    onClick={() => setShowReplace(true)}
                     className="btn btn-secondary btn-sm gap-1"
                   >
                     <Upload className="w-3.5 h-3.5" />
@@ -154,28 +153,51 @@ export default function SurveillanceLettre({
           </div>
         </div>
       ) : (
-        /* ── Zone upload vide ── */
+        /* ── Zone upload vide : formulaire inline (pas de modale imbriquée) ── */
         <div className="kpi-card animate-fade-in">
-          <div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
-            <div className="kpi-icon mx-auto">
-              <Mail />
-            </div>
-            <div>
-              <p className="font-semibold text-foreground">Aucune lettre chargée</p>
-              <p className="text-small mt-1">
-                PDF, DOC ou DOCX — signée par le Directeur Général
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col items-center text-center gap-2 pt-4">
+              <div className="kpi-icon mx-auto">
+                <Mail />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Aucune lettre chargée</p>
+                <p className="text-small mt-1">
+                  PDF, DOC ou DOCX — signée par le Directeur Général
+                </p>
+              </div>
             </div>
             {!isReadOnly && (
-              <button
-                onClick={() => setUploadModalOpen(true)}
-                className="btn btn-primary gap-2 shadow-role-glow"
-              >
-                <Upload className="w-4 h-4" />
-                Charger la lettre
-              </button>
+              <LettreTransmissionUpload
+                label="Lettre de transmission DG ANACIM"
+                currentUrl={lettreUrl}
+                currentFileName={lettreFileName ?? undefined}
+                currentDate={lettreDate ?? undefined}
+                onUpload={handleUpload}
+                onRemove={undefined}
+                disabled={false}
+                required
+                storagePrefix={`lettres/${surveillanceId}`}
+              />
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Zone "Remplacer" inline (lettre déjà chargée) ── */}
+      {isLettreChargee && !isReadOnly && showReplace && (
+        <div className="kpi-card animate-fade-in">
+          <LettreTransmissionUpload
+            label="Remplacer la lettre de transmission"
+            currentUrl={lettreUrl}
+            currentFileName={lettreFileName ?? undefined}
+            currentDate={lettreDate ?? undefined}
+            onUpload={handleUpload}
+            onRemove={() => setShowReplace(false)}
+            disabled={false}
+            required
+            storagePrefix={`lettres/${surveillanceId}`}
+          />
         </div>
       )}
 
@@ -247,81 +269,6 @@ export default function SurveillanceLettre({
           </div>
       </Card>
       </div>
-
-      {/* ── Modale upload ── */}
-      {uploadModalOpen && createPortal(
-        <div
-          className="modal-overlay"
-          onClick={() => setUploadModalOpen(false)}
-        >
-          <div
-            className="modal-content max-w-lg w-full animate-scale"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="border-t-4 border-t-role-primary rounded-2xl overflow-hidden">
-
-              <div className="modal-header bg-gradient-to-r from-role-primary/10 to-transparent">
-                <div className="modal-title">
-                  <div className="w-8 h-8 rounded-lg bg-role-primary-soft flex items-center justify-center">
-                    <FileText className="w-4 h-4 text-role-primary" />
-                  </div>
-                  Charger la lettre de transmission
-                </div>
-                <button
-                  className="modal-close"
-                  onClick={() => setUploadModalOpen(false)}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="modal-body space-y-4">
-                {aerodrome && (
-                  <div className="flex items-center gap-3 p-3 bg-role-primary-soft rounded-xl">
-                    <Mail className="w-4 h-4 text-role-primary flex-shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Aérodrome concerné</p>
-                      <p className="text-sm font-semibold text-role-primary">
-                        {aerodrome.code_oaci} — {aerodrome.nom}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="alert alert-info">
-                  <Info className="alert-icon" />
-                  <div className="alert-content text-xs">
-                    Le document doit être signé par le Directeur Général.
-                    Formats acceptés : <strong>PDF, DOC, DOCX</strong>.
-                  </div>
-                </div>
-
-                <LettreTransmissionUpload
-                  label="Lettre de transmission DG ANACIM"
-                  currentUrl={lettreUrl}
-                  currentFileName={lettreFileName ?? undefined}
-                  currentDate={lettreDate ?? undefined}
-                  onUpload={handleUpload}
-                  onRemove={undefined}
-                  disabled={false}
-                  required
-                  storagePrefix={`lettres/${surveillanceId}`}
-                />
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setUploadModalOpen(false)}
-                >
-                  Annuler
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
