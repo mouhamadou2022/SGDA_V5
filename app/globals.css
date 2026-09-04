@@ -4349,6 +4349,22 @@ html.dark .cl-btn-success.active {
   page-break-before: always;
   break-before: page;
 }
+/* Séparation de pages à l'écran (mode édition) — comme Word :
+   affiche un espace + trait entre les "pages" du rapport, sans impacter l'impression. */
+@media screen {
+  .rapport-a4 .page-break-before {
+    page-break-after: never;
+    position: relative;
+    height: 3.5em;
+    margin: 0 -2cm;
+    background:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0.08) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.08) 100%) center,
+      #eef1f4;
+    border-top: 1px dashed #cbd2d9;
+    border-bottom: 1px dashed #cbd2d9;
+  }
+}
 
 /* Format A4 pour impression */
 @page {

@@ -139,7 +139,7 @@ function Drop({ value, options, onChange, title, className }: {
   return (
     <select value={value} title={title} onChange={(e) => onChange(e.target.value)}
       className={`h-6 rounded border border-gray-200 bg-white px-1 text-[10px] leading-tight text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:outline-none cursor-pointer ${className ?? ''}`}>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((o, idx) => <option key={`${o.value}-${idx}`} value={o.value}>{o.label}</option>)}
     </select>
   );
 }
@@ -230,7 +230,7 @@ function TabAccueil({ exec, currentFont, currentSize }: {
   };
 
   return (
-    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-auto">
+    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-visible">
       <Group label="Presse-papiers">
         <Btn onClick={() => exec('cut')} title="Couper (Ctrl+X)"><Scissors className="w-3.5 h-3.5" /></Btn>
         <Btn onClick={() => exec('copy')} title="Copier (Ctrl+C)"><Copy className="w-3.5 h-3.5" /></Btn>
@@ -395,7 +395,7 @@ function TabInserer({ exec }: { exec: (cmd: string, val?: string) => void }) {
   };
 
   return (
-    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-auto">
+    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-visible">
       <Group label="Pages">
         <Btn onClick={() => exec('insertHTML', '<div style="page-break-after:always;border-bottom:2px dashed #ccc;margin:16px 0;padding-bottom:8px"><span style="font-size:9px;color:#999">— Saut de page —</span></div>')} title="Saut de page"><CornerDownLeft className="w-3.5 h-3.5" /></Btn>
         <Btn onClick={insertHeader} title="En-tête"><FileSignature className="w-3.5 h-3.5" /></Btn>
@@ -460,7 +460,7 @@ function TabDesign({ onApplyTheme, currentTheme, exec }: {
   };
 
   return (
-    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-auto">
+    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-visible">
       <Group label="Thèmes">
         <div className="flex gap-1">
           {THEMES.map(t => (
@@ -533,7 +533,7 @@ function TabLayout({
   const [customMargins, setCustomMargins] = useState(false);
 
   return (
-    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-auto">
+    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-visible">
       <Group label="Marges">
         <div className="relative">
           <Btn onClick={() => setMarginsOpen(!marginsOpen)} title="Marges"><Move className="w-3.5 h-3.5" /></Btn>
@@ -670,7 +670,7 @@ function TabReview({
   }, [findText, replaceText]);
 
   return (
-    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-auto">
+    <div className="flex items-stretch gap-1 px-2 py-1.5 overflow-x-visible">
       <Group label="Recherche">
         <Btn onClick={() => setFindOpen(!findOpen)} title="Rechercher et remplacer"><Search className="w-3.5 h-3.5" /></Btn>
         <Btn onClick={() => { document.execCommand('undo'); }} title="Annuler"><Undo2 className="w-3 h-3" /></Btn>

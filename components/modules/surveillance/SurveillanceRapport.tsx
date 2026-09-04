@@ -264,37 +264,15 @@ function EditableSection({
   content,
   onContentChange,
   editable,
-  onImprove,
-  isImproving,
   directEdit,
 }: {
   title: string;
   content: string;
   onContentChange: (content: string) => void;
   editable: boolean;
-  onImprove?: (instruction: string) => void;
-  isImproving?: boolean;
   directEdit?: boolean;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [localContent, setLocalContent] = useState(content);
-  const [showIaInput, setShowIaInput] = useState(false);
-  const [iaInput, setIaInput] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);
-
-  const handleSave = () => {
-    onContentChange(localContent);
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setLocalContent(content);
-    setIsEditing(false);
-  };
-
-  useEffect(() => {
-    setLocalContent(content);
-  }, [content]);
 
   if (!editable) {
     return (
@@ -322,72 +300,9 @@ function EditableSection({
     );
   }
 
-  if (isEditing) {
-    return (
-      <div className="rapport-section">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="rapport-heading !mb-0">{title}</h2>
-          <div className="flex items-center gap-2">
-            <button onClick={handleSave} className="btn btn-sm px-2 py-0.5 btn-success text-xs">
-              <CheckCircle className="w-3 h-3 mr-1" /> Valider
-            </button>
-            <button onClick={handleCancel} className="btn btn-sm px-2 py-0.5 btn-danger text-xs">
-              <X className="w-3 h-3 mr-1" /> Annuler
-            </button>
-          </div>
-        </div>
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={() => editorRef.current && setLocalContent(editorRef.current.innerHTML)}
-          className="rapport-text-editable min-h-[120px]"
-          dangerouslySetInnerHTML={{ __html: localContent }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="rapport-section">
-      <div className="flex items-center justify-between">
-        <h2 className="rapport-heading !mb-0">{title}</h2>
-        <div className="flex items-center gap-1">
-          {onImprove && (
-            <div className="relative">
-              <button onClick={() => setShowIaInput(!showIaInput)} disabled={isImproving} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
-                {isImproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                AERORISQ
-              </button>
-              {showIaInput && (
-                <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white rounded-xl shadow-xl border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-2">Que voulez-vous que AERORISQ fasse ?</p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={iaInput}
-                      onChange={(e) => setIaInput(e.target.value)}
-                      placeholder="Ex: Améliore, ajoute des stats..."
-                      className="flex-1 form-input text-sm"
-                      onKeyDown={(e) => { if (e.key === 'Enter' && iaInput.trim()) { setShowIaInput(false); onImprove(iaInput.trim()); setIaInput(''); } }}
-                      autoFocus
-                    />
-                    <button onClick={() => { if (iaInput.trim()) { setShowIaInput(false); onImprove(iaInput.trim()); setIaInput(''); } }} className="btn btn-sm px-3 py-1 btn-primary">
-                      <Send className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <button onClick={() => { setShowIaInput(false); onImprove(''); setIaInput(''); }} className="text-xs text-muted-foreground mt-2 hover:text-foreground">
-                    Génération rapide (sans instruction)
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          <button onClick={() => setIsEditing(true)} className="btn btn-sm px-2 py-0.5 btn-primary gap-1 text-xs">
-            <PenLine className="w-3 h-3 mr-1" /> Modifier
-          </button>
-        </div>
-      </div>
+      <h2 className="rapport-heading">{title}</h2>
       <div className="rapport-text" dangerouslySetInnerHTML={{ __html: content || '<em>Non renseigné</em>' }} />
     </div>
   );
@@ -1950,7 +1865,7 @@ ${pageGardeHtml}
   }
 
   return (
-    <div data-role={userRole} data-module="surveillance-rapport">
+    <div data-role={userRole} data-module="surveillance-rapport" className="flex flex-col h-[calc(100vh-124px)]">
       <RapportRibbon
         onExecCommand={execCommand}
         onPrint={handlePrint}
@@ -1988,7 +1903,7 @@ ${pageGardeHtml}
         chatOpen={chatOpen}
       />
 
-      <div className="flex h-[calc(100vh-80px)]">
+      <div className="flex flex-1 overflow-hidden">
         {chatOpen && (
           <ChatIALateralRapport
             sections={sections}
@@ -2032,9 +1947,7 @@ ${pageGardeHtml}
           content={sections.resume}
           onContentChange={(val) => setSections(prev => ({ ...prev, resume: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('resume', sections.resume, 'RÉSUMÉ EXÉCUTIF', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
@@ -2043,9 +1956,7 @@ ${pageGardeHtml}
           content={sections.introduction}
           onContentChange={(val) => setSections(prev => ({ ...prev, introduction: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('introduction', sections.introduction, 'INTRODUCTION ET CONTEXTE', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
@@ -2054,9 +1965,7 @@ ${pageGardeHtml}
           content={sections.methodologie}
           onContentChange={(val) => setSections(prev => ({ ...prev, methodologie: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('methodologie', sections.methodologie, 'MÉTHODOLOGIE', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
@@ -2073,32 +1982,28 @@ ${pageGardeHtml}
             content={sections.deroulement.preparation}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, preparation: val } }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('preparation', sections.deroulement.preparation, '5.1 Préparation', instruction)}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
           <EditableSection
             title="5.2. Réunion d'ouverture"
             content={sections.deroulement.reunionOuverture}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionOuverture: val } }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('reunionOuverture', sections.deroulement.reunionOuverture, "5.2 Réunion d'ouverture", instruction)}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
           <EditableSection
             title="5.3. Phase de vérification sur site"
             content={sections.deroulement.verificationSite}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, verificationSite: val } }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('verificationSite', sections.deroulement.verificationSite, '5.3 Phase de vérification sur site', instruction)}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
           <EditableSection
             title="5.4. Réunion de clôture"
             content={sections.deroulement.reunionCloture}
             onContentChange={(val) => setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, reunionCloture: val } }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('reunionCloture', sections.deroulement.reunionCloture, '5.4 Réunion de clôture', instruction)}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
         </div>
 
@@ -2110,9 +2015,7 @@ ${pageGardeHtml}
             content={sections.resultsIntro}
             onContentChange={(val) => setSections(prev => ({ ...prev, resultsIntro: val }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('resultsIntro', sections.resultsIntro, 'Introduction des résultats', instruction)}
-            isImproving={isImproving}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
           <div className="rapport-results" dangerouslySetInnerHTML={{ __html: generateResultsHtml() }} />
           <EditableSection
@@ -2120,9 +2023,7 @@ ${pageGardeHtml}
             content={sections.resultsAnalysis}
             onContentChange={(val) => setSections(prev => ({ ...prev, resultsAnalysis: val }))}
             editable={!readOnly && !isSigned}
-            onImprove={(instruction?) => improveSection('resultsAnalysis', sections.resultsAnalysis, 'Analyse des résultats', instruction)}
-            isImproving={isImproving}
-            directEdit={rapportType === 'charge'}
+            directEdit={!readOnly && !isSigned}
           />
         </div>
 
@@ -2132,9 +2033,7 @@ ${pageGardeHtml}
           content={sections.preoccupations}
           onContentChange={(val) => setSections(prev => ({ ...prev, preoccupations: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('preoccupations', sections.preoccupations, 'PRÉOCCUPATIONS DE SÉCURITÉ', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
@@ -2151,9 +2050,7 @@ ${pageGardeHtml}
           content={sections.recommandations}
           onContentChange={(val) => setSections(prev => ({ ...prev, recommandations: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('recommandations', sections.recommandations, 'RECOMMANDATIONS', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
@@ -2162,9 +2059,7 @@ ${pageGardeHtml}
           content={sections.conclusion}
           onContentChange={(val) => setSections(prev => ({ ...prev, conclusion: val }))}
           editable={!readOnly && !isSigned}
-          onImprove={(instruction?) => improveSection('conclusion', sections.conclusion, 'CONCLUSION', instruction)}
-          isImproving={isImproving}
-          directEdit={rapportType === 'charge'}
+          directEdit={!readOnly && !isSigned}
         />
 
         <div className="page-break-before"></div>
