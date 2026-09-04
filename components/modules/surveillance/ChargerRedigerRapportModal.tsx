@@ -4,8 +4,7 @@
 import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
-import { FileText, FileUp, FileDown, X, AlertCircle, Loader2, Upload, PenLine, Sparkles } from 'lucide-react'
-import { importRapportFromFile } from '@/lib/services/rapportImportService'
+import { FileText, FileUp, X, AlertCircle, Loader2, Sparkles } from 'lucide-react'
 
 interface ChargerRedigerRapportModalProps {
   surveillanceId: string
@@ -16,13 +15,9 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
   const router = useRouter()
   const updateSurveillance = useAppStore(s => s.updateSurveillance)
   const surveillances = useAppStore(s => s.surveillances)
-  const addNotification = useAppStore(s => s.addNotification)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const importFileRef = useRef<HTMLInputElement>(null)
   const [uploadState, setUploadState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [importState, setImportState] = useState<'idle' | 'loading' | 'error' | 'done'>('idle')
-  const [importError, setImportError] = useState<string | null>(null)
   const surveillance = surveillances.find(s => s.id === surveillanceId)
 
   const handleCharger = () => {
@@ -31,6 +26,7 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
 
     const maxSize = 20 * 1024 * 1024
@@ -79,50 +75,6 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
     }
   }
 
-  const handleImportDocx = () => {
-    importFileRef.current?.click()
-  }
-
-  const handleImportFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (!file.name.match(/\.docx$/i)) {
-      setImportState('error')
-      setImportError('Seuls les fichiers .docx sont supportés pour l\'import éditable.')
-      return
-    }
-
-    try {
-      setImportState('loading')
-      setImportError(null)
-
-      const result = await importRapportFromFile(file)
-
-      updateSurveillance(surveillanceId, {
-        rapport_sections: JSON.stringify(result.sections),
-        rapport_type: 'importe',
-        rapport_fichier_nom: file.name,
-        rapport_html: result.rawHtml || '<p>Rapport importé et prêt à être modifié.</p>',
-      })
-
-      addNotification({
-        user_id: useAppStore.getState().user?.id || '',
-        type: 'success',
-        title: 'Rapport importé',
-        message: 'Le document a été importé tel quel et est prêt à être modifié librement.',
-        canal: 'in_app',
-      })
-
-      setImportState('done')
-      onClose()
-      router.push(`/surveillance/${surveillanceId}/rapport`)
-    } catch (err) {
-      setImportState('error')
-      setImportError(err instanceof Error ? err.message : 'Erreur lors du parsage du document')
-    }
-  }
-
   const handleRediger = () => {
     onClose()
     router.push(`/surveillance/${surveillanceId}/rapport`)
@@ -149,26 +101,7 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
           </p>
 
           <div className="space-y-3">
-            {/* Option 1: Importer un DOCX et l'éditer */}
-            <button
-              onClick={handleImportDocx}
-              disabled={importState === 'loading'}
-              className="w-full p-4 rounded-xl border-2 border-dashed border-role-primary/50 hover:border-role-primary hover:bg-role-primary-soft transition-all text-left group"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center group-hover:scale-110 transition-transform">
-                  {importState === 'loading' ? <Loader2 className="w-6 h-6 animate-spin text-role-primary" /> : <Upload className="w-6 h-6 text-role-primary" />}
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-foreground">Importer un document Word et l'éditer</p>
-                  <p className="text-xs text-muted mt-0.5">
-                    Importez un rapport .docx existant — le système extrait le contenu dans l'éditeur pour le modifier et l'enrichir avec l'IA
-                  </p>
-                </div>
-              </div>
-            </button>
-
-            {/* Option 2: Rédiger avec le système */}
+            {/* Option 1: Rédiger avec AERORISQ */}
             <button
               onClick={handleRediger}
               className="w-full p-4 rounded-xl border-2 border-border hover:border-role-primary hover:bg-role-primary-soft transition-all text-left group"
@@ -186,7 +119,7 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
               </div>
             </button>
 
-            {/* Option 3: Charger un fichier existant (tel quel) */}
+            {/* Option 2: Charger un fichier existant (lecture seule) */}
             <button
               onClick={handleCharger}
               disabled={uploadState === 'loading'}
@@ -194,34 +127,17 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
             >
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <FileUp className="w-6 h-6 text-muted-foreground" />
+                  {uploadState === 'loading' ? <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /> : <FileUp className="w-6 h-6 text-muted-foreground" />}
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-foreground">Charger un rapport existant (tel quel)</p>
+                  <p className="font-semibold text-foreground">Charger un rapport existant</p>
                   <p className="text-xs text-muted mt-0.5">
-                    PDF, Word ou image — vous avez déjà rédigé et signé votre rapport en dehors du système (lecture seule)
+                    PDF, Word ou image — rapport déjà rédigé et signé en dehors du système (lecture seule)
                   </p>
                 </div>
               </div>
             </button>
           </div>
-
-          {importState === 'loading' && (
-            <div className="mt-4 p-3 rounded-lg bg-role-primary-soft flex items-center gap-3 text-sm">
-              <Loader2 className="w-4 h-4 animate-spin text-role-primary" />
-              <span>Parsage du document Word en cours...</span>
-            </div>
-          )}
-
-          {importState === 'error' && (
-            <div className="mt-4 p-3 rounded-lg bg-danger-soft border border-red-500/20 flex items-start gap-3 text-sm">
-              <AlertCircle className="w-4 h-4 text-danger mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-danger">Erreur d'import</p>
-                <p className="text-danger/80">{importError}</p>
-              </div>
-            </div>
-          )}
 
           {uploadState === 'loading' && (
             <div className="mt-4 p-3 rounded-lg bg-role-primary-soft flex items-center gap-3 text-sm">
@@ -246,13 +162,6 @@ export function ChargerRedigerRapportModal({ surveillanceId, onClose }: ChargerR
           type="file"
           accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
           onChange={handleFileSelected}
-          className="hidden"
-        />
-        <input
-          ref={importFileRef}
-          type="file"
-          accept=".docx"
-          onChange={handleImportFileSelected}
           className="hidden"
         />
       </div>

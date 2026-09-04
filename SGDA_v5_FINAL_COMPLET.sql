@@ -1836,7 +1836,7 @@ DO $$
 BEGIN
   ALTER TABLE surveillances DROP CONSTRAINT IF EXISTS surveillances_rapport_type_check;
   ALTER TABLE surveillances ADD CONSTRAINT surveillances_rapport_type_check
-    CHECK (rapport_type IN ('redige','charge','importe'));
+    CHECK (rapport_type IN ('redige','charge'));
 END $$;
 
 

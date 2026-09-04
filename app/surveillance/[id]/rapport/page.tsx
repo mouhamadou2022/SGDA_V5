@@ -4,9 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import SurveillanceRapport from '@/components/modules/surveillance/SurveillanceRapport';
-import RapportImportEditeur from '@/components/modules/surveillance/RapportImportEditeur';
 import { canEditSurveillanceContent } from '@/lib/config';
-import { importRapportFromFile } from '@/lib/services/rapportImportService';
 import {
   ArrowLeft,
   FileText,
@@ -34,12 +32,10 @@ export default function RapportPage() {
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
   const addNotification = useAppStore(s => s.addNotification);
 
-  const importFileRef = useRef<HTMLInputElement>(null)
   const replaceFileRef = useRef<HTMLInputElement>(null)
-  const [action, setAction] = useState<'idle' | 'generating' | 'importing' | 'uploading'>('idle')
+  const [action, setAction] = useState<'idle' | 'generating' | 'uploading'>('idle')
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // ── data-role sur body pour les variables CSS de rôle (btn-primary, bg-role-gradient…) ──
   useEffect(() => {
     if (user?.role) {
       document.body.setAttribute('data-role', user.role);
@@ -72,7 +68,6 @@ export default function RapportPage() {
   }
 
   const isCharged = surveillance.rapport_type === 'charge' && !!surveillance.rapport_fichier_url;
-  const isImporte = surveillance.rapport_type === 'importe';
   const canEdit = !isSigned && canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id);
 
   const handleSave = (contenu: string) => {
@@ -83,8 +78,6 @@ export default function RapportPage() {
     router.push(`/surveillance/${surveillanceId}`);
   };
 
-  // Bascule un rapport « chargé » (lecture seule) vers la rédaction : l'éditeur
-  // se charge et régénère (ou reprend) les sections avec AERORISQ.
   const handlePasserEnRedaction = () => {
     setAction('generating')
     setActionError(null)
@@ -92,51 +85,6 @@ export default function RapportPage() {
     setAction('idle')
   }
 
-  // Repasse d'un rapport importé (éditeur libre) vers la rédaction standard
-  // (reprenant la découpe en sections la plus fidèle possible).
-  const handleReprendreStandard = () => {
-    setActionError(null)
-    updateSurveillance(surveillanceId, { rapport_type: 'redige' })
-  }
-
-  // Import d'un .docx pour le modifier dans l'éditeur (même pipeline que le modal).
-  const handleImportDocx = () => {
-    importFileRef.current?.click()
-  }
-
-  const handleImportFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    if (!file.name.match(/\.docx$/i)) {
-      setActionError('Seuls les fichiers .docx sont supportés pour l\'import éditable.')
-      return
-    }
-    try {
-      setAction('importing')
-      setActionError(null)
-      const result = await importRapportFromFile(file)
-      updateSurveillance(surveillanceId, {
-        rapport_sections: JSON.stringify(result.sections),
-        rapport_type: 'importe',
-        rapport_fichier_nom: file.name,
-        rapport_html: result.rawHtml || '<p>Rapport importé et prêt à être modifié.</p>',
-      })
-      addNotification({
-        user_id: user?.id || '',
-        type: 'success',
-        title: 'Rapport importé',
-        message: 'Le document a été importé et est prêt à être modifié dans l\'éditeur libre.',
-        canal: 'in_app',
-      })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Erreur lors du parsage du document')
-    } finally {
-      setAction('idle')
-    }
-  }
-
-  // Rechargement d'un fichier PDF / Word / image en lecture seule.
   const handleReplaceCharged = () => {
     replaceFileRef.current?.click()
   }
@@ -217,12 +165,6 @@ export default function RapportPage() {
                   Rapport chargé
                 </span>
               )}
-              {isImporte && (
-                <span className="badge primary flex items-center gap-1">
-                  <PenLine className="w-3 h-3" />
-                  Rapport importé — éditable
-                </span>
-              )}
               {!navigator.onLine ? (
                 <span className="badge warning flex items-center gap-1">
                   <WifiOff className="w-3 h-3" />
@@ -239,7 +181,7 @@ export default function RapportPage() {
         </div>
       </div>
 
-      {/* Contenu — plein écran avec espacement latéral */}
+      {/* Contenu */}
       <div className="px-6 py-6">
         {isCharged ? (
           <div className="space-y-4">
@@ -279,7 +221,7 @@ export default function RapportPage() {
                     <p className="font-medium">Aperçu non disponible</p>
                     <p className="text-sm mt-1">
                       {estWord
-                        ? 'Ce document est au format Word (.doc/.docx) : téléchargez-le pour le consulter, ou importez-le dans l\'éditeur pour le modifier.'
+                        ? 'Ce document est au format Word (.doc/.docx) : téléchargez-le pour le consulter, ou passez en mode rédaction pour le modifier avec l\'IA.'
                         : 'Téléchargez le fichier pour le consulter.'}
                     </p>
                   </div>
@@ -287,13 +229,11 @@ export default function RapportPage() {
               </div>
             </div>
 
-            {/* Actions — sortir du mode « chargé » : rédiger avec l'IA, importer un
-                Word éditable, ou remplacer le fichier (les 3 options du modal). */}
             {canEdit && (
               <div className="card">
                 <div className="card-content p-4 space-y-3">
                   <p className="text-sm font-semibold text-foreground">
-                    Vous pouvez aussi modifier ce rapport :
+                    Modifier ce rapport :
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -305,70 +245,12 @@ export default function RapportPage() {
                       Rédiger avec AERORISQ
                     </button>
                     <button
-                      onClick={handleImportDocx}
-                      disabled={action !== 'idle'}
-                      className="btn btn-secondary gap-2 text-sm"
-                    >
-                      {action === 'importing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                      Importer un Word (.docx) à éditer
-                    </button>
-                    <button
                       onClick={handleReplaceCharged}
                       disabled={action !== 'idle'}
                       className="btn btn-secondary gap-2 text-sm"
                     >
                       {action === 'uploading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                      Remplacer le fichier chargé
-                    </button>
-                  </div>
-                  {actionError && (
-                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-danger/10 border border-danger/20 text-xs text-danger">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span>{actionError}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : isImporte ? (
-          <div className="space-y-4">
-            <RapportImportEditeur
-              html={surveillance.rapport_html || ''}
-              readOnly={isSigned || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
-              onSave={handleSave}
-            />
-            {/* Actions — ré-importer un Word éditable, ou repasser en rédaction standard. */}
-            {canEdit && (
-              <div className="card">
-                <div className="card-content p-4 space-y-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Options
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={handleImportDocx}
-                      disabled={action !== 'idle'}
-                      className="btn btn-secondary gap-2 text-sm"
-                    >
-                      {action === 'importing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                      Ré-importer un Word (.docx)
-                    </button>
-                    <button
-                      onClick={handleReprendreStandard}
-                      disabled={action !== 'idle'}
-                      className="btn btn-secondary gap-2 text-sm"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Revenir à l'éditeur structuré
-                    </button>
-                    <button
-                      onClick={handleReplaceCharged}
-                      disabled={action !== 'idle'}
-                      className="btn btn-secondary gap-2 text-sm"
-                    >
-                      {action === 'uploading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                      Remplacer par un fichier (PDF/Word/image)
+                      Remplacer le fichier
                     </button>
                   </div>
                   {actionError && (
@@ -391,13 +273,6 @@ export default function RapportPage() {
           />
         )}
 
-        <input
-          ref={importFileRef}
-          type="file"
-          accept=".docx"
-          onChange={handleImportFileSelected}
-          className="hidden"
-        />
         <input
           ref={replaceFileRef}
           type="file"
