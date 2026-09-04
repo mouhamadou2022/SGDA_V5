@@ -87,6 +87,19 @@ async function generateWithIA(prompt: string): Promise<string> {
   return data.content;
 }
 
+// Harmonisation typographique du HTML généré par AERORISQ :
+// impose le hiérarchie Titre 14pt / Sous-titre 13pt / Contenu 12pt partout,
+// en purgeant les styles inline et en ramenant h1/h2 vers h3.
+function harmoniserHtml(html: string): string {
+  return (html || '')
+    .replace(/<h[12][^>]*>/gi, '<h3>')
+    .replace(/<\/h[12]>/gi, '</h3>')
+    .replace(/\sstyle\s*=\s*"[^"]*"/gi, '')
+    .replace(/\sstyle\s*=\s*'[^']*'/gi, '')
+    .replace(/<([a-z0-9]+)[^>]*class\s*=\s*"[^"]*"[^>]*>/gi, (m, tag) => `<${tag}>`)
+    .trim();
+}
+
 // Composant: Page de garde
 function PageGarde({
   aerodrome,
@@ -885,7 +898,7 @@ Réponds UNIQUEMENT avec un objet JSON valide. Génère UNIQUEMENT les sections 
   ${jsonSchema}
 }
 
-Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes <p>, listes <ul>/<li>).`;
+Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple et SANS styles inline : paragraphes <p> pour le corps, listes <ul>/<li> si besoin, et <h3> uniquement pour les sous-titres. N'utilise JAMAIS les balises h1, h2 ou des attributs style="font-size:..." — la mise en forme (titre 14pt, sous-titre 13pt, corps 12pt) est appliquée automatiquement par le rapport.`;
 
 
       const generatedContent = await generateWithIA(prompt);
@@ -897,18 +910,18 @@ Ne mets aucun texte avant ou après le JSON. Utilise du HTML simple (paragraphes
 
       const newSections = { ...sections };
       if (Object.keys(parsed).length > 0) {
-        if (parsed.resume) newSections.resume = parsed.resume;
-        if (parsed.introduction) newSections.introduction = parsed.introduction;
-        if (parsed.methodologie) newSections.methodologie = parsed.methodologie;
-        if (parsed.preoccupations) newSections.preoccupations = parsed.preoccupations;
-        if (parsed.recommandations) newSections.recommandations = parsed.recommandations;
-        if (parsed.conclusion) newSections.conclusion = parsed.conclusion;
-        if (parsed.resultsIntro) newSections.resultsIntro = parsed.resultsIntro;
-        if (parsed.resultsAnalysis) newSections.resultsAnalysis = parsed.resultsAnalysis;
-        if (parsed.preparation) newSections.deroulement.preparation = parsed.preparation;
-        if (parsed.reunionOuverture) newSections.deroulement.reunionOuverture = parsed.reunionOuverture;
-        if (parsed.verificationSite) newSections.deroulement.verificationSite = parsed.verificationSite;
-        if (parsed.reunionCloture) newSections.deroulement.reunionCloture = parsed.reunionCloture;
+        if (parsed.resume) newSections.resume = harmoniserHtml(parsed.resume);
+        if (parsed.introduction) newSections.introduction = harmoniserHtml(parsed.introduction);
+        if (parsed.methodologie) newSections.methodologie = harmoniserHtml(parsed.methodologie);
+        if (parsed.preoccupations) newSections.preoccupations = harmoniserHtml(parsed.preoccupations);
+        if (parsed.recommandations) newSections.recommandations = harmoniserHtml(parsed.recommandations);
+        if (parsed.conclusion) newSections.conclusion = harmoniserHtml(parsed.conclusion);
+        if (parsed.resultsIntro) newSections.resultsIntro = harmoniserHtml(parsed.resultsIntro);
+        if (parsed.resultsAnalysis) newSections.resultsAnalysis = harmoniserHtml(parsed.resultsAnalysis);
+        if (parsed.preparation) newSections.deroulement.preparation = harmoniserHtml(parsed.preparation);
+        if (parsed.reunionOuverture) newSections.deroulement.reunionOuverture = harmoniserHtml(parsed.reunionOuverture);
+        if (parsed.verificationSite) newSections.deroulement.verificationSite = harmoniserHtml(parsed.verificationSite);
+        if (parsed.reunionCloture) newSections.deroulement.reunionCloture = harmoniserHtml(parsed.reunionCloture);
       } else {
         // Fallback: parsing par sections (ancien format)
         const lines = generatedContent.split('\n');
@@ -1013,7 +1026,7 @@ Taux conformité: ${checklistStats.taux}%${richContext}`;
 
       const isAnalysis = sectionKey === 'resultsAnalysis';
       const prompt = isAnalysis && !isRempli
-        ? `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige l'analyse détaillée des résultats au format HTML (paragraphes, listes si besoin). Interprète les données suivantes : analyse par domaine, distribution des écarts par niveau, analyse des PAC (taux de clôture, retards), interprétation du SGS/PAOE si applicable, tendance du risque, points prioritaires. Sois pédagogique sans jargon excessif.${instructionPart}
+        ? `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige l'analyse détaillée des résultats au format HTML simple et SANS styles inline (paragraphes <p>, listes <ul>/<li> si besoin, <h3> uniquement pour les sous-titres, jamais h1/h2 ni font-size inline — la mise en forme 14/13/12pt est appliquée par le rapport). Interprète les données suivantes : analyse par domaine, distribution des écarts par niveau, analyse des PAC (taux de clôture, retards), interprétation du SGS/PAOE si applicable, tendance du risque, points prioritaires. Sois pédagogique sans jargon excessif.${instructionPart}
 Contexte: ${context}
 
 N'inclus PAS le titre de la section dans le contenu.`
@@ -1026,8 +1039,8 @@ Titre de la section: ${sectionTitle}
 Texte à améliorer:
 ${currentContent}
 
-Renvoie uniquement le texte amélioré, sans le titre de la section.`
-          : `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige la section "${sectionTitle}" d'un rapport de surveillance au format HTML (paragraphes, listes si besoin). Sois professionnel, concis et technique.${instructionPart}
+Renvoie uniquement le texte amélioré, en HTML simple et SANS styles inline (paragraphes <p>, listes <ul>/<li>, <h3> pour les sous-titres ; jamais h1/h2 ni font-size inline — la mise en forme 14/13/12pt est appliquée par le rapport), sans le titre de la section.`
+          : `Tu es un expert en sécurité aéronautique à l'ANACIM Sénégal. Rédige la section "${sectionTitle}" d'un rapport de surveillance au format HTML simple et SANS styles inline (paragraphes <p>, listes <ul>/<li> si besoin, <h3> uniquement pour les sous-titres, jamais h1/h2 ni font-size inline — la mise en forme 14/13/12pt est appliquée par le rapport). Sois professionnel, concis et technique.${instructionPart}
 Contexte: ${context}
 
 N'inclus PAS le titre de la section dans le contenu.`;
@@ -1039,13 +1052,13 @@ N'inclus PAS le titre de la section dans le contenu.`;
 
       if (sectionKey === 'preparation' || sectionKey === 'reunionOuverture'
         || sectionKey === 'verificationSite' || sectionKey === 'reunionCloture') {
-        setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, [sectionKey]: improved } }));
+        setSections(prev => ({ ...prev, deroulement: { ...prev.deroulement, [sectionKey]: harmoniserHtml(improved) } }));
       } else if (sectionKey === 'resultsIntro') {
-        setSections(prev => ({ ...prev, resultsIntro: improved }));
+        setSections(prev => ({ ...prev, resultsIntro: harmoniserHtml(improved) }));
       } else if (sectionKey === 'resultsAnalysis') {
-        setSections(prev => ({ ...prev, resultsAnalysis: improved }));
+        setSections(prev => ({ ...prev, resultsAnalysis: harmoniserHtml(improved) }));
       } else {
-        setSections(prev => ({ ...prev, [sectionKey]: improved }));
+        setSections(prev => ({ ...prev, [sectionKey]: harmoniserHtml(improved) }));
       }
       
       addNotification({
@@ -1825,7 +1838,7 @@ ${pageGardeHtml}
         if (key === 'deroulement' && typeof value === 'object' && value !== null) {
           next.deroulement = { ...prev.deroulement, ...(value as any) };
         } else {
-          (next as any)[key] = value;
+          (next as any)[key] = typeof value === 'string' ? harmoniserHtml(value as string) : value;
         }
       }
       return next;

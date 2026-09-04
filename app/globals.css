@@ -4349,20 +4349,17 @@ html.dark .cl-btn-success.active {
   page-break-before: always;
   break-before: page;
 }
-/* Séparation de pages à l'écran (mode édition) — comme Word :
-   affiche un espace + trait entre les "pages" du rapport, sans impacter l'impression. */
+/* Séparation de pages à l'écran (mode édition) — ligne fine et discrète.
+   Uniquement à l'écran, sans impact sur l'impression. */
 @media screen {
   .rapport-a4 .page-break-before {
     page-break-after: never;
     position: relative;
-    height: 3.5em;
-    margin: 0 -2cm;
-    background:
-      linear-gradient(to bottom,
-        rgba(0,0,0,0.08) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.08) 100%) center,
-      #eef1f4;
-    border-top: 1px dashed #cbd2d9;
-    border-bottom: 1px dashed #cbd2d9;
+    height: 2em;
+    margin: 0;
+    background: transparent;
+    border-top: 1px solid #d5dbe2;
+    border-bottom: none;
   }
 }
 
@@ -4381,7 +4378,7 @@ html.dark .cl-btn-success.active {
   --rapport-hg-sous-titre: 14pt; /* Aérodrome / sous-titre */
   --rapport-hg-infos: 11pt;      /* Métadonnées (date, référentiel) */
   --rapport-h2: 14pt;            /* Titre de section (Résumé exécutif…) */
-  --rapport-h3: 12pt;            /* Sous-section */
+  --rapport-h3: 13pt;            /* Sous-section */
   --rapport-body: 12pt;          /* Corps du texte */
   --rapport-label: 10pt;         /* Étiquettes, métadonnées */
   --rapport-table: 10pt;         /* Cellules de tableau */
@@ -4398,7 +4395,7 @@ html.dark .cl-btn-success.active {
   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
 }
 .rapport-a4 .rapport-content {
-  padding: 2cm;
+  /* Le padding est piloté par les marges inline (pageMargins / ribbon Layout) */
   font-family: 'Times New Roman', Times, serif;
   font-size: var(--rapport-body);
   line-height: 1.6;
