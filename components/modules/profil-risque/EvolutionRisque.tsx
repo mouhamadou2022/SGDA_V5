@@ -32,6 +32,10 @@ function scoreClr(s: number): string {
   return 'text-danger'
 }
 
+function finiteOrNull(v: number | null | undefined): number | null {
+  return v != null && Number.isFinite(v) ? v : null
+}
+
 const STATUTS_ENGAGES = ['pac_soumis', 'pac_accepte', 'preuves_soumises', 'preuves_evaluees']
 
 export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs }: Props) {
@@ -41,13 +45,14 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
   const c4Actuel = calculateC4FromEcarts(ecartsActifs)
   const c4AvecMesures = calculateC4FromEcarts(ecartsActifs.filter(e => !STATUTS_ENGAGES.includes(e.statut)))
   const crit = (c4: number) => ({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4, c5: profil.c5 })
-  const scoreActuel = calculateGlobalScore(crit(c4Actuel))
-  const scoreAvecMesures = calculateGlobalScore(crit(c4AvecMesures))
-  const scorePotentiel = calculateGlobalScore(crit(100))
+  const sclamp = (v: number): number | null => (Number.isFinite(v) ? Math.round(v) : null)
+  const scoreActuel = sclamp(calculateGlobalScore(crit(c4Actuel)))
+  const scoreAvecMesures = sclamp(calculateGlobalScore(crit(c4AvecMesures)))
+  const scorePotentiel = sclamp(calculateGlobalScore(crit(100)))
 
   // ── Bayésien dynamique ──
-  const post = pctBayes(profil.bayesian_posterior)
-  const prior = pctBayes(profil.bayesian_prior)
+  const post = finiteOrNull(pctBayes(profil.bayesian_posterior))
+  const prior = finiteOrNull(pctBayes(profil.bayesian_prior))
 
   // ── Langage clair IA ──
   const [texte, setTexte] = useState(() => fallbackEvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs }).texte)
@@ -82,7 +87,7 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
   ]
 
   const interpTrajectoire = (() => {
-    if (profil.prediction_3m == null) return null
+    if (!Number.isFinite(profil.prediction_3m)) return null
     const diff = Math.round(profil.prediction_3m) - score
     if (diff > 2) return `Le score devrait gagner environ ${diff} points d'ici 3 mois si la tendance se poursuit.`
     if (diff < -2) return `Attention : le score pourrait perdre environ ${-diff} points d'ici 3 mois — la tendance se dégrade.`
@@ -96,8 +101,8 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
     return `La probabilité de défaillance estimée reste stable (${post}%).`
   })()
 
-  const gainMesures = scoreAvecMesures - scoreActuel
-  const gainPotentiel = scorePotentiel - scoreActuel
+  const gainMesures = scoreAvecMesures != null && scoreActuel != null ? scoreAvecMesures - scoreActuel : null
+  const gainPotentiel = scorePotentiel != null && scoreActuel != null ? scorePotentiel - scoreActuel : null
 
   return (
     <div className="space-y-4">
@@ -108,12 +113,16 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
           <p className="text-xs font-semibold text-foreground mb-2">Trajectoire du score</p>
           <div className="flex items-center justify-around flex-wrap gap-3">
             {points.map((p) => {
-              if (p.val == null) return null
+              const val = finiteOrNull(p.val)
+              if (val == null) return null
+              const ic = p.ic && Number.isFinite(p.ic.lower) && Number.isFinite(p.ic.upper)
+                ? { lower: Math.round(p.ic.lower), upper: Math.round(p.ic.upper) }
+                : null
               return (
                 <div key={p.label} className="text-center">
                   <p className="text-xs text-foreground">{p.label}</p>
-                  <p className={`text-lg font-bold ${scoreClr(Math.round(p.val))}`}>{Math.round(p.val)}/100</p>
-                  {p.ic && <p className="text-[10px] text-foreground italic">IC95 [{Math.round(p.ic.lower)}–{Math.round(p.ic.upper)}]</p>}
+                  <p className={`text-lg font-bold ${scoreClr(val)}`}>{Math.round(val)}/100</p>
+                  {ic && <p className="text-[10px] text-foreground italic">IC95 [{ic.lower}–{ic.upper}]</p>}
                 </div>
               )
             })}
@@ -158,17 +167,17 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="bg-muted/20 rounded-lg p-2">
               <p className="text-xs text-foreground">Actuel</p>
-              <p className={`text-base font-bold ${scoreClr(scoreActuel)}`}>{scoreActuel}/100</p>
+              <p className={`text-base font-bold ${scoreClr(scoreActuel ?? 0)}`}>{scoreActuel != null ? `${scoreActuel}/100` : '—'}</p>
             </div>
             <div className="bg-primary-soft rounded-lg p-2">
               <p className="text-xs text-foreground">Si les mesures aboutissent</p>
-              <p className={`text-base font-bold ${scoreClr(scoreAvecMesures)}`}>{scoreAvecMesures}/100</p>
-              {gainMesures !== 0 && <p className={`text-[10px] font-semibold ${gainMesures > 0 ? 'text-success' : 'text-danger'}`}>{gainMesures > 0 ? `+${gainMesures}` : gainMesures} pts</p>}
+              <p className={`text-base font-bold ${scoreClr(scoreAvecMesures ?? 0)}`}>{scoreAvecMesures != null ? `${scoreAvecMesures}/100` : '—'}</p>
+              {gainMesures != null && gainMesures !== 0 && <p className={`text-[10px] font-semibold ${gainMesures > 0 ? 'text-success' : 'text-danger'}`}>{gainMesures > 0 ? `+${gainMesures}` : gainMesures} pts</p>}
             </div>
             <div className="bg-success-soft rounded-lg p-2">
               <p className="text-xs text-foreground">Si tous les écarts traités</p>
-              <p className={`text-base font-bold ${scoreClr(scorePotentiel)}`}>{scorePotentiel}/100</p>
-              {gainPotentiel !== 0 && <p className={`text-[10px] font-semibold ${gainPotentiel > 0 ? 'text-success' : 'text-danger'}`}>{gainPotentiel > 0 ? `+${gainPotentiel}` : gainPotentiel} pts</p>}
+              <p className={`text-base font-bold ${scoreClr(scorePotentiel ?? 0)}`}>{scorePotentiel != null ? `${scorePotentiel}/100` : '—'}</p>
+              {gainPotentiel != null && gainPotentiel !== 0 && <p className={`text-[10px] font-semibold ${gainPotentiel > 0 ? 'text-success' : 'text-danger'}`}>{gainPotentiel > 0 ? `+${gainPotentiel}` : gainPotentiel} pts</p>}
             </div>
           </div>
           <div className="flex items-center gap-2 mt-2 flex-wrap text-xs text-foreground">

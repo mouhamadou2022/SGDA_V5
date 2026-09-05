@@ -28,7 +28,7 @@ interface Props {
 }
 
 function getScoreTextColor(s: number | undefined) {
-  if (s == null) return 'text-muted-foreground'
+  if (s == null || !Number.isFinite(s)) return 'text-muted-foreground'
   if (s >= 80) return 'text-success'
   if (s >= 60) return 'text-primary'
   if (s >= 30) return 'text-warning'
@@ -36,11 +36,15 @@ function getScoreTextColor(s: number | undefined) {
 }
 
 function getTrend(score: number | undefined, cible: number | null | undefined) {
-  if (score == null || cible == null) return null
+  if (score == null || cible == null || !Number.isFinite(score) || !Number.isFinite(cible)) return null
   const diff = Math.round(score - cible)
   if (diff > 3) return { icon: TrendingUp, cls: 'text-success', label: `+${diff} pts` }
   if (diff < -3) return { icon: TrendingDown, cls: 'text-danger', label: `${diff} pts` }
   return { icon: Minus, cls: 'text-muted-foreground', label: 'stable' }
+}
+
+function finiteScore(v: number | undefined): v is number {
+  return v != null && Number.isFinite(v)
 }
 
 export function InsightsAeroriskCard({ aerodromeId }: Props) {
@@ -86,7 +90,7 @@ export function InsightsAeroriskCard({ aerodromeId }: Props) {
   }
 
   const trend3m = getTrend(predictions?.score3m, confidence)
-  const aAfficher = !!(predictions && (predictions.score3m != null || predictions.score6m != null || predictions.score12m != null))
+  const aAfficher = !!(predictions && (finiteScore(predictions.score3m) || finiteScore(predictions.score6m) || finiteScore(predictions.score12m)))
 
   return (
     <Card variant="level" levelColor="primary" heading={<div className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-role-primary" />Prédictions AERORISQ</div>}>
@@ -97,15 +101,19 @@ export function InsightsAeroriskCard({ aerodromeId }: Props) {
               { label: '3 mois', val: predictions?.score3m, ic: predictions?.intervals?.score3m },
               { label: '6 mois', val: predictions?.score6m, ic: predictions?.intervals?.score6m },
               { label: '12 mois', val: predictions?.score12m, ic: predictions?.intervals?.score12m },
-            ].map((p) => (
+            ].map((p) => {
+              const val = finiteScore(p.val) ? Math.round(p.val) : null
+              const icOk = p.ic && Number.isFinite(p.ic[0]) && Number.isFinite(p.ic[1])
+              return (
               <div key={p.label} className="text-center p-3 bg-role-primary-soft rounded-xl border border-role-primary-light">
                 <p className="text-[10px] text-foreground">Dans {p.label}</p>
-                <p className={`text-xl font-bold ${getScoreTextColor(p.val)}`}>{p.val != null ? Math.round(p.val) : '—'}%</p>
-                {p.ic && p.val != null && (
-                  <p className="text-[10px] text-foreground">IC: [{Math.round(p.ic[0])}–{Math.round(p.ic[1])}]</p>
+                <p className={`text-xl font-bold ${getScoreTextColor(p.val)}`}>{val != null ? `${val}%` : '—'}</p>
+                {icOk && val != null && (
+                  <p className="text-[10px] text-foreground">IC: [{Math.round(p.ic![0]!)}–{Math.round(p.ic![1]!)}]</p>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
           {trend3m && (
             <p className="text-xs text-foreground mt-2 flex items-center gap-1.5">
@@ -121,8 +129,8 @@ export function InsightsAeroriskCard({ aerodromeId }: Props) {
         </p>
       )}
 
-      {confidence != null && (
-        <p className="text-xs text-foreground mt-2">Confiance de l&apos;analyse : <strong>{confidence}%</strong></p>
+      {confidence != null && Number.isFinite(confidence) && (
+        <p className="text-xs text-foreground mt-2">Confiance de l&apos;analyse : <strong>{Math.round(confidence)}%</strong></p>
       )}
 
       {recommendations.length > 0 && (
