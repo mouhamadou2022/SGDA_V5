@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
+import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { getCellColor, getRiskLevelBgColor } from '@/lib/risque';
 import { evaluatePreuves, type OACICell } from '@/lib/risque/bowTieEngine';
 
@@ -102,6 +103,7 @@ export function EvaluationPreuvesForm({
   const evaluerPreuves = useAppStore(s => s.evaluerPreuves);
   const addNotification = useAppStore(s => s.addNotification);
   const ecart = ecarts.find(e => e.id === ecartId);
+  const { refs: questionRefs } = useEcartQuestionRefs(ecart);
 
   const [notes, setNotes] = useState<Record<string, number>>({
     completude: 0,
@@ -417,6 +419,20 @@ export function EvaluationPreuvesForm({
             </div>
           </div>
           <p className="text-sm mt-2">{ecart.libelle}</p>
+          {ecart.ref_reglementaire && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {ecart.ref_reglementaire.split(/[;,]|\bet\b/i).map(r => r.trim()).filter(Boolean).map((ref, i) => (
+                <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+              ))}
+            </div>
+          )}
+          {questionRefs.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {questionRefs.map((ref, i) => (
+                <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Délai de validation inspecteur */}

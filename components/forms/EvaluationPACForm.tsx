@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AideMemoirePAC } from '@/components/modules/plans-actions/AideMemoirePAC';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
+import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { getCellColor, getRiskLevelFromCell, getOACIValue, getRiskLevelBgColor } from '@/lib/risque';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent";
@@ -56,6 +57,7 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   const evaluerPAC = useAppStore(s => s.evaluerPAC);
   const addNotification = useAppStore(s => s.addNotification);
   const ecart = ecarts.find(e => e.id === ecartId);
+  const { refs: questionRefs } = useEcartQuestionRefs(ecart);
 
   const [notes, setNotes] = useState<Record<string, number>>(
     initialEvaluation?.notes || { pertinence: 0, exhaustivite: 0, precision: 0, specificite: 0, realisme: 0, coherence: 0 }
@@ -297,6 +299,20 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
             <div><p className="text-[10px] text-muted-foreground uppercase">Soumis le</p><p className="font-medium">{ecart.pac?.soumis_le ? new Date(ecart.pac.soumis_le).toLocaleDateString('fr-FR') : '—'}</p></div>
           </div>
           <p className="text-sm mt-2">{ecart.libelle}</p>
+          {ecart.ref_reglementaire && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {ecart.ref_reglementaire.split(/[;,]|\bet\b/i).map(r => r.trim()).filter(Boolean).map((ref, i) => (
+                <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+              ))}
+            </div>
+          )}
+          {questionRefs.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {questionRefs.map((ref, i) => (
+                <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Délai d'évaluation inspecteur */}

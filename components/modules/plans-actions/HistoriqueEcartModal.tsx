@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
+import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import {
   History,
   X,
@@ -50,6 +51,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
   const getHistoriqueEcart = useAppStore(s => s.getHistoriqueEcart);
   const addNotification = useAppStore(s => s.addNotification);
   const ecart = ecarts.find(e => e.id === ecartId);
+  const { refs: questionRefs } = useEcartQuestionRefs(ecart);
   const historique = getHistoriqueEcart(ecartId);
   const [mounted, setMounted] = useState(false);
 
@@ -220,6 +222,20 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                 </div>
               </div>
               <p className="text-sm text-foreground">{ecart.libelle}</p>
+              {ecart.ref_reglementaire && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {ecart.ref_reglementaire.split(/[;,]|\bet\b/i).map(r => r.trim()).filter(Boolean).map((ref, i) => (
+                    <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+                  ))}
+                </div>
+              )}
+              {questionRefs.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {questionRefs.map((ref, i) => (
+                    <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+                  ))}
+                </div>
+              )}
               {ecart.niveau_risque && (
                 <div className="mt-2">
                   <span className={`badge ${getRiskLevelClass(ecart.niveau_risque)}`}>

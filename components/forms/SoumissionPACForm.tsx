@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
+import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import {
   Plus, Trash2, Upload, FileText, X, Send, AlertCircle, Calendar, User, CheckCircle2, Building2, CalendarDays,
   HelpCircle,
@@ -46,6 +47,7 @@ export function SoumissionPACForm({
 
   const ecart = ecarts.find(e => e.id === ecartId);
   const aerodrome = aerodromes.find(a => a.id === ecart?.aerodrome_id);
+  const { refs: questionRefs } = useEcartQuestionRefs(ecart);
 
   const [lignes, setLignes] = useState<LignePAC[]>(
     initialLignes && initialLignes.length > 0
@@ -188,6 +190,20 @@ export function SoumissionPACForm({
             <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap leading-relaxed">
               {ecart.reference} — {ecart.libelle}
             </p>
+            {ecart.ref_reglementaire && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {ecart.ref_reglementaire.split(/[;,]|\bet\b/i).map(r => r.trim()).filter(Boolean).map((ref, i) => (
+                  <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+                ))}
+              </div>
+            )}
+            {questionRefs.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {questionRefs.map((ref, i) => (
+                  <span key={i} className="code-oaci-badge text-[10px]">{ref}</span>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />Délai PAC : {new Date(ecart.delai_pac).toLocaleDateString('fr-FR')}</span>
               {niveauCfg && <span className={niveauCfg.badgeClass}>{niveauCfg.label}</span>}
