@@ -485,16 +485,11 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       const effectivePortee = importPorteeEdit.length > 0
         ? importPorteeEdit
         : [...new Set(hierarchieWithOverrides.map((d: any) => d.nom))]
-      setMasterChecklist(templateId, hierarchieWithOverrides)
 
-      if (type !== importPreview.template.type && user?.id) {
-        import('@/lib/services/checklistTemplateService').then(({ recordTypeCorrection }) => {
-          recordTypeCorrection(importPreview.filename, importPreview.template.type, type, user.id)
-        }).catch(() => {})
-      }
-
+      // Persistance d'abord : si la sauvegarde en base échoue (ex. RLS/auth),
+      // on affiche l'erreur au lieu de faire croire à un import réussi.
       const { importTemplateToSupabase } = await import('@/lib/services/checklistTemplateService')
-      await importTemplateToSupabase(
+      const persisted = await importTemplateToSupabase(
         type as any,
         code,
         importPreview.template.nom,
@@ -511,6 +506,17 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           archivePrevious: true,
         },
       )
+      if (!persisted.ok) {
+        throw new Error(persisted.error || 'Échec de la sauvegarde en base (RLS ou compte non autorisé à écrire)')
+      }
+
+      setMasterChecklist(templateId, hierarchieWithOverrides)
+
+      if (type !== importPreview.template.type && user?.id) {
+        import('@/lib/services/checklistTemplateService').then(({ recordTypeCorrection }) => {
+          recordTypeCorrection(importPreview.filename, importPreview.template.type, type, user.id)
+        }).catch(() => {})
+      }
 
       // Template SGS appliqué à un aérodrome
       if (type === 'SGS' && importSGSAerodrome) {
@@ -527,6 +533,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       setImportStep('upload')
       setShowImportModal(false)
       setSousTab('templates')
+
+      // Recharger les templates depuis Supabase pour confirmer la persistance
+      // et afficher les métadonnées (version, date, auteur) dans la liste.
+      import('@/lib/services/checklistTemplateService').then(({ loadTemplatesFromSupabase }) => {
+        loadTemplatesFromSupabase().catch(() => {})
+      }).catch(() => {})
     } catch (err: any) {
       setImportError(err?.message || 'Erreur lors de l\'import du template.')
     } finally {
@@ -652,10 +664,19 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     }
   }, [importPreview, showImportModal])
 
+  // Reset l'état de génération quand la modale se ferme (Échap, overlay,
+  // Annuler) — comme l'import, pour une réouverture toujours propre.
+  useEffect(() => {
+    if (!showGenModal) {
+      setGenPortee([])
+      setGenInstructions('')
+    }
+  }, [showGenModal])
+
   // Escape key closes modals
   useEffect(() => {
     if (!showGenModal && !showImportModal) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowGenModal(false); setShowImportModal(false) } }
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowGenModal(false); setShowImportModal(false); setImportPreview(null); setImportError(null); setImportStep('upload') } }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [showGenModal, showImportModal])
@@ -669,9 +690,12 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       const now = new Date();
       const mmYY = `${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
       const domaineCode = genPortee.includes('AGA') || genPortee.length >= 8 ? 'AGA' : genPortee.join('-');
-      const existingIds = Object.keys(masterChecklists).filter(id => id.startsWith(`CHCKLI-${domaineCode}-${mmYY}`));
+      const existingIds = Object.keys(masterChecklists).filter(id => id.startsWith(`CHCKLI-${domaineCode}-${mmYY}`) || id.startsWith(`QSC_CHCKLI-${domaineCode}-${mmYY}`));
       const version = existingIds.length + 1;
-      const generationId = `CHCKLI-${domaineCode}-${mmYY}-${String(version).padStart(2, '0')}`;
+      const releaseCode = `CHCKLI-${domaineCode}-${mmYY}-${String(version).padStart(2, '0')}`;
+      // Id au format TYPE_CODE (comme les imports) pour que l'éditeur reconnaisse
+      // la checklist et la save aussi en base : sans cela elle resterait locale.
+      const generationId = `QSC_${releaseCode}`;
       
       const typeEntite = genTypeEntite
 
@@ -746,6 +770,30 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             : 'Checklist générée avec succès',
           canal: 'in_app',
         })
+
+        // Persistance en base (comme l'import) : sans cela la checklist générée
+        // reste locale (IndexedDB) et se perd hors du navigateur d'origine.
+        import('@/lib/services/checklistTemplateService').then(async ({ saveTemplateToSupabase }) => {
+          const res = await saveTemplateToSupabase(
+            generationId,
+            'QSC' as any,
+            releaseCode,
+            releaseCode,
+            String(version).padStart(2, '0'),
+            [...new Set(hierarchy.map((d: any) => d.nom))],
+            hierarchy as unknown as DomaineChecklist[],
+            { etat: 'publie', actif: true, categorie: 'surveillance_continue', type_entite_cible: typeEntite },
+          )
+          if (!res.ok) {
+            addNotification?.({
+              user_id: user?.id || '',
+              type: 'warning',
+              title: 'Checklist non synchronisée',
+              message: 'Générée localement mais la sauvegarde en base a échoué (RLS ou compte non autorisé).',
+              canal: 'in_app',
+            })
+          }
+        }).catch(() => {})
       }
       
       setShowGenModal(false)
@@ -1134,7 +1182,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         title="Kit Inspecteur"
         description={`Base documentaire - ${stats.total} documents`}
         actions={<div className="flex items-center gap-2">
-          {isManager && <button onClick={() => setShowImportModal(true)} className="btn btn-secondary gap-2">
+          {isManager && <button onClick={() => { setImportPreview(null); setImportError(null); setImportStep('upload'); setShowImportModal(true) }} className="btn btn-secondary gap-2">
             <Upload className="w-4 h-4" />
             Importer modèle ANACIM
           </button>}
