@@ -16,7 +16,7 @@ import {
   Shield, ChevronDown, ChevronRight, FileText, Upload, Trash2,
   PenLine, Eye, TrendingUp, X, Plus, FolderPlus, Sparkles, CheckCircle2,
 } from 'lucide-react';
-import { DOMAINES_SURVEILLANCE } from '@/lib/domaines';
+import { DOMAINES_SURVEILLANCE, DOMAINES_INDIVIDUELS, getDomaineLabel } from '@/lib/domaines';
 import type {
   DomaineChecklist, ChecklistItem, ResultatChecklist,
   SousDomaine, SousSousDomaine, ModeSaisie,
@@ -41,6 +41,16 @@ export interface SplitTarget {
 
 // Domaines canoniques (SGS, SLI, PHY, OLS, RA, ELEC, MFP, COP, OPS) non déjà
 // présents dans la checklist (match par code OU par label).
+/** Options de code domaine pour l'édition d'un domaine existant (liste contrainte).
+ *  Les codes canoniques sont proposés ; un code hérité hors catalogue est conservé
+ *  comme option pour ne pas perdre la valeur. */
+export function getDomaineCodeOptions(current: string): Array<{ value: string; label: string }> {
+  const options: Array<{ value: string; label: string }> = DOMAINES_INDIVIDUELS.map(d => ({ value: d.code, label: `${d.code} — ${d.label}` }))
+  const exists = options.some(o => o.value === current)
+  if (!exists && current) options.push({ value: current, label: current })
+  return options
+}
+
 export function getAvailableDomaines(domaines: Array<{ nom?: string }>): NouveauDomaineInfo[] {
   const existing = new Set((domaines || []).map(d => (d?.nom || '').toLowerCase()))
   return (DOMAINES_SURVEILLANCE as readonly any[])
@@ -1321,14 +1331,16 @@ export function ChecklistStandardTable({
                   </span>
                   <div>
                     {canEdit ? (
-                      <InlineEdit
+                      <select
                         value={domaine.nom}
-                        onChange={v => mutateDomaines(ds => ds.map(d => d.id === domaine.id ? { ...d, nom: v } : d))}
-                        readOnly={!canEdit}
-                        className="font-semibold text-[14px] text-white"
-                        inputClassName="font-semibold text-[14px] text-blue-900"
-                        placeholder="Nom du domaine"
-                      />
+                        onChange={e => mutateDomaines(ds => ds.map(d => d.id === domaine.id ? { ...d, nom: e.target.value } : d))}
+                        title={getDomaineLabel(domaine.nom) === domaine.nom ? 'Code domaine' : `${getDomaineLabel(domaine.nom)} — cliquer pour changer`}
+                        className="font-semibold text-[14px] text-blue-900 bg-white/95 border border-blue-400 rounded px-1.5 py-1 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                      >
+                        {getDomaineCodeOptions(domaine.nom).map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                     ) : (
                       <p className="font-semibold text-[14px] text-white">{domaine.nom}</p>
                     )}

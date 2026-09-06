@@ -1,6 +1,7 @@
 'use client'
 
 import { useAppStore } from '@/lib/store'
+import { supabase } from '@/lib/supabase'
 import { aiClient } from '@/lib/ia/aiClient'
 import type { ChecklistTemplate, DomaineChecklist, ChecklistTemplateType, ChecklistTemplateCategorie, ChecklistTemplateRegime } from '@/lib/store'
 
@@ -18,6 +19,17 @@ export interface TemplateImportMeta {
   archivePrevious?: boolean
 }
 
+/** `checklist_templates.created_by/updated_by` référencent `auth.users(id)`.
+ *  `store.user.id` peut valoir `utilisateurs.id` (uuid généré, ≠ auth). On
+ *  privilégie l'uid de session Supabase. */
+async function getAuthUserId(fallback?: string): Promise<string | undefined> {
+  try {
+    const { data } = await supabase.auth.getUser()
+    if (data?.user?.id) return data.user.id
+  } catch { /* ignore */ }
+  return fallback
+}
+
 export async function saveTemplateToSupabase(
   templateId: string,
   type: ChecklistTemplateType,
@@ -32,6 +44,7 @@ export async function saveTemplateToSupabase(
     const { createChecklistTemplate } = await import('@/lib/datastore')
     const store = useAppStore.getState()
     const user = store.user
+    const createdBy = await getAuthUserId(user?.id)
     const authorName = user ? `${user.prenom || ''} ${user.nom || ''}`.trim() : ''
 
     const result = await createChecklistTemplate({
@@ -46,8 +59,8 @@ export async function saveTemplateToSupabase(
       etat: meta?.etat || 'brouillon',
       hierarchie,
       actif: meta?.actif !== false,
-      created_by: user?.id,
-      updated_by: user?.id,
+      created_by: createdBy,
+      updated_by: createdBy,
       edition_date: meta?.edition_date,
       source_fichier: meta?.source_fichier,
       description: meta?.description,
@@ -86,6 +99,7 @@ export async function importTemplateToSupabase(
     const { importChecklistTemplate } = await import('@/lib/datastore')
     const store = useAppStore.getState()
     const user = store.user
+    const createdBy = await getAuthUserId(user?.id)
     const authorName = user ? `${user.prenom || ''} ${user.nom || ''}`.trim() : ''
 
     const result = await importChecklistTemplate({
@@ -100,8 +114,8 @@ export async function importTemplateToSupabase(
       etat: meta?.etat || 'brouillon',
       hierarchie,
       actif: meta?.actif !== false,
-      created_by: user?.id,
-      updated_by: user?.id,
+      created_by: createdBy,
+      updated_by: createdBy,
       edition_date: meta?.edition_date,
       source_fichier: meta?.source_fichier,
       description: meta?.description,
@@ -246,8 +260,12 @@ export async function loadTemplatesFromSupabase(): Promise<ChecklistTemplate[]> 
     if (result.error) throw new Error(result.error)
     const templates = result.data || []
 
-    // Remplir masterChecklists dans le store
+    // Remplir masterChecklists dans le store. Garde : un hierarchie NULL/malformé
+    // en base injecterait une valeur non-array dans le store et ferait planter le
+    // rendu de l'onglet templates (TypeError sur domaines.some/map). On ignore ces
+    // templates corrompus plutôt que de propager le null.
     for (const t of templates) {
+      if (!Array.isArray(t.hierarchie)) continue
       const storeId = `${t.type}_${t.code}`
       store.setMasterChecklist(storeId, t.hierarchie)
     }

@@ -885,7 +885,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const templateStats = useMemo(() => {
     const types: Record<string, { count: number; items: number }> = {}
     let totalItems = 0
-    for (const [id, domaines] of Object.entries(masterChecklists)) {
+    for (const [id, raw] of Object.entries(masterChecklists)) {
+      if (!Array.isArray(raw)) continue
+      const domaines = raw
       const items = domaines.flatMap(d => d.items || [])
       totalItems += items.length
       const prefixes = new Set(items.map(i => i.numero?.split('-')[0]).filter(Boolean))
@@ -1386,7 +1388,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             if (showArchived) Object.assign(allChecklists, archivedMasterChecklists)
 
             const grouped: Record<string, { key: string; domaines: string[]; itemsCount: number; archived?: boolean; version?: string; updatedAt?: string; updatedByName?: string; versionsCount?: number }[]> = {}
-            for (const [key, domaines] of Object.entries(allChecklists)) {
+            for (const [key, raw] of Object.entries(allChecklists)) {
+              const domaines = Array.isArray(raw) ? raw : []
+              if (!domaines.length) continue
               if (templateSearch) {
                 const term = templateSearch.toLowerCase()
                 if (!key.toLowerCase().includes(term) && !domaines.some(d => d.nom.toLowerCase().includes(term))) continue

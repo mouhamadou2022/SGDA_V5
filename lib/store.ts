@@ -9054,12 +9054,6 @@ export function clearRappelsTimer() {
 }
 
 
-// ============================================================
-// NOUVEAUX HOOKS UTILITAIRES À AJOUTER
-// ============================================================
-
-// À ajouter après les hooks existants (vers la fin du fichier)
-
 export const useDelegationsBySurveillance = (surveillanceId: string) => {
   const getDelegationsBySurveillance = useAppStore((state) => state.getDelegationsBySurveillance);
   return getDelegationsBySurveillance(surveillanceId);
@@ -9084,10 +9078,6 @@ export const useRiskIndexFeedbacksByAerodrome = (aerodromeId: string) => {
   const getFeedbacksByAerodrome = useAppStore((state) => state.getFeedbacksByAerodrome);
   return getFeedbacksByAerodrome(aerodromeId);
 };
-
-// ============================================================
-// 7. NOUVEAUX HOOKS UTILITAIRES À AJOUTER
-// ============================================================
 
 export const useDecisionChecklist = () => {
   const decision = useAppStore((state) => state.decisionChecklist);
@@ -9160,3 +9150,4 @@ export const useHomologationsArchivees = () => {
 
 // Throttle pour les envois d'emails (max 1/30s par user)
 const emailThrottle = new Map<string, number>()
+

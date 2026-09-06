@@ -261,6 +261,7 @@ export default function ChecklistTemplatesPage() {
             ) : (
               <div className="space-y-2">
                 {Object.entries(masterChecklists).map(([id, checklist]) => {
+                  if (!Array.isArray(checklist)) return null
                   const itemsCount = checklist.reduce((s: number, d: any) => s + totalItems(d), 0)
                   const domaines = checklist.map(d => d.nom).join(', ')
                   return (

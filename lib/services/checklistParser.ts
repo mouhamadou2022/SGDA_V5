@@ -836,6 +836,7 @@ export function buildSGSTemplateFromMaster(
     let bestId = sgsIds[0]
     let bestCount = -1
     for (const id of sgsIds) {
+      if (!Array.isArray(masterChecklists[id])) continue
       const candidate = buildSGSTemplateFromImport(masterChecklists[id], id.replace(/^SGS_/i, ''))
       const count = countSGSQuestions(candidate)
       if (count > bestCount) {
@@ -844,6 +845,7 @@ export function buildSGSTemplateFromMaster(
       }
     }
     const hierarchie = masterChecklists[bestId]
+    if (!Array.isArray(hierarchie)) return undefined
     const code = bestId.replace(/^SGS_/i, '')
     return buildSGSTemplateFromImport(hierarchie, code)
   }
