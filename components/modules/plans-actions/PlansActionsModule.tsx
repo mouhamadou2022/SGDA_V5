@@ -17,6 +17,7 @@ import { getProcessusActifs } from '@/lib/processus'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection'
 import { Role } from '@/lib/config'
+import { canEditSurveillanceContent } from '@/lib/config'
 import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import {
   ClipboardList, AlertTriangle, CheckCircle2, Clock,
@@ -54,6 +55,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const ecarts = useOptimizedStore(s => s.ecarts)
   const aerodromes = useOptimizedStore(s => s.aerodromes)
   const surveillances = useOptimizedStore(s => s.surveillances)
+  const delegations = useOptimizedStore(s => s.delegations)
   const evenements = useOptimizedStore(s => s.evenements)
   const profilsRisque = useOptimizedStore(s => s.profilsRisque)
   const historiqueScores = useOptimizedStore(s => s.historiqueScores)
@@ -66,6 +68,33 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
   const checklistItems = useOptimizedStore(s => s.checklistItems)
+
+  // Détermine si l'utilisateur peut évaluer un écart lié à une surveillance :
+  // seuls le chef d'équipe, les membres de l'équipe ou l'inspecteur délégué sur
+  // le domaine peuvent évaluer PAC/preuves (miroir de la garde côté store).
+  const peutEvaluerEcart = useCallback((ecart: any): boolean => {
+    const userId = user?.id
+    if (!userId) return false
+    if (!ecart.surveillance_id) {
+      // Écarts sans surveillance (événements) : comportement historique par rôle
+      return userRole === 'inspector' || userRole === 'admin'
+    }
+    const surv = surveillances.find(s => s.id === ecart.surveillance_id)
+    if (!surv) return false
+    if (surv.chef_id === userId || (surv.equipe_ids || []).includes(userId)) return true
+    return delegations.some(d =>
+      d.surveillance_id === ecart.surveillance_id &&
+      d.domaine === ecart.domaine &&
+      d.assigne_a === userId
+    )
+  }, [surveillances, delegations, user?.id, userRole])
+
+  const estChefDeSurveillance = useCallback((ecart: any): boolean => {
+    const userId = user?.id
+    if (!userId || !ecart.surveillance_id) return false
+    const surv = surveillances.find(s => s.id === ecart.surveillance_id)
+    return !!surv && surv.chef_id === userId
+  }, [surveillances, user?.id])
 
   const [searchTerm, setSearchTerm] = useState('')
   const debouncedSearchTerm = useGlobalDebounce(searchTerm, 300)
@@ -742,6 +771,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               const progression = totalEcarts > 0 ? (clos / totalEcarts) * 100 : 0
               const enRetard = ecarts.filter(e => e.statut === 'en_retard').length
               const critiques = ecarts.filter(e => e.prioriteDynamique === 'critique').length
+              const peutRediger = canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)
 
               return (
                 <AccordionSection
@@ -758,6 +788,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     </>
                   }
                   actions={
+                    peutRediger ? (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -770,6 +801,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     >
                       {isIaGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
                     </button>
+                    ) : undefined
                   }
                 >
                   {/* Regroupement par domaine réglementaire */}
@@ -790,7 +822,9 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           </span>
                         )}
                       </div>
-                      {groupe.items.map((ecart: any) => (
+                      {groupe.items.map((ecart: any) => {
+                      const evalAutorise = peutEvaluerEcart(ecart)
+                      return (
                         <EcartCard
                           key={ecart.id}
                           ecart={ecart}
@@ -801,12 +835,14 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
                           onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
                           onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                          onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
+                          onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
+                          canEvaluate={evalAutorise}
                           userRole={userRole}
                           userId={user?.id || ''}
                           evalDraft={evalDrafts[ecart.id] || null}
                         />
-                      ))}
+                      )
+                    })}
                     </div>
                     )
                   })}
@@ -819,6 +855,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             const tabAEvaluer = sortedEcarts.filter((e: any) => e.surveillance_id && e.statut === 'pac_soumis')
             const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
             if (tabAEvaluer.length === 0) return null
+            if (!tabAEvaluer.some(e => peutEvaluerEcart(e))) return null
             const allReady = tabComplet.length === tabAEvaluer.length
             return (
               <Card variant="role" size="sm" className="mt-4">
@@ -884,7 +921,9 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           </span>
                         )}
                       </div>
-                      {groupe.items.map((ecart: any) => (
+                      {groupe.items.map((ecart: any) => {
+                      const evalAutorise = peutEvaluerEcart(ecart)
+                      return (
                         <EcartCard
                           key={ecart.id}
                           ecart={ecart}
@@ -895,12 +934,14 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
                           onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
                           onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                          onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
+                          onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
+                          canEvaluate={evalAutorise}
                           userRole={userRole}
                           userId={user?.id || ''}
                           evalDraft={evalDrafts[ecart.id] || null}
                         />
-                      ))}
+                      )
+                    })}
                     </div>
                     )
                   })}
@@ -913,6 +954,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             const tabAEvaluer = sortedEcarts.filter((e: any) => e.evenement_id && e.statut === 'pac_soumis')
             const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
             if (tabAEvaluer.length === 0) return null
+            if (!tabAEvaluer.some(e => peutEvaluerEcart(e))) return null
             const allReady = tabComplet.length === tabAEvaluer.length
             return (
               <Card variant="role" size="sm" className="mt-4">
@@ -945,6 +987,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               .filter(e => e.prioriteDynamique === 'critique' || e.statut === 'en_retard' || e.prioriteDynamique === 'haute')
               .map(ecart => {
                 const aerodrome = aerodromes.find(a => a.id === ecart.aerodrome_id)
+                const evalAutorise = peutEvaluerEcart(ecart)
                 return (
                   <EcartCard
                     key={ecart.id}
@@ -955,8 +998,10 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
                     onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
                     onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                    onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
-                    onValidationChef={() => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) }}
+                    onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
+                    onValidationChef={estChefDeSurveillance(ecart) ? () => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) } : undefined}
+                    canEvaluate={evalAutorise}
+                    canValiderChef={estChefDeSurveillance(ecart)}
                     userRole={userRole}
                     userId={user?.id || ''}
                     urgent
@@ -1032,24 +1077,29 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                             </span>
                           )}
                         </div>
-                        {groupe.items.map((ecart: any) => (
-                        <EcartCard
-                          key={ecart.id}
-                          ecart={ecart}
-                          aerodrome={aerodrome}
-                          hideDomaine={true}
-                          prioriteDynamique={ecart.prioriteDynamique}
-                          raisonPriorite={ecart.raisonPriorite}
-                          onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
-                          onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
-                          onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                          onIaEvaluate={(pacData) => handleIaEvaluatePAC(ecart.id, pacData)}
-                          onValidationChef={() => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) }}
-                          userRole={userRole}
-                          userId={user?.id || ''}
-                          evalDraft={evalDrafts[ecart.id] || null}
-                        />
-                        ))}
+{groupe.items.map((ecart: any) => {
+                        const evalAutorise = peutEvaluerEcart(ecart)
+                        return (
+                          <EcartCard
+                            key={ecart.id}
+                            ecart={ecart}
+                            aerodrome={aerodrome}
+                            hideDomaine={true}
+                            prioriteDynamique={ecart.prioriteDynamique}
+                            raisonPriorite={ecart.raisonPriorite}
+                            onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
+                            onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
+                            onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
+                            onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
+                            onValidationChef={estChefDeSurveillance(ecart) ? () => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) } : undefined}
+                            canEvaluate={evalAutorise}
+                            canValiderChef={estChefDeSurveillance(ecart)}
+                            userRole={userRole}
+                            userId={user?.id || ''}
+                            evalDraft={evalDrafts[ecart.id] || null}
+                          />
+                        )
+                      })}
                       </div>
                       )
                     })}

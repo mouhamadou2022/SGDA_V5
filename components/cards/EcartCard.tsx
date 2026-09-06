@@ -26,6 +26,10 @@ interface EcartCardProps {
   onTimeline?: () => void
   onIaEvaluate?: (pacData: any) => void;
   onValidationChef?: () => void;
+  /** Surcharge du droit d'évaluer (équipe de surveillance) — sinon rôle inspecteur/admin */
+  canEvaluate?: boolean
+  /** Droit de valider en tant que chef d'équipe */
+  canValiderChef?: boolean
   userRole: string
   userId: string
   urgent?: boolean
@@ -48,6 +52,8 @@ export function EcartCard({
   onTimeline,
   onIaEvaluate,
   onValidationChef,
+  canEvaluate,
+  canValiderChef,
   userRole,
   userId,
   urgent = false,
@@ -116,8 +122,9 @@ export function EcartCard({
   const { jours, depasse } = plansActionsUtils.getDelaiRestant(ecart)
   const delaiCls = `badge ${depasse ? 'danger animate-pulse' : jours <= 7 ? 'warning' : 'success'} text-[10px]`
 
-  const peutEvaluer = (userRole === 'inspector' || userRole === 'admin') &&
+  const peutEvaluer = (canEvaluate ?? (userRole === 'inspector' || userRole === 'admin')) &&
     ['pac_soumis', 'preuves_soumises'].includes(ecart.statut)
+  const peutEvaluerIa = canEvaluate ?? (userRole === 'inspector' || userRole === 'admin')
   const peutSoumettrePAC = (userRole === 'focal_operator' || userRole === 'dg_operator') &&
     ['ouvert', 'pac_refuse'].includes(ecart.statut)
   const peutSoumettrePreuves = (userRole === 'focal_operator' || userRole === 'dg_operator') &&
@@ -173,7 +180,7 @@ export function EcartCard({
             <Clock className="w-3 h-3 inline mr-1" />{jours}j
           </span>
           <div className="flex items-center gap-1">
-            {ecart.statut === 'en_attente_validation_chef' && onValidationChef && (
+            {ecart.statut === 'en_attente_validation_chef' && canValiderChef && onValidationChef && (
               <button className="action-button hover:text-amber-600 hover:bg-amber-50 transition-all duration-200" onClick={onValidationChef} title="Valider l'évaluation">
                 <CheckCircle2 className="w-3 h-3 text-amber-600" />
               </button>
@@ -286,7 +293,7 @@ export function EcartCard({
                 <button className="action-button hover:text-role-primary hover:bg-role-primary/10 transition-all duration-200" onClick={onViewDetails} title="Voir">
                   <Eye className="w-4 h-4" />
                 </button>
-                {onIaEvaluate && ecart.pac && (
+                {peutEvaluerIa && onIaEvaluate && ecart.pac && (
                   <button
                     type="button"
                     onClick={() => onIaEvaluate(ecart.pac)}
@@ -321,7 +328,7 @@ export function EcartCard({
                     <FileText className="w-4 h-4" />
                   </button>
                 )}
-                {ecart.statut === 'en_attente_validation_chef' && onValidationChef && (
+{ecart.statut === 'en_attente_validation_chef' && canValiderChef && onValidationChef && (
                   <button className="action-button hover:text-amber-600 hover:bg-amber-50 transition-all duration-200" onClick={onValidationChef} title="Valider l'évaluation">
                     <CheckCircle2 className="w-4 h-4 text-amber-600" />
                   </button>
