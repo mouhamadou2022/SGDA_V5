@@ -643,6 +643,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   // Reset states when import modal closes
   useEffect(() => {
     if (!importPreview && !showImportModal) {
+      console.log('[debug-import] useEffect reset import (showImportModal=false, preview=null)')
       setImportTypeEdit('QSC')
       setImportPorteeManual('')
       setPorteeManuallyEdited(false)
@@ -672,6 +673,11 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       setGenInstructions('')
     }
   }, [showGenModal])
+
+  // [debug-import] trace les transitions d'état de la modale d'import
+  useEffect(() => {
+    console.log('[debug-import] showImportModal changé →', showImportModal, '| importPreview:', !!importPreview, '| step:', importStep)
+  }, [showImportModal, importPreview, importStep])
 
   // Escape key closes modals
   useEffect(() => {
@@ -1184,7 +1190,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         title="Kit Inspecteur"
         description={`Base documentaire - ${stats.total} documents`}
         actions={<div className="flex items-center gap-2">
-          {isManager && <button onClick={() => { setImportPreview(null); setImportError(null); setImportStep('upload'); setShowImportModal(true) }} className="btn btn-secondary gap-2">
+          {isManager && <button onClick={() => { console.log('[debug-import] clic bouton importer, showImportModal avant:', showImportModal); setImportPreview(null); setImportError(null); setImportStep('upload'); setShowImportModal(true); console.log('[debug-import] showImportModal demande true'); }} className="btn btn-secondary gap-2">
             <Upload className="w-4 h-4" />
             Importer modèle ANACIM
           </button>}
