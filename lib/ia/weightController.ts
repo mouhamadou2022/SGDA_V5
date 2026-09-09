@@ -4,8 +4,40 @@
 
 import type { DecisionOutcome } from './evaluateOutcomes'
 import { iaStorage, mergeArrayById } from '@/lib/persistence/iaStorage'
+import { fetchThresholds } from '@/lib/datastore'
 
 export const DEFAULT_WEIGHTS = { c1: 20, c2: 25, c3: 20, c4: 20, c5: 15 } as const
+
+// Cache TTL pour les poids appris (évite une requête ia_thresholds à chaque recalcul)
+let cachedLearnedWeights: WeightMap | null = null
+let learnedWeightsAt = 0
+const WEIGHTS_TTL_MS = 5 * 60 * 1000
+
+/**
+ * Charge les poids C1-C5 appris depuis ia_thresholds (weight_*), avec repli
+ * sur DEFAULT_WEIGHTS. Partagé par le store (client) et le moteur de score
+ * pour garantir la convergence store/cron.
+ */
+export async function fetchLearnedWeights(force = false): Promise<WeightMap> {
+  if (!force && cachedLearnedWeights && Date.now() - learnedWeightsAt < WEIGHTS_TTL_MS) {
+    return { ...cachedLearnedWeights }
+  }
+  const weights: WeightMap = { ...DEFAULT_WEIGHTS }
+  try {
+    const res = await fetchThresholds()
+    if (res.data && res.data.length > 0) {
+      for (const r of res.data) {
+        if (r.parametre.startsWith('weight_')) {
+          const dim = r.parametre.replace('weight_', '')
+          if (dim in DEFAULT_WEIGHTS) weights[dim] = r.valeur
+        }
+      }
+    }
+  } catch { /* ia_thresholds indisponible → poids par défaut */ }
+  cachedLearnedWeights = weights
+  learnedWeightsAt = Date.now()
+  return { ...weights }
+}
 
 export interface WeightAdjustment {
   id: string

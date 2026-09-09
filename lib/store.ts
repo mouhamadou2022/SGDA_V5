@@ -5321,43 +5321,30 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         const saniC = (v: number, fb: number) => (Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : fb)
 
         // C1 : SGS non applicable → pas de donnée (0), sera exclu du score global
-        const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 0 : (aerodrome?.maturite_sgs ?? 50)
         const scoreEnquetes = reponsesEnquetesAerodrome.length > 0
           ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length
           : undefined
-        const c1 = saniC(risqueUtils.calculateC1(maturiteSGS, scoreEnquetes, aerodrome?.statut_sgs), 50)
         const sgsNonApplicable = aerodrome?.statut_sgs === 'non_applicable'
 
-        // C2 : dégradée par l'âge de l'aérodrome si pas d'écarts
-        let c2 = saniC(risqueUtils.calculateC2FromEcarts(ecartsAerodrome), 50)
-        const ecartsActifs = ecartsAerodrome.filter(e => e.statut !== 'cloture')
-        if (ecartsActifs.length === 0 && aerodrome?.created_at) {
-          const ageJours = (Date.now() - new Date(aerodrome.created_at).getTime()) / 86400000
-          if (ageJours > 365) c2 = Math.min(c2, 70)
-          if (ageJours > 730) c2 = Math.min(c2, 55)
-        }
-
-        // C3 : toutes les surveillances terminées, pas seulement checklist_signee
-        const surveillancesAvecScore = surveillancesAerodrome.filter(s =>
-          s.score_global !== undefined && s.score_global !== null &&
-          ['checklist_signee', 'transmise', 'archivee'].includes(s.statut)
-        )
-        const c3 = saniC(
-          surveillancesAvecScore.length > 0
-            ? risqueUtils.calculateC3(surveillancesAvecScore.map(s => ({
-                score: s.score_global!,
-                date: s.date_debut
-              })))
-            : aerodrome ? Math.round(
-                // Heuristique multi-domaines comme dans initialProfile
-                (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
-                ((aerodrome.maturite_sgs ?? 50) * 0.25) +
-                ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
-                (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia, 10) || 1) - 3) * 2) * 0.15 +
-                ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
-              ) : 30,
-          30
-        )
+        // Pondération harmonisée : poids appris depuis ia_thresholds (comme le cron)
+        const { fetchLearnedWeights } = await import('./ia/weightController')
+        const poidsAppris = await fetchLearnedWeights()
+        // Moteur partagé avec le cron → convergence store/cron (C2 par âge, C3 élargi…)
+        const { computeProfilScore, appliqueMalusAmdec } = await import('./risque/profilScoreEngine')
+        const moteur = computeProfilScore({
+          aerodrome: aerodrome as any,
+          ecarts: ecartsAerodrome,
+          surveillances: surveillancesAerodrome,
+          evenements: evenementsAerodrome,
+          scoreC1Enquetes: scoreEnquetes,
+          weights: poidsAppris,
+          now: Date.now(),
+        })
+        const c1 = moteur.c1
+        const c2 = moteur.c2
+        let c3 = moteur.c3
+        const c4 = moteur.c4
+        const c5 = moteur.c5
 
         // Ajustement C3 selon les exemptions actives
         const exemptionsActives = get().getExemptionsActives(aerodromeId)
@@ -5383,22 +5370,13 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         }
 
         // Malus AMDEC : modes de défaillance à criticité élevée non corrigés
-        // dégradent la conformité technique (C3)
+        // dégradent la conformité technique (C3) — partagé avec le cron
         const analysesAmdec = get().amdecAnalyses?.filter(a => a.aerodrome_id === aerodromeId) || []
         if (analysesAmdec.length > 0) {
-          const { calculeMalusC3 } = await import('./risque/amdecEngine')
-          const malusAmdec = calculeMalusC3(analysesAmdec)
-          if (malusAmdec > 0) {
-            c3Final = saniC(Math.max(0, c3Final - malusAmdec), c3Final)
-          }
+          c3Final = appliqueMalusAmdec(c3Final, analysesAmdec)
         }
 
-        const c4 = saniC(risqueUtils.calculateC4FromEcarts(ecartsAerodrome), 50)
-        const c5 = saniC(risqueUtils.calculateC5(evenementsAerodrome.map((e: EvenementSecurite) => ({
-          gravite: e.gravite,
-          date: e.date || e.created_at,
-        }))), 50)
-        const scoreGlobal = saniC(risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 }, undefined, sgsNonApplicable), 50)
+        const scoreGlobal = saniC(risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 }, poidsAppris, sgsNonApplicable), 50)
         let niveau: 'faible' | 'moyen' | 'eleve' | 'critique' = 'faible'
         if (scoreGlobal >= 80) niveau = 'faible'
         else if (scoreGlobal >= 60) niveau = 'moyen'
@@ -5609,24 +5587,30 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         // ── Fin Phase 3 ──
         const now = new Date().toISOString()
         const profilFinal = assainirProfilRisque(nouveauProfil)
-        addScoreHistoryPoint(aerodromeId, {
-          date: now,
-          score: profilFinal.score_global,
-          c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5
-        })
+        // Dédup : ne pas polluer score_history (client + supabase) si le score n'a pas changé
+        const scoreChange = lastScore === null || profilFinal.score_global !== lastScore
+        if (scoreChange) {
+          addScoreHistoryPoint(aerodromeId, {
+            date: now,
+            score: profilFinal.score_global,
+            c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5
+          })
+        }
         set((state) => ({
           profilsRisque: { ...state.profilsRisque, [aerodromeId]: profilFinal }
         }))
-        try {
-          await supabase.from('score_history').insert({
-            aerodrome_id: aerodromeId,
-            score_global: profilFinal.score_global,
-            c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5,
-            niveau: profilFinal.niveau,
-            tendance: profilFinal.tendance,
-            computed_at: now,
-          })
-        } catch { /* Échec insert score_history — non bloquant */ }
+        if (scoreChange) {
+          try {
+            await supabase.from('score_history').insert({
+              aerodrome_id: aerodromeId,
+              score_global: profilFinal.score_global,
+              c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5,
+              niveau: profilFinal.niveau,
+              tendance: profilFinal.tendance,
+              computed_at: now,
+            })
+          } catch { /* Échec insert score_history — non bloquant */ }
+        }
         await get().computeFullRiskProfile(aerodromeId)
       },
 

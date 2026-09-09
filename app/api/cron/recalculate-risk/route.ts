@@ -48,6 +48,8 @@ export async function GET(request: Request) {
     // Importer les fonctions de calcul (pures, compatibles serveur)
     const risqueUtils = await import('@/lib/risque')
     const { weightController } = await import('@/lib/ia/weightController')
+    // Moteur de score partagé avec le store (convergence store/cron)
+    const { computeProfilScore, appliqueMalusAmdec } = await import('@/lib/risque/profilScoreEngine')
 
     // Charger les poids appris C1-C5 depuis ia_thresholds
     let learnedWeights: Record<string, number> | undefined
@@ -67,6 +69,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'Aucun aérodrome', count: 0 })
     }
 
+    // AMDEC : charger une seule fois pour tous les aérodromes (malus C3 partagé avec le store)
+    const { data: amdecRows } = await supabaseAdmin.from('amdec_analyses').select('*')
+    const amdecParAerodrome = new Map<string, any[]>()
+    for (const a of (amdecRows || [])) {
+      const liste = amdecParAerodrome.get(a.aerodrome_id) || []
+      liste.push(a)
+      amdecParAerodrome.set(a.aerodrome_id, liste)
+    }
+
     const results: Array<{ id: string; code_oaci: string; score: number; status: string }> = []
 
     for (const aerodrome of aerodromes) {
@@ -80,32 +91,40 @@ export async function GET(request: Request) {
         const { data: evenements } = await supabaseAdmin
           .from('evenements_securite').select('*').eq('aerodrome_id', aerodromeId)
 
-        const ecartsAerodrome = (ecarts || []).filter((e: any) => e.statut !== 'cloture')
         const ecartsTous = (ecarts || [])
-        const surveillancesAerodrome = (surveillances || []).filter((s: any) => s.score_global != null && s.statut === 'checklist_signee')
-        const evenementsAerodrome = (evenements || []).map((e: any) => ({
+        const surveillancesTous = (surveillances || [])
+        const evenementsPourPred = (evenements || []).map((e: any) => ({
           gravite: e.gravite || 'moyen',
           date: e.date || e.created_at,
         }))
 
-        // 3. Calculer C1-C5
-        const sgsNonApplicable = aerodrome.statut_sgs === 'non_applicable'
-        const maturiteSGS = sgsNonApplicable ? 0 : (aerodrome.maturite_sgs ?? 50)
-        const c1 = risqueUtils.calculateC1(maturiteSGS, undefined, aerodrome.statut_sgs)
-        const c2 = risqueUtils.calculateC2FromEcarts(ecartsTous || [])
-        const c3 = surveillancesAerodrome.length > 0
-          ? risqueUtils.calculateC3(surveillancesAerodrome.map((s: any) => ({
-              score: s.score_global,
-              date: s.date_debut,
-            })))
-          : 70
-        const c4 = risqueUtils.calculateC4FromEcarts(ecartsAerodrome || [])
-        const c5 = risqueUtils.calculateC5(evenementsAerodrome || [])
-        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights, sgsNonApplicable)
+        // 3. Calcul C1-C5 via le moteur partagé (identique au store : C3 élargi
+        //    aux 3 statuts de surveillance, C2 dégradée par âge sans écarts,
+        //    pondérations apprises) → converge store/cron
+        const moteur = computeProfilScore({
+          aerodrome,
+          ecarts: ecartsTous,
+          surveillances: surveillancesTous,
+          evenements: evenementsPourPred,
+          weights: learnedWeights,
+          now: Date.now(),
+        })
+        let c3 = moteur.c3
+        // Malus AMDEC : modes de défaillance à criticité élevée non corrigés
+        const amdecAerodrome = amdecParAerodrome.get(aerodromeId) || []
+        if (amdecAerodrome.length > 0) c3 = appliqueMalusAmdec(c3, amdecAerodrome)
+        const c1 = moteur.c1
+        const c2 = moteur.c2
+        const c4 = moteur.c4
+        const c5 = moteur.c5
+        let scoreGlobal = moteur.scoreGlobal
+        if (c3 !== moteur.c3) {
+          scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights, moteur.sgsNonApplicable)
+        }
 
         // 4. Prédictions et tendances
-        const incidentPred = computeIncidentPrediction(evenementsAerodrome || [])
-        const eventTrend = computeEventTrendAnalysis(evenementsAerodrome || [])
+        const incidentPred = computeIncidentPrediction(evenementsPourPred || [])
+        const eventTrend = computeEventTrendAnalysis(evenementsPourPred || [])
 
         // Charger l'historique des scores pour les prédictions
         const { data: scoreHistory } = await supabaseAdmin
@@ -117,6 +136,7 @@ export async function GET(request: Request) {
           date: s.computed_at,
           score: s.score_global,
         }))
+        const dernierScoreHistorique = historiqueScores.length > 0 ? historiqueScores[historiqueScores.length - 1].score : null
         const predictions =
           historiqueScores.length >= 2
             ? risqueUtils.predictWithEnsemble(historiqueScores)
@@ -156,25 +176,28 @@ export async function GET(request: Request) {
           .from('profils_risque')
           .upsert(profil, { onConflict: 'aerodrome_id' })
 
-        // 7. Alimenter score_history pour l'apprentissage
+        // 7. Alimenter score_history pour l'apprentissage (dédup : on ne pollue
+        //    pas l'historique si le score n'a pas changé depuis le dernier point)
         let shStatus = ''
-        const shPayload: Record<string, unknown> = {
-          aerodrome_id: aerodromeId,
-          score_global: scoreGlobal,
-          computed_at: now,
-        }
-        if (c1 !== undefined) shPayload.c1 = c1
-        if (c2 !== undefined) shPayload.c2 = c2
-        if (c3 !== undefined) shPayload.c3 = c3
-        if (c4 !== undefined) shPayload.c4 = c4
-        if (c5 !== undefined) shPayload.c5 = c5
-        shPayload.niveau = profil.niveau
-        const { error: shError } = await supabaseAdmin
-          .from('score_history')
-          .insert(shPayload)
-        if (shError) {
-          shStatus = ` score_history: ${shError.message}`
-          console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
+        if (dernierScoreHistorique === null || scoreGlobal !== dernierScoreHistorique) {
+          const shPayload: Record<string, unknown> = {
+            aerodrome_id: aerodromeId,
+            score_global: scoreGlobal,
+            computed_at: now,
+          }
+          if (c1 !== undefined) shPayload.c1 = c1
+          if (c2 !== undefined) shPayload.c2 = c2
+          if (c3 !== undefined) shPayload.c3 = c3
+          if (c4 !== undefined) shPayload.c4 = c4
+          if (c5 !== undefined) shPayload.c5 = c5
+          shPayload.niveau = profil.niveau
+          const { error: shError } = await supabaseAdmin
+            .from('score_history')
+            .insert(shPayload)
+          if (shError) {
+            shStatus = ` score_history: ${shError.message}`
+            console.warn(`[recalculate-risk] score_history insert failed for ${aerodromeId}: ${shError.message}`)
+          }
         }
 
         results.push({
