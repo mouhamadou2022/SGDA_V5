@@ -11,7 +11,6 @@ import { toast } from '@/lib/toast'
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent'
 import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF'
 
-const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
 import { Card } from '@/components/ui/card'
 import { DOMAINES_SURVEILLANCE, getDomaineLabel, SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 import { getRiskLevelBgVariant, getRiskLevelClass } from '@/lib/risque'
@@ -241,11 +240,10 @@ export default function PreparationModal({ open, planning, onClose, userRole }: 
     if (sendingChecklist) return
     setSendingChecklist(true)
     try {
-      const ops = (utilisateurs || []).filter((u: Utilisateur) =>
-        u.aerodrome_id === planning.aerodrome_id &&
-        (ROLE_EXPLOITANT.includes(u.role ?? '') || u.role === 'guest') &&
-        u.statut !== 'inactif' && u.statut !== 'suspendu'
-      )
+      // Liste vivante des exploitants : le store peut être périmé si un compte
+      // exploitant a été créé après le chargement de l'app → refresh Supabase fusionné.
+      const { chargerExploitants } = await import('@/lib/services/exploitants')
+      const ops = await chargerExploitants(planning.aerodrome_id, utilisateurs)
       const checklistUrl = `${window.location.origin}/preparation-checklist/${planning.id}`
       ops.forEach((op: Utilisateur) => {
         addNotification({ user_id: op.id, type: 'info', title: `Checklist à préparer — ${aerodrome?.code_oaci || 'N/A'}`, message: `La checklist de surveillance est disponible. Ouvrez-la ici : ${checklistUrl}`, canal: 'in_app' })

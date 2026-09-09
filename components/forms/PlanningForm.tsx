@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, type Planning, type ProfilRisque } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
-import { getRiskLevel, suggestMissionType, computeFinalFrequency } from '@/lib/risque';
+import { getRiskLevel, suggestMissionType, computeFinalFrequency, isSGSApplicable } from '@/lib/risque';
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
 import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
@@ -98,12 +98,14 @@ const DOMAINE_MAPPING: Record<string, { critere: string; seuil: number; label: s
 };
 
 // Récupérer les domaines prioritaires basés sur le profil
-function getDomainesPrioritaires(profil: ProfilRisque | null): string[] {
+// `sgsApplicable` : si le SGS n'est pas applicable à l'aérodrome (statut non_applicable
+// ou hélistation), le domaine SGS est exclu des suggestions de portée.
+function getDomainesPrioritaires(profil: ProfilRisque | null, sgsApplicable = true): string[] {
   if (!profil) return [];
   
   const domaines: string[] = [];
   
-  if (profil.c1 < 60) domaines.push('SGS');
+  if (profil.c1 < 60 && sgsApplicable) domaines.push('SGS');
   if (profil.c2 < 60) domaines.push('PAC');
   if (profil.c3 < 60) {
     domaines.push('PHY');
@@ -354,6 +356,8 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const watchAerodrome = watch('aerodrome_id');
   const profilAerodrome = watchAerodrome ? getProfilRisque(watchAerodrome) : null;
   const aerodrome = watchAerodrome ? aerodromes.find(a => a.id === watchAerodrome) : null;
+  // SGS non applicable → domaine exclu du dropdown et des suggestions
+  const sgsApplicable = isSGSApplicable(aerodrome);
 
   const watchEquipe = watch('equipe_ids') || [];
   const watchPortee = watch('portee') || [];
@@ -369,7 +373,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
     const profil = getProfilRisque(aerodromeId);
 
     if (profil) {
-      const domaines = getDomainesPrioritaires(profil);
+      const domaines = getDomainesPrioritaires(profil, isSGSApplicable(foundAero));
       setSuggestedDomains(domaines);
 
       // Suggérer les dates (utiliser foundAero pour éviter la closure obsolète)
@@ -837,7 +841,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
             {porteeDropdown && (
               <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-xl shadow-lg overflow-hidden">
                 <div className="max-h-60 overflow-y-auto">
-                  {DOMAINES_SURVEILLANCE.map(d => {
+                  {DOMAINES_SURVEILLANCE.filter(d => d.code !== 'SGS' || sgsApplicable).map(d => {
                     const selected = watchPortee.includes(d.code)
                     const isSuggested = suggestedDomains.includes(d.code)
                     return (

@@ -58,8 +58,6 @@ import { canManageRole } from '@/lib/config';
 import { teamOptimizer } from '@/lib/ia/engines/teamOptimizer';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 
-const ROLE_EXPLOITANT = ['dg_operator', 'focal_operator', 'staff_operator']
-
 const PLANNING_TERMINES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'annulee']
 // Statuts considérés comme « réalisés » (terminaux réussis hors annulée) — source unique
 // pour les KPIs globaux, le regroupement par aérodrome et le filtre de visibilité.
@@ -80,6 +78,13 @@ function toDatetimeLocal(iso: string): string {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// Début de la journée courante (heure locale) — garde « date de début ≥ aujourd'hui »
+function startOfToday(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
 }
 
 // Composants du module
@@ -511,7 +516,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const propositionEquipe = teamOptimizer.proposer(
         utilisateurs,
         planningsStore,
-        portee.length > 0 ? portee : ['SGS'],
+        portee.length > 0 ? portee : (isSGSApplicable(aero) ? ['SGS'] : ['OPS']),
         formations,
       )
 
@@ -723,6 +728,16 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         type: 'danger',
         title: 'Dates requises',
         message: 'Renseignez les dates réelles de début et de fin avant de lancer la surveillance.',
+        canal: 'in_app',
+      });
+      return;
+    }
+    if (new Date(executeDateDebut).getTime() < startOfToday().getTime()) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Date de début invalide',
+        message: 'La date de début doit être égale ou postérieure à la date du jour.',
         canal: 'in_app',
       });
       return;
@@ -1024,12 +1039,10 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const aerodrome = aerodromes.find(a => a.id === planning.aerodrome_id);
       const aeroCode = aerodrome?.code_oaci || '';
       const message = `Une surveillance ${typeLabel} est programmée du ${dateDebut} au ${dateFin} sur ${aeroCode}.\nDomaines: ${domainesLabels}\nÉquipe: ${equipeNoms}\nPréparez vos documents et registres pour l'équipe ANACIM.`;
-      utilisateurs
-        .filter(u =>
-          u.aerodrome_id === planning.aerodrome_id &&
-          (ROLE_EXPLOITANT.includes(u.role ?? '') || u.role === 'guest') &&
-          u.statut !== 'inactif' && u.statut !== 'suspendu'
-        )
+      // Liste vivante des exploitants (le store peut être périmé si un compte a été créé après le chargement)
+      const { chargerExploitants } = await import('@/lib/services/exploitants')
+      const exploitants = await chargerExploitants(planning.aerodrome_id, utilisateurs)
+      exploitants
         .forEach(u =>
           addNotification({
             user_id: u.id,
@@ -2365,6 +2378,7 @@ function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmO
                   <input
                     type="datetime-local"
                     value={executeDateDebut}
+                    min={toDatetimeLocal(startOfToday().toISOString())}
                     onChange={(e) => setExecuteDateDebut(e.target.value)}
                     className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
                   />

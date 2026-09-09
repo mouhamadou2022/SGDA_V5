@@ -19,7 +19,7 @@ import {
   ArrowLeft, Save, Wifi, WifiOff, ClipboardList, Brain, Sparkles,
   AlertTriangle, Shield, CheckCircle2, AlertCircle, ChevronDown,
   Activity, LayoutGrid, FileText, Eye, Trash2, Upload, X, Check, Loader2,
-  Users, Target, Download,
+  Users, Target, Download, Lock,
 } from 'lucide-react';
 import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
 import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF';
@@ -623,6 +623,7 @@ function StandardContent({
   equipeIds,
   user,
   autoOpenSGS = false,
+  readOnly = false,
 }: {
   domaines: DomaineChecklist[];
   onChangeDomaines: (d: DomaineChecklist[]) => void;
@@ -636,6 +637,8 @@ function StandardContent({
   user: any;
   /** Ouvre automatiquement l'évaluation SGS (PAOE) dès le montage */
   autoOpenSGS?: boolean;
+  /** Force l'affichage en lecture seule (préparation close) */
+  readOnly?: boolean;
 }) {
   const [sgsOpen, setSgsOpen] = useState(autoOpenSGS);
   const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === aerodromeId));
@@ -695,7 +698,7 @@ function StandardContent({
           })));
         }}
         onUpdateDomaines={onChangeDomaines}
-        readOnly={false}
+        readOnly={readOnly}
       />
       {/* Note: modeSaisie géré par défaut ('clavier') — la préparation n'a pas de header sticky avec wifi */}
 
@@ -715,7 +718,7 @@ function StandardContent({
           onSave={(evaluation) => { onSaveSGS(evaluation); setSgsOpen(false); }}
           existingEvaluation={sgsEvaluation}
           sgsTemplate={sgsTemplate as any}
-          readOnly={false}
+          readOnly={readOnly}
         />
       )}
     </>
@@ -727,7 +730,7 @@ function StandardContent({
 // ─────────────────────────────────────────────────────────────
 
 function SGSEvaluationDirect({
-  sgsEvaluation, onSaveSGS, planningId, aerodromeId, aerodromeNom, planningType, planningDateDebut, equipeIds, user, sgsTemplate,
+  sgsEvaluation, onSaveSGS, planningId, aerodromeId, aerodromeNom, planningType, planningDateDebut, equipeIds, user, sgsTemplate, readOnly = false,
 }: {
   sgsEvaluation: EvaluationSGS | null;
   onSaveSGS: (e: EvaluationSGS) => void;
@@ -739,6 +742,7 @@ function SGSEvaluationDirect({
   equipeIds: string[];
   user: any;
   sgsTemplate?: Record<string, unknown>;
+  readOnly?: boolean;
 }) {
   return (
     <SGSEvaluationContent
@@ -753,7 +757,7 @@ function SGSEvaluationDirect({
       onSave={onSaveSGS}
       existingEvaluation={sgsEvaluation}
       sgsTemplate={sgsTemplate}
-      readOnly={false}
+      readOnly={readOnly}
       onBack={() => window.history.back()}
     />
   );
@@ -786,6 +790,9 @@ export default function PreparationChecklistPage() {
   const masterChecklists = useAppStore(s => s.masterChecklists);
 
   const planning = plannings.find(p => p.id === planningId);
+  // Surveillance déjà exécutée par le chef d'équipe → la préparation est close
+  // (les inspecteurs sont sur le terrain) : la page passe en lecture seule.
+  const isExecutee = !!planning?.surveillance_id || ['en_cours', 'realisee', 'annulee'].includes(planning?.statut || '');
   const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
   const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
 
@@ -1091,22 +1098,25 @@ export default function PreparationChecklistPage() {
   }, [isOffline]);
 
   const handleSave = useCallback(async () => {
+    if (isExecutee) return;
     setIsSaving(true);
     try { await saveAll(dataRef.current); setLastSaved(new Date()); setHasChanges(false); }
     catch (e) { console.error('[Save]', e); }
     finally { setIsSaving(false); }
-  }, [saveAll]);
+  }, [saveAll, isExecutee]);
 
   // ── Handlers items ─────────────────────────────────────────
   const handleUpdatePACItem = useCallback((item: PACItem) => {
+    if (isExecutee) return;
     setPacItems(prev => prev.map(i => i.id === item.id ? item : i));
     setHasChanges(true);
-  }, []);
+  }, [isExecutee]);
 
   const handleUpdateSuiviItem = useCallback((item: EcartEvaluation) => {
+    if (isExecutee) return;
     setSuiviItems(prev => prev.map(i => i.id === item.id ? item : i));
     setHasChanges(true);
-  }, []);
+  }, [isExecutee]);
 
   // ── Enrichissement IA batch ─────────────────────────────────
   const walkItems = useCallback((domaines: DomaineChecklist[]): Array<{ id: string; numero: string; point_verification: string; domaine: string; sousDomaine: string; sousSousDomaine: string }> => {
@@ -1125,6 +1135,7 @@ export default function PreparationChecklistPage() {
   }, []);
 
   const handleBatchPredict = useCallback(async () => {
+    if (isExecutee) return;
     if (!aerodrome || !planning || iaBatchLoading) return;
     setIaBatchLoading(true);
     try {
@@ -1173,10 +1184,11 @@ export default function PreparationChecklistPage() {
       setIaPrefilledCount(result.stats.sa + result.stats.ns);
     } catch (e) { console.error('[BatchPredict]', e); }
     finally { setIaBatchLoading(false); }
-  }, [standardDomaines, aerodrome, planning, planningId, profil, iaBatchLoading, walkItems]);
+  }, [standardDomaines, aerodrome, planning, planningId, profil, iaBatchLoading, walkItems, isExecutee]);
 
   // ── Merge sécurisé IA : préserve les items/domaines existants, ne supprime rien ──
   const mergeChecklistUpdate = useCallback((aiDomaines: DomaineChecklist[]) => {
+    if (isExecutee) return;
     setStandardDomaines(prev => {
       const merged = prev.map(dom => {
         const aiDom = aiDomaines.find(d => d.id === dom.id || d.nom === dom.nom)
@@ -1223,7 +1235,7 @@ export default function PreparationChecklistPage() {
       return merged
     })
     setHasChanges(true)
-  }, [])
+  }, [isExecutee])
 
   // ── Stats ──────────────────────────────────────────────────
   const stats = React.useMemo(() => {
@@ -1277,7 +1289,7 @@ export default function PreparationChecklistPage() {
     return (
       <SGSEvaluationDirect
         sgsEvaluation={sgsEvaluation}
-        onSaveSGS={(e) => { setSgsEvaluation(e); setHasChanges(true); }}
+        onSaveSGS={(e) => { if (isExecutee) return; setSgsEvaluation(e); setHasChanges(true); }}
         planningId={planningId}
         aerodromeId={aerodrome?.id || planning.aerodrome_id}
         aerodromeNom={aerodrome?.nom}
@@ -1286,6 +1298,7 @@ export default function PreparationChecklistPage() {
         equipeIds={planning.equipe_ids || []}
         user={user}
         sgsTemplate={sgsTemplate as any}
+        readOnly={isExecutee}
       />
     );
   }
@@ -1359,22 +1372,39 @@ export default function PreparationChecklistPage() {
                 ? <span className="badge warning badge-icon"><WifiOff className="w-3 h-3" /> Hors ligne</span>
                 : <span className="badge success badge-icon"><Wifi className="w-3 h-3" /> En ligne</span>
               }
-              {lastSaved && (
+              {lastSaved && !isExecutee && (
                 <span className="text-xs text-muted-foreground hidden sm:inline">
                   {isSaving ? 'Sauvegarde...' : `Sauvegardé ${lastSaved.toLocaleTimeString()}`}
                 </span>
               )}
-              <button
-                onClick={() => setShowAiAssistant(!showAiAssistant)}
-                className={`btn btn-sm gap-1.5 ${showAiAssistant ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                <Brain className="w-3.5 h-3.5" /> IA
-              </button>
-              <button onClick={handleSave} className="btn btn-sm btn-primary gap-1.5" disabled={isSaving}>
-                <Save className="w-3.5 h-3.5" /> Sauvegarder
-              </button>
+              {isExecutee ? (
+                <span className="badge neutral badge-icon"><Lock className="w-3 h-3" /> Préparation close</span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowAiAssistant(!showAiAssistant)}
+                    className={`btn btn-sm gap-1.5 ${showAiAssistant ? 'btn-primary' : 'btn-secondary'}`}
+                  >
+                    <Brain className="w-3.5 h-3.5" /> IA
+                  </button>
+                  <button onClick={handleSave} className="btn btn-sm btn-primary gap-1.5" disabled={isSaving}>
+                    <Save className="w-3.5 h-3.5" /> Sauvegarder
+                  </button>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Bannière : surveillance exécutée → préparation close */}
+          {isExecutee && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/30">
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+              <p className="text-xs text-foreground">
+                Surveillance exécutée — la préparation est close&nbsp;: les inspecteurs sont sur le terrain.
+                Cette page est en <strong>lecture seule</strong>.
+              </p>
+            </div>
+          )}
 
           {/* Ligne 2 : score risque · maturité SGS · stats temps réel */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -1741,9 +1771,9 @@ export default function PreparationChecklistPage() {
         {activeContent === 'standard' && (
           <StandardContent
                     domaines={filteredDomaines}
-            onChangeDomaines={(d) => { setStandardDomaines(d); setHasChanges(true); }}
+            onChangeDomaines={(d) => { if (isExecutee) return; setStandardDomaines(d); setHasChanges(true); }}
             sgsEvaluation={sgsEvaluation}
-            onSaveSGS={(e) => { setSgsEvaluation(e); setHasChanges(true); }}
+            onSaveSGS={(e) => { if (isExecutee) return; setSgsEvaluation(e); setHasChanges(true); }}
             planningId={planningId}
             aerodromeId={aerodrome?.id || planning.aerodrome_id}
             planningType={planning.type}
@@ -1751,6 +1781,7 @@ export default function PreparationChecklistPage() {
             equipeIds={planning.equipe_ids || []}
             user={user}
             autoOpenSGS={false}
+            readOnly={isExecutee}
           />
         )}
 
@@ -1764,6 +1795,19 @@ export default function PreparationChecklistPage() {
                   <p className="text-sm">Aucun item PAC — aucun écart actif avec plan d'action.</p>
                 </div>
               </div>
+            ) : isExecutee ? (
+              pacItems.map(item => (
+                <div key={item.id} className="card border-border bg-muted/30">
+                  <div className="card-content p-4 space-y-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-foreground">{item.description || item.reference || 'Action PAC'}</p>
+                      <span className={`badge text-[10px] ${item.resultat === 'SA' ? 'success' : item.resultat === 'NS' ? 'danger' : 'neutral'}`}>{item.resultat || 'NV'}</span>
+                    </div>
+                    {item.observation && <p className="text-xs text-muted-foreground">{item.observation}</p>}
+                    <p className="text-xs text-muted-foreground">Risque résiduel&nbsp;: {item.risque_residuel || '—'}</p>
+                  </div>
+                </div>
+              ))
             ) : (
               pacItems.map(item => <PACChecklistItem key={item.id} item={item} onUpdate={handleUpdatePACItem} />)
             )}
@@ -1785,7 +1829,7 @@ export default function PreparationChecklistPage() {
                 <EcartEvaluationCard
                   key={item.id}
                   item={item}
-                  readOnly={false}
+                  readOnly={isExecutee}
                   onUpdate={handleUpdateSuiviItem}
                   onAddFile={() => {}}
                   onDeleteFile={() => {}}
