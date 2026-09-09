@@ -47,42 +47,49 @@ function getScoreLabel(score: number): string {
 }
 
 export function ResilienceScoreCard({ profil }: Props) {
-  const scores = (profil.historical_scores || []).map(h => h.score)
+  const scores = (profil.historical_scores || []).map(h => h.score).filter(Number.isFinite)
 
   const volatility = useMemo(() =>
     scores.length >= 2 ? computeVolatilityIndicators(scores) : null,
     [scores]
   )
 
+  const volScore = useMemo(() => {
+    if (!volatility) return 50
+    return Number.isFinite(volatility.relativeVolatility)
+      ? Math.max(0, 100 - (volatility.relativeVolatility * 2))
+      : 50
+  }, [volatility])
+
   const resilienceScore = useMemo(() => {
-    const c5 = profil.c5 ?? 50
-    const volScore = volatility ? Math.max(0, 100 - (volatility.relativeVolatility * 2)) : 50
-    const recoveryScore = computeRecoveryScore(profil)
+    const c5 = Number.isFinite(profil.c5) ? (profil.c5 as number) : 50
+    const recoveryScore = Number.isFinite(computeRecoveryScore(profil)) ? computeRecoveryScore(profil) : 50
 
     return Math.round(Math.min(100, Math.max(0, c5 * 0.40 + volScore * 0.30 + recoveryScore * 0.30)))
-  }, [profil.c5, volatility, profil.survival_metrics])
+  }, [profil.c5, volScore, profil.survival_metrics])
 
   const color = getScoreColor(resilienceScore)
   const textColor = getScoreTextColor(resilienceScore)
+  const c5 = Number.isFinite(profil.c5) ? (profil.c5 as number) : 50
 
   const factors: { label: string; value: number; max: number; weight: string; color: string }[] = [
     {
       label: 'C5 — Résilience',
-      value: profil.c5,
+      value: c5,
       max: 100,
       weight: '40%',
-      color: getScoreColor(profil.c5),
+      color: getScoreColor(c5),
     },
     {
       label: 'Volatilité',
-      value: volatility ? Math.max(0, 100 - volatility.relativeVolatility * 2) : 50,
+      value: volScore,
       max: 100,
       weight: '30%',
       color: volatility && volatility.stabiliteNiveau.includes('instable') ? 'var(--color-warning)' : 'var(--color-success)',
     },
     {
       label: 'Rétablissement',
-      value: computeRecoveryScore(profil),
+      value: Number.isFinite(computeRecoveryScore(profil)) ? computeRecoveryScore(profil) : 90,
       max: 100,
       weight: '30%',
       color: getScoreColor(computeRecoveryScore(profil)),
@@ -145,7 +152,7 @@ export function ResilienceScoreCard({ profil }: Props) {
           )}
           <span className="inline-flex items-center gap-1">
             <Gauge className="w-3 h-3" />
-            Hazard 90j: {profil.survival_metrics ? Math.round(profil.survival_metrics.hazard90d * 100) : '—'}%
+            Hazard 90j: {profil.survival_metrics && Number.isFinite(profil.survival_metrics.hazard90d) ? Math.round(profil.survival_metrics.hazard90d * 100) : '—'}%
           </span>
         </div>
       </div>

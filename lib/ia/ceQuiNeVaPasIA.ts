@@ -42,6 +42,7 @@ export interface CeQuiNeVaPasInput {
   ecarts: Ecart[]
   evenements?: EvenementSecurite[]
   surveillancesCount?: number
+  statut_sgs?: string
 }
 
 type GraviteX = 'critique' | 'eleve' | 'moyen'
@@ -64,10 +65,13 @@ function getNiveau(score: number): GraviteX {
 
 function detecterPoints(input: CeQuiNeVaPasInput): PointVigilance[] {
   const { profil, ecarts } = input
+  const sgsNonApplicable = input.statut_sgs === 'non_applicable'
   const points: PointVigilance[] = []
 
-  // Pire critère C1-C5 (score le plus bas = dégradation la plus critique)
+  // Pire critère C1-C5 (score le plus bas = dégradation la plus critique).
+  // C1 est exclu quand le SGS est non applicable (c1=0 ne doit pas devenir le point dégradé).
   const pireCritere = (['c1', 'c2', 'c3', 'c4', 'c5'] as const)
+    .filter(key => !(key === 'c1' && sgsNonApplicable))
     .map((key) => ({ key, score: profil[key] ?? 50 }))
     .sort((a, b) => a.score - b.score)[0]
   if (pireCritere && pireCritere.score < SEUIL_CRITERE_DEGRADE) {
@@ -97,11 +101,11 @@ function detecterPoints(input: CeQuiNeVaPasInput): PointVigilance[] {
     })
   }
 
-  // Barrières Bow-Tie sous le seuil d'efficacité
+  // Barrières Bow-Tie sous le seuil d'efficacité (barrières « SGS » ignorées si SGS non applicable)
   const barrieres = (profil.bowtie_metrics ?? []).flatMap((bt: BowTieModele) =>
     [...bt.barrieresPreventives, ...bt.barrieresCorrectives].map((b: Barriere) => ({ ...b, domaine: bt.domaine }))
   )
-  const barrieresFaibles = barrieres.filter(b => b.efficacite < SEUIL_BARRIERE_FAIBLE)
+  const barrieresFaibles = barrieres.filter(b => b.efficacite < SEUIL_BARRIERE_FAIBLE && !(sgsNonApplicable && (b.nom || '').toLowerCase().includes('sgs')))
   if (barrieresFaibles.length > 0) {
     const pireBarriere = barrieresFaibles.sort((a, b) => a.efficacite - b.efficacite)[0]
     points.push({
@@ -144,13 +148,16 @@ function detecterPoints(input: CeQuiNeVaPasInput): PointVigilance[] {
 
 function contexteReel(input: CeQuiNeVaPasInput): string {
   const { profil, ecarts, evenements, surveillancesCount } = input
+  const sgsNonApplicable = input.statut_sgs === 'non_applicable'
   const points = detecterPoints(input)
   return JSON.stringify(
     {
       score_global: profil.score_global ?? null,
       niveau_global: getNiveau(profil.score_global ?? 50),
+      sgs_non_applicable: sgsNonApplicable ? true : undefined,
       criteres: (['c1', 'c2', 'c3', 'c4', 'c5'] as const).map((key) => ({
-        critere: key, nom: LABEL_CRITERE[key], score: profil[key] ?? null,
+        critere: key, nom: LABEL_CRITERE[key],
+        score: key === 'c1' && sgsNonApplicable ? null : profil[key] ?? null,
       })),
       points_vigilance: points,
       ecarts_ouverts: ecarts.filter(e => e.statut !== 'cloture').map(e => ({
@@ -163,7 +170,7 @@ function contexteReel(input: CeQuiNeVaPasInput): string {
             nom: b.nom, efficacite: b.efficacite, type: b.type, domaine: bt.domaine,
           }))
         )
-        .filter(b => b.efficacite < SEUIL_BARRIERE_FAIBLE)
+        .filter(b => b.efficacite < SEUIL_BARRIERE_FAIBLE && !(sgsNonApplicable && b.nom.toLowerCase().includes('sgs')))
         .sort((a, b) => a.efficacite - b.efficacite)
         .slice(0, 8),
       cygne_noir: profil.bayesian_black_swan

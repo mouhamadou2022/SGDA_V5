@@ -37,10 +37,13 @@ export class RiskProfileEngine {
     }
 
     const scores = { C1: profil.c1, C2: profil.c2, C3: profil.c3, C4: profil.c4, C5: profil.c5 }
+    const sgsNonApplicable = aerodrome?.statut_sgs === 'non_applicable'
     const score = profil.score_global
     const seuils = thresholdController.cSeuils
 
+    // C1 exclu des domaines faibles quand SGS non applicable (c1=0 ne doit pas générer d'inspection SGS)
     const domainesFaibles = Object.entries(scores)
+      .filter(([k]) => !(k === 'C1' && sgsNonApplicable))
       .filter(([k, v]) => v < seuils[k as keyof typeof seuils])
       .map(([k, v]) => ({ code: k, valeur: v, seuil: seuils[k as keyof typeof seuils] }))
 
@@ -50,7 +53,7 @@ export class RiskProfileEngine {
     if (profil.tendance === 'baisse') alertes.push('Tendance globale à la baisse')
     if (profil.c4 < 40) alertes.push('Charge critique élevée, priorité haute recommandée')
     if (profil.c4 < 30) alertes.push('Surcharge critique, inspection urgente')
-    if (profil.c1 < 40) alertes.push('Maturité SGS insuffisante')
+    if (!sgsNonApplicable && profil.c1 < 40) alertes.push('Maturité SGS insuffisante')
 
     if (profil.hmm_state?.isTransitioning) {
       alertes.push(`Transition de régime détectée — risque de passage en état critique dans ${profil.hmm_state.daysToCritical} jours`)

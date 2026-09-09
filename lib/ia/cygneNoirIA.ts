@@ -21,6 +21,7 @@ export interface CygneNoirInput {
   profil: ProfilRisque
   ecarts: Ecart[]
   evenementsCount: number
+  statut_sgs?: string
 }
 
 function round(v: number, d = 1): number {
@@ -47,6 +48,7 @@ function getMaturiteLabel(c1: number): string {
 
 function contexteReel(input: CygneNoirInput): string {
   const p = input.profil
+  const sgsNonApplicable = input.statut_sgs === 'non_applicable'
   const ecartsCritiques = input.ecarts.filter(
     (e) => e.niveau_risque === 'critique' && e.statut !== 'cloture'
   )
@@ -58,7 +60,8 @@ function contexteReel(input: CygneNoirInput): string {
       score_global: p.score_global ?? null,
       niveau_global: p.niveau ?? null,
       tendance: p.tendance ?? null,
-      maturite_sgs_c1: getMaturiteLabel(p.c1 ?? 0),
+      maturite_sgs_c1: sgsNonApplicable ? 'SGS non applicable — C1 exclu du score' : getMaturiteLabel(p.c1 ?? 0),
+      sgs_non_applicable: sgsNonApplicable ? true : undefined,
       bayesian_prior: p.bayesian_prior ?? null,
       bayesian_posterior: p.bayesian_posterior ?? null,
       bayesian_factor: bayesFactor(p.bayesian_prior, p.bayesian_posterior),
@@ -69,7 +72,7 @@ function contexteReel(input: CygneNoirInput): string {
       prediction_3m: p.prediction_3m ?? null,
       prediction_6m: p.prediction_6m ?? null,
       scénario_pire_cas: p.scenarios?.[3]
-        ? { nom: p.scenarios[3].nom, probabilite: round((p.scenarios[3].probabilite ?? 0) * 100), score_projete: p.scenarios[3].scoreProjecte }
+        ? { nom: p.scenarios[3].nom, probabilite: round(p.scenarios[3].probabilite ?? 0), score_projete: p.scenarios[3].scoreProjecte }
         : null,
     },
     null,
@@ -149,7 +152,9 @@ function fallbackDeterministe(input: CygneNoirInput): CygneNoirExplication {
     )
   }
   actions.push('Déclencher une surveillance renforcée ciblée sur les domaines les plus dégradés')
-  actions.push(`Vérifier que le SGS (maturité ${getMaturiteLabel(p.c1 ?? 0)}) dispose de barrières proportionnées au risque détecté`)
+  if (input.statut_sgs !== 'non_applicable') {
+    actions.push(`Vérifier que le SGS (maturité ${getMaturiteLabel(p.c1 ?? 0)}) dispose de barrières proportionnées au risque détecté`)
+  }
 
   return { explication, actions, fallbackIA: true }
 }

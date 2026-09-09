@@ -3,12 +3,13 @@
 import { useAppStore } from '@/lib/store'
 import { supabase } from '@/lib/supabase'
 import { aiClient } from '@/lib/ia/aiClient'
-import type { ChecklistTemplate, DomaineChecklist, ChecklistTemplateType, ChecklistTemplateCategorie, ChecklistTemplateRegime } from '@/lib/store'
+import type { ChecklistTemplate, DomaineChecklist, ChecklistTemplateType, ChecklistTemplateCategorie, ChecklistTemplateRegime, ChecklistTemplateSousTypeEntite } from '@/lib/store'
 
 export interface TemplateImportMeta {
   categorie?: ChecklistTemplateCategorie
   regime?: ChecklistTemplateRegime
   type_entite_cible?: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+  sous_type_entite?: ChecklistTemplateSousTypeEntite
   version?: string
   edition_date?: string
   source_fichier?: string
@@ -54,6 +55,7 @@ export async function saveTemplateToSupabase(
       version: version || meta?.version || '',
       portee,
       type_entite_cible: meta?.type_entite_cible || (type === 'VALIDATION_SITE' ? 'tous' : 'aerodrome'),
+      sous_type_entite: meta?.sous_type_entite,
       categorie: meta?.categorie,
       regime: meta?.regime,
       etat: meta?.etat || 'brouillon',
@@ -109,6 +111,7 @@ export async function importTemplateToSupabase(
       version: meta?.version || '1.0',
       portee,
       type_entite_cible: meta?.type_entite_cible || (type === 'VALIDATION_SITE' ? 'tous' : 'aerodrome'),
+      sous_type_entite: meta?.sous_type_entite,
       categorie: meta?.categorie,
       regime: meta?.regime,
       etat: meta?.etat || 'brouillon',

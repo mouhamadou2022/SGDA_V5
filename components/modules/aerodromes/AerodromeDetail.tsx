@@ -287,6 +287,9 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: 
         {getTypeEntiteBadge(aerodrome.type_entite)}
         {getStatutBadge(aerodrome.statut)}
         {profilRisque && getNiveauRisqueBadge(profilRisque.niveau, profilRisque.score_global)}
+        {aerodrome.statut_sgs === 'non_applicable' && (
+          <span className="badge neutral text-[10px]">SGS non applicable</span>
+        )}
       </div>
 
       {/* Vue unifiée Admin/Inspecteur — pas d'onglets */}
@@ -548,6 +551,9 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: 
                 <div className="grid grid-cols-4 gap-4">
                   <Card variant="role" className="col-span-1" contentClassName="p-4 text-center">
                       <p className="text-small text-muted-foreground">Score global</p>
+                      {aerodrome.statut_sgs === 'non_applicable' && (
+                        <p className="badge neutral text-[10px] mt-1">SGS non applicable — C1 exclu</p>
+                      )}
                       <div className={`risk-badge ${profilRisque.niveau} text-lg px-3 py-1 inline-block mt-1`}>
                         {profilRisque.score_global}%
                       </div>
@@ -730,7 +736,7 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: 
                               <p className="text-xs text-muted-foreground">{s.description}</p>
                             </div>
                             <div className="text-right ml-2 shrink-0">
-                              <p className="text-sm font-bold text-role-primary">{(s.probabilite * 100).toFixed(0)}%</p>
+                              <p className="text-sm font-bold text-role-primary">{s.probabilite.toFixed(0)}%</p>
                               <p className="text-xs text-muted-foreground">{s.scoreProjecte}/100</p>
                             </div>
                           </div>

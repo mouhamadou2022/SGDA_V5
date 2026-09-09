@@ -15,9 +15,10 @@ interface Props {
   nbEcartsCritiques?: number
   onView?: () => void
   compact?: boolean
+  sgsNonApplicable?: boolean
 }
 
-export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques = 0, onView, compact = false }: Props) {
+export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques = 0, onView, compact = false, sgsNonApplicable = false }: Props) {
   const score = profil.score_global
   const getScoreClr = (s: number) => s >= 80 ? 'text-success' : s >= 60 ? 'text-primary' : s >= 30 ? 'text-warning' : 'text-danger'
   const getNiveauBadge = () => {
@@ -67,6 +68,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         <span className="text-foreground">Score</span>
         <span className={`font-bold ${getScoreClr(score)}`}>{score}/100</span>
       </div>
+      {sgsNonApplicable && <span className="badge neutral text-[9px] mt-1">SGS non applicable</span>}
       <div className="progress h-1.5 mt-1"><div className="progress-bar" style={{ width: `${score}%` }} /></div>
     </Card>
   )
@@ -81,6 +83,7 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-foreground">Score global</p>
+            {sgsNonApplicable && <span className="badge neutral text-[9px] mb-1">SGS non applicable — C1 exclu</span>}
             <span className={`text-2xl font-bold ${getScoreClr(score)}`}>{score}/100</span>
           </div>
           <div className="text-right">
@@ -103,12 +106,21 @@ export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiqu
               return (
                 <div key={k} className="text-center" title={criteres.find(c => c.k === k)?.full}>
                   <span className="text-[9px] text-foreground block mb-0.5">{label}</span>
-                  <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5">
-                    <div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} />
-                  </div>
-                  <span className={`text-[9px] font-bold ${clrTxt}`}>
-                    {isMaturite ? getSgsMaturiteLabel(v) : v}
-                  </span>
+                  {sgsNonApplicable && isMaturite ? (
+                    <>
+                      <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5" />
+                      <span className="text-[9px] font-bold text-muted-foreground">—</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-full bg-muted/30 rounded-full h-1.5 mb-0.5">
+                        <div className={`h-1.5 rounded-full ${cls}`} style={{ width: `${v}%` }} />
+                      </div>
+                      <span className={`text-[9px] font-bold ${clrTxt}`}>
+                        {isMaturite ? getSgsMaturiteLabel(v) : v}
+                      </span>
+                    </>
+                  )}
                 </div>
               )
             })}

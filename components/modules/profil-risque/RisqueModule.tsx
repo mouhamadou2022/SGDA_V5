@@ -95,7 +95,9 @@ export function RisqueModule({ userRole }: Props) {
     const entries = Object.values(filtered)
     // L'exploitant voit son propre aérodrome (1 profil suffit) ; inspecteur/admin ≥ 2.
     if (entries.length < (isExploitant ? 1 : 2)) return null
-    return computeAllHealthIndices(filtered)
+    const statutSgsMap: Record<string, string> = {}
+    aerodromesActifs.forEach(a => { if (a.statut_sgs) statutSgsMap[a.id] = a.statut_sgs })
+    return computeAllHealthIndices(filtered, statutSgsMap)
   }, [profilsRisque, aerodromesActifs, isExploitant])
 
   const stats = useMemo(() => {
@@ -180,10 +182,12 @@ export function RisqueModule({ userRole }: Props) {
                 return pa.score_global - pb.score_global
               })[0]
             const p = worst?.profil
-            const DIMS: [keyof ProfilRisque, string][] = [
-              ['c1', 'Maturité SGS'], ['c2', 'Efficacité PAC'],
-              ['c3', 'Conformité'], ['c4', 'Charge critique'], ['c5', 'Résilience'],
-            ]
+            const worstSgsNonApplicable = worst?.aerodrome.statut_sgs === 'non_applicable'
+            const DIMS: [keyof ProfilRisque, string][] = (
+              worstSgsNonApplicable
+                ? [['c2', 'Efficacité PAC'], ['c3', 'Conformité'], ['c4', 'Charge critique'], ['c5', 'Résilience']]
+                : [['c1', 'Maturité SGS'], ['c2', 'Efficacité PAC'], ['c3', 'Conformité'], ['c4', 'Charge critique'], ['c5', 'Résilience']]
+            ) as [keyof ProfilRisque, string][]
             const dominantDim = p ? [...DIMS].sort((a, b) => (p[a[0]] as number) - (p[b[0]] as number))[0] : null
             const delta = p ? p.prediction_3m - p.score_global : 0
             const joursSous60 = p && p.tendance === 'baisse' && delta < 0
@@ -225,7 +229,7 @@ export function RisqueModule({ userRole }: Props) {
                       </div>
                     </>
                   )}
-                  {p && <HealthIndexLangageClair profil={p} />}
+                  {p && <HealthIndexLangageClair profil={p} sgsNonApplicable={worstSgsNonApplicable} />}
                 </div>
               </Card>
             )
@@ -290,6 +294,7 @@ export function RisqueModule({ userRole }: Props) {
                 profil={profil}
                 aerodromeCode={aerodrome.code_oaci}
                 aerodromeName={aerodrome.nom}
+                sgsNonApplicable={aerodrome.statut_sgs === 'non_applicable'}
                 nbEcartsCritiques={ecarts.filter(e => e.aerodrome_id === aerodrome.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
                 onView={() => handleSelectAerodrome(aerodrome.id)}
               />
@@ -300,7 +305,7 @@ export function RisqueModule({ userRole }: Props) {
 
       {/* Vue détaillée — DG ANACIM uniquement (exploitants = ExploitantRiskView) */}
       {selectedAerodromeId && aerodrome && profil && userRole === 'dg_anacim' && (
-        <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} evenements={evenementsAerodrome} ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} />
+        <DecisionTab profil={profil} aerodromeCode={aerodrome.code_oaci} aerodromeName={aerodrome.nom} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} onRecalculate={handleRecalculer} evenements={evenementsAerodrome} ecartsActifs={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} sgsNonApplicable={aerodrome.statut_sgs === 'non_applicable'} />
       )}
 
       {/* Vue détaillée — Inspecteur/Admin (4 onglets) */}
@@ -312,6 +317,9 @@ export function RisqueModule({ userRole }: Props) {
             <span className={`badge text-xs ${getBadgeClassFromScore(profil.score_global)}`}>
               {profil.niveau} ({profil.score_global}/100)
             </span>
+            {aerodrome.statut_sgs === 'non_applicable' && (
+              <span className="badge neutral text-[10px]">SGS non applicable — C1 exclu du score</span>
+            )}
             {profil.tendance && <span className="text-xs text-foreground">Tendance: {profil.tendance}</span>}
           </div>
 
@@ -328,10 +336,10 @@ export function RisqueModule({ userRole }: Props) {
 
           <div className="tab-content">
             {activeOnglet === 'synthese' && (
-              <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} evenements={evenementsAerodrome} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} />
+              <SyntheseTab profil={profil} aerodromeName={aerodrome.nom} aerodromeCode={aerodrome.code_oaci} nbEcartsCritiques={nbEcartsCritiques} userRole={userRole} evenements={evenementsAerodrome} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} sgsNonApplicable={aerodrome.statut_sgs === 'non_applicable'} />
             )}
             {activeOnglet === 'diagnostic' && (
-              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} userRole={userRole} />
+              <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} userRole={userRole} sgsNonApplicable={aerodrome.statut_sgs === 'non_applicable'} />
             )}
             {activeOnglet === 'anticipation' && (
               <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} aerodromeCode={aerodrome.code_oaci} />

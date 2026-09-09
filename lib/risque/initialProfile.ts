@@ -228,7 +228,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
           : aerodrome.statut_certification === 'homologue'
           ? 'Processus de certification engagé, surveillance conforme'
           : 'Premières surveillances conformes, SGS progresse rapidement',
-        probabilite: 0.30,
+        probabilite: 30,
         scoreProjecte: Math.min(100, p.scoreGlobal + 8),
         intervalleConfiance: [p.scoreGlobal, Math.min(100, p.scoreGlobal + 15)],
         actionsRecommandees: aerodrome.statut_certification
@@ -238,7 +238,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
       {
         nom: 'Réaliste',
         description: 'Scénario médian conforme aux données disponibles',
-        probabilite: 0.50,
+        probabilite: 50,
         scoreProjecte: p.scoreGlobal,
         intervalleConfiance: [Math.max(0, p.scoreGlobal - 10), Math.min(100, p.scoreGlobal + 5)],
         actionsRecommandees: ['Poursuivre les actions en cours', 'Documenter les procédures'],
@@ -246,7 +246,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
       {
         nom: 'Pessimiste',
         description: 'Dérive détectée lors du prochain audit',
-        probabilite: 0.15,
+        probabilite: 15,
         scoreProjecte: Math.max(0, p.scoreGlobal - 20),
         intervalleConfiance: [Math.max(0, p.scoreGlobal - 30), p.scoreGlobal],
         actionsRecommandees: ['Planifier un audit complémentaire', 'Renforcer le dispositif SGS'],
@@ -254,7 +254,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
       {
         nom: 'Catastrophe',
         description: 'Défaillance critique — fermeture temporaire requise',
-        probabilite: 0.05,
+        probabilite: 5,
         scoreProjecte: Math.max(0, p.scoreGlobal - 40),
         intervalleConfiance: [0, Math.max(0, p.scoreGlobal - 25)],
         actionsRecommandees: ['Déclencher protocole d\'urgence', 'Alerter la Direction Générale ANACIM'],

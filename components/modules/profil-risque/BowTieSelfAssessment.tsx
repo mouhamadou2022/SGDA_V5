@@ -67,10 +67,11 @@ interface Props {
   aerodromeName: string
   onClose: () => void
   profil: ProfilRisque
+  sgsNonApplicable?: boolean
 }
 
 export default function BowTieSelfAssessment({
-  domaines, score, aerodromeCode, aerodromeName, onClose, profil,
+  domaines, score, aerodromeCode, aerodromeName, onClose, profil, sgsNonApplicable = false,
 }: Props) {
   // État local : actions cochées + observations + actions personnalisées
   const [checked, setChecked] = useState<Record<string, boolean>>({})
@@ -84,6 +85,7 @@ export default function BowTieSelfAssessment({
       const toutes = [...b.barrieresPreventives, ...b.barrieresCorrectives]
       toutes.forEach((p: Barriere) => {
         if (p.efficacite >= CIBLE_DEFAUT) return
+        if (sgsNonApplicable && (p.nom.toLowerCase().includes('sgs') || p.nom.toLowerCase().includes('maturité'))) return
         const gain = computeGain(p.efficacite, CIBLE_DEFAUT)
         result.push({
           id: 'action-' + p.id,
@@ -94,7 +96,7 @@ export default function BowTieSelfAssessment({
       })
     })
     return result
-  }, [domaines, profil])
+  }, [domaines, profil, sgsNonApplicable])
 
   // Toutes les actions (générées + personnalisées)
   const toutesActions = useMemo(() => [...actions, ...customActions], [actions, customActions])

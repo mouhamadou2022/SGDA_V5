@@ -120,8 +120,10 @@ export function simulerJumeauNumerique(params: {
   ecarts: Ecart[]
   historique: ScoreHistoryPoint[]
   leviers: LeviersJumeau
+  statut_sgs?: 'complet' | 'simplifie' | 'non_applicable'
 }): EtatJumeau {
-  const { profil, ecarts, historique, leviers } = params
+  const { profil, ecarts, historique, leviers, statut_sgs } = params
+  const sgsNonApplicable = statut_sgs === 'non_applicable'
   const { critiques: nbCritiques } = compterEcartsOuverts(ecarts)
 
   const bonus = calculerBonus(leviers, nbCritiques)
@@ -133,7 +135,7 @@ export function simulerJumeauNumerique(params: {
     c5: clamp(leviers.c5 + bonus.c5),
   }
 
-  const scoreJumeau = calculateGlobalScore(criteres)
+  const scoreJumeau = calculateGlobalScore(criteres, undefined, sgsNonApplicable)
   const scorePhysique = profil.score_global
 
   const serie = construireSerieHistorique(historique, scoreJumeau)
@@ -151,8 +153,8 @@ export function simulerJumeauNumerique(params: {
     delta: scoreJumeau - scorePhysique,
     niveauPhysique: getRiskLevel(scorePhysique),
     niveauJumeau: getRiskLevel(scoreJumeau),
-    maturiteC1Physique: getSgsMaturiteLabel(profil.c1),
-    maturiteC1Jumeau: getSgsMaturiteLabel(criteres.c1),
+    maturiteC1Physique: sgsNonApplicable ? 'Non applicable' : getSgsMaturiteLabel(profil.c1),
+    maturiteC1Jumeau: sgsNonApplicable ? 'Non applicable' : getSgsMaturiteLabel(criteres.c1),
     ecartsCritiquesOuverts: leviers.fermerEcartsCritiques ? 0 : nbCritiques,
     ecartsTotalOuverts: ecarts.filter(e => e.statut === 'ouvert').length,
     scenarios,

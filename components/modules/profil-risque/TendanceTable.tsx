@@ -10,7 +10,7 @@ import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 
-interface Props { profil: ProfilRisque }
+interface Props { profil: ProfilRisque; sgsNonApplicable?: boolean }
 
 const CRITERES = [
   { key: 'c1' as const, label: 'C1 — Maturité SGS', court: 'C1', poids: 20, desc: 'Maturité & Culture SGS', impact: 'Fondation de la sécurité' },
@@ -45,22 +45,26 @@ function TendanceIcon({ t, s = 'sm' }: { t: string; s?: 'sm' | 'md' }) {
   return <span className="flex items-center gap-1 text-foreground text-xs"><Minus className={sz} />Stable</span>
 }
 
-export function TendanceTable({ profil }: Props) {
-  const data = useMemo(() => CRITERES.map(c => {
-    const s = profil[c.key]; const t = getCritereTendance(s, profil.tendance)
-    return { ...c, score: s, tendance: t, pred3m: computePrediction(s, t, 3), pred6m: computePrediction(s, t, 6) }
-  }), [profil])
+export function TendanceTable({ profil, sgsNonApplicable = false }: Props) {
+  const data = useMemo(() => {
+    const criteres = sgsNonApplicable ? CRITERES.filter(c => c.key !== 'c1') : CRITERES
+    return criteres.map(c => {
+      const s = profil[c.key]; const t = getCritereTendance(s, profil.tendance)
+      return { ...c, score: s, tendance: t, pred3m: computePrediction(s, t, 3), pred6m: computePrediction(s, t, 6) }
+    })
+  }, [profil, sgsNonApplicable])
 
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 20
 
   const stats = useMemo(() => {
-    const s = [profil.c1, profil.c2, profil.c3, profil.c4, profil.c5]
+    const criteres = sgsNonApplicable ? CRITERES.filter(c => c.key !== 'c1') : CRITERES
+    const s = criteres.map(c => profil[c.key])
     const avg = s.reduce((a, b) => a + b, 0) / s.length; const min = Math.min(...s); const max = Math.max(...s)
     const ecart = Math.sqrt(s.reduce((sq, v) => sq + Math.pow(v - avg, 2), 0) / s.length)
-    let minC = '', maxC = ''; for (const c of CRITERES) { if (profil[c.key] === min) minC = c.court; if (profil[c.key] === max) maxC = c.court }
+    let minC = '', maxC = ''; for (const c of criteres) { if (profil[c.key] === min) minC = c.court; if (profil[c.key] === max) maxC = c.court }
     return { avg: Math.round(avg), min, max, ecart: ecart.toFixed(1), minC, maxC }
-  }, [profil])
+  }, [profil, sgsNonApplicable])
 
   return (
     <div className="space-y-5">

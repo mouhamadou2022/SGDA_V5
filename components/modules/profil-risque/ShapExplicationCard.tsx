@@ -23,6 +23,7 @@ const MODES: Array<{ id: ModeBaselineShap; label: string }> = [
 
 export default function ShapExplicationCard({ profil }: Props) {
   const getHistoricalScoresForAerodrome = useAppStore(s => s.getHistoricalScoresForAerodrome)
+  const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === profil.aerodrome_id))
   const [mode, setMode] = useState<ModeBaselineShap>('moyenne')
 
   const historique = useMemo(
@@ -31,8 +32,8 @@ export default function ShapExplicationCard({ profil }: Props) {
   )
 
   const explication = useMemo(
-    () => calculerExplicationShap(profil, historique, mode),
-    [profil, historique, mode],
+    () => calculerExplicationShap(profil, historique, mode, aerodrome?.statut_sgs),
+    [profil, historique, mode, aerodrome?.statut_sgs],
   )
 
   const tri = [...explication.contributions].sort((a, b) => Math.abs(b.phi) - Math.abs(a.phi))

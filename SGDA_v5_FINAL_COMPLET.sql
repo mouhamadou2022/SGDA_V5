@@ -2597,6 +2597,7 @@ CREATE TABLE IF NOT EXISTS checklist_templates (
   description       text,
   portee            text[]      NOT NULL DEFAULT '{}',
   type_entite_cible text        NOT NULL DEFAULT 'aerodrome' CHECK (type_entite_cible IN ('aerodrome', 'helistation', 'mixte', 'tous')),
+  sous_type_entite  text        CHECK (sous_type_entite IN ('helistation_surface', 'helistation_mer', 'heliplateforme')),
   etat              text        NOT NULL DEFAULT 'brouillon' CHECK (etat IN ('brouillon', 'publie', 'archive')),
   categorie         text        NOT NULL DEFAULT 'autres' CHECK (categorie IN ('homologation', 'certification', 'surveillance_continue', 'validation_site', 'autres')),
   regime            text        NOT NULL DEFAULT 'tous' CHECK (regime IN ('certifie', 'homologue', 'tous')),
@@ -2627,6 +2628,11 @@ ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS regime text
 
 ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS sous_type_entite text
+  CHECK (sous_type_entite IN ('helistation_surface', 'helistation_mer', 'heliplateforme'));
+
+COMMENT ON COLUMN checklist_templates.sous_type_entite IS 'Sous-type hélistation quand type_entite_cible = helistation : helistation_surface | helistation_mer | heliplateforme';
+
 -- Unicité : un seul template ACTIF par (type, code) — les versions
 -- précédentes passent etat='archive' et conservent leur historique.
 -- Remplace la contrainte UNIQUE(type, code, version) d'origine.
@@ -2636,7 +2642,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_checklist_template_active
 
 COMMENT ON TABLE  checklist_templates              IS 'Templates maîtres de checklist importés des modèles Word ANACIM (IT, SOP, QSC, SGS, HMG, COP). Source de vérité pour la génération de checklist.';
 COMMENT ON COLUMN checklist_templates.type          IS 'Préfixe de code : IT=Inspection Technique (regroupe les domaines PHY, ELEC, MFP, OLS), SOP=Procédures, QSC=Surveillance Continue, SGS=PAOE, VALIDATION_SITE=Validation site, HMG=Homologation, COP=COP, AUT=Autres';
-COMMENT ON COLUMN checklist_templates.code          IS 'Identifiant unique du template. IT : un code par fichier/domaine — IT_CHKLIST_PHY, IT_CHKLIST_ELEC, IT_CHKLIST_MFP, IT_CHKLIST_OLS, IT_CHKLIST_SLI, IT_CHKLIST_RA, ou combinés (ex: IT_CHKLIST_ELEC_MFP), IT_CHKLIST_GENERAL si non spécifié. Autres : SOP_CHKLIST_GENERAL, QSC_CONTINUE, SGS_PAOE, VS_CHKLIST_GENERAL, HMG_CHKLIST_GENERAL, COP_CHKLIST_GENERAL, AUT_*';
+COMMENT ON COLUMN checklist_templates.code          IS 'Identifiant unique du template (type+code = clé d''unicité active). Codes par famille :
+IT : un code par domaine/entité — IT_CHKLIST_PHY, IT_CHKLIST_ELEC, IT_CHKLIST_MFP, IT_CHKLIST_OLS, IT_CHKLIST_SLI, IT_CHKLIST_RA, combinés (IT_CHKLIST_ELEC_MFP), suffixe _HELI_* pour hélistation.
+QSC : QSC_CERT (aérodrome certifié), QSC_HMG (aérodrome homologué), QSC_HELI_SURFACE, QSC_HELI_MER, QSC_HELI_PLATEFORME.
+HMG : HMG_CHKLIST_AERO, HMG_CHKLIST_HELI_SURFACE, HMG_CHKLIST_HELI_MER, HMG_CHKLIST_HELI_PLATEFORME.
+VS : VS_CHKLIST_AERO, VS_CHKLIST_HELI_SURFACE, VS_CHKLIST_HELI_MER, VS_CHKLIST_HELI_PLATEFORME.
+Autres : SOP_CHKLIST_GENERAL, SGS_PAOE, COP_CHKLIST_GENERAL, AUT_*';
 COMMENT ON COLUMN checklist_templates.nom           IS 'Nom lisible (ex: Caractéristiques physiques et surfaces de limitation des obstacles)';
 COMMENT ON COLUMN checklist_templates.version       IS 'Version du template (ex: NOV 2025)';
 COMMENT ON COLUMN checklist_templates.edition_date  IS 'Date d''édition (ex: Novembre 2025)';

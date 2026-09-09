@@ -18,6 +18,7 @@ Regles:
 - Utilise les VRAIS scores et indicateurs fournis dans les donnees pour justifier
 - Ne repete pas des generalites — cite des valeurs concretes
 - Ne genere pas de contenu si les donnees sont absentes
+- Si « statut_sgs » vaut « non_applicable » : ne mentionne pas C1/maturite SGS dans les elements clefs ni les recommandations (le SGS n'est pas applicable pour cet aerodrome)
 - Ecris en francais technique, operationnel
 - Pas de jargon LLM, pas d'emojis
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const profil = body.profil
+    const sgsNonApplicable = body.statut_sgs === 'non_applicable'
 
     if (!profil) {
       return NextResponse.json({ interpretation: '', recommandation: '', elementsClefs: [], error: 'Missing profil data' }, { status: 400 })
@@ -39,7 +41,8 @@ export async function POST(req: NextRequest) {
 
     const signalData = {
       score_global: profil.score_global,
-      c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5,
+      statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined,
+      c1: sgsNonApplicable ? null : profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5,
       tendance: profil.tendance,
       prediction_3m: profil.prediction_3m,
       prediction_6m: profil.prediction_6m,

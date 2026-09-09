@@ -46,18 +46,21 @@ export interface ExplicationCritereInput {
   profil: ProfilRisque
   ecarts: Ecart[]
   evenementsCount: number
+  statut_sgs?: string
 }
 
 function contexteReel(input: ExplicationCritereInput): string {
   const p = input.profil
+  const sgsNonApplicable = input.statut_sgs === 'non_applicable'
   const ecartsCritiques = input.ecarts.filter((e) => e.niveau_risque === 'critique').length
   const ecartsMajeurs = input.ecarts.filter((e) => e.niveau_risque === 'eleve').length
   return JSON.stringify(
     {
       score_global: p.score_global ?? null,
       niveau_global: getNiveauLabel(getNiveau(p.score_global ?? 0)),
-      c1_maturite_sgs: p.c1 ?? null,
-      c1_maturite_niveau: getMaturiteLabel(p.c1 ?? 0),
+      sgs_non_applicable: sgsNonApplicable ? true : undefined,
+      c1_maturite_sgs: sgsNonApplicable ? null : p.c1 ?? null,
+      c1_maturite_niveau: sgsNonApplicable ? 'SGS non applicable' : getMaturiteLabel(p.c1 ?? 0),
       c2_efficacite_pac: p.c2 ?? null,
       c3_conformite_technique: p.c3 ?? null,
       c4_charge_critique: p.c4 ?? null,
@@ -90,6 +93,7 @@ export async function expliquerCriteresEnClair(
   input: ExplicationCritereInput
 ): Promise<ExplicationCriteresResult> {
   const p = input.profil
+  const sgsNonApplicable = input.statut_sgs === 'non_applicable'
   const fallback: ExplicationCriteresResult = {
     explications: {
       c1: EXPLICATION_FALLBACKS.c1,
@@ -102,7 +106,7 @@ export async function expliquerCriteresEnClair(
   }
 
   const valeurs = [
-    { critere: 'c1', label: 'Maturité SGS', score: p.c1 ?? 0, niveau: getNiveauLabel(getNiveau(p.c1 ?? 0)) },
+    { critere: 'c1', label: 'Maturité SGS', score: sgsNonApplicable ? null : p.c1 ?? 0, niveau: sgsNonApplicable ? 'non applicable' : getNiveauLabel(getNiveau(p.c1 ?? 0)) },
     { critere: 'c2', label: 'Efficacité PAC', score: p.c2 ?? 0, niveau: getNiveauLabel(getNiveau(p.c2 ?? 0)) },
     { critere: 'c3', label: 'Conformité technique', score: p.c3 ?? 0, niveau: getNiveauLabel(getNiveau(p.c3 ?? 0)) },
     { critere: 'c4', label: 'Charge critique non résolue', score: p.c4 ?? 0, niveau: getNiveauLabel(getNiveau(p.c4 ?? 0)) },
@@ -155,6 +159,10 @@ Retourne uniquement un JSON :
     const clean = typeof fromIA === 'string' ? fromIA.trim() : ''
     explications[key] = clean && clean !== EXPLICATION_FALLBACKS[key] ? clean : EXPLICATION_FALLBACKS[key]
     if (clean && clean !== EXPLICATION_FALLBACKS[key]) anyFromIA = true
+  }
+
+  if (sgsNonApplicable) {
+    explications.c1 = 'SGS non applicable pour cet aérodrome — C1 exclu du score global (calculé sur C2-C5).'
   }
 
   return {

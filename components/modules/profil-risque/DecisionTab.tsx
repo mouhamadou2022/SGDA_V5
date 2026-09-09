@@ -24,18 +24,19 @@ interface Props {
   prochainesSurveillances?: Surveillance[]
   ecartsActifs?: Ecart[]
   evenements?: EvenementSecurite[]
+  sgsNonApplicable?: boolean
 }
 
-export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [], evenements = [] }: Props) {
+export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [], evenements = [], sgsNonApplicable = false }: Props) {
   const isDG = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
 
   const recommandationDuJour = useMemo(() => {
     try {
-      return recommendationEngine.genererRecommandationDuJour(profil, ecartsActifs, evenements, aerodromeCode, aerodromeName)
+      return recommendationEngine.genererRecommandationDuJour(profil, ecartsActifs, evenements, aerodromeCode, aerodromeName, sgsNonApplicable ? 'non_applicable' : undefined)
     } catch {
       return null
     }
-  }, [profil, ecartsActifs, evenements, aerodromeCode, aerodromeName])
+  }, [profil, ecartsActifs, evenements, aerodromeCode, aerodromeName, sgsNonApplicable])
 
   const getNiveauConfig = (score: number) => {
     if (score >= 80) return { label: 'Faible', color: 'text-success', bg: 'bg-success-soft', border: 'border-success/30', badge: 'badge success' }
@@ -60,7 +61,7 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
   } else {
     // Recommandations côté inspecteur
     if (profil.score_global < 30) recommandations.push({ id: 'score', label: 'Surveillance immédiate', icon: AlertTriangle, priorite: 'critique', action: 'Programmer une inspection complète dans les 7 jours' })
-    if (profil.c1 < 40) recommandations.push({ id: 'sgs', label: 'Renforcer le SGS', icon: Shield, priorite: 'haute', action: 'Auditer les 4 piliers PAOE et identifier les lacunes de maturité' })
+    if (!sgsNonApplicable && profil.c1 < 40) recommandations.push({ id: 'sgs', label: 'Renforcer le SGS', icon: Shield, priorite: 'haute', action: 'Auditer les 4 piliers PAOE et identifier les lacunes de maturité' })
     if (profil.c2 < 40) recommandations.push({ id: 'pac', label: 'Accélérer les PAC', icon: Clock, priorite: 'haute', action: 'Vérifier l\'état d\'avancement des plans d\'action corrective' })
     if (profil.c3 < 50) recommandations.push({ id: 'conformite', label: 'Contrôler la conformité', icon: Target, priorite: 'moyenne', action: 'Inspecter les infrastructures critiques (piste, balisage, énergie)' })
     if (profil.c5 < 50) recommandations.push({ id: 'resilience', label: 'Améliorer la résilience', icon: Shield, priorite: 'moyenne', action: 'Analyser les incidents récents et renforcer les barrières de sécurité' })
@@ -123,11 +124,20 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
           ].map(c => (
             <div key={c.label} className="text-center">
               <div className="text-xs text-foreground mb-1">{c.label}</div>
-              <div className="w-full bg-muted rounded-full h-2 mb-1">
-                <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-danger' : c.value < 60 ? 'bg-warning' : 'bg-success'}`}
-                  style={{ width: `${c.value}%` }} />
-              </div>
-              <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}{c.label === 'SGS' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(c.value)})</span></>}</span>
+              {c.label === 'SGS' && sgsNonApplicable ? (
+                <>
+                  <div className="w-full bg-muted rounded-full h-2 mb-1" />
+                  <span className="text-xs font-semibold text-foreground">SGS non appl.</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-full bg-muted rounded-full h-2 mb-1">
+                    <div className={`h-2 rounded-full ${c.value < 40 ? 'bg-danger' : c.value < 60 ? 'bg-warning' : 'bg-success'}`}
+                      style={{ width: `${c.value}%` }} />
+                  </div>
+                  <span className={`text-xs font-bold ${c.value < 40 ? 'text-danger' : c.value < 60 ? 'text-warning' : 'text-success'}`}>{c.value}{c.label === 'SGS' && <> <span className="text-xs text-foreground">({getSgsMaturiteLabel(c.value)})</span></>}</span>
+                </>
+              )}
             </div>
           ))}
         </div>

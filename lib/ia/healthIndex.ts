@@ -41,12 +41,15 @@ const DIMENSION_MAP: { key: keyof ProfilRisque; label: string; description: stri
   { key: 'c5', label: 'Résilience', description: 'Capacité d\'absorption et de reprise' },
 ]
 
-export function computeHealthIndex(profil: ProfilRisque): HealthIndexResult {
-  const dimensions: DimensionScore[] = DIMENSION_MAP.map((d) => {
-    const raw = profil[d.key as keyof ProfilRisque]
-    const score = typeof raw === 'number' ? Math.round(raw) : 0
-    return { label: d.label, score, description: d.description, poids: 0.2 }
-  })
+export function computeHealthIndex(profil: ProfilRisque, statutSgs?: string): HealthIndexResult {
+  const sgsNonApplicable = statutSgs === 'non_applicable'
+  const dimensions: DimensionScore[] = DIMENSION_MAP
+    .filter((d) => !(sgsNonApplicable && d.key === 'c1'))
+    .map((d) => {
+      const raw = profil[d.key as keyof ProfilRisque]
+      const score = typeof raw === 'number' ? Math.round(raw) : 0
+      return { label: d.label, score, description: d.description, poids: 0.2 }
+    })
 
   const dominant = [...dimensions].sort((a, b) => a.score - b.score)[0]
 
@@ -82,10 +85,13 @@ export function computeHealthIndex(profil: ProfilRisque): HealthIndexResult {
   }
 }
 
-export function computeAllHealthIndices(profils: Record<string, ProfilRisque>): HealthIndexResult[] {
+export function computeAllHealthIndices(
+  profils: Record<string, ProfilRisque>,
+  statutSgsMap?: Record<string, string>,
+): HealthIndexResult[] {
   return Object.values(profils)
     .filter((p) => p.score_global != null)
-    .map(computeHealthIndex)
+    .map((p) => computeHealthIndex(p, statutSgsMap?.[p.aerodrome_id]))
     .sort((a, b) => a.score - b.score)
 }
 

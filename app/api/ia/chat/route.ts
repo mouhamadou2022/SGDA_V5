@@ -23,7 +23,8 @@ export interface ChatAPIRequest {
       niveau: string
       tendance: string
       c1: number; c2: number; c3: number; c4: number; c5: number
-      alertes?: string[]
+      alerte?: string
+      statut_sgs?: string
     }
     ecarts_actifs?: Array<{
       reference: string
@@ -55,15 +56,16 @@ function buildContextMessage(contexte: ChatAPIRequest['contexte']): string {
 
   if (contexte.profil_risque) {
     const p = contexte.profil_risque
+    const sgsNonApplicable = p.statut_sgs === 'non_applicable'
     parts.push(
       `PROFIL DE RISQUE :
   - Score global : ${p.score_global}/100 — Niveau : ${p.niveau.toUpperCase()}
-  - C1 (Maturité SGS) : ${p.c1}/100
+  ${sgsNonApplicable ? '- SGS : non applicable (exclu du score global)' : `- C1 (Maturité SGS) : ${p.c1}/100`}
   - C2 (Efficacité PAC) : ${p.c2}/100
   - C3 (Conformité) : ${p.c3}/100
   - C4 (Charge critique) : ${p.c4}/100
   - C5 (Résilience) : ${p.c5}/100
-  ${p.alertes && p.alertes.length > 0 ? `- Alertes actives : ${p.alertes.join(', ')}` : ''}`
+  ${p.alerte ? `- Alerte active : ${p.alerte}` : ''}`
     )
   }
 

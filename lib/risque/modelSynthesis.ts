@@ -222,10 +222,11 @@ export function synthetiserModeles(profil: ProfilRisque, qualitatif?: Diagnostic
 // ────────────────────────────────────────────
 
 function voterScoreGlobal(profil: ProfilRisque): ModeleVote {
-  const s = profil.score_global
+  const s = Number.isFinite(profil.score_global) ? profil.score_global : 50
+  const conf = profil.ensemble_confidence
+  const confiance = typeof conf === 'number' && Number.isFinite(conf) ? conf : 70
   // score 0-100 inversé : 0 = pire, 100 = meilleur
   const indice = Math.round(100 - s)
-  const confiance = profil.ensemble_confidence ?? 70
   return {
     nom: 'Score global C1-C5',
     indiceDegradation: Math.min(100, indice),
@@ -273,14 +274,15 @@ function voterAlerteProactive(pa: NonNullable<ProfilRisque['proactive_alert']>):
 }
 
 function voterHawkes(intensity: number): ModeleVote {
-  const indice = intensity > 2 ? 85 : intensity > 1 ? 65 : intensity > 0.5 ? 45 : 20
+  const i = Number.isFinite(intensity) ? intensity : 0
+  const indice = i > 2 ? 85 : i > 1 ? 65 : i > 0.5 ? 45 : 20
   return {
     nom: 'Hawkes (contagion)',
     indiceDegradation: indice,
     confiance: 60,
-    interpretation: intensity > 1
-      ? `Intensité Hawkes élevée (${intensity.toFixed(2)}) — risque de contagion`
-      : `Intensité Hawkes modérée (${intensity.toFixed(2)})`,
+    interpretation: i > 1
+      ? `Intensité Hawkes élevée (${i.toFixed(2)}) — risque de contagion`
+      : `Intensité Hawkes modérée (${i.toFixed(2)})`,
   }
 }
 
@@ -298,7 +300,7 @@ function voterHMM(hmm: NonNullable<ProfilRisque['hmm_state']>): ModeleVote {
 }
 
 function voterSurvie(sm: NonNullable<ProfilRisque['survival_metrics']>): ModeleVote {
-  const hazard = sm.hazard90d
+  const hazard = Number.isFinite(sm.hazard90d) ? sm.hazard90d : 0.1
   const indice = hazard > 0.5 ? 85 : hazard > 0.3 ? 65 : hazard > 0.15 ? 40 : 15
   return {
     nom: 'Analyse de survie',
@@ -355,7 +357,8 @@ function voterNegBin(nm: NonNullable<ProfilRisque['negbin_metrics']>): ModeleVot
 }
 
 function voterPredictionIncidents(profil: ProfilRisque): ModeleVote {
-  const p3 = (profil.incident_prediction_3m ?? 0) / 100
+  const p3m = profil.incident_prediction_3m
+  const p3 = (Number.isFinite(p3m) ? p3m! : 0) / 100
   const indice = Math.round(p3 * 100)
   return {
     nom: 'Prédiction incidents',

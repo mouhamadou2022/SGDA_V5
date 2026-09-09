@@ -94,10 +94,13 @@ export function generateDomaineBowTie(params: GenerateBowTieParams): BowTieModel
   }
 
   // Barrières préventives
-  const barrieresPreventives: Barriere[] = [
-    { id: `prev-sgs-${domaine}`, nom: `Maturité SGS (C1)`, type: 'preventive', efficace: c1Score > 50, efficacite: c1Score, dernierTest: lastAssessed, remarque: c1Score < 40 ? 'Maturité insuffisante — documenter les processus' : c1Score < 60 ? 'En progression' : 'SGS efficace' },
-    { id: `prev-audit-${domaine}`, nom: `Audits ${domaine}`, type: 'preventive', efficace: surveillancesDom.length > 0, efficacite: surveillancesDom.length > 0 ? 70 : 30, dernierTest: surveillancesDom[0]?.date_fin || lastAssessed, remarque: surveillancesDom.length > 0 ? `${surveillancesDom.length} inspection(s) réalisée(s)` : 'Aucune inspection — programmer une visite' },
-  ]
+  // SGS non applicable → la barrière « Maturité SGS (C1) » est retirée pour TOUS
+  // les domaines (elle ne doit pas figurer à efficacité 0 et déformer les autres).
+  const barrieresPreventives: Barriere[] = []
+  if (statut_sgs !== 'non_applicable') {
+    barrieresPreventives.push({ id: `prev-sgs-${domaine}`, nom: `Maturité SGS (C1)`, type: 'preventive', efficace: c1Score > 50, efficacite: c1Score, dernierTest: lastAssessed, remarque: c1Score < 40 ? 'Maturité insuffisante — documenter les processus' : c1Score < 60 ? 'En progression' : 'SGS efficace' })
+  }
+  barrieresPreventives.push({ id: `prev-audit-${domaine}`, nom: `Audits ${domaine}`, type: 'preventive', efficace: surveillancesDom.length > 0, efficacite: surveillancesDom.length > 0 ? 70 : 30, dernierTest: surveillancesDom[0]?.date_fin || lastAssessed, remarque: surveillancesDom.length > 0 ? `${surveillancesDom.length} inspection(s) réalisée(s)` : 'Aucune inspection — programmer une visite' })
 
   // Barrières correctives
   const barrieresCorrectives: Barriere[] = [
@@ -105,8 +108,8 @@ export function generateDomaineBowTie(params: GenerateBowTieParams): BowTieModel
     { id: `corr-new-${domaine}`, nom: `Nouvelles mesures (IA)`, type: 'corrective', efficace: true, efficacite: Math.min(90, c2Score + 15), dernierTest: undefined, remarque: 'Mesures suggérées par IA' },
   ]
 
-  // Probabilité résiduelle combinée
-  const barrierEffAvg = (c1Score + c2Score) / 2
+  // Probabilité résiduelle combinée — C1 exclu quand SGS non applicable
+  const barrierEffAvg = statut_sgs === 'non_applicable' ? c2Score : (c1Score + c2Score) / 2
   const probResiduelle = Math.max(5, Math.min(95, 100 - (scoreGlobal + barrierEffAvg) / 2))
 
   // Niveau de risque : PAOE pour SGS, OACI pour les autres domaines

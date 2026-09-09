@@ -253,7 +253,9 @@ export class RecommendationEngine {
     evenements: EvenementSecurite[],
     aerodromeCode: string,
     aerodromeNom: string,
+    statut_sgs?: string,
   ): RecommandationDuJour {
+    const sgsNonApplicable = statut_sgs === 'non_applicable'
     const motivations: PointMotivation[] = []
     const scores: { priorite: number; motif: string; delai: string }[] = []
 
@@ -395,7 +397,7 @@ export class RecommendationEngine {
       const pire = [...profil.scenarios].sort((a, b) => a.scoreProjecte - b.scoreProjecte)[0]
       motivations.push({
         source: 'scenario',
-        label: `Scénario pire cas : ${pire.nom} (${pire.scoreProjecte}/100, proba ${(pire.probabilite * 100).toFixed(0)}%)`,
+        label: `Scénario pire cas : ${pire.nom} (${pire.scoreProjecte}/100, proba ${pire.probabilite.toFixed(0)}%)`,
         valeur: `${pire.scoreProjecte}/100`,
         impact: pire.scoreProjecte < 40 ? 'negatif' : 'neutre',
       })
@@ -438,9 +440,10 @@ export class RecommendationEngine {
       })
     }
 
-    // 10. Dimension la plus faible
+    // 10. Dimension la plus faible (C1 exclu quand SGS non applicable)
     const dims = ['c1', 'c2', 'c3', 'c4', 'c5'] as const
-    const plusFaible = dims.map(k => ({ key: k, val: (profil[k] as number) ?? 0 })).sort((a, b) => a.val - b.val)[0]
+    const dimsFiltrees = sgsNonApplicable ? dims.filter(k => k !== 'c1') : dims
+    const plusFaible = dimsFiltrees.map(k => ({ key: k, val: (profil[k] as number) ?? 0 })).sort((a, b) => a.val - b.val)[0]
     if (plusFaible.val < 40) {
       motivations.push({
         source: 'profil_risque',
@@ -476,7 +479,7 @@ export class RecommendationEngine {
       action = `Analyser les causes profondes des ${evtsRecents.filter(e => e.gravite === 'critique' || e.gravite === 'eleve').length} événements graves des 90 derniers jours. Renforcer les barrières de sécurité et mettre à jour l'analyse de risques.`
     } else if (signalFort?.motif === 'dégradation') {
       titre = `Dégradation continue — ${aerodromeNom}`
-      action = `Inverser la tendance baissière en priorisant la résolution des écarts et le renforcement du SGS. Le score pourrait passer sous ${profil.score_global - 20} dans 6 mois si rien n'est fait.`
+      action = `Inverser la tendance baissière en priorisant la résolution des écarts${sgsNonApplicable ? '' : ' et le renforcement du SGS'}. Le score pourrait passer sous ${profil.score_global - 20} dans 6 mois si rien n'est fait.`
     } else if (signalFort?.motif === 'risque_extreme') {
       titre = `Risque extrême identifié — ${aerodromeNom}`
       action = `Préparer un plan d'urgence. Le modèle EVT détecte une queue lourde : la probabilité d'un événement majeur est anormalement élevée. Renforcer les inspections préventives.`

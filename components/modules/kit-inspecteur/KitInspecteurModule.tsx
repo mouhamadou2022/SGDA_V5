@@ -52,7 +52,8 @@ import {
 import { Card } from '@/components/ui/card';
 import { SGS_COMPOSANTES_STRUCTURE } from '@/types/checklist';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist, type ChecklistTemplate, type ChecklistTemplateCategorie } from '@/lib/store';
+import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocument, type DomaineChecklist, type ChecklistTemplate, type ChecklistTemplateType, type ChecklistTemplateCategorie, type ChecklistTemplateSousTypeEntite } from '@/lib/store';
+import { SOUS_TYPE_HELISTATION_SUFFIX } from '@/lib/types/helistation';
 import { uploadFile } from '@/lib/datastore';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { kitUtils } from '@/lib/kitUtils';
@@ -123,6 +124,12 @@ const TYPE_SURVEILLANCE_OPTIONS = [
   { value: 'periodique', label: 'Périodique', description: 'Surveillance planifiée régulière' },
   { value: 'inopine', label: 'Inopinée', description: 'Surveillance sans préavis' },
   { value: 'maintien', label: 'Maintien', description: 'Suivi des écarts et mesures correctives' },
+];
+
+export const SOUS_TYPES_HELISTATION: { value: ChecklistTemplateSousTypeEntite; label: string; description: string }[] = [
+  { value: 'helistation_surface', label: 'Hélistation en surface', description: 'Hélistation terrestre (surface)' },
+  { value: 'helistation_mer', label: 'Hélistation en mer', description: 'Hélistation / plate-forme en mer' },
+  { value: 'heliplateforme', label: 'Héliplateforme', description: 'Héliplateforme (bâtiment, navire…)' },
 ];
 
 
@@ -380,6 +387,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   const [importSousType, setImportSousType] = useState<string>('IT');
   const [importITDomaines, setImportITDomaines] = useState<string[]>([]);
   const [importTypeEntite, setImportTypeEntite] = useState<'aerodrome' | 'helistation'>('aerodrome');
+  const [importSousEntite, setImportSousEntite] = useState<ChecklistTemplateSousTypeEntite>('helistation_surface');
   const [importRegime, setImportRegime] = useState<'certifie' | 'homologue'>('certifie');
   const [importCodeLibre, setImportCodeLibre] = useState('');
   const [importVersion, setImportVersion] = useState('');
@@ -406,28 +414,49 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
     { value: 'COP', label: 'COP' },
   ];
 
-  // Identité (type + code) dérivée de la famille choisie dans le wizard
-  const computeImportIdentity = useCallback((): { type: string; code: string } => {
+  // Identité (type + code) dérivée de la famille + entité (régime QSC)
+  // choisies dans le wizard. Le code DISTINGUE entité/régime pour éviter
+  // l'écrasement (ex. QSC_CONTINUE unique qui confondait aéro certifié,
+  // aéro homologué et hélistations).
+  const computeImportIdentity = useCallback((): { type: ChecklistTemplateType; code: string } => {
+    const heliSuffix = importTypeEntite === 'helistation'
+      ? SOUS_TYPE_HELISTATION_SUFFIX[importSousEntite]
+      : undefined
+
     switch (importCategorie) {
-      case 'homologation': return { type: 'HMG', code: 'HMG_CHKLIST_GENERAL' }
+      case 'homologation': return {
+        type: 'HMG',
+        code: importTypeEntite === 'helistation' ? `HMG_CHKLIST_${heliSuffix}` : 'HMG_CHKLIST_AERO',
+      }
       case 'certification': {
         let code = importSousType === 'SGS' ? 'SGS_PAOE'
           : importSousType === 'COP' ? 'COP_CHKLIST_GENERAL'
           : importSousType === 'SOP' ? 'SOP_CHKLIST_GENERAL'
           : 'IT_CHKLIST_GENERAL'
-        // IT : un fichier par domaine (PHY, ELEC, MFP, OLS) ou domaines combinés (ex. ELEC + MFP)
+        // IT : un fichier par domaine (PHY, ELEC, MFP, OLS) ou domaines combinés
         if (importSousType === 'IT' && importITDomaines.length > 0) {
           code = `IT_CHKLIST_${[...importITDomaines].sort().join('_')}`
         }
-        return { type: importSousType, code }
+        // IT ciblé hélistation : suffixe entité
+        if (importSousType === 'IT' && importTypeEntite === 'helistation') {
+          code = `${code}_${heliSuffix}`
+        }
+        return { type: importSousType as ChecklistTemplateType, code }
       }
-      case 'surveillance_continue': return { type: 'QSC', code: 'QSC_CONTINUE' }
-      case 'validation_site': return { type: 'VALIDATION_SITE', code: 'VS_CHKLIST_GENERAL' }
+      case 'surveillance_continue': {
+        // Aérodrome : certifié ou homologué ; Hélistation : sous-type
+        if (importTypeEntite === 'helistation') return { type: 'QSC', code: `QSC_${heliSuffix}` }
+        return { type: 'QSC', code: importRegime === 'homologue' ? 'QSC_HMG' : 'QSC_CERT' }
+      }
+      case 'validation_site': return {
+        type: 'VALIDATION_SITE',
+        code: importTypeEntite === 'helistation' ? `VS_CHKLIST_${heliSuffix}` : 'VS_CHKLIST_AERO',
+      }
       case 'autres':
       default:
         return { type: 'AUT', code: (importCodeLibre || 'AUT').toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 24) }
     }
-  }, [importCategorie, importSousType, importCodeLibre, importITDomaines]);
+  }, [importCategorie, importSousType, importCodeLibre, importITDomaines, importTypeEntite, importSousEntite, importRegime]);
 
   // Passage à l'étape de confirmation : détection de doublon + diff client
   const goToConfirmation = useCallback(async () => {
@@ -499,6 +528,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           categorie: importCategorie,
           regime: importCategorie === 'surveillance_continue' ? importRegime : undefined,
           type_entite_cible: importTypeEntite,
+          sous_type_entite: importTypeEntite === 'helistation' ? importSousEntite : undefined,
           version: importVersion || importPreview.template.version || '1.0',
           edition_date: importEditionDate || undefined,
           source_fichier: importPreview.filename,
@@ -643,7 +673,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   // Reset states when import modal closes
   useEffect(() => {
     if (!importPreview && !showImportModal) {
-      console.log('[debug-import] useEffect reset import (showImportModal=false, preview=null)')
       setImportTypeEdit('QSC')
       setImportPorteeManual('')
       setPorteeManuallyEdited(false)
@@ -654,6 +683,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       setImportSousType('IT')
       setImportITDomaines([])
       setImportTypeEntite('aerodrome')
+      setImportSousEntite('helistation_surface')
       setImportRegime('certifie')
       setImportCodeLibre('')
       setImportVersion('')
@@ -673,11 +703,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       setGenInstructions('')
     }
   }, [showGenModal])
-
-  // [debug-import] trace les transitions d'état de la modale d'import
-  useEffect(() => {
-    console.log('[debug-import] showImportModal changé →', showImportModal, '| importPreview:', !!importPreview, '| step:', importStep)
-  }, [showImportModal, importPreview, importStep])
 
   // Escape key closes modals
   useEffect(() => {
@@ -1190,7 +1215,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         title="Kit Inspecteur"
         description={`Base documentaire - ${stats.total} documents`}
         actions={<div className="flex items-center gap-2">
-          {isManager && <button onClick={() => { console.log('[debug-import] clic bouton importer, showImportModal avant:', showImportModal); setImportPreview(null); setImportError(null); setImportStep('upload'); setShowImportModal(true); console.log('[debug-import] showImportModal demande true'); }} className="btn btn-secondary gap-2">
+          {isManager && <button onClick={() => { setImportPreview(null); setImportError(null); setImportStep('upload'); setShowImportModal(true); }} className="btn btn-secondary gap-2">
             <Upload className="w-4 h-4" />
             Importer modèle ANACIM
           </button>}
@@ -1430,20 +1455,16 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                 </p>
               </Card>
             ) : (
-              <div className="divide-y divide-border rounded-xl border border-border">
+              <AccordionGroup spacing="sm">
                 {TYPE_CONFIG.map(ct => {
                   const entries = grouped[ct.id] || []
                   if (entries.length === 0) return null
                   return (
                     <AccordionSection
                       key={ct.id}
-                      title={
-                        <div className="flex items-center gap-3">
-                          <ct.icon className="w-5 h-5 text-role-primary" />
-                          <span className="text-sm font-medium text-foreground">{ct.label}</span>
-                        </div>
-                      }
-                      badges={[`${entries.length} template${entries.length > 1 ? 's' : ''}`]}
+                      icon={<ct.icon className="w-4 h-4 !text-white" />}
+                      title={ct.label}
+                      badges={<span className="badge outline">{entries.length} template{entries.length > 1 ? 's' : ''}</span>}
                       defaultOpen={true}
                     >
                       {entries.map(e => {
@@ -1604,7 +1625,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                     </AccordionSection>
                   )
                 })}
-              </div>
+              </AccordionGroup>
             )
           })()}
         </div>
@@ -1683,7 +1704,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
           return (
             <AccordionSection
               key={type.id}
-              icon={getTypeIcon(type.id, "w-5 h-5")}
+              icon={getTypeIcon(type.id, "w-5 h-5 !text-white")}
               title={type.label}
               badges={
                 <div className="flex items-center gap-2">
@@ -1774,6 +1795,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         </div>
       )}
 
+      </>)}
       {/* Historique des versions */}
       {showVersionHistory && createPortal(
         <div className="modal-overlay" onClick={() => setShowVersionHistory(null)}>
@@ -2098,7 +2120,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                             </div>
                           </div>
                         )}
-                        {(importCategorie === 'homologation' || importCategorie === 'validation_site') && (
+                        {(importCategorie === 'homologation' || importCategorie === 'validation_site' || importCategorie === 'certification') && (
                           <div className="flex flex-wrap gap-1.5">
                             {(['aerodrome', 'helistation'] as const).map(t => (
                               <button key={t} onClick={() => setImportTypeEntite(t)}
@@ -2108,14 +2130,39 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                             ))}
                           </div>
                         )}
+                        {importTypeEntite === 'helistation' && (
+                          <div className="mt-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {SOUS_TYPES_HELISTATION.map(st => (
+                                <button key={st.value}
+                                  onClick={() => setImportSousEntite(st.value)}
+                                  title={st.description}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importSousEntite === st.value ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                  {st.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {importCategorie === 'surveillance_continue' && (
                           <div className="flex flex-wrap gap-1.5">
-                            {(['certifie', 'homologue'] as const).map(r => (
-                              <button key={r} onClick={() => setImportRegime(r)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importRegime === r ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
-                                {r === 'certifie' ? 'Certifié' : 'Homologué'}
+                            {(['aerodrome', 'helistation'] as const).map(t => (
+                              <button key={t} onClick={() => setImportTypeEntite(t)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importTypeEntite === t ? 'bg-role-primary text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                {t === 'aerodrome' ? 'Aérodrome' : 'Hélistation'}
                               </button>
                             ))}
+                            {importTypeEntite === 'aerodrome' && (
+                              <>
+                                <span className="w-px bg-border mx-0.5" />
+                                {(['certifie', 'homologue'] as const).map(r => (
+                                  <button key={r} onClick={() => setImportRegime(r)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${importRegime === r ? 'bg-success text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                                    {r === 'certifie' ? 'Certifié' : 'Homologué'}
+                                  </button>
+                                ))}
+                              </>
+                            )}
                           </div>
                         )}
                         {importCategorie === 'autres' && (
@@ -2346,7 +2393,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                         </div>
                       </div>
                       <div className="text-xs text-muted-foreground mt-2">
-                        {importPreview.hierarchie.reduce((s: number, d: any) => s + totalItems(d), 0)} item(s) — {importCategorie === 'surveillance_continue' ? `régime ${importRegime}` : importCategorie === 'certification' && importSousType === 'IT' ? `IT — domaine(s) ${importITDomaines.length > 0 ? importITDomaines.join(' + ') : 'général (aucun sélectionné)'}` : importCategorie === 'certification' ? `sous-type ${importSousType}` : importCategorie === 'homologation' || importCategorie === 'validation_site' ? `type ${importTypeEntite}` : importCategorie} — fichier {importPreview.filename}
+                        {importPreview.hierarchie.reduce((s: number, d: any) => s + totalItems(d), 0)} item(s) — {importCategorie === 'surveillance_continue' ? `${importTypeEntite === 'helistation' ? `hélistation ${SOUS_TYPES_HELISTATION.find(s => s.value === importSousEntite)?.label.toLowerCase()}` : `aérodrome ${importRegime === 'homologue' ? 'homologué' : 'certifié'}`}` : importCategorie === 'certification' && importSousType === 'IT' ? `IT — ${importTypeEntite === 'helistation' ? 'hélistation ' : 'aérodrome '}${importTypeEntite === 'helistation' ? SOUS_TYPES_HELISTATION.find(s => s.value === importSousEntite)?.label.toLowerCase() : ''} — domaine(s) ${importITDomaines.length > 0 ? importITDomaines.join(' + ') : 'général (aucun sélectionné)'}` : importCategorie === 'certification' ? `sous-type ${importSousType} — ${importTypeEntite === 'helistation' ? 'hélistation' : 'aérodrome'}` : importCategorie === 'homologation' || importCategorie === 'validation_site' ? `${importTypeEntite === 'helistation' ? `hélistation ${SOUS_TYPES_HELISTATION.find(s => s.value === importSousEntite)?.label.toLowerCase()}` : 'aérodrome'}` : importCategorie} — fichier {importPreview.filename}
                       </div>
                     </div>
 
@@ -2470,7 +2517,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
         document.body
       )}
 
-      </>)}
       {/* Modales — vrais composants React (pas d'appels de fonction) */}
       <KitDocForm showForm={showForm} setShowForm={setShowForm} resetForm={resetForm}
         selectedDocument={selectedDocument} isSubmitting={isSubmitting}

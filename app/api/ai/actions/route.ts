@@ -28,6 +28,7 @@ Regles :
 - Utilise les vrais scores C1-C5, les vrais signaux HMM/survival/EVT pour décider
 - Si tous les indicateurs sont bons (< 2 signaux faibles), génère 1 action "surveillance de routine" ou moins
 - Si plusieurs signaux sont liés (ex: C1 faible + HMM transition), combine-les en une action
+- Si « statut_sgs » vaut « non_applicable » (et c1=null) : AUCUNE action/constat lié à la maturité SGS ou au renforcement du SGS
 - La priorite "immediate" est reservee aux cas graves (score < 30 ou HMM transition risque > 60 ou hazard > 0.6)
 - N'invente PAS de donnees qui ne sont pas fournies
 - Écris en français technique mais operationnel, 2-3 phrases max par champ
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const profil = body.profil
+    const sgsNonApplicable = body.statut_sgs === 'non_applicable'
 
     if (!profil) {
       return NextResponse.json({ actions: [], error: 'Missing profil data' }, { status: 400 })
@@ -61,7 +63,8 @@ export async function POST(req: NextRequest) {
     // Extraire les signaux pertinents pour le LLM
     const signaux = {
       score_global: profil.score_global,
-      c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5,
+      statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined,
+      c1: sgsNonApplicable ? null : profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5,
       tendance: profil.tendance,
       prediction_3m: profil.prediction_3m,
       prediction_6m: profil.prediction_6m,

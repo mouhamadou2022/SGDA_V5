@@ -114,13 +114,13 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
   useEffect(() => {
     let cancelled = false
     if (!current || isAiCurrent) return
-    computeBarrierEfficaciteAvecApprentissage(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5, profil.aerodrome_id)
+    computeBarrierEfficaciteAvecApprentissage(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5, profil.aerodrome_id, statut_sgs)
       .then(r => { if (!cancelled) setBayesianEnrich({ domaine: current.domaine, ...r }) })
       .catch(() => {
-        if (!cancelled) setBayesianEnrich({ domaine: current.domaine, ...computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5) })
+        if (!cancelled) setBayesianEnrich({ domaine: current.domaine, ...computeBarrierEfficacite(current, profil.c1, profil.c2, (profil.c3 ?? 50), profil.c5, undefined, statut_sgs) })
       })
     return () => { cancelled = true }
-  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5, profil.aerodrome_id])
+  }, [current, isAiCurrent, profil.c1, profil.c2, profil.c3, profil.c5, profil.aerodrome_id, statut_sgs])
 
   // Modèle affiché : déterministe enrichi par bayésien, ou IA enrichi
   const displayModel = useMemo(() => {
@@ -416,7 +416,7 @@ export default function BowTieAnalyzer({ profil, ecarts, surveillances, evenemen
                 <div className="p-4 rounded-xl bg-role-primary-soft/30 border border-role-primary/20">
                   <p className="text-xs text-foreground">Impact C1-C5 estimé</p>
                   <div className="mt-2 space-y-1">
-                    {[ { c: 'C1', v: profil.c1, w: 20 }, { c: 'C2', v: profil.c2, w: 25 }, { c: 'C3', v: profil.c3, w: 20 }, { c: 'C4', v: profil.c4, w: 20 }, { c: 'C5', v: profil.c5, w: 15 } ].map(({ c, v, w }) => (
+                    {[ { c: 'C1', v: profil.c1, w: 20 }, { c: 'C2', v: profil.c2, w: 25 }, { c: 'C3', v: profil.c3, w: 20 }, { c: 'C4', v: profil.c4, w: 20 }, { c: 'C5', v: profil.c5, w: 15 } ].filter(x => x.c !== 'C1' || statut_sgs !== 'non_applicable').map(({ c, v, w }) => (
                       <div key={c} className="flex items-center justify-between text-xs">
                         <span className="text-foreground">{c} <span className="text-foreground">(poids {w}%)</span></span>
                         <span className={`font-semibold ${v < 40 ? 'text-danger' : v < 60 ? 'text-warning' : 'text-success'}`}>{v}/100</span>

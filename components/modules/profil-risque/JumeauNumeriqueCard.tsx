@@ -38,6 +38,8 @@ const SCENARIO_META: Record<string, { label: string; badge: string; cls: string 
 
 export default function JumeauNumeriqueCard({ profil, ecarts }: Props) {
   const getHistoricalScoresForAerodrome = useAppStore(s => s.getHistoricalScoresForAerodrome)
+  const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === profil.aerodrome_id))
+  const sgsNonApplicable = aerodrome?.statut_sgs === 'non_applicable'
   const [leviers, setLeviers] = useState<LeviersJumeau>(() => leviersParDefaut(profil))
 
   const historique = useMemo(
@@ -46,8 +48,8 @@ export default function JumeauNumeriqueCard({ profil, ecarts }: Props) {
   )
 
   const etat = useMemo(
-    () => simulerJumeauNumerique({ profil, ecarts, historique, leviers }),
-    [profil, ecarts, historique, leviers],
+    () => simulerJumeauNumerique({ profil, ecarts, historique, leviers, statut_sgs: aerodrome?.statut_sgs }),
+    [profil, ecarts, historique, leviers, aerodrome?.statut_sgs],
   )
 
   const projection = useMemo(
@@ -110,10 +112,12 @@ export default function JumeauNumeriqueCard({ profil, ecarts }: Props) {
               <span className="text-xs text-foreground">Renforcer la surveillance</span>
               <label className="form-toggle"><input type="checkbox" checked={leviers.renforcerSurveillance} onChange={e => setLevier({ renforcerSurveillance: e.target.checked })} /><span className="form-toggle-slider" /></label>
             </label>
-            <label className="flex items-center justify-between gap-3">
-              <span className="text-xs text-foreground">Renforcer la formation (SGS)</span>
-              <label className="form-toggle"><input type="checkbox" checked={leviers.renforcerFormation} onChange={e => setLevier({ renforcerFormation: e.target.checked })} /><span className="form-toggle-slider" /></label>
-            </label>
+            {!sgsNonApplicable && (
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-xs text-foreground">Renforcer la formation (SGS)</span>
+                <label className="form-toggle"><input type="checkbox" checked={leviers.renforcerFormation} onChange={e => setLevier({ renforcerFormation: e.target.checked })} /><span className="form-toggle-slider" /></label>
+              </label>
+            )}
           </div>
         </div>
 
@@ -141,8 +145,14 @@ export default function JumeauNumeriqueCard({ profil, ecarts }: Props) {
             </div>
             <div className="bg-role-primary-soft rounded-lg p-3 text-center">
               <p className="text-xs text-muted-foreground">Maturité SGS (C1)</p>
-              <p className="text-lg font-bold text-role-primary">{etat.maturiteC1Jumeau}</p>
-              <p className="text-[10px] text-muted-foreground">physique {etat.maturiteC1Physique}</p>
+              {sgsNonApplicable ? (
+                <p className="text-lg font-bold text-foreground">Non applicable</p>
+              ) : (
+                <>
+                  <p className="text-lg font-bold text-role-primary">{etat.maturiteC1Jumeau}</p>
+                  <p className="text-[10px] text-muted-foreground">physique {etat.maturiteC1Physique}</p>
+                </>
+              )}
             </div>
           </div>
 

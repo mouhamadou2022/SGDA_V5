@@ -32,6 +32,7 @@ interface SyntheseTabProps {
   userRole: string
   evenements?: EvenementSecurite[]
   ecarts?: Ecart[]
+  sgsNonApplicable?: boolean
 }
 
 const RADAR_CRITERES = [
@@ -100,21 +101,23 @@ export function SyntheseTab({
   userRole,
   evenements,
   ecarts = [],
+  sgsNonApplicable = false,
 }: SyntheseTabProps) {
   const score = Math.min(100, Math.max(0, profil.score_global))
   const ringColor = getScoreRingColor(score)
   const scoreColor = getScoreTextColor(score)
 
   // --- Radar polygon for small inline chart ---
+  const radarCriteres = sgsNonApplicable ? RADAR_CRITERES.filter(c => c.key !== 'c1') : RADAR_CRITERES
   const radarCenterX = 55
   const radarCenterY = 55
   const radarRadius = 38
-  const radarAngles = RADAR_CRITERES.map((_, i) => {
-    const stepAngle = (2 * Math.PI) / RADAR_CRITERES.length
+  const radarAngles = radarCriteres.map((_, i) => {
+    const stepAngle = (2 * Math.PI) / radarCriteres.length
     return -Math.PI / 2 + i * stepAngle
   })
 
-  const radarPoints = RADAR_CRITERES.map((c, i) => {
+  const radarPoints = radarCriteres.map((c, i) => {
     const value = (profil[c.key] as number) || 0
     const ratio = Math.min(100, Math.max(0, value)) / 100
     const r = radarRadius * ratio
@@ -158,11 +161,11 @@ export function SyntheseTab({
 
   const recommandationDuJour = useMemo(() => {
     try {
-      return recommendationEngine.genererRecommandationDuJour(profil, ecarts, evenements ?? [], aerodromeCode, aerodromeName)
+      return recommendationEngine.genererRecommandationDuJour(profil, ecarts, evenements ?? [], aerodromeCode, aerodromeName, sgsNonApplicable ? 'non_applicable' : undefined)
     } catch {
       return null
     }
-  }, [profil, ecarts, evenements, aerodromeCode, aerodromeName])
+  }, [profil, ecarts, evenements, aerodromeCode, aerodromeName, sgsNonApplicable])
 
   // --- Synthèse IA (texte) — généré par LLM ---
   const [synthIA, setSynthIA] = useState<{ interpretation: string; recommandation: string; elementsClefs: string[] } | null>(null)
@@ -176,7 +179,7 @@ export function SyntheseTab({
       const res = await fetch('/api/ai/synthesis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profil }),
+        body: JSON.stringify({ profil, statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined }),
       })
       const data = await res.json()
       if (data.interpretation) {
@@ -194,7 +197,7 @@ export function SyntheseTab({
   useEffect(() => { fetchSynthesis() }, [fetchSynthesis])
 
   // --- Fiabilité des modèles ---
-  const scores = (profil.historical_scores || []).map(h => h.score)
+  const scores = (profil.historical_scores || []).map(h => h.score).filter(Number.isFinite)
   const regResult = scores.length >= 2 ? linearRegression(scores) : null
   const r2 = regResult?.r2 ?? 0
   const rfAccuracy = useAppStore(s => s.modelMetrics?.random_forest?.accuracy) ?? 0
@@ -204,7 +207,10 @@ export function SyntheseTab({
   const hasIC95 = !!profil.prediction_interval_3m || !!profil.prediction_interval_6m
 
   // --- Statistiques des critères C1-C5 ---
-  const critereValues = RADAR_CRITERES.map(c => (profil[c.key] as number) || 0)
+  const critereValues = radarCriteres.map(c => {
+    const v = profil[c.key] as number
+    return Number.isFinite(v) ? v : 0
+  })
   const critereCount = critereValues.length
   const critereSum = critereValues.reduce((a, b) => a + b, 0)
   const critereMean = critereSum / critereCount
@@ -227,6 +233,16 @@ export function SyntheseTab({
           </p>
         </div>
       </div>
+
+      {sgsNonApplicable && (
+        <div className="alert alert-info">
+          <AlertTriangle className="alert-icon" />
+          <div className="alert-content">
+            <div className="alert-title">SGS non applicable</div>
+            <div className="alert-description">Le critère C1 (maturité SGS) est exclu du score global de cet aérodrome. Ce score est calculé uniquement sur C2-C5.</div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ ROW 1 — Vue d'ensemble : Gauge + Stats critères + Synthèse IA (2x largeur) ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -571,7 +587,7 @@ export function SyntheseTab({
       <ShapExplicationCard profil={profil} />
 
       {/* Tableau de synthèse multicritère */}
-      <TendanceTable profil={profil} />
+      <TendanceTable profil={profil} sgsNonApplicable={sgsNonApplicable} />
     </div>
   )
 }

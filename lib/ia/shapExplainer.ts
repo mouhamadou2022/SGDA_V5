@@ -47,17 +47,35 @@ const NOMS: Record<CleCritere, string> = {
   c4: 'Charge critique', c5: 'Résilience',
 }
 
+/** Critères réellement pris en compte dans le score (C1 exclu si SGS non applicable). */
+function criteresEffectifs(statutSgs?: string): CleCritere[] {
+  return statutSgs === 'non_applicable' ? (['c2', 'c3', 'c4', 'c5'] as CleCritere[]) : CRITERES
+}
+
+/**
+ * Poids efficaces normalisés sur 100 pour le sous-ensemble de critères retenu :
+ * garantit que base + Σφ ≡ score, même quand C1 est exclu.
+ */
+function poidsEffectifs(criteres: CleCritere[], w: Record<CleCritere, number>): Record<CleCritere, number> {
+  const total = criteres.reduce((s, k) => s + w[k], 0) || 1
+  const eff = {} as Record<CleCritere, number>
+  for (const k of criteres) eff[k] = (100 * w[k]) / total
+  return eff
+}
+
 /** Référence de chaque critère selon le mode de baseline choisi. */
 function referencesParMode(
   mode: ModeBaselineShap,
   profil: ProfilRisque,
   historique: ScoreHistoryPoint[],
+  criteres: CleCritere[],
+  wEff: Record<CleCritere, number>,
 ): { base: number; refs: Record<CleCritere, number>; libelle: string } {
-  const w = DEFAULT_WEIGHTS
+  const defauts = (v: number) => { const o = {} as Record<CleCritere, number>; for (const k of criteres) o[k] = v; return o }
   if (mode === 'neutre') {
     return {
       base: 50,
-      refs: { c1: 50, c2: 50, c3: 50, c4: 50, c5: 50 },
+      refs: defauts(50),
       libelle: 'Référence neutre (50/100)',
     }
   }
@@ -67,16 +85,15 @@ function referencesParMode(
     if (!last) {
       return {
         base: 50,
-        refs: { c1: 50, c2: 50, c3: 50, c4: 50, c5: 50 },
+        refs: defauts(50),
         libelle: 'Référence neutre (50/100) — aucun historique',
       }
     }
-    const refs = {
-      c1: last.c1 ?? 50, c2: last.c2 ?? 50, c3: last.c3 ?? 50, c4: last.c4 ?? 50, c5: last.c5 ?? 50,
-    }
+    const refs = defauts(50)
+    for (const k of criteres) refs[k] = (last[k as unknown as keyof ScoreHistoryPoint] as number | undefined) ?? 50
     // La référence est la prédiction attendue du modèle au point précédent
     // (Σ W_i·refs_i / 100), ce qui garantit l'exactitude additive : somme ≡ score.
-    const base = (refs.c1 * w.c1 + refs.c2 * w.c2 + refs.c3 * w.c3 + refs.c4 * w.c4 + refs.c5 * w.c5) / 100
+    const base = criteres.reduce((s, k) => s + (refs[k] * wEff[k]) / 100, 0)
     return {
       base: Math.round(base),
       refs,
@@ -85,14 +102,14 @@ function referencesParMode(
   }
 
   // mode === 'moyenne' : moyenne historique, critère par critère
-  const refs = {} as Record<CleCritere, number>
-  for (const k of CRITERES) {
+  const refs = defauts(50)
+  for (const k of criteres) {
     const values = historique
-      .map(p => (p as unknown as Record<string, number>)[k])
-      .filter((v): v is number => typeof v === 'number')
+      .filter(p => p[k as unknown as keyof ScoreHistoryPoint] != null)
+      .map(p => p[k as unknown as keyof ScoreHistoryPoint] as unknown as number)
     refs[k] = values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 50
   }
-  const base = (refs.c1 * w.c1 + refs.c2 * w.c2 + refs.c3 * w.c3 + refs.c4 * w.c4 + refs.c5 * w.c5) / 100
+  const base = criteres.reduce((s, k) => s + (refs[k] * wEff[k]) / 100, 0)
   return {
     base: Math.round(base),
     refs,
@@ -105,34 +122,38 @@ function referencesParMode(
  * @param profil  profil courant
  * @param historique  points d'historique (pour les modes moyenne / précédent)
  * @param mode  baseline : neutre (50), moyenne historique ou mois précédent
+ * @param statutSgs  statut SGS de l'aérodrome — C1 exclu de la décomposition si « non_applicable »
  */
 export function calculerExplicationShap(
   profil: ProfilRisque,
   historique: ScoreHistoryPoint[] = [],
   mode: ModeBaselineShap = 'moyenne',
+  statutSgs?: string,
 ): ExplicationShap {
   const w = DEFAULT_WEIGHTS
-  const { base, refs, libelle } = referencesParMode(mode, profil, historique)
+  const criteres = criteresEffectifs(statutSgs)
+  const wEff = poidsEffectifs(criteres, w)
+  const { base, refs, libelle } = referencesParMode(mode, profil, historique, criteres, wEff)
 
   const phiRaw: Record<CleCritere, number> = {} as Record<CleCritere, number>
   let somme = base
-  for (const k of CRITERES) {
-    const phi = (w[k] / 100) * ((profil[k] as number) - refs[k])
+  for (const k of criteres) {
+    const phi = (wEff[k] / 100) * ((profil[k] as number) - refs[k])
     phiRaw[k] = phi
     somme += phi
   }
 
-  const score = calculateGlobalScore({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 })
+  const score = calculateGlobalScore({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }, undefined, statutSgs === 'non_applicable')
   const ecart = score - somme
 
-  const sommeAbs = CRITERES.reduce((s, k) => s + Math.abs(phiRaw[k]), 0) || 1
-  const contributions: ContributionShap[] = CRITERES.map(k => {
+  const sommeAbs = criteres.reduce((s, k) => s + Math.abs(phiRaw[k]), 0) || 1
+  const contributions: ContributionShap[] = criteres.map(k => {
     const phi = Math.round(phiRaw[k] * 100) / 100
     const direction: ContributionShap['direction'] = phi > 0.5 ? 'hausse' : phi < -0.5 ? 'baisse' : 'stable'
     return {
       key: k,
       nom: NOMS[k],
-      poids: w[k],
+      poids: Math.round(wEff[k] * 10) / 10,
       valeurCourante: profil[k] as number,
       valeurReference: Math.round(refs[k] * 10) / 10,
       phi,

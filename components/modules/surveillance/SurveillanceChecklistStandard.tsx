@@ -322,7 +322,7 @@ export function SurveillanceChecklistStandard({
         const templateTypes = surv?.type === 'certification' || surv?.type === 'homologation'
           ? ['IT', 'SOP', 'SGS']
           : (surv?.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'])
-        const master = store.findMasterChecklistForPortee(portee, templateTypes);
+        const master = store.findMasterChecklistForPortee(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation } : undefined);
         if (master) {
           const snapshot = JSON.parse(JSON.stringify(master.checklist));
           const filtered = aerodromeStore ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodromeStore) : snapshot;

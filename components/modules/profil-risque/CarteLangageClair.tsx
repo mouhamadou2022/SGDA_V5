@@ -24,13 +24,14 @@ interface Props {
   evenements?: EvenementSecurite[]
   section: CarteLangageClairSection
   label?: string
+  sgsNonApplicable?: boolean
 }
 
 export function CarteLangageClair({
   profil, aerodromeCode, aerodromeName, ecartsActifs, evenements = [],
-  section, label,
+  section, label, sgsNonApplicable = false,
 }: Props) {
-  const input = { profil, aerodromeCode, aerodromeName, ecartsActifs, evenements }
+  const input = { profil, aerodromeCode, aerodromeName, ecartsActifs, evenements, statut_sgs: sgsNonApplicable ? ('non_applicable' as const) : undefined }
   const fallbackText = fallbackExploitant(input)[section]
 
   const [texte, setTexte] = useState(fallbackText)
@@ -53,7 +54,7 @@ export function CarteLangageClair({
     })
     return () => { actif = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profil, aerodromeCode, aerodromeName, section])
+  }, [profil, aerodromeCode, aerodromeName, section, sgsNonApplicable])
 
   return (
     <div className="mt-4 pt-3 border-t border-border text-xs text-foreground" data-module={`carte-langage-clair-${section}`}>

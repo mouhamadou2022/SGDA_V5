@@ -88,13 +88,16 @@ interface DiagnosticTabProps {
   evenementsCount: number
   evenements?: EvenementSecurite[]
   userRole?: string
+  sgsNonApplicable?: boolean
 }
 
-export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements, userRole }: DiagnosticTabProps) {
+export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, evenements, userRole, sgsNonApplicable = false }: DiagnosticTabProps) {
   const scenarioCatastrophe = useMemo(() => {
     const scenarios = profil.scenarios ?? []
     if (scenarios.length === 0) return null
-    return scenarios.reduce((pire, s) => (s.scoreProjecte > (pire?.scoreProjecte ?? -1) ? s : pire), scenarios[0])
+    // Pire cas = score projeté le PLUS BAS (les scénarios optimiste/pessimiste
+    // sont triés par performance projetée, pas d'hypothèse sur la position).
+    return scenarios.reduce((pire, s) => (s.scoreProjecte < (pire?.scoreProjecte ?? Infinity) ? s : pire), scenarios[0])
   }, [profil.scenarios])
   const amdecAnalyses = useAppStore((s) => s.amdecAnalyses)
   const ftaAnalyses = useAppStore((s) => s.ftaAnalyses)
@@ -131,7 +134,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
 
   useEffect(() => {
     let actif = true
-    expliquerCeQuiNeVaPas({ profil, ecarts, evenements, surveillancesCount: surveillances.length })
+    expliquerCeQuiNeVaPas({ profil, ecarts, evenements, surveillancesCount: surveillances.length, statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined })
       .then((res) => {
         if (!actif) return
         setCeQuiNeVaPas(res)
@@ -142,7 +145,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         setCeQuiNeVaPasEnCours(false)
       })
     return () => { actif = false }
-  }, [profil, ecarts, evenements, surveillances.length])
+  }, [profil, ecarts, evenements, surveillances.length, sgsNonApplicable])
 
   const [modeleActif, setModeleActif] = useState<ModeleAnalyse>(() => {
     const rec = recommanderParmi(inputModele, modelesDispo)
@@ -173,6 +176,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       profil,
       ecarts,
       evenementsCount,
+      statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined,
     }).then((res) => {
       if (!actif) return
       setExplications(res.explications)
@@ -183,7 +187,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       setExplicationIAEnCours(false)
     })
     return () => { actif = false }
-  }, [profil, ecarts, evenementsCount])
+  }, [profil, ecarts, evenementsCount, sgsNonApplicable])
 
   // Explication IA de l'alerte cygne noir (fallback déterministe data-driven sinon)
   const [cygneNoir, setCygneNoir] = useState<CygneNoirExplication | null>(null)
@@ -201,6 +205,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       profil,
       ecarts,
       evenementsCount,
+      statut_sgs: sgsNonApplicable ? 'non_applicable' : undefined,
     }).then((res) => {
       if (!actif) return
       setCygneNoir(res)
@@ -210,7 +215,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       setCygneNoirEnCours(false)
     })
     return () => { actif = false }
-  }, [profil, ecarts, evenementsCount])
+  }, [profil, ecarts, evenementsCount, sgsNonApplicable])
 
   return (
     <div className="space-y-10">
@@ -298,34 +303,39 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         <div className="space-y-5">
           {CRITERES.map(c => {
             const score = profil[c.key]
+            const exempt = c.key === 'c1' && sgsNonApplicable
             const niv = getNiveau(score)
             const isMaturite = c.key === 'c1'
             return (
-              <div key={c.key} className={`rounded-lg border border-border bg-card p-4 border-l-4 border-l-${getLevelColor(niv)}`}>
+              <div key={c.key} className={`rounded-lg border border-border bg-card p-4 ${exempt ? 'border-l-4 border-l-neutral' : `border-l-4 border-l-${getLevelColor(niv)}`}`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-foreground">
                       {c.key.toUpperCase()} — {c.label}
                     </span>
-                    <span className={`${getBadgeClass(niv)}`}>{getNiveauLabel(niv)}</span>
+                    {exempt ? (
+                      <span className="badge neutral text-[10px]">Non applicable</span>
+                    ) : (
+                      <span className={`${getBadgeClass(niv)}`}>{getNiveauLabel(niv)}</span>
+                    )}
                   </div>
-                  <span className={`text-sm font-bold ${getTextColor(niv)}`}>
-                    {score}/100
+                  <span className={`text-sm font-bold ${exempt ? 'text-foreground' : getTextColor(niv)}`}>
+                    {exempt ? 'Non applicable' : `${score}/100`}
                   </span>
                 </div>
-                {isMaturite && (
+                {isMaturite && !exempt && (
                   <div className="mb-2">
                     <span className="text-sm font-semibold text-primary">{getSgsMaturiteLabel(score)}</span>
                   </div>
                 )}
                 <div className="w-full bg-muted rounded-full h-2 mb-2">
                   <div
-                    className={`h-2 rounded-full transition-all ${getProgressColor(niv)}`}
-                    style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
+                    className={`h-2 rounded-full transition-all ${exempt ? 'bg-muted' : getProgressColor(niv)}`}
+                    style={{ width: `${exempt ? 0 : Math.min(100, Math.max(0, score))}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-foreground">{explications[c.key]}</p>
+                  <p className="text-sm text-foreground">{exempt ? 'SGS non applicable pour cet aérodrome — C1 exclu du score global (calculé sur C2-C5).' : explications[c.key]}</p>
                   <span className="text-[10px] text-muted-foreground font-mono ml-2 shrink-0">{c.weight}%</span>
                 </div>
               </div>
@@ -517,7 +527,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
               </div>
               <div className="p-3 rounded-lg border border-border bg-muted/10">
                 <span className="text-sm text-muted-foreground">Probabilité</span>
-                <p className="text-lg font-bold text-foreground mt-1">{(scenarioCatastrophe.probabilite * 100).toFixed(1)} %</p>
+                <p className="text-lg font-bold text-foreground mt-1">{scenarioCatastrophe.probabilite.toFixed(1)} %</p>
               </div>
               <div className="p-3 rounded-lg border border-border bg-muted/10">
                 <span className="text-sm text-muted-foreground">Intervalle de confiance</span>

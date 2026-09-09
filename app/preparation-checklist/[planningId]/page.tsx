@@ -910,7 +910,8 @@ export default function PreparationChecklistPage() {
           const master = findMasterChecklistForPortee(planning.portee || [],
             planning.type === 'certification' || planning.type === 'homologation'
               ? ['IT', 'SOP', 'SGS']
-              : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC']);
+              : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'],
+            aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
           if (master) {
             const snapshot = JSON.parse(JSON.stringify(master.checklist));
             const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;

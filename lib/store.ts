@@ -24,6 +24,7 @@ import { registreUtils } from './registreUtils';
 import { genererPlanning } from './services/planningGenerator';
 import type { ResultatChecklist } from '@/types/checklist';
 import type { HelistationData } from './types/helistation'
+import { mapTypeInstallationToSousType } from './types/helistation'
 import type { SuggestionDetaillee } from './checklistMemory';
 import type { NiveauRisque, ScoreHistoryPoint } from './risque/types';
 import type { AmdecAnalyse } from './risque/amdecEngine';
@@ -49,6 +50,115 @@ export type PreuveLearningFeedbackRecord = PreuveLearningFeedback;
 
 export type { SuggestionDetaillee as ChecklistSuggestion } from './checklistMemory';
 import { evaluatePAC, computeInitialCell } from './risque/bowTieEngine';
+
+// ============================================================
+// Assainissement des valeurs numériques NaN / hors bornes
+// (profil de risque : un NaN issu d'un calcul live ne doit jamais
+//  atteindre le store — sinon il se propage aux cartes dérivées)
+// ============================================================
+
+export function toFiniteNumber(v: unknown, def: number, min = -Infinity, max = Infinity): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : def
+  return Math.min(max, Math.max(min, n))
+}
+
+export function assainirProfilRisque(profil: ProfilRisque): ProfilRisque {
+  const nb = (v: unknown, def: number, min = -Infinity, max = Infinity) => toFiniteNumber(v, def, min, max)
+  const scoreGlobal = nb(profil.score_global, 50, 0, 100)
+  const historySaine = (profil.historical_scores || []).map(h => ({
+    ...h,
+    score: nb(h.score, 50, 0, 100),
+    c1: h.c1 != null ? nb(h.c1, 50, 0, 100) : undefined,
+    c2: h.c2 != null ? nb(h.c2, 50, 0, 100) : undefined,
+    c3: h.c3 != null ? nb(h.c3, 50, 0, 100) : undefined,
+    c4: h.c4 != null ? nb(h.c4, 50, 0, 100) : undefined,
+    c5: h.c5 != null ? nb(h.c5, 50, 0, 100) : undefined,
+  }))
+  return {
+    ...profil,
+    score_global: scoreGlobal,
+    c1: nb(profil.c1, 50, 0, 100),
+    c2: nb(profil.c2, 50, 0, 100),
+    c3: nb(profil.c3, 50, 0, 100),
+    c4: nb(profil.c4, 50, 0, 100),
+    c5: nb(profil.c5, 50, 0, 100),
+    prediction_3m: nb(profil.prediction_3m, scoreGlobal, 0, 100),
+    prediction_6m: nb(profil.prediction_6m, scoreGlobal, 0, 100),
+    prediction_12m: profil.prediction_12m != null ? nb(profil.prediction_12m, scoreGlobal, 0, 100) : undefined,
+    ensemble_confidence: nb(profil.ensemble_confidence, 30, 0, 100),
+    hawkes_intensity: profil.hawkes_intensity != null ? nb(profil.hawkes_intensity, 0, 0, Infinity) : undefined,
+    effectiveness_score: profil.effectiveness_score != null ? nb(profil.effectiveness_score, 50, 0, 100) : undefined,
+    incident_prediction_3m: profil.incident_prediction_3m != null ? nb(profil.incident_prediction_3m, 0, 0, 100) : undefined,
+    incident_prediction_6m: profil.incident_prediction_6m != null ? nb(profil.incident_prediction_6m, 0, 0, 100) : undefined,
+    incident_prediction_12m: profil.incident_prediction_12m != null ? nb(profil.incident_prediction_12m, 0, 0, 100) : undefined,
+    event_frequency: profil.event_frequency != null ? nb(profil.event_frequency, 0, 0, Infinity) : undefined,
+    event_trend_acceleration: profil.event_trend_acceleration != null ? nb(profil.event_trend_acceleration, 0) : undefined,
+    days_since_last_event: profil.days_since_last_event != null ? nb(profil.days_since_last_event, 0, 0, Infinity) : undefined,
+    bayesian_posterior: profil.bayesian_posterior != null ? nb(profil.bayesian_posterior, 0.3, 0, 1) : undefined,
+    bayesian_prior: profil.bayesian_prior != null ? nb(profil.bayesian_prior, 0.3, 0, 1) : undefined,
+    qualityScore: profil.qualityScore != null ? nb(profil.qualityScore, 50, 0, 100) : undefined,
+    historical_scores: historySaine,
+    velocity_metrics: profil.velocity_metrics ? {
+      ...profil.velocity_metrics,
+      vitesse: nb(profil.velocity_metrics.vitesse, 0),
+      acceleration: nb(profil.velocity_metrics.acceleration, 0),
+      volatilite: nb(profil.velocity_metrics.volatilite, 0, 0, Infinity),
+      temps_avant_seuil_critique: profil.velocity_metrics.temps_avant_seuil_critique != null
+        ? nb(profil.velocity_metrics.temps_avant_seuil_critique, 999, 0, Infinity)
+        : null,
+    } : undefined,
+    system_stress: profil.system_stress ? {
+      ...profil.system_stress,
+      score: nb(profil.system_stress.score, 50, 0, 100),
+      stressIndicators: {
+        velocityStress: nb(profil.system_stress.stressIndicators?.velocityStress, 0, 0, 100),
+        ecartsStress: nb(profil.system_stress.stressIndicators?.ecartsStress, 0, 0, 100),
+        c4Stress: nb(profil.system_stress.stressIndicators?.c4Stress, 0, 0, 100),
+        resilienceStress: nb(profil.system_stress.stressIndicators?.resilienceStress, 0, 0, 100),
+      },
+    } : undefined,
+    proactive_alert: profil.proactive_alert ? {
+      ...profil.proactive_alert,
+      probabilite_degradation_3m: nb(profil.proactive_alert.probabilite_degradation_3m, 0, 0, 100),
+      probabilite_seuil30_3m: nb(profil.proactive_alert.probabilite_seuil30_3m, 0, 0, 100),
+      probabilite_seuil30_6m: nb(profil.proactive_alert.probabilite_seuil30_6m, 0, 0, 100),
+      delai_estime_jours: profil.proactive_alert.delai_estime_jours != null
+        ? nb(profil.proactive_alert.delai_estime_jours, 0, 0, Infinity)
+        : null,
+    } : undefined,
+    hmm_state: profil.hmm_state ? {
+      ...profil.hmm_state,
+      transitionRisk: nb(profil.hmm_state.transitionRisk, 30, 0, 100),
+      daysToCritical: nb(profil.hmm_state.daysToCritical, 999, 0, Infinity),
+    } : undefined,
+    survival_metrics: profil.survival_metrics ? {
+      ...profil.survival_metrics,
+      hazard90d: nb(profil.survival_metrics.hazard90d, 0.1, 0, 1),
+      hazard180d: nb(profil.survival_metrics.hazard180d, 0.1, 0, 1),
+      medianDays: nb(profil.survival_metrics.medianDays, 999, 0, Infinity),
+    } : undefined,
+    extreme_risk: profil.extreme_risk ? {
+      ...profil.extreme_risk,
+      tailRisk: nb(profil.extreme_risk.tailRisk, 0.05, 0, 1),
+      maxExpected12m: nb(profil.extreme_risk.maxExpected12m, 1, 0, Infinity),
+    } : undefined,
+    negbin_metrics: profil.negbin_metrics ? {
+      ...profil.negbin_metrics,
+      dispersion: nb(profil.negbin_metrics.dispersion, 1, 0, Infinity),
+      mean: nb(profil.negbin_metrics.mean, 0),
+      variance: nb(profil.negbin_metrics.variance, 0, 0, Infinity),
+    } : undefined,
+    copula_metrics: profil.copula_metrics ? {
+      ...profil.copula_metrics,
+      maxTailDependence: nb(profil.copula_metrics.maxTailDependence, 0.1, 0, 1),
+      worstCaseProbability: nb(profil.copula_metrics.worstCaseProbability, 0.05, 0, 1),
+    } : undefined,
+    ts_metrics: profil.ts_metrics ? {
+      ...profil.ts_metrics,
+      bestProbability: nb(profil.ts_metrics.bestProbability, 0.5, 0, 1),
+    } : undefined,
+  }
+}
 
 // ============================================================
 // TYPES POUR EXEMPTIONS ET MESURES D'ATTÉNUATION
@@ -984,6 +1094,7 @@ export type ChecklistTemplateType = 'IT' | 'SOP' | 'QSC' | 'SGS' | 'VALIDATION_S
 export type ChecklistTemplateEtat = 'brouillon' | 'publie' | 'archive'
 export type ChecklistTemplateCategorie = 'homologation' | 'certification' | 'surveillance_continue' | 'validation_site' | 'autres'
 export type ChecklistTemplateRegime = 'certifie' | 'homologue' | 'tous'
+export type ChecklistTemplateSousTypeEntite = 'helistation_surface' | 'helistation_mer' | 'heliplateforme'
 
 export interface ChecklistTemplate {
   id: string
@@ -997,6 +1108,8 @@ export interface ChecklistTemplate {
   description?: string
   portee: string[]
   type_entite_cible: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
+  /** Sous-type d'hélistation quand type_entite_cible = 'helistation' (surface, en mer, héliplateforme). */
+  sous_type_entite?: ChecklistTemplateSousTypeEntite
   /** Famille métier guidée à l'import (homologation, certification, surveillance_continue, validation_site, autres) */
   categorie?: ChecklistTemplateCategorie
   /** Régime pour la surveillance continue : certifie | homologue | tous */
@@ -2290,7 +2403,11 @@ interface MasterChecklistSlice {
   archiveMasterChecklist: (id: string) => void
   unarchiveMasterChecklist: (id: string) => void
   addTemplateVersion: (id: string, domaines: DomaineChecklist[]) => void
-  findMasterChecklistForPortee: (portee: string[], typeFilters?: string[]) => { id: string; checklist: DomaineChecklist[] } | null
+  findMasterChecklistForPortee: (
+    portee: string[],
+    typeFilters?: string[],
+    entityContext?: { type_entite?: string; helistation?: HelistationData },
+  ) => { id: string; checklist: DomaineChecklist[] } | null
 }
 
 interface ApiKeySlice {
@@ -5166,14 +5283,16 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
       // ============================================================
       profilsRisque: {},
       setProfilRisque: async (aerodromeId, profil) => {
-  // 1. Mettre à jour le store local
+  // 1. Assainir NaN / hors bornes avant stockage (ne jamais propager de NaN)
+  const profilSain = assainirProfilRisque(profil)
+  // 2. Mettre à jour le store local
   set((state) => ({
-    profilsRisque: { ...state.profilsRisque, [aerodromeId]: profil },
+    profilsRisque: { ...state.profilsRisque, [aerodromeId]: profilSain },
   }));
   
-  // 2. Persister dans Supabase via datastore
+  // 3. Persister dans Supabase via datastore
   try {
-    await datastore.upsertProfilRisque(profil)
+    await datastore.upsertProfilRisque(profilSain)
   } catch (error) {
     console.error('[Store] Erreur sauvegarde profil:', error)
   }
@@ -5197,16 +5316,20 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         const aerodrome = aerodromes.find(a => a.id === aerodromeId)
         const reponsesEnquetesAerodrome = (reponsesEnquetes || []).filter((r: ReponseEnquete) => r.aerodrome_id === aerodromeId)
 
+        // Garde anti-NaN : un score non fini (dates d'écarts invalides, historique
+        // corrompu…) ne doit jamais atteindre le store ni le score global.
+        const saniC = (v: number, fb: number) => (Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : fb)
+
         // C1 : SGS non applicable → pas de donnée (0), sera exclu du score global
         const maturiteSGS = aerodrome?.statut_sgs === 'non_applicable' ? 0 : (aerodrome?.maturite_sgs ?? 50)
         const scoreEnquetes = reponsesEnquetesAerodrome.length > 0
           ? reponsesEnquetesAerodrome.reduce((sum: number, r: ReponseEnquete) => sum + (r.score_c1 || 0), 0) / reponsesEnquetesAerodrome.length
           : undefined
-        const c1 = risqueUtils.calculateC1(maturiteSGS, scoreEnquetes, aerodrome?.statut_sgs)
+        const c1 = saniC(risqueUtils.calculateC1(maturiteSGS, scoreEnquetes, aerodrome?.statut_sgs), 50)
         const sgsNonApplicable = aerodrome?.statut_sgs === 'non_applicable'
 
         // C2 : dégradée par l'âge de l'aérodrome si pas d'écarts
-        let c2 = risqueUtils.calculateC2FromEcarts(ecartsAerodrome)
+        let c2 = saniC(risqueUtils.calculateC2FromEcarts(ecartsAerodrome), 50)
         const ecartsActifs = ecartsAerodrome.filter(e => e.statut !== 'cloture')
         if (ecartsActifs.length === 0 && aerodrome?.created_at) {
           const ageJours = (Date.now() - new Date(aerodrome.created_at).getTime()) / 86400000
@@ -5219,19 +5342,22 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           s.score_global !== undefined && s.score_global !== null &&
           ['checklist_signee', 'transmise', 'archivee'].includes(s.statut)
         )
-        const c3 = surveillancesAvecScore.length > 0
-          ? risqueUtils.calculateC3(surveillancesAvecScore.map(s => ({
-              score: s.score_global!,
-              date: s.date_debut
-            })))
-          : aerodrome ? Math.round(
-              // Heuristique multi-domaines comme dans initialProfile
-              (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
-              ((aerodrome.maturite_sgs ?? 50) * 0.25) +
-              ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
-              (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia, 10) || 1) - 3) * 2) * 0.15 +
-              ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
-            ) : 30
+        const c3 = saniC(
+          surveillancesAvecScore.length > 0
+            ? risqueUtils.calculateC3(surveillancesAvecScore.map(s => ({
+                score: s.score_global!,
+                date: s.date_debut
+              })))
+            : aerodrome ? Math.round(
+                // Heuristique multi-domaines comme dans initialProfile
+                (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
+                ((aerodrome.maturite_sgs ?? 50) * 0.25) +
+                ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
+                (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia, 10) || 1) - 3) * 2) * 0.15 +
+                ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
+              ) : 30,
+          30
+        )
 
         // Ajustement C3 selon les exemptions actives
         const exemptionsActives = get().getExemptionsActives(aerodromeId)
@@ -5246,7 +5372,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
               efficacite_validee: m.efficacite_validee,
             })),
           })))
-          c3Final = result.c3_ajuste
+          c3Final = saniC(result.c3_ajuste, c3Final)
           const now = new Date().toISOString()
           exemptionsActives.forEach(ex => {
             get().updateExemption(ex.id, {
@@ -5263,16 +5389,16 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
           const { calculeMalusC3 } = await import('./risque/amdecEngine')
           const malusAmdec = calculeMalusC3(analysesAmdec)
           if (malusAmdec > 0) {
-            c3Final = Math.max(0, c3Final - malusAmdec)
+            c3Final = saniC(Math.max(0, c3Final - malusAmdec), c3Final)
           }
         }
 
-        const c4 = risqueUtils.calculateC4FromEcarts(ecartsAerodrome)
-        const c5 = risqueUtils.calculateC5(evenementsAerodrome.map((e: EvenementSecurite) => ({
+        const c4 = saniC(risqueUtils.calculateC4FromEcarts(ecartsAerodrome), 50)
+        const c5 = saniC(risqueUtils.calculateC5(evenementsAerodrome.map((e: EvenementSecurite) => ({
           gravite: e.gravite,
           date: e.date || e.created_at,
-        })))
-        const scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 }, undefined, sgsNonApplicable)
+        }))), 50)
+        const scoreGlobal = saniC(risqueUtils.calculateGlobalScore({ c1, c2, c3: c3Final, c4, c5 }, undefined, sgsNonApplicable), 50)
         let niveau: 'faible' | 'moyen' | 'eleve' | 'critique' = 'faible'
         if (scoreGlobal >= 80) niveau = 'faible'
         else if (scoreGlobal >= 60) niveau = 'moyen'
@@ -5393,7 +5519,7 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
             const ftaAnalysesAerodrome = (get().ftaAnalyses || []).filter((a: { aerodromeId: string }) => a.aerodromeId === aerodromeId)
             const bayesParDomaine: Record<string, { probabiliteResiduelle: number; barrieresCritiques: string[]; confiance: number }> = {}
             for (const bt of bowtieMetrics) {
-              const bayes = computeBarrierEfficacite(bt, c1, c2, c3Final, c5)
+              const bayes = computeBarrierEfficacite(bt, c1, c2, c3Final, c5, undefined, aerodrome?.statut_sgs)
               const barrieresBayes = [...bayes.barrieresPreventives, ...bayes.barrieresCorrectives]
                 .filter((b) => b.efficacite < 60)
                 .map((b) => b.id)
@@ -5482,21 +5608,22 @@ getAdjustedThreshold: (aerodromeId, baseThreshold, suggestionType) => {
         }
         // ── Fin Phase 3 ──
         const now = new Date().toISOString()
+        const profilFinal = assainirProfilRisque(nouveauProfil)
         addScoreHistoryPoint(aerodromeId, {
           date: now,
-          score: scoreGlobal,
-          c1, c2, c3: c3Final, c4, c5
+          score: profilFinal.score_global,
+          c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5
         })
         set((state) => ({
-          profilsRisque: { ...state.profilsRisque, [aerodromeId]: nouveauProfil }
+          profilsRisque: { ...state.profilsRisque, [aerodromeId]: profilFinal }
         }))
         try {
           await supabase.from('score_history').insert({
             aerodrome_id: aerodromeId,
-            score_global: scoreGlobal,
-            c1, c2, c3: c3Final, c4, c5,
-            niveau: nouveauProfil.niveau,
-            tendance: nouveauProfil.tendance,
+            score_global: profilFinal.score_global,
+            c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5,
+            niveau: profilFinal.niveau,
+            tendance: profilFinal.tendance,
             computed_at: now,
           })
         } catch { /* Échec insert score_history — non bloquant */ }
@@ -7479,7 +7606,7 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         }
       }),
 
-      findMasterChecklistForPortee: (portee, typeFilters) => {
+      findMasterChecklistForPortee: (portee, typeFilters, entityContext) => {
         const mcs = get().masterChecklists
         if (!portee || portee.length === 0) return null
         const porteeSansSGS = portee.filter(p => p.toUpperCase() !== 'SGS')
@@ -7487,14 +7614,37 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const entries = typeFilters && typeFilters.length > 0
           ? Object.entries(mcs).filter(([id]) => typeFilters.some(t => id.startsWith(t + '_')))
           : Object.entries(mcs)
+
+        // Contexte hélistation : sous-type d'entité dérivé du type d'installation,
+        // pour privilégier le template de checklist correspondant (HELI_SURFACE / HELI_MER / HELI_PLATEFORME).
+        const sousTypeEntite = entityContext?.type_entite === 'helistation'
+          ? mapTypeInstallationToSousType(entityContext?.helistation?.type_installation)
+          : undefined
+        const suffixe = sousTypeEntite
+          ? ({ helistation_surface: 'HELI_SURFACE', helistation_mer: 'HELI_MER', heliplateforme: 'HELI_PLATEFORME' } as const)[sousTypeEntite]
+          : undefined
+
         for (const [id, checklist] of entries) {
           const domainesCodes = checklist.map(d => d.nom.toUpperCase())
           // Matching strict : tous les domaines demandés (hors SGS) doivent correspondre exactement
           const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
-          if (couvre) {
+          if (couvre && (!suffixe || id.includes(suffixe))) {
             // Retourner la checklist sans les domaines SGS
             const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
             return { id, checklist: filtered }
+          }
+        }
+
+        // Repli : si un suffixe hélistation était demandé mais qu'aucun template
+        // dédié n'existe, accepter le template générique couvrant la portée.
+        if (suffixe) {
+          for (const [id, checklist] of entries) {
+            const domainesCodes = checklist.map(d => d.nom.toUpperCase())
+            const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
+            if (couvre) {
+              const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
+              return { id, checklist: filtered }
+            }
           }
         }
         return null
@@ -8488,10 +8638,19 @@ getFormationSuggestionsByInspector: (inspecteurId) => {
         const existing = state.historiqueScores?.[aerodromeId] || []
         const exists = existing.some(p => p.date === point.date)
         if (exists) return state
+        const pointSain: ScoreHistoryPoint = {
+          ...point,
+          score: toFiniteNumber(point.score, 50, 0, 100),
+          c1: point.c1 != null ? toFiniteNumber(point.c1, 50, 0, 100) : undefined,
+          c2: point.c2 != null ? toFiniteNumber(point.c2, 50, 0, 100) : undefined,
+          c3: point.c3 != null ? toFiniteNumber(point.c3, 50, 0, 100) : undefined,
+          c4: point.c4 != null ? toFiniteNumber(point.c4, 50, 0, 100) : undefined,
+          c5: point.c5 != null ? toFiniteNumber(point.c5, 50, 0, 100) : undefined,
+        }
         return {
           historiqueScores: {
             ...state.historiqueScores,
-            [aerodromeId]: [...existing, point].sort((a, b) => 
+            [aerodromeId]: [...existing, pointSain].sort((a, b) => 
               new Date(a.date).getTime() - new Date(b.date).getTime()
             )
           }

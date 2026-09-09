@@ -129,9 +129,9 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
               {
                 key: 'c1',
                 header: 'C1',
-                render: (item) => (
-                  <><span className={`text-xs font-medium ${getScoreColor(item.profil.c1)}`}>{item.profil.c1}</span> <span className="text-xs text-foreground">({getSgsMaturiteLabel(item.profil.c1)})</span></>
-                ),
+                render: (item) => item.aerodrome.statut_sgs === 'non_applicable'
+                  ? <span className="text-xs text-foreground">Non applicable</span>
+                  : (<><span className={`text-xs font-medium ${getScoreColor(item.profil.c1)}`}>{item.profil.c1}</span> <span className="text-xs text-foreground">({getSgsMaturiteLabel(item.profil.c1)})</span></>),
               },
               {
                 key: 'c2',
@@ -174,7 +174,7 @@ export function ComparativeAnalysis({ onSelectAerodrome }: Props) {
                   <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><RankIcon className={`w-5 h-5 ${getRankMedal(rank).color}`} /><span className="text-sm font-bold text-foreground">{rank}</span></div><span className="badge outline text-xs">{aerodrome.region}</span></div>
                   <div className="flex items-center gap-2 mb-2"><Plane className="w-4 h-4 text-foreground" /><span className="font-semibold text-foreground">{aerodrome.code_oaci}</span><span className="text-xs text-foreground truncate">{aerodrome.nom}</span></div>
                   <div className="flex items-center justify-between mb-3"><span className="text-2xl font-bold text-foreground">{profil.score_global}</span><span className="text-xs text-foreground">/100</span>{profil.tendance === 'hausse' ? <TrendingUp className="w-4 h-4 text-success" /> : profil.tendance === 'baisse' ? <TrendingDown className="w-4 h-4 text-danger animate-pulse" /> : <Minus className="w-4 h-4 text-foreground" />}</div>
-                  <div className="grid grid-cols-5 gap-1 text-center text-xs"><div><span className="text-foreground">C1</span><span className={`ml-1 font-medium ${getScoreColor(profil.c1)}`}>{getSgsMaturiteLabel(profil.c1)}</span></div><div><span className="text-foreground">C2</span><span className={`ml-1 font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></div><div><span className="text-foreground">C3</span><span className={`ml-1 font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></div><div><span className="text-foreground">C4</span><span className={`ml-1 font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></div><div><span className="text-foreground">C5</span><span className={`ml-1 font-medium ${getScoreColor(profil.c5)}`}>{profil.c5}</span></div></div>
+                  <div className="grid grid-cols-5 gap-1 text-center text-xs"><div><span className="text-foreground">C1</span><span className={`ml-1 font-medium ${aerodrome.statut_sgs === 'non_applicable' ? 'text-foreground' : getScoreColor(profil.c1)}`}>{aerodrome.statut_sgs === 'non_applicable' ? 'Non appl.' : getSgsMaturiteLabel(profil.c1)}</span></div><div><span className="text-foreground">C2</span><span className={`ml-1 font-medium ${getScoreColor(profil.c2)}`}>{profil.c2}</span></div><div><span className="text-foreground">C3</span><span className={`ml-1 font-medium ${getScoreColor(profil.c3)}`}>{profil.c3}</span></div><div><span className="text-foreground">C4</span><span className={`ml-1 font-medium ${getScoreColor(profil.c4)}`}>{profil.c4}</span></div><div><span className="text-foreground">C5</span><span className={`ml-1 font-medium ${getScoreColor(profil.c5)}`}>{profil.c5}</span></div></div>
                   <div className="progress h-1 mt-2"><div className="progress-bar" style={{ width: `${profil.score_global}%` }} /></div>
                 </div>
               )

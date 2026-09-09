@@ -24,6 +24,7 @@ interface Props {
   aerodromeCode: string
   aerodromeName: string
   ecartsActifs: Ecart[]
+  sgsNonApplicable?: boolean
 }
 
 function scoreClr(s: number): string {
@@ -38,7 +39,7 @@ function finiteOrNull(v: number | null | undefined): number | null {
 
 const STATUTS_ENGAGES = ['pac_soumis', 'pac_accepte', 'preuves_soumises', 'preuves_evaluees']
 
-export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs }: Props) {
+export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, ecartsActifs, sgsNonApplicable = false }: Props) {
   // ── Simulation d'impact des mesures (data-driven, fondée sur C4) ──
   const ecartsEngages = ecartsActifs.filter(e => STATUTS_ENGAGES.includes(e.statut))
   const ecartsEnAttente = ecartsActifs.filter(e => !STATUTS_ENGAGES.includes(e.statut))
@@ -46,9 +47,9 @@ export default function EvolutionRisque({ profil, aerodromeCode, aerodromeName, 
   const c4AvecMesures = calculateC4FromEcarts(ecartsActifs.filter(e => !STATUTS_ENGAGES.includes(e.statut)))
   const crit = (c4: number) => ({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4, c5: profil.c5 })
   const sclamp = (v: number): number | null => (Number.isFinite(v) ? Math.round(v) : null)
-  const scoreActuel = sclamp(calculateGlobalScore(crit(c4Actuel)))
-  const scoreAvecMesures = sclamp(calculateGlobalScore(crit(c4AvecMesures)))
-  const scorePotentiel = sclamp(calculateGlobalScore(crit(100)))
+  const scoreActuel = sclamp(calculateGlobalScore(crit(c4Actuel), undefined, sgsNonApplicable))
+  const scoreAvecMesures = sclamp(calculateGlobalScore(crit(c4AvecMesures), undefined, sgsNonApplicable))
+  const scorePotentiel = sclamp(calculateGlobalScore(crit(100), undefined, sgsNonApplicable))
 
   // ── Bayésien dynamique ──
   const post = finiteOrNull(pctBayes(profil.bayesian_posterior))

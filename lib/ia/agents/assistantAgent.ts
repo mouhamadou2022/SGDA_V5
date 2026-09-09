@@ -229,6 +229,7 @@ export class AssistantAgent {
                   c1: profilCtx.c1, c2: profilCtx.c2, c3: profilCtx.c3,
                   c4: profilCtx.c4, c5: profilCtx.c5,
                   alerte: profilCtx.proactive_alert?.message_court,
+                  statut_sgs: aerodromeCtx?.statut_sgs,
                 }
               : undefined,
             ecarts_actifs: ecartsCtx.length > 0 ? ecartsCtx : undefined,
@@ -336,7 +337,7 @@ export class AssistantAgent {
     message: string,
     contexte: ChatRequest['contexte'],
     data: {
-      aerodrome?: { code_oaci?: string; nom?: string; categorie_sslia?: string; type?: string }
+      aerodrome?: { code_oaci?: string; nom?: string; categorie_sslia?: string; type?: string; statut_sgs?: string }
       profil?: ProfilRisque
       ecarts?: Array<{ reference: string; libelle?: string; niveau_risque: string; statut: string; jours_restants?: number }>
       checklist?: unknown
@@ -359,7 +360,7 @@ export class AssistantAgent {
     if (data.profil && this.matches(msg, ['profil', 'risque', 'score', 'c1', 'c2', 'c3', 'c4', 'c5'])) {
       const p = data.profil
       return {
-        message: `**Profil de risque — ${data.aerodrome?.code_oaci || ''}**\n\nScore global : **${p.score_global}/100** (${p.niveau})\nTendance : ${p.tendance === 'hausse' ? '↗ Hausse' : p.tendance === 'baisse' ? '↘ Baisse' : '→ Stable'}\n\n- C1 Maturité SGS : ${p.c1}/100\n- C2 Efficacité PAC : ${p.c2}/100\n- C3 Conformité : ${p.c3}/100\n- C4 Charge critique : ${p.c4}/100\n- C5 Résilience : ${p.c5}/100`,
+        message: `**Profil de risque — ${data.aerodrome?.code_oaci || ''}**\n\nScore global : **${p.score_global}/100** (${p.niveau})\nTendance : ${p.tendance === 'hausse' ? '↗ Hausse' : p.tendance === 'baisse' ? '↘ Baisse' : '→ Stable'}\n\n${data.aerodrome?.statut_sgs === 'non_applicable' ? '- SGS : non applicable (exclu du score global)\n' : `- C1 Maturité SGS : ${p.c1}/100\n`}- C2 Efficacité PAC : ${p.c2}/100\n- C3 Conformité : ${p.c3}/100\n- C4 Charge critique : ${p.c4}/100\n- C5 Résilience : ${p.c5}/100`,
         actions: [{ id: '1', label: 'Voir détails', description: '', type: 'navigate', target: 'risque' }],
         sources: [],
         confidence: 80,

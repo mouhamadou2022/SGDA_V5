@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { ProfilRisque } from '@/lib/store'
+import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import type { ActionConcrete } from '@/lib/risque/recommendations'
 import {
@@ -63,6 +64,7 @@ export function ActionsTab({
   const [loading, setLoading] = useState(false)
   const [calibrationOpen, setCalibrationOpen] = useState(false)
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const statutSgsAerodrome = useAppStore(s => s.aerodromes).find(a => a.id === aerodromeId)?.statut_sgs
 
   const [actions, setActions] = useState<ActionConcrete[]>([])
   const [iaLoading, setIaLoading] = useState(true)
@@ -79,7 +81,7 @@ export function ActionsTab({
       const res = await fetch('/api/ai/actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profil }),
+        body: JSON.stringify({ profil, statut_sgs: statutSgsAerodrome }),
       })
       const data = await res.json()
       if (data.actions && Array.isArray(data.actions)) {

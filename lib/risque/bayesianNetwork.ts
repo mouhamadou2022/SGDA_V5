@@ -431,9 +431,10 @@ function scoreToEvidence(score: number): number {
   return 2
 }
 
-export function buildEvidencesFromProfil(c1: number, c2: number, c3: number, c5: number): Record<string, number> {
+export function buildEvidencesFromProfil(c1: number, c2: number, c3: number, c5: number, statut_sgs?: string): Record<string, number> {
   return {
-    'barriere_sgs': scoreToEvidence(c1),
+    // SGS non applicable → barrière neutre (n'existe pas, ne dégrade pas les autres)
+    'barriere_sgs': statut_sgs === 'non_applicable' ? 0 : scoreToEvidence(c1),
     'barriere_pac': scoreToEvidence(c2),
     'barriere_maintenance': scoreToEvidence(c3),
     'barriere_securite': scoreToEvidence(c5),
@@ -447,6 +448,7 @@ export function computeBarrierEfficacite(
   c3: number,
   c5: number,
   reseauPreconstruit?: BayesNode[],
+  statut_sgs?: string,
 ): {
   barrieresPreventives: Barriere[]
   barrieresCorrectives: Barriere[]
@@ -455,15 +457,17 @@ export function computeBarrierEfficacite(
 } {
   const reseau = reseauPreconstruit ?? construireReseauDepuisBowTie(bowTie)
   const evidences: Record<string, number> = {}
+  const sgsNonApplicable = statut_sgs === 'non_applicable'
 
   for (const b of bowTie.barrieresPreventives) {
     const nodeId = `barriere_${b.id}`
     if (b.id.includes('sgs')) {
-      evidences[nodeId] = scoreToEvidence(c1)
+      // SGS non applicable → la barrière est absente : évidence neutre (pas de déficit)
+      evidences[nodeId] = sgsNonApplicable ? 0 : scoreToEvidence(c1)
     } else if (b.id.includes('audit')) {
       evidences[nodeId] = scoreToEvidence(c3)
     } else {
-      evidences[nodeId] = scoreToEvidence(Math.round((c1 + c3) / 2))
+      evidences[nodeId] = scoreToEvidence(sgsNonApplicable ? c3 : Math.round((c1 + c3) / 2))
     }
   }
 
@@ -563,6 +567,7 @@ export async function computeBarrierEfficaciteAvecApprentissage(
   c3: number,
   c5: number,
   aerodromeId?: string,
+  statut_sgs?: string,
 ): Promise<{
   barrieresPreventives: Barriere[]
   barrieresCorrectives: Barriere[]
@@ -590,7 +595,7 @@ export async function computeBarrierEfficaciteAvecApprentissage(
           for (let i = 0; i < reseau.length; i++) {
             reseau[i] = recomputeCPTFromObservations(reseau[i])
           }
-          return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau)
+          return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau, statut_sgs)
         }
       }
     } catch {
@@ -619,7 +624,7 @@ export async function computeBarrierEfficaciteAvecApprentissage(
     }
   }
 
-  return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau)
+  return computeBarrierEfficacite(bowTie, c1, c2, c3, c5, reseau, statut_sgs)
 }
 
 export function getConfianceLabel(confiance: number): string {

@@ -188,6 +188,12 @@ class AIClientClass {
       ? [...new Set([options.maxTokens, Math.floor(options.maxTokens / 2), Math.floor(options.maxTokens / 4)])]
       : [32768, 16000, 8000]
 
+    // Marqueur renvoyé par /api/ia/analyze (code 'ALL_PROVIDERS_FAILED', status 503)
+    // quand TOUS les providers LLM ont échoué (quota, indisponibilité, abort serveur).
+    // C'est une panne déterministe : retenter des paliers inférieurs rejouerait la même
+    // panne à l'identique (et consumerait du quota/timeout) — on renvoie le fallback.
+    const ALL_PROVIDERS_FAILED = 'ALL_PROVIDERS_FAILED'
+
     // Le 1er palier garde le timeout standard (la génération complète a besoin
     // de la fenêtre entière pour aboutir). Les paliers de retry, eux, ne servent
     // qu'à re-tester si un JSON mal formé redevient parseable : ils n'ont pas
@@ -205,6 +211,10 @@ class AIClientClass {
         timeoutMs: isFirst ? options.timeoutMs : retryTimeoutMs,
       })
       if (!result.ok || !result.content) {
+        if (isFirst && result.error && result.error.includes(ALL_PROVIDERS_FAILED)) {
+          console.error('[aiClient] Tous les providers IA down — skip des paliers de retry:', result.error)
+          return fallback
+        }
         continue
       }
 

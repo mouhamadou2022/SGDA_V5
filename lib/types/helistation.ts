@@ -14,6 +14,44 @@
 
 export type MoyenCom = 'VHF' | 'UHF' | 'HF' | 'SATCOM'
 
+/**
+ * Sous-type d'hélistation utilisé par les templates de checklist (ChecklistTemplate.sous_type_entite).
+ * Aligné sur ChecklistTemplateSousTypeEntite (lib/store.ts) — défini ici en union locale
+ * pour éviter un import circulaire store ↔ helistation.
+ */
+export type ChecklistTemplateSousTypeEntite =
+  | 'helistation_surface'
+  | 'helistation_mer'
+  | 'heliplateforme'
+
+export const SOUS_TYPE_HELISTATION_SUFFIX: Record<ChecklistTemplateSousTypeEntite, string> = {
+  helistation_surface: 'HELI_SURFACE',
+  helistation_mer: 'HELI_MER',
+  heliplateforme: 'HELI_PLATEFORME',
+}
+
+/**
+ * Mapping du type d'installation d'une hélistation (HelistationData.type_installation)
+ * vers le sous-type d'entité utilisé pour sélectionner le template de checklist.
+ * - terrestre          → hélistation en surface
+ * - plateforme_* (mer) → hélistation en mer
+ * - navire / autre     → héliplateforme (bâtiment, navire…)
+ */
+export function mapTypeInstallationToSousType(
+  typeInstallation: TypeInstallation | undefined,
+): ChecklistTemplateSousTypeEntite | undefined {
+  switch (typeInstallation) {
+    case 'terrestre': return 'helistation_surface'
+    case 'plateforme_autoelevee':
+    case 'plateforme_fixe':
+    case 'plateforme_flottante': return 'helistation_mer'
+    case 'navire': return 'heliplateforme'
+    case 'autre':
+    case undefined:
+    default: return undefined
+  }
+}
+
 export type TypeInstallation =
   | 'plateforme_autoelevee'    // Plate-forme auto-élévatrice (jack-up)
   | 'plateforme_fixe'          // Plate-forme fixe en mer

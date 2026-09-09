@@ -13,10 +13,11 @@ import { LangageClairFeedback } from '@/components/modules/profil-risque/Langage
 
 interface Props {
   profil: ProfilRisque
+  sgsNonApplicable?: boolean
 }
 
-export function HealthIndexLangageClair({ profil }: Props) {
-  const [texte, setTexte] = useState(() => fallbackHealthIndex(profil).texte)
+export function HealthIndexLangageClair({ profil, sgsNonApplicable = false }: Props) {
+  const [texte, setTexte] = useState(() => fallbackHealthIndex(profil, sgsNonApplicable ? 'non_applicable' : undefined).texte)
   const [iaEnCours, setIaEnCours] = useState(true)
   const [iaActif, setIaActif] = useState(false)
 
@@ -24,8 +25,8 @@ export function HealthIndexLangageClair({ profil }: Props) {
     let actif = true
     setIaEnCours(true)
     setIaActif(false)
-    setTexte(fallbackHealthIndex(profil).texte)
-    expliquerHealthIndex(profil).then((res) => {
+    setTexte(fallbackHealthIndex(profil, sgsNonApplicable ? 'non_applicable' : undefined).texte)
+    expliquerHealthIndex(profil, sgsNonApplicable ? 'non_applicable' : undefined).then((res) => {
       if (!actif) return
       setTexte(res.texte)
       setIaActif(!res.fallbackIA)
@@ -36,7 +37,7 @@ export function HealthIndexLangageClair({ profil }: Props) {
     })
     return () => { actif = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profil])
+  }, [profil, sgsNonApplicable])
 
   return (
     <div className="mt-4 pt-3 border-t border-border text-xs text-foreground" data-module="health-index-langage-clair">
