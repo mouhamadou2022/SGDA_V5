@@ -1,7 +1,8 @@
 // app/api/ia/ml/route.ts
 // API ML serveur — entraîne et exécute les modèles DL/ML sur données réelles
-// Persiste les poids dans Supabase (ml_model_weights + scores_historique)
+// Persiste les poids dans Supabase (ml_model_weights)
 // Boucle d'apprentissage fermée : feedback → retraining → amélioration
+// Historique d'apprentissage lu depuis score_history (alimenté par recalculate-risk + store)
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -282,7 +283,7 @@ async function handleTrain(req: TrainRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'aerodrome_id' })
 
-  // Pas d'insert dans scores_historique (table absente du schéma Supabase actuel)
+  // Pas d'insert dans score_history ici : alimenté par recalculate-risk et le store
 
   return NextResponse.json({
     status: 'OK',
@@ -327,11 +328,10 @@ async function handlePredict(req: PredictRequest) {
 
     // Prédiction LSTM si assez d'historique
     const { data: historique } = await supabase
-      .from('scores_historique')
-      .select('score_global, created_at')
+      .from('score_history')
+      .select('score_global, computed_at')
       .eq('aerodrome_id', aerodrome_id)
-      .eq('type_score', 'global')
-      .order('created_at', { ascending: false })
+      .order('computed_at', { ascending: false })
       .limit(60)
 
     let lstmPrediction: number | null = null
@@ -409,7 +409,7 @@ async function handleRetrainAll() {
         supabase.from('ecarts').select('*').eq('aerodrome_id', aero.id),
         supabase.from('evenements_securite').select('*').eq('aerodrome_id', aero.id),
         supabase.from('surveillances').select('*').eq('aerodrome_id', aero.id),
-        supabase.from('scores_historique').select('*').eq('aerodrome_id', aero.id).eq('type_score', 'global').order('created_at', { ascending: true }),
+        supabase.from('score_history').select('*').eq('aerodrome_id', aero.id).order('computed_at', { ascending: true }),
       ])
 
       const ecarts = ecartsRes.data ?? []
@@ -455,13 +455,14 @@ async function handleRetrainAll() {
       const targets: number[] = []
       for (let i = 0; i < historique.length - 1; i++) {
         const h = historique[i]
-        const meta = (h as any).metadata ?? {}
         features.push([
-          meta.c1 ?? 50, meta.c2 ?? 50, meta.c3 ?? 50, meta.c4 ?? 50, meta.c5 ?? 50,
-          meta.maturite_sgs ?? 50,
-          meta.nb_ecarts ?? ecarts.length,
-          meta.nb_evenements ?? evenements.length,
-          meta.taux_conformite ?? 70,
+          h.c1 ?? 50, h.c2 ?? 50, h.c3 ?? 50, h.c4 ?? 50, h.c5 ?? 50,
+          Number(aero.maturite_sgs ?? 50),
+          ecarts.length,
+          evenements.length,
+          surveillances.length > 0
+            ? surveillances.reduce((s: number, surv: any) => s + (surv.score_global ?? 70), 0) / surveillances.length
+            : 70,
         ])
         targets.push(historique[i + 1].score_global)
       }
@@ -493,8 +494,8 @@ async function handleRetrainAll() {
   return NextResponse.json({
     message: 'Re-entraînement global terminé',
     total: results.length,
-    ok: results.filter(r => r.status === 'OK').length,
-    errors: results.filter(r => r.status !== 'OK').length,
+    ok: results.filter(r => r.status.startsWith('OK')).length,
+    errors: results.filter(r => !r.status.startsWith('OK')).length,
     results,
   })
 }
