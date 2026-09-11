@@ -17,6 +17,7 @@ import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
 import { recommanderParmi, getModelesDisponibles, type ModeleAnalyse, type ModeleAnalyseInput } from '@/lib/ia/modelSelector'
 import { ModeleMLAnalysis } from './ModeleMLAnalysis'
 import { QualitativeChainSection } from './QualitativeChainSection'
+import { CollapseSection } from './CollapseSection'
 import type { Role } from '@/lib/config'
 
 type Niveau = 'critique' | 'eleve' | 'moyen' | 'faible'
@@ -282,6 +283,29 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       {/* ── Chaîne qualitative : AMDEC + BowTie + FTA + Bayésien combinés ── */}
       <QualitativeChainSection profil={profil} />
 
+      {/* Sélecteur de modèle d'analyse — recommandation IA (au-dessus des analyses) */}
+      <ModeleAnalyseSelector
+        input={inputModele}
+        selected={modeleActif}
+        onSelect={setModeleActif}
+        modelesDisponibles={modelesDispo}
+      />
+
+      {/* Bow-Tie — Analyse complète data-driven (affichée si BowTie sélectionné) */}
+      {modeleActif === 'bowtie' && (
+        <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
+      )}
+
+      {/* AMDEC — Analyse bottom-up des modes de défaillance (pilote le malus C3) */}
+      {modeleActif === 'amdec' && (
+        <AmdecModule aerodromeId={profil.aerodrome_id} userRole={userRole as Role | undefined} embedded />
+      )}
+
+      {/* Modèles ML avancés — analyse rendue depuis les métriques persistées (HMM, survie, EVT, copulas, TS, bayésien, RF) */}
+      {modeleActif !== 'bowtie' && modeleActif !== 'fta' && modeleActif !== 'amdec' && (
+        <ModeleMLAnalysis modele={modeleActif} profil={profil} rfModelInfo={rfModelInfo} predictionRF={predictionRF} evenements={evenements} ecarts={ecarts} />
+      )}
+
       {/* ── Détail par critère C1-C5 ── */}
       <Card
         variant="role"
@@ -384,62 +408,6 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         </Card>
       )}
 
-      {/* ── Dépendance entre critères ── */}
-      {profil.copula_metrics && (
-        <Card
-          variant="role"
-          heading="Dépendance entre critères"
-          icon={<Zap className="w-5 h-5 text-warning" />}
-        >
-          <div className="space-y-3">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className="w-full bg-muted rounded-full h-3">
-                  <div
-                    className={`h-3 rounded-full transition-all ${profil.copula_metrics.maxTailDependence > 0.6 ? 'bg-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'bg-warning' : 'bg-primary'}`}
-                    style={{ width: `${Math.min(100, profil.copula_metrics.maxTailDependence * 100)}%` }}
-                  />
-                </div>
-              </div>
-              <span className={`text-sm font-bold ${profil.copula_metrics.maxTailDependence > 0.6 ? 'text-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'text-warning' : 'text-primary'}`}>
-                {(profil.copula_metrics.maxTailDependence * 100).toFixed(0)} %
-              </span>
-            </div>
-            <p className="text-sm text-foreground leading-relaxed">
-              Dépendance de queue maximale entre domaines —{' '}
-              {profil.copula_metrics.maxTailDependence > 0.6
-                ? 'forte corrélation dans les extrêmes : une défaillance critique dans un domaine risque d\'en entraîner d\'autres.'
-                : profil.copula_metrics.maxTailDependence > 0.3
-                  ? 'corrélation modérée : les domaines sont partiellement liés en situation de stress.'
-                  : 'faible corrélation : les domaines évoluent de façon relativement indépendante.'}
-            </p>
-            {profil.copula_metrics.worstCaseDescription && (
-              <p className="text-sm text-foreground leading-relaxed italic">
-                Pire cas : {profil.copula_metrics.worstCaseDescription}
-              </p>
-            )}
-          </div>
-        </Card>
-      )}
-
-      {/* ── Variabilité des incidents ── */}
-      {profil.negbin_metrics && profil.negbin_metrics.isOverdispersed && (
-        <Card
-          variant="role"
-          heading="Variabilité des incidents"
-          icon={<Activity className="w-5 h-5 text-primary" />}
-        >
-          <p className="text-sm text-foreground leading-relaxed">
-            Forte variabilité des incidents détectée — le nombre d&apos;incidents fluctue par grappes.
-          </p>
-          {profil.negbin_metrics.dispersion != null && (
-            <p className="text-sm text-foreground mt-2">
-              Dispersion : {profil.negbin_metrics.dispersion.toFixed(2)} · Moyenne : {profil.negbin_metrics.mean?.toFixed(1)} · Variance : {profil.negbin_metrics.variance?.toFixed(1)}
-            </p>
-          )}
-        </Card>
-      )}
-
       {/* ── Alerte Cygne Noir ── */}
       {profil.bayesian_black_swan && (
         <Card
@@ -506,6 +474,64 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         </Card>
       )}
 
+      {/* ═══ Analyses complémentaires — repliées par défaut pour l'inspecteur ═══ */}
+      <CollapseSection userRole={userRole} title="Analyses complémentaires" icon={<Zap className="w-4 h-4 text-role-primary" />}>
+      {/* ── Dépendance entre critères ── */}
+      {profil.copula_metrics && (
+        <Card
+          variant="role"
+          heading="Dépendance entre critères"
+          icon={<Zap className="w-5 h-5 text-warning" />}
+        >
+          <div className="space-y-3">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <div className="w-full bg-muted rounded-full h-3">
+                  <div
+                    className={`h-3 rounded-full transition-all ${profil.copula_metrics.maxTailDependence > 0.6 ? 'bg-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'bg-warning' : 'bg-primary'}`}
+                    style={{ width: `${Math.min(100, profil.copula_metrics.maxTailDependence * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <span className={`text-sm font-bold ${profil.copula_metrics.maxTailDependence > 0.6 ? 'text-danger' : profil.copula_metrics.maxTailDependence > 0.3 ? 'text-warning' : 'text-primary'}`}>
+                {(profil.copula_metrics.maxTailDependence * 100).toFixed(0)} %
+              </span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">
+              Dépendance de queue maximale entre domaines —{' '}
+              {profil.copula_metrics.maxTailDependence > 0.6
+                ? 'forte corrélation dans les extrêmes : une défaillance critique dans un domaine risque d\'en entraîner d\'autres.'
+                : profil.copula_metrics.maxTailDependence > 0.3
+                  ? 'corrélation modérée : les domaines sont partiellement liés en situation de stress.'
+                  : 'faible corrélation : les domaines évoluent de façon relativement indépendante.'}
+            </p>
+            {profil.copula_metrics.worstCaseDescription && (
+              <p className="text-sm text-foreground leading-relaxed italic">
+                Pire cas : {profil.copula_metrics.worstCaseDescription}
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Variabilité des incidents ── */}
+      {profil.negbin_metrics && profil.negbin_metrics.isOverdispersed && (
+        <Card
+          variant="role"
+          heading="Variabilité des incidents"
+          icon={<Activity className="w-5 h-5 text-primary" />}
+        >
+          <p className="text-sm text-foreground leading-relaxed">
+            Forte variabilité des incidents détectée — le nombre d&apos;incidents fluctue par grappes.
+          </p>
+          {profil.negbin_metrics.dispersion != null && (
+            <p className="text-sm text-foreground mt-2">
+              Dispersion : {profil.negbin_metrics.dispersion.toFixed(2)} · Moyenne : {profil.negbin_metrics.mean?.toFixed(1)} · Variance : {profil.negbin_metrics.variance?.toFixed(1)}
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* ── Scénario pire cas ── */}
       {scenarioCatastrophe && (
         <Card
@@ -553,34 +579,12 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         </Card>
       )}
 
-      {/* Sélecteur de modèle d'analyse — recommandation IA (au-dessus des analyses) */}
-      <ModeleAnalyseSelector
-        input={inputModele}
-        selected={modeleActif}
-        onSelect={setModeleActif}
-        modelesDisponibles={modelesDispo}
-      />
-
-      {/* Bow-Tie — Analyse complète data-driven (affichée si BowTie sélectionné) */}
-      {modeleActif === 'bowtie' && (
-        <BowTieAnalyzer profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
-      )}
-
-      {/* AMDEC — Analyse bottom-up des modes de défaillance (pilote le malus C3) */}
-      {modeleActif === 'amdec' && (
-        <AmdecModule aerodromeId={profil.aerodrome_id} userRole={userRole as Role | undefined} embedded />
-      )}
-
-      {/* Modèles ML avancés — analyse rendue depuis les métriques persistées (HMM, survie, EVT, copulas, TS, bayésien, RF) */}
-      {modeleActif !== 'bowtie' && modeleActif !== 'fta' && modeleActif !== 'amdec' && (
-        <ModeleMLAnalysis modele={modeleActif} profil={profil} rfModelInfo={rfModelInfo} predictionRF={predictionRF} evenements={evenements} ecarts={ecarts} />
-      )}
-
       {/* Graphe unifié OACI → risques → écarts */}
       <OaciGraphSection profil={profil} ecarts={ecarts} surveillances={surveillances} evenements={evenements} />
 
       {/* Corrélations C1-C5 + Copulas */}
       <CorrelationSection profil={profil} />
+      </CollapseSection>
     </div>
   )
 }

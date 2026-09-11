@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { FeedbackSection } from './FeedbackSection'
 import { CalibrationPanel } from './CalibrationPanel'
+import { CollapseSection } from './CollapseSection'
 import { useActionsIAStore } from '@/lib/state/actionsIAStore'
 
 interface ActionsTabProps {
@@ -159,31 +160,6 @@ export function ActionsTab({
   return (
     <div className="space-y-8 animate-fade-up" data-module="actions-tab">
 
-      {/* Thompson Sampling — unique à cet onglet */}
-      {tsMetrics && (
-        <Card variant="role" title="AERORISQ — Thompson Sampling" icon={<Brain className="w-4 h-4" />}>
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center flex-shrink-0">
-              <Brain className="w-6 h-6 text-role-primary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="badge primary">AERORISQ — Thompson Sampling</span>
-                <span className="text-xs text-foreground">
-                  Confiance: <strong className="text-role-primary">{tsMetrics.bestProbability}%</strong>
-                </span>
-              </div>
-              <p className="text-sm font-semibold text-foreground mt-2">
-                Action recommandee: {tsMetrics.recommendedAction}
-              </p>
-              <p className="text-xs text-foreground mt-1">
-                Selectionnee par echantillonnage de Thompson, optimisant le compromis exploration/exploitation parmi les actions disponibles.
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Plan d'action — checklist inspecteur */}
       <Card
         title="Plan d'action — inspecteur"
@@ -308,6 +284,33 @@ export function ActionsTab({
           </>
         )}
       </Card>
+
+      {/* Thompson Sampling — replié par défaut pour l'inspecteur (unique à cet onglet) */}
+      {tsMetrics && (
+        <CollapseSection userRole={userRole} title="AERORISQ — Thompson Sampling" icon={<Brain className="w-4 h-4 text-role-primary" />}>
+          <Card variant="role" title="AERORISQ — Thompson Sampling" icon={<Brain className="w-4 h-4" />}>
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-role-primary-soft flex items-center justify-center flex-shrink-0">
+                <Brain className="w-6 h-6 text-role-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="badge primary">AERORISQ — Thompson Sampling</span>
+                  <span className="text-xs text-foreground">
+                    Confiance: <strong className="text-role-primary">{tsMetrics.bestProbability}%</strong>
+                  </span>
+                </div>
+                <p className="text-sm font-semibold text-foreground mt-2">
+                  Action recommandee: {tsMetrics.recommendedAction}
+                </p>
+                <p className="text-xs text-foreground mt-1">
+                  Selectionnee par echantillonnage de Thompson, optimisant le compromis exploration/exploitation parmi les actions disponibles.
+                </p>
+              </div>
+            </div>
+          </Card>
+        </CollapseSection>
+      )}
 
       {/* Barre d'actions */}
       <div className="flex items-center gap-3 flex-wrap pt-2">

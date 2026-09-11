@@ -10,6 +10,7 @@ import { ProfilRisque, ScoreHistoryPoint, EvenementSecurite } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { AlertTriangle, Brain, Target, Shield, Clock, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
+import { CollapseSection } from './CollapseSection'
 import type { ActionConcrete } from '@/lib/risque/recommendations'
 import { useActionsIAStore } from '@/lib/state/actionsIAStore'
 import {
@@ -24,6 +25,7 @@ interface AnticipationTabProps {
   historicalScores: ScoreHistoryPoint[]
   evenements: EvenementSecurite[]
   aerodromeCode?: string
+  userRole?: string
 }
 
 const PRIORITE_LABEL: Record<string, { label: string; badge: string }> = {
@@ -61,7 +63,7 @@ function LangageClair({ texte, iaEnCours, iaActif }: { texte: string; iaEnCours:
   )
 }
 
-export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode }: AnticipationTabProps) {
+export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode, userRole }: AnticipationTabProps) {
   const actionsPartagees = useActionsIAStore((s) => s.parAerodrome[profil.aerodrome_id])
   const actions = actionsPartagees ?? []
 
@@ -110,73 +112,7 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
 
   return (
     <div className="space-y-8 animate-fade-up" data-module="anticipation-tab">
-      {/* ═══ ROW 1 — Ce qui va arriver ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card variant="role" title="Prédictions temporelles" icon={<Target className="w-4 h-4" />} size="sm">
-          <div className="flex items-center justify-around">
-            {([
-              { label: '3 mois', val: profil.prediction_3m, ic: profil.prediction_interval_3m },
-              { label: '6 mois', val: profil.prediction_6m, ic: profil.prediction_interval_6m },
-              { label: '12 mois', val: profil.prediction_12m, ic: null },
-            ] as const).map((p) => {
-              if (p.val === undefined) return null
-              const cls = p.val >= 80 ? 'text-danger' : p.val >= 60 ? 'text-warning' : p.val >= 30 ? 'text-primary' : 'text-success'
-              return (
-                <div key={p.label} className="text-center">
-                  <div className={`text-2xl font-bold ${cls}`}>{Math.round(p.val)}</div>
-                  <div className="text-xs text-foreground">{p.label}</div>
-                  {p.ic && <div className="text-[10px] text-foreground italic">IC95 [{pct(p.ic.lower)}–{pct(p.ic.upper)}]</div>}
-                </div>
-              )
-            })}
-          </div>
-          {profil.ensemble_confidence !== undefined && (() => {
-            const conf = pct(profil.ensemble_confidence)
-            if (conf === null) return null
-            return (
-              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border text-xs text-foreground">
-                <span>Fiabilité des modèles</span>
-                <div className="progress flex-1 h-1.5">
-                  <div className="progress-bar" style={{ width: `${conf}%`, background: `var(--color-${conf >= 70 ? 'success' : conf >= 40 ? 'warning' : 'danger'})` }} />
-                </div>
-                <span className="font-mono">{conf}%</span>
-              </div>
-            )
-          })()}
-          <LangageClair texte={predTexte} iaEnCours={predEnCours} iaActif={predIA} />
-        </Card>
-
-        <Card variant="role" title="Risques incidents & extrêmes" icon={<AlertTriangle className="w-4 h-4" />} size="sm">
-          <div className="grid grid-cols-3 gap-2 text-center">
-            {([
-              { label: 'Incident 3m', val: profil.incident_prediction_3m, cls: 'text-danger', bg: 'bg-danger/5' },
-              { label: 'Incident 6m', val: profil.incident_prediction_6m, cls: 'text-warning', bg: 'bg-warning/5' },
-              { label: 'Incident 12m', val: profil.incident_prediction_12m, cls: 'text-role-primary', bg: 'bg-role-primary-soft' },
-            ]).map(({ label, val, cls, bg }) => {
-              const v = pct(val)
-              return (
-                <div key={label} className={`p-2 rounded-lg ${bg}`}>
-                  <div className="text-xs text-foreground">{label}</div>
-                  <div className={`text-lg font-bold ${cls}`}>{v !== null ? `${v}%` : '—'}</div>
-                </div>
-              )
-            })}
-          </div>
-          {profil.extreme_risk && (() => {
-            const tailPct = pct(profil.extreme_risk!.tailRisk)
-            return (
-              <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-border text-xs text-foreground">
-                <span className={`badge ${profil.extreme_risk!.isHeavyTailed ? 'danger' : 'success'}`}>{profil.extreme_risk!.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}</span>
-                {tailPct !== null && <span>Risque extrême: {tailPct}%</span>}
-                {profil.extreme_risk!.maxExpected12m !== undefined && <span>Max 12m: {profil.extreme_risk!.maxExpected12m} incidents</span>}
-              </div>
-            )
-          })()}
-          <LangageClair texte={incidentTexte} iaEnCours={incidentEnCours} iaActif={incidentIA} />
-        </Card>
-      </div>
-
-      {/* ═══ ROW 2 — Points de vigilance inspecteur (partagés avec l'onglet Actions) ═══ */}
+      {/* ═══ ROW 1 — Points de vigilance inspecteur (partagés avec l'onglet Actions) ═══ */}
       <Card
         title="Points de vigilance — inspecteur"
         icon={<Shield className="w-4 h-4" />}
@@ -202,35 +138,103 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
         )}
       </Card>
 
-      {/* ═══ ROW 3 — Ce qui pourrait arriver (What-if) ═══ */}
-      <ScenarioSimulator profil={profil} aerodromeName={aerodromeCode || profil.aerodrome_id} userRole="admin" />
-
-      {/* ═══ ROW 4 — Signalements contextuels ═══ */}
-      {evenements && evenements.length > 0 && (
-        <Card variant="role" title="Signalements par type d'incident" icon={<Brain className="w-4 h-4" />} size="sm">
-          <div className="space-y-2">
-            {(() => {
-              const eventTypes = new Map<string, number>()
-              for (const evt of evenements) {
-                const t = evt.type || evt.gravite || 'incident'
-                eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
-              }
-              const sorted = Array.from(eventTypes.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)
-              return sorted.map(([type, count]) => {
-                const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * ((profil.incident_prediction_6m ?? 0) > 0 ? profil.incident_prediction_6m! : 50)))
+      {/* ═══ ROW 2 — Analyses prédictives & scénarios (repliées par défaut) ═══ */}
+      <CollapseSection userRole={userRole} title="Analyses prédictives & scénarios" icon={<Target className="w-4 h-4 text-role-primary" />}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card variant="role" title="Prédictions temporelles" icon={<Target className="w-4 h-4" />} size="sm">
+            <div className="flex items-center justify-around">
+              {([
+                { label: '3 mois', val: profil.prediction_3m, ic: profil.prediction_interval_3m },
+                { label: '6 mois', val: profil.prediction_6m, ic: profil.prediction_interval_6m },
+                { label: '12 mois', val: profil.prediction_12m, ic: null },
+              ] as const).map((p) => {
+                if (p.val === undefined) return null
+                const cls = p.val >= 80 ? 'text-danger' : p.val >= 60 ? 'text-warning' : p.val >= 30 ? 'text-primary' : 'text-success'
                 return (
-                  <div key={type} className={`flex items-center justify-between gap-3 p-2 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />
-                    <span className="text-xs text-foreground flex-1 capitalize">{type.toLowerCase().replace(/_/g, ' ')}</span>
-                    <span className={`text-xs font-bold ${prob > 50 ? 'text-danger' : prob > 30 ? 'text-warning' : 'text-primary'}`}>{prob}%</span>
-                    <span className="text-[10px] text-foreground">({count} occ.)</span>
+                  <div key={p.label} className="text-center">
+                    <div className={`text-2xl font-bold ${cls}`}>{Math.round(p.val)}</div>
+                    <div className="text-xs text-foreground">{p.label}</div>
+                    {p.ic && <div className="text-[10px] text-foreground italic">IC95 [{pct(p.ic.lower)}–{pct(p.ic.upper)}]</div>}
                   </div>
                 )
-              })
+              })}
+            </div>
+            {profil.ensemble_confidence !== undefined && (() => {
+              const conf = pct(profil.ensemble_confidence)
+              if (conf === null) return null
+              return (
+                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border text-xs text-foreground">
+                  <span>Fiabilité des modèles</span>
+                  <div className="progress flex-1 h-1.5">
+                    <div className="progress-bar" style={{ width: `${conf}%`, background: `var(--color-${conf >= 70 ? 'success' : conf >= 40 ? 'warning' : 'danger'})` }} />
+                  </div>
+                  <span className="font-mono">{conf}%</span>
+                </div>
+              )
             })()}
-          </div>
-        </Card>
-      )}
+            <LangageClair texte={predTexte} iaEnCours={predEnCours} iaActif={predIA} />
+          </Card>
+
+          <Card variant="role" title="Risques incidents & extrêmes" icon={<AlertTriangle className="w-4 h-4" />} size="sm">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {([
+                { label: 'Incident 3m', val: profil.incident_prediction_3m, cls: 'text-danger', bg: 'bg-danger/5' },
+                { label: 'Incident 6m', val: profil.incident_prediction_6m, cls: 'text-warning', bg: 'bg-warning/5' },
+                { label: 'Incident 12m', val: profil.incident_prediction_12m, cls: 'text-role-primary', bg: 'bg-role-primary-soft' },
+              ]).map(({ label, val, cls, bg }) => {
+                const v = pct(val)
+                return (
+                  <div key={label} className={`p-2 rounded-lg ${bg}`}>
+                    <div className="text-xs text-foreground">{label}</div>
+                    <div className={`text-lg font-bold ${cls}`}>{v !== null ? `${v}%` : '—'}</div>
+                  </div>
+                )
+              })}
+            </div>
+            {profil.extreme_risk && (() => {
+              const tailPct = pct(profil.extreme_risk!.tailRisk)
+              return (
+                <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-border text-xs text-foreground">
+                  <span className={`badge ${profil.extreme_risk!.isHeavyTailed ? 'danger' : 'success'}`}>{profil.extreme_risk!.isHeavyTailed ? 'Queue lourde' : 'Queue normale'}</span>
+                  {tailPct !== null && <span>Risque extrême: {tailPct}%</span>}
+                  {profil.extreme_risk!.maxExpected12m !== undefined && <span>Max 12m: {profil.extreme_risk!.maxExpected12m} incidents</span>}
+                </div>
+              )
+            })()}
+            <LangageClair texte={incidentTexte} iaEnCours={incidentEnCours} iaActif={incidentIA} />
+          </Card>
+        </div>
+
+        {/* Ce qui pourrait arriver (What-if) */}
+        <ScenarioSimulator profil={profil} aerodromeName={aerodromeCode || profil.aerodrome_id} userRole={userRole || 'inspector'} />
+
+        {/* Signalements contextuels */}
+        {evenements && evenements.length > 0 && (
+          <Card variant="role" title="Signalements par type d'incident" icon={<Brain className="w-4 h-4" />} size="sm">
+            <div className="space-y-2">
+              {(() => {
+                const eventTypes = new Map<string, number>()
+                for (const evt of evenements) {
+                  const t = evt.type || evt.gravite || 'incident'
+                  eventTypes.set(t, (eventTypes.get(t) || 0) + 1)
+                }
+                const sorted = Array.from(eventTypes.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4)
+                return sorted.map(([type, count]) => {
+                  const prob = Math.min(95, Math.round((count / Math.max(1, evenements.length)) * ((profil.incident_prediction_6m ?? 0) > 0 ? profil.incident_prediction_6m! : 50)))
+                  return (
+                    <div key={type} className={`flex items-center justify-between gap-3 p-2 rounded-lg ${prob > 50 ? 'bg-danger-soft' : prob > 30 ? 'bg-warning-soft' : 'bg-muted/20'}`}>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${prob > 50 ? 'bg-danger' : prob > 30 ? 'bg-warning' : 'bg-primary'}`} />
+                      <span className="text-xs text-foreground flex-1 capitalize">{type.toLowerCase().replace(/_/g, ' ')}</span>
+                      <span className={`text-xs font-bold ${prob > 50 ? 'text-danger' : prob > 30 ? 'text-warning' : 'text-primary'}`}>{prob}%</span>
+                      <span className="text-[10px] text-foreground">({count} occ.)</span>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </Card>
+        )}
+      </CollapseSection>
     </div>
   )
 }

@@ -342,7 +342,7 @@ export function RisqueModule({ userRole }: Props) {
               <DiagnosticTab profil={profil} surveillances={surveillances.filter(s => s.aerodrome_id === aerodrome.id)} ecarts={ecarts.filter(e => e.aerodrome_id === aerodrome.id)} evenementsCount={evenementsAerodrome.length} evenements={evenementsAerodrome} userRole={userRole} sgsNonApplicable={aerodrome.statut_sgs === 'non_applicable'} />
             )}
             {activeOnglet === 'anticipation' && (
-              <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} aerodromeCode={aerodrome.code_oaci} />
+              <AnticipationTab profil={profil} historicalScores={historiqueScores} evenements={evenementsAerodrome} aerodromeCode={aerodrome.code_oaci} userRole={userRole} />
             )}
             {activeOnglet === 'actions' && (
               <ActionsTab profil={profil} aerodromeId={aerodrome.id} aerodromeCode={aerodrome.code_oaci} userRole={userRole} onRecalculate={handleRecalculer} />

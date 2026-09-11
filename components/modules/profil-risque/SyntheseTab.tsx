@@ -23,6 +23,7 @@ import type { ICaoCell } from '@/lib/risque/icaoMatrix'
 import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
 import RecommandationDuJourCard from './RecommandationDuJourCard'
 import ShapExplicationCard from './ShapExplicationCard'
+import { CollapseSection } from './CollapseSection'
 
 interface SyntheseTabProps {
   profil: ProfilRisque
@@ -244,8 +245,8 @@ export function SyntheseTab({
         </div>
       )}
 
-      {/* ═══ ROW 1 — Vue d'ensemble : Gauge + Stats critères + Synthèse IA (2x largeur) ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      {/* ═══ ROW 1 — Vue d'ensemble : Gauge + Synthèse IA (2x largeur) ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* --- Gauge --- */}
         <Card heading="Score global">
           <div className="flex items-center justify-center gap-4">
@@ -276,56 +277,6 @@ export function SyntheseTab({
                 </div>
               )}
             </div>
-          </div>
-        </Card>
-
-        {/* --- Statistiques C1-C5 --- */}
-        <Card variant="role" title="Stats critères" icon={<BarChart3 className="w-4 h-4" />} size="sm">
-          <div className="space-y-2.5 text-xs text-foreground">
-            <div className="flex items-center justify-between">
-              <span>Score moyen</span>
-              <span className="font-mono font-bold">{critereMean.toFixed(1)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Écart-type</span>
-              <span className="font-mono font-medium">±{critereStdDev.toFixed(1)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Dispersion</span>
-              <span className="font-mono font-medium">{(critereDispersion * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center justify-between border-t border-border pt-2">
-              <span>Critère min</span>
-              <span className="font-mono font-bold text-danger">{critereMin.toFixed(1)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Critère max</span>
-              <span className="font-mono font-bold text-success">{critereMax.toFixed(1)}</span>
-            </div>
-            <div className="border-t border-border pt-2 mt-2" />
-            <p className="text-[11px] font-semibold text-muted-foreground">Régression linéaire</p>
-            {regResult ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <span>R² (détermination)</span>
-                  <span className="font-mono font-bold" style={{ color: r2 >= 0.7 ? 'var(--color-success)' : r2 >= 0.4 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-                    {r2.toFixed(3)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Pente</span>
-                  <span className={`font-mono font-medium ${regResult.slope > 0.1 ? 'text-success' : regResult.slope < -0.1 ? 'text-danger' : 'text-foreground'}`}>
-                    {regResult.slope > 0 ? '+' : ''}{regResult.slope.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Erreur standard</span>
-                  <span className="font-mono font-medium">±{regResult.stdError.toFixed(2)}</span>
-                </div>
-              </>
-            ) : (
-              <p className="text-[11px] text-muted-foreground italic">2 données min. requises (actuel: {scores.length})</p>
-            )}
           </div>
         </Card>
 
@@ -462,132 +413,185 @@ export function SyntheseTab({
         <RecommandationDuJourCard recommandation={recommandationDuJour} />
       )}
 
-      {/* ═══ ROW 3 — Statut des modèles ═══ */}
-      <Card variant="role" title="Statut des modèles" icon={<BarChart3 className="w-4 h-4" />}>
-        <div className="space-y-3">
-          {/* Résumé */}
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-foreground">
-              <span className="font-bold">{diagnostic.votes.length}</span> modèle{diagnostic.votes.length > 1 ? 's' : ''} actif{diagnostic.votes.length > 1 ? 's' : ''} / {NOMBRE_MAX_VOTES}
-            </span>
-            <span className={`text-xs font-medium ${diagnostic.confianceGlobale >= 70 ? 'text-success' : diagnostic.confianceGlobale >= 40 ? 'text-warning' : 'text-danger'}`}>
-              Confiance ensemble: {diagnostic.confianceGlobale}%
-            </span>
+      {/* ═══ Analyses détaillées — repliées par défaut pour l'inspecteur ═══ */}
+      <CollapseSection userRole={userRole} title="Analyses détaillées" icon={<BarChart3 className="w-4 h-4 text-role-primary" />}>
+        {/* --- Statistiques C1-C5 --- */}
+        <Card variant="role" title="Stats critères" icon={<BarChart3 className="w-4 h-4" />} size="sm">
+          <div className="space-y-2.5 text-xs text-foreground">
+            <div className="flex items-center justify-between">
+              <span>Score moyen</span>
+              <span className="font-mono font-bold">{critereMean.toFixed(1)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Écart-type</span>
+              <span className="font-mono font-medium">±{critereStdDev.toFixed(1)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Dispersion</span>
+              <span className="font-mono font-medium">{(critereDispersion * 100).toFixed(0)}%</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border pt-2">
+              <span>Critère min</span>
+              <span className="font-mono font-bold text-danger">{critereMin.toFixed(1)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Critère max</span>
+              <span className="font-mono font-bold text-success">{critereMax.toFixed(1)}</span>
+            </div>
+            <div className="border-t border-border pt-2 mt-2" />
+            <p className="text-[11px] font-semibold text-muted-foreground">Régression linéaire</p>
+            {regResult ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span>R² (détermination)</span>
+                  <span className="font-mono font-bold" style={{ color: r2 >= 0.7 ? 'var(--color-success)' : r2 >= 0.4 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                    {r2.toFixed(3)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Pente</span>
+                  <span className={`font-mono font-medium ${regResult.slope > 0.1 ? 'text-success' : regResult.slope < -0.1 ? 'text-danger' : 'text-foreground'}`}>
+                    {regResult.slope > 0 ? '+' : ''}{regResult.slope.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Erreur standard</span>
+                  <span className="font-mono font-medium">±{regResult.stdError.toFixed(2)}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground italic">2 données min. requises (actuel: {scores.length})</p>
+            )}
           </div>
-          <div className="progress h-1.5">
-            <div className="progress-bar" style={{ width: `${diagnostic.confianceGlobale}%`, background: `var(--color-${diagnostic.confianceGlobale >= 70 ? 'success' : diagnostic.confianceGlobale >= 40 ? 'warning' : 'danger'})` }} />
-          </div>
+        </Card>
 
-          {/* Grille des modèles */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {diagnostic.votes.map(v => {
-              const degColor = v.indiceDegradation >= 70 ? 'text-danger' : v.indiceDegradation >= 40 ? 'text-warning' : v.indiceDegradation >= 20 ? 'text-primary' : 'text-success'
-              const confColor = v.confiance >= 70 ? 'text-success' : v.confiance >= 40 ? 'text-warning' : 'text-danger'
-              return (
-                <div key={v.nom} className="rounded-lg border border-border p-2.5 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-foreground truncate">{v.nom}</span>
-                    <span className="flex items-center gap-1.5 shrink-0">
-                      {v.dataSupport !== undefined && v.dataSupport < 70 && (
-                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-warning/10 text-warning" title="Données limitées — poids réduit dans le consensus">
-                          données {v.dataSupport}%
-                        </span>
-                      )}
-                      <span className={`text-[10px] font-mono font-bold ${degColor}`}>{v.indiceDegradation}</span>
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{v.interpretation}</p>
-                  <div className="flex items-center gap-2">
-                    <div className="progress flex-1 h-1">
-                      <div className="progress-bar" style={{ width: `${v.confiance}%`, background: `var(--color-${v.confiance >= 70 ? 'success' : v.confiance >= 40 ? 'warning' : 'danger'})` }} />
+        {/* --- Statut des modèles --- */}
+        <Card variant="role" title="Statut des modèles" icon={<BarChart3 className="w-4 h-4" />}>
+          <div className="space-y-3">
+            {/* Résumé */}
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-foreground">
+                <span className="font-bold">{diagnostic.votes.length}</span> modèle{diagnostic.votes.length > 1 ? 's' : ''} actif{diagnostic.votes.length > 1 ? 's' : ''} / {NOMBRE_MAX_VOTES}
+              </span>
+              <span className={`text-xs font-medium ${diagnostic.confianceGlobale >= 70 ? 'text-success' : diagnostic.confianceGlobale >= 40 ? 'text-warning' : 'text-danger'}`}>
+                Confiance ensemble: {diagnostic.confianceGlobale}%
+              </span>
+            </div>
+            <div className="progress h-1.5">
+              <div className="progress-bar" style={{ width: `${diagnostic.confianceGlobale}%`, background: `var(--color-${diagnostic.confianceGlobale >= 70 ? 'success' : diagnostic.confianceGlobale >= 40 ? 'warning' : 'danger'})` }} />
+            </div>
+
+            {/* Grille des modèles */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {diagnostic.votes.map(v => {
+                const degColor = v.indiceDegradation >= 70 ? 'text-danger' : v.indiceDegradation >= 40 ? 'text-warning' : v.indiceDegradation >= 20 ? 'text-primary' : 'text-success'
+                const confColor = v.confiance >= 70 ? 'text-success' : v.confiance >= 40 ? 'text-warning' : 'text-danger'
+                return (
+                  <div key={v.nom} className="rounded-lg border border-border p-2.5 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground truncate">{v.nom}</span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {v.dataSupport !== undefined && v.dataSupport < 70 && (
+                          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-warning/10 text-warning" title="Données limitées — poids réduit dans le consensus">
+                            données {v.dataSupport}%
+                          </span>
+                        )}
+                        <span className={`text-[10px] font-mono font-bold ${degColor}`}>{v.indiceDegradation}</span>
+                      </span>
                     </div>
-                    <span className={`text-[10px] font-mono ${confColor}`}>{v.confiance}%</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{v.interpretation}</p>
+                    <div className="flex items-center gap-2">
+                      <div className="progress flex-1 h-1">
+                        <div className="progress-bar" style={{ width: `${v.confiance}%`, background: `var(--color-${v.confiance >= 70 ? 'success' : v.confiance >= 40 ? 'warning' : 'danger'})` }} />
+                      </div>
+                      <span className={`text-[10px] font-mono ${confColor}`}>{v.confiance}%</span>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+
+            {/* Explication IA — modèles actifs, inactifs et lecture de la confiance */}
+            <StatutModelesExplication profil={profil} diagnostic={diagnostic} />
+
+            {/* Détails avancés — métriques réelles de chaque modèle présent */}
+            <ModeleDetailsAvances profil={profil} />
           </div>
+        </Card>
 
-          {/* Explication IA — modèles actifs, inactifs et lecture de la confiance */}
-          <StatutModelesExplication profil={profil} diagnostic={diagnostic} />
+        {/* Matrice risque ICAO dynamique */}
+        {(() => {
+          if (!evenements || evenements.length === 0) return null
+          const icaoMat = computeICaoMatrix(evenements)
+          if (icaoMat.size === 0) return null
+          const icaoLabels = getICaoLabels()
+          return (
+            <Card variant="role" title="Matrice risque ICAO dynamique" icon={<Sparkles className="w-4 h-4" />}>
+              <p className="text-xs text-foreground mb-3">Fréquence × sévérité des événements de sécurité — calcul dynamique (Doc 9859).</p>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-center text-xs">
+                  <thead>
+                    <tr>
+                      <th className="p-2 text-foreground font-medium text-left">Type</th>
+                      <th className="p-2 text-foreground font-medium">Fréq./an</th>
+                      <th className="p-2 text-foreground font-medium">Probabilité</th>
+                      <th className="p-2 text-foreground font-medium">Grav. moy.</th>
+                      <th className="p-2 text-foreground font-medium">Sévérité</th>
+                      <th className="p-2 text-foreground font-medium">Risque</th>
+                      <th className="p-2 text-foreground font-medium">Nb</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...icaoMat.entries()].map(([type, cell]: [string, ICaoCell]) => {
+                      const niveauMap: Record<string, { bg: string }> = { critique: { bg: 'bg-danger' }, eleve: { bg: 'bg-warning' }, moyen: { bg: 'bg-teal' }, faible: { bg: 'bg-success' } }
+                      const nivCfg = niveauMap[cell.niveau] || { bg: 'bg-muted' }
+                      const probaMap: Record<string, string> = { frequente: 'Fréquente', probable: 'Probable', occasionnelle: 'Occasionnelle', improbable: 'Improbable', tres_improbable: 'Très improbable' }
+                      const sevMap: Record<string, string> = { catastrophique: 'Catastrophique', critique: 'Critique', majeur: 'Majeur', mineur: 'Mineur', negligeable: 'Négligeable' }
+                      return (
+                        <tr key={type} className="border-b border-border/50">
+                          <td className="p-2 text-left text-foreground font-medium">{type.replace(/_/g, ' ')}</td>
+                          <td className="p-2 text-foreground">{cell.freqObservee}</td>
+                          <td className="p-2 text-foreground">{probaMap[cell.probabilite] || cell.probabilite}</td>
+                          <td className="p-2 text-foreground">{cell.graviteMoyenne}</td>
+                          <td className="p-2 text-foreground">{sevMap[cell.severite] || cell.severite}</td>
+                          <td className="p-2"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold text-white ${nivCfg.bg}`}>{cell.niveau}</span></td>
+                          <td className="p-2 text-foreground">{cell.nbEvenements}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap gap-3 mt-3 pt-2 border-t border-border">
+                {icaoLabels.niveaux.map((n: { value: string; label: string; color: string }) => (
+                  <div key={n.value} className="flex items-center gap-1.5 text-xs text-foreground">
+                    <div className={`w-3 h-3 rounded ${n.color === 'danger' ? 'bg-danger' : n.color === 'eleve' ? 'bg-eleve' : n.color === 'moyen' ? 'bg-moyen' : 'bg-success'}`} />
+                    {n.label}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )
+        })()}
 
-          {/* Détails avancés — métriques réelles de chaque modèle présent */}
-          <ModeleDetailsAvances profil={profil} />
+        {/* Cartes avancées (explicabilité, dérives, indicateurs, facteurs exogènes) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className={hasDriftCard ? '' : 'lg:col-span-2'}>
+            <ExplanabilityCard profil={profil} ecarts={ecarts} evenements={evenements} />
+          </div>
+          {hasDriftCard && <FeatureDriftCard profil={profil} analysis={driftAnalysis} />}
         </div>
-      </Card>
-
-      {/* Matrice risque ICAO dynamique */}
-      {(() => {
-        if (!evenements || evenements.length === 0) return null
-        const icaoMat = computeICaoMatrix(evenements)
-        if (icaoMat.size === 0) return null
-        const icaoLabels = getICaoLabels()
-        return (
-          <Card variant="role" title="Matrice risque ICAO dynamique" icon={<Sparkles className="w-4 h-4" />}>
-            <p className="text-xs text-foreground mb-3">Fréquence × sévérité des événements de sécurité — calcul dynamique (Doc 9859).</p>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-center text-xs">
-                <thead>
-                  <tr>
-                    <th className="p-2 text-foreground font-medium text-left">Type</th>
-                    <th className="p-2 text-foreground font-medium">Fréq./an</th>
-                    <th className="p-2 text-foreground font-medium">Probabilité</th>
-                    <th className="p-2 text-foreground font-medium">Grav. moy.</th>
-                    <th className="p-2 text-foreground font-medium">Sévérité</th>
-                    <th className="p-2 text-foreground font-medium">Risque</th>
-                    <th className="p-2 text-foreground font-medium">Nb</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...icaoMat.entries()].map(([type, cell]: [string, ICaoCell]) => {
-                    const niveauMap: Record<string, { bg: string }> = { critique: { bg: 'bg-danger' }, eleve: { bg: 'bg-warning' }, moyen: { bg: 'bg-teal' }, faible: { bg: 'bg-success' } }
-                    const nivCfg = niveauMap[cell.niveau] || { bg: 'bg-muted' }
-                    const probaMap: Record<string, string> = { frequente: 'Fréquente', probable: 'Probable', occasionnelle: 'Occasionnelle', improbable: 'Improbable', tres_improbable: 'Très improbable' }
-                    const sevMap: Record<string, string> = { catastrophique: 'Catastrophique', critique: 'Critique', majeur: 'Majeur', mineur: 'Mineur', negligeable: 'Négligeable' }
-                    return (
-                      <tr key={type} className="border-b border-border/50">
-                        <td className="p-2 text-left text-foreground font-medium">{type.replace(/_/g, ' ')}</td>
-                        <td className="p-2 text-foreground">{cell.freqObservee}</td>
-                        <td className="p-2 text-foreground">{probaMap[cell.probabilite] || cell.probabilite}</td>
-                        <td className="p-2 text-foreground">{cell.graviteMoyenne}</td>
-                        <td className="p-2 text-foreground">{sevMap[cell.severite] || cell.severite}</td>
-                        <td className="p-2"><span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold text-white ${nivCfg.bg}`}>{cell.niveau}</span></td>
-                        <td className="p-2 text-foreground">{cell.nbEvenements}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-wrap gap-3 mt-3 pt-2 border-t border-border">
-              {icaoLabels.niveaux.map((n: { value: string; label: string; color: string }) => (
-                <div key={n.value} className="flex items-center gap-1.5 text-xs text-foreground">
-                  <div className={`w-3 h-3 rounded ${n.color === 'danger' ? 'bg-danger' : n.color === 'eleve' ? 'bg-eleve' : n.color === 'moyen' ? 'bg-moyen' : 'bg-success'}`} />
-                  {n.label}
-                </div>
-              ))}
-            </div>
-          </Card>
-        )
-      })()}
-
-      {/* ═══ ROW 4 — Cartes avancées (explicabilité, dérives, indicateurs, facteurs exogènes) ═══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className={hasDriftCard ? '' : 'lg:col-span-2'}>
-          <ExplanabilityCard profil={profil} ecarts={ecarts} evenements={evenements} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TriggersSection profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
+          <ExogenousFactorsCard profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
         </div>
-        {hasDriftCard && <FeatureDriftCard profil={profil} analysis={driftAnalysis} />}
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TriggersSection profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
-        <ExogenousFactorsCard profil={profil} nbEcartsCritiques={nbEcartsCritiques} />
-      </div>
 
-      {/* ═══ ROW 5 — Explication SHAP-like du score global ═══ */}
-      <ShapExplicationCard profil={profil} />
+        {/* Explication SHAP-like du score global */}
+        <ShapExplicationCard profil={profil} />
 
-      {/* Tableau de synthèse multicritère */}
-      <TendanceTable profil={profil} sgsNonApplicable={sgsNonApplicable} />
+        {/* Tableau de synthèse multicritère */}
+        <TendanceTable profil={profil} sgsNonApplicable={sgsNonApplicable} />
+      </CollapseSection>
     </div>
   )
 }

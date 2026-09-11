@@ -47,6 +47,13 @@ export function canWriteOperatorRole(role?: string | null): boolean {
   return canManageRole(role) || role === 'focal_operator'
 }
 
+// Vue « élargie » des blocs d'analyse avancée du module Profil de Risque :
+// seuls l'admin ANACIM et le chef de département voient les blocs dépliés par défaut ;
+// inspecteurs et DG restent sur l'UI allégée (blocs repliés mais dépliables).
+export function isVueElargie(role?: string | null): boolean {
+  return !!role && (role === 'admin' || role === 'inspecteur_principal')
+}
+
 // Droit d'édition du contenu d'une surveillance (checklist, écarts, rapport) :
 // dès qu'une équipe est désignée (chef_id + membres), seuls le chef d'équipe et
 // les membres éditent ; les autres inspecteurs — y compris l'admin ANACIM — sont
