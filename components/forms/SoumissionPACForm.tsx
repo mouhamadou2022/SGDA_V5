@@ -73,8 +73,11 @@ export function SoumissionPACForm({
 
   const today = new Date().toISOString().split('T')[0];
   const delaiPac = ecart?.delai_pac ? new Date(ecart.delai_pac).toISOString().split('T')[0] : null;
-  const delaiPasse = !!delaiPac && delaiPac < today;
-  const delaiDepasse = delaiPasse;
+  const delaiReg = ecart?.delai_regularisation ? new Date(ecart.delai_regularisation).toISOString().split('T')[0] : null;
+  // Délai de soumission du PAC (délai_pac) → information/soumission tardive
+  const delaiSoumissionPasse = !!delaiPac && delaiPac < today;
+  // Délai de régularisation (delai_regularisation) → borne des échéances proposées (date_fin)
+  const delaiRegPasse = !!delaiReg && delaiReg < today;
 
   useEffect(() => {
     if (user?.nom && lignes.length === 1 && !lignes[0].responsable) {
@@ -123,7 +126,7 @@ export function SoumissionPACForm({
       if (!ligne.date_fin) newErrors[`${ligne.id}_date_fin`] = 'Requis';
       else {
         if (ligne.date_fin <= ligne.date_debut) newErrors[`${ligne.id}_date_fin`] = 'Doit être postérieure à la date de début';
-        else if (delaiPac && !delaiPasse && ligne.date_fin > delaiPac) newErrors[`${ligne.id}_date_fin`] = `Ne doit pas dépasser le délai prescrit (${delaiPac})`;
+        else if (delaiReg && !delaiRegPasse && ligne.date_fin > delaiReg) newErrors[`${ligne.id}_date_fin`] = `Ne doit pas dépasser le délai de régularisation (${delaiReg})`;
       }
     });
     setErrors(newErrors);
@@ -207,18 +210,18 @@ export function SoumissionPACForm({
               </div>
             )}
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />Délai PAC : {new Date(ecart.delai_pac).toLocaleDateString('fr-FR')}</span>
+              <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />Délais : PAC {ecart.delai_pac ? new Date(ecart.delai_pac).toLocaleDateString('fr-FR') : '—'} · régularisation {ecart.delai_regularisation ? new Date(ecart.delai_regularisation).toLocaleDateString('fr-FR') : '—'}</span>
               {niveauCfg && <span className={niveauCfg.badgeClass}>{niveauCfg.label}</span>}
               <span className={`px-2 py-0.5 rounded-full text-white font-semibold ${progression === 100 ? 'bg-success' : 'bg-warning'}`}>{progression}%</span>
             </div>
           </div>
         </div>
 
-        {/* ALERTE DÉLAI DÉPASSÉ */}
-        {delaiDepasse && (
+        {/* ALERTE DÉLAI DE SOUMISSION DÉPASSÉ */}
+        {delaiSoumissionPasse && (
           <div className="alert alert-warning text-sm flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            Le délai prescrit était fixé au {delaiPac}. Il est dépassé — la soumission reste possible mais sera signalée comme retard.
+            Le délai de soumission du PAC était fixé au {delaiPac}. Il est dépassé — la soumission tardive reste possible mais sera signalée comme retard.
           </div>
         )}
 
@@ -323,15 +326,15 @@ export function SoumissionPACForm({
                           <input type="date" value={ligne.date_fin}
                             onChange={e => updateLigne(ligne.id, 'date_fin', e.target.value)}
                             min={ligne.date_debut ? new Date(new Date(ligne.date_debut).getTime() + 86400000).toISOString().split('T')[0] : undefined}
-                            max={!delaiPasse ? delaiPac || undefined : undefined}
+                            max={!delaiRegPasse ? delaiReg || undefined : undefined}
                             className={`form-input text-sm pl-9 w-full ${focusClass} ${errors[`${ligne.id}_date_fin`] ? 'border-danger' : ''}`} />
                         </div>
                         {errors[`${ligne.id}_date_fin`] && <p className="field-error text-xs mt-0.5">{errors[`${ligne.id}_date_fin`]}</p>}
-                        {delaiDepasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && (
-                          <p className="text-xs text-warning mt-1">⚠️ Le délai prescrit est dépassé — ce PAC sera traité comme un retard.</p>
+                        {delaiRegPasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && (
+                          <p className="text-xs text-warning mt-1">⚠️ Le délai de régularisation ({delaiReg}) est dépassé — ce PAC sera traité comme un retard.</p>
                         )}
-                        {delaiPac && !delaiPasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && ligne.date_fin > delaiPac && (
-                          <p className="field-error text-xs mt-0.5">⚠️ Dépasse le délai prescrit ({delaiPac})</p>
+                        {delaiReg && !delaiRegPasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && ligne.date_fin > delaiReg && (
+                          <p className="field-error text-xs mt-0.5">⚠️ Dépasse le délai de régularisation ({delaiReg})</p>
                         )}
                       </div>
                     </div>
