@@ -122,6 +122,16 @@ export function EcartCard({
   const { jours, depasse } = plansActionsUtils.getDelaiRestant(ecart)
   const delaiCls = `badge ${depasse ? 'danger animate-pulse' : jours <= 7 ? 'warning' : 'success'} text-[10px]`
 
+  const delaiEffectif = (ecart.statut === 'ouvert' || ecart.statut === 'pac_attendu')
+    ? new Date(ecart.delai_pac)
+    : (ecart.delai_regularisation ? new Date(ecart.delai_regularisation) : new Date(ecart.delai_pac))
+  const datesProposees = (ecart.pac?.actions || []).map((action: any) => action.date_prevue ? new Date(action.date_prevue).getTime() : 0).filter((d: number) => d > 0)
+  const echeanceProposee = datesProposees.length > 0 ? new Date(Math.max(...datesProposees)) : null
+  const echeanceHorsDelai = echeanceProposee
+    ? (echeanceProposee.getTime() <= Date.now()
+      || (ecart.delai_regularisation ? echeanceProposee.getTime() > new Date(ecart.delai_regularisation).getTime() : false))
+    : false
+
   const peutEvaluer = (canEvaluate ?? (userRole === 'inspector' || userRole === 'admin')) &&
     ['pac_soumis', 'preuves_soumises'].includes(ecart.statut)
   const peutEvaluerIa = canEvaluate ?? (userRole === 'inspector' || userRole === 'admin')
@@ -176,9 +186,18 @@ export function EcartCard({
         </div>
         <p className="text-sm font-medium mb-2 line-clamp-2">{ecart.libelle}</p>
         <div className="flex items-center justify-between mt-2">
-          <span className={delaiCls}>
-            <Clock className="w-3 h-3 inline mr-1" />{jours}j
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={delaiCls}>
+              <Clock className="w-3 h-3 inline mr-1" />{jours}j
+            </span>
+            {echeanceProposee && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium border whitespace-nowrap ${echeanceHorsDelai ? 'bg-danger/10 text-danger border-danger/20' : 'bg-role-primary-soft text-role-primary border-role-primary/20'}`}
+                title={echeanceHorsDelai ? 'Échéance proposée hors du délai de régularisation' : 'Échéance proposée dans le délai de régularisation'}>
+                <Calendar className="w-2.5 h-2.5" />
+                Éch. prop. : {echeanceProposee.toLocaleDateString('fr-FR')}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             {ecart.statut === 'en_attente_validation_chef' && canValiderChef && onValidationChef && (
               <button className="action-button hover:text-amber-600 hover:bg-amber-50 transition-all duration-200" onClick={onValidationChef} title="Valider l'évaluation">
@@ -262,10 +281,18 @@ export function EcartCard({
                 <Clock className="w-3 h-3 text-role-primary" />
                 <span className="text-muted-foreground">Échéance:</span>
                 <span className={`font-medium ${depasse ? 'text-danger' : jours <= 7 ? 'text-warning' : 'text-success'}`}>
-                  {new Date(ecart.delai_pac).toLocaleDateString('fr-FR')}
+                  {delaiEffectif.toLocaleDateString('fr-FR')}
                 </span>
               </div>
             </div>
+
+            {echeanceProposee && (
+              <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border mb-3 ${echeanceHorsDelai ? 'bg-danger/10 text-danger border-danger/20' : 'bg-role-primary-soft text-role-primary border-role-primary/20'}`}
+                title={echeanceHorsDelai ? 'Échéance proposée hors du délai de régularisation' : 'Échéance proposée dans le délai de régularisation'}>
+                <Calendar className="w-3 h-3" />
+                <span>Échéance proposée : {echeanceProposee.toLocaleDateString('fr-FR')}</span>
+              </div>
+            )}
 
             {/* Progression de l'écart */}
             <div className="mb-3">
