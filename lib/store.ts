@@ -3544,6 +3544,13 @@ getActiveAerodromes: () => {
             })
           })
         } catch { /* notification non critique */ }
+
+        // Recalcul immédiat du profil de risque : la création d'un constat
+        // critique/élevé (ou sa conversion à la transmission) doit dégrader
+        // le score en temps réel, pas attendre le cron quotidien.
+        if (savedEcart.aerodrome_id) {
+          get().recalculerProfilRisque(savedEcart.aerodrome_id).catch(() => {})
+        }
       },
       updateEcart: async (id, data) => {
         const result = await datastore.updateEcart(id, data)

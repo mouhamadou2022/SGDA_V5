@@ -73,6 +73,8 @@ export function SoumissionPACForm({
 
   const today = new Date().toISOString().split('T')[0];
   const delaiPac = ecart?.delai_pac ? new Date(ecart.delai_pac).toISOString().split('T')[0] : null;
+  const delaiPasse = !!delaiPac && delaiPac < today;
+  const delaiDepasse = delaiPasse;
 
   useEffect(() => {
     if (user?.nom && lignes.length === 1 && !lignes[0].responsable) {
@@ -121,7 +123,7 @@ export function SoumissionPACForm({
       if (!ligne.date_fin) newErrors[`${ligne.id}_date_fin`] = 'Requis';
       else {
         if (ligne.date_fin <= ligne.date_debut) newErrors[`${ligne.id}_date_fin`] = 'Doit être postérieure à la date de début';
-        else if (delaiPac && ligne.date_fin > delaiPac) newErrors[`${ligne.id}_date_fin`] = `Ne doit pas dépasser le délai prescrit (${delaiPac})`;
+        else if (delaiPac && !delaiPasse && ligne.date_fin > delaiPac) newErrors[`${ligne.id}_date_fin`] = `Ne doit pas dépasser le délai prescrit (${delaiPac})`;
       }
     });
     setErrors(newErrors);
@@ -211,6 +213,14 @@ export function SoumissionPACForm({
             </div>
           </div>
         </div>
+
+        {/* ALERTE DÉLAI DÉPASSÉ */}
+        {delaiDepasse && (
+          <div className="alert alert-warning text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            Le délai prescrit était fixé au {delaiPac}. Il est dépassé — la soumission reste possible mais sera signalée comme retard.
+          </div>
+        )}
 
         {/* PROGRESS BAR */}
         <div className="progress h-2.5">
@@ -313,11 +323,14 @@ export function SoumissionPACForm({
                           <input type="date" value={ligne.date_fin}
                             onChange={e => updateLigne(ligne.id, 'date_fin', e.target.value)}
                             min={ligne.date_debut ? new Date(new Date(ligne.date_debut).getTime() + 86400000).toISOString().split('T')[0] : undefined}
-                            max={delaiPac || undefined}
+                            max={!delaiPasse ? delaiPac || undefined : undefined}
                             className={`form-input text-sm pl-9 w-full ${focusClass} ${errors[`${ligne.id}_date_fin`] ? 'border-danger' : ''}`} />
                         </div>
                         {errors[`${ligne.id}_date_fin`] && <p className="field-error text-xs mt-0.5">{errors[`${ligne.id}_date_fin`]}</p>}
-                        {delaiPac && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && ligne.date_fin > delaiPac && (
+                        {delaiDepasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && (
+                          <p className="text-xs text-warning mt-1">⚠️ Le délai prescrit est dépassé — ce PAC sera traité comme un retard.</p>
+                        )}
+                        {delaiPac && !delaiPasse && !errors[`${ligne.id}_date_fin`] && ligne.date_fin && ligne.date_fin > delaiPac && (
                           <p className="field-error text-xs mt-0.5">⚠️ Dépasse le délai prescrit ({delaiPac})</p>
                         )}
                       </div>
