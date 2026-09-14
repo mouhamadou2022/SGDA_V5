@@ -3964,9 +3964,18 @@ getActiveAerodromes: () => {
             const decision = ecart.evaluation_pac?.decision
             const nouveauStatut = (decision === 'accepte' || decision === 'reserve') ? 'pac_accepte' : 'pac_refuse'
 
+            // Délai de régularisation recalculé à partir de l'acceptation du PAC :
+            // le compteur repart de la date d'acceptation (sinon le délai fixé à la création
+            // peut être déjà dépassé avant même l'acceptation, bloquant la suite du workflow).
+            const niveau = ecart.niveau_risque as keyof typeof NIVEAUX_RISQUE_ECART
+            const nouveauDelaiReg = nouveauStatut === 'pac_accepte'
+              ? new Date(Date.now() + (NIVEAUX_RISQUE_ECART[niveau]?.delai_regularisation ?? 90) * 86400000).toISOString()
+              : null
+
             const syncResult = await datastore.upsertEcart({
               ...ecart,
               statut: nouveauStatut,
+              delai_regularisation: nouveauDelaiReg ?? ecart.delai_regularisation,
               validation_chef: { ...ecart.validation_chef, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire },
               updated_at: now
             })
@@ -3975,7 +3984,7 @@ getActiveAerodromes: () => {
             set((s) => ({
               ecarts: s.ecarts.map(e =>
                 e.id === ecartId
-                  ? { ...e, statut: nouveauStatut, validation_chef: { ...e.validation_chef!, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire }, updated_at: now }
+                  ? { ...e, statut: nouveauStatut, delai_regularisation: nouveauDelaiReg ?? e.delai_regularisation, validation_chef: { ...e.validation_chef!, statut: 'approuve', approuve_par: currentUser?.id, approuve_le: now, commentaire }, updated_at: now }
                   : e
               )
             }))
@@ -3984,7 +3993,7 @@ getActiveAerodromes: () => {
             if ((decision === 'accepte' || decision === 'reserve') && ecart.surveillance_id) {
               const surveillanceOriginale = state.surveillances.find(s => s.id === ecart.surveillance_id)
               if (surveillanceOriginale) {
-                const delaiReg = new Date(ecart.delai_regularisation)
+                const delaiReg = new Date(nouveauDelaiReg ?? ecart.delai_regularisation)
                 const newSurveillance: Surveillance = {
                   id: crypto.randomUUID(),
                   aerodrome_id: ecart.aerodrome_id,

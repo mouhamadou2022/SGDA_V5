@@ -203,8 +203,13 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
   const ecart = useOptimizedStore(s => s.ecarts.find((e: Ecart) => e.id === ecartId));
   const aerodromes = useOptimizedStore(s => s.aerodromes);
   const user = useOptimizedStore(s => s.user);
+  const updateEcart = useOptimizedStore(s => s.updateEcart);
   const [verifIALe, setVerifIALe] = useState<{ conforme: boolean; niveauConfiance: number; elementsManquants: string[]; preuvesSuffisantes: boolean; commentaire: string } | null>(null);
   const [verifIALoading, setVerifIALoading] = useState(false);
+  const [editingDelais, setEditingDelais] = useState(false);
+  const [delaiPacInput, setDelaiPacInput] = useState('');
+  const [delaiRegInput, setDelaiRegInput] = useState('');
+  const [savingDelais, setSavingDelais] = useState(false);
 
   const runVerificationIA = async () => {
     if (!ecart?.preuves?.fichiers?.length || verifIALoading) return;
@@ -224,6 +229,31 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
       setVerifIALoading(false);
     }
   };
+
+  const peutReajusterDelais = user?.role === 'admin' || user?.role === 'inspector'
+
+  const ouvrirEcheances = () => {
+    setDelaiPacInput(ecart?.delai_pac ? new Date(ecart.delai_pac).toISOString().split('T')[0] : '');
+    setDelaiRegInput(ecart?.delai_regularisation ? new Date(ecart.delai_regularisation).toISOString().split('T')[0] : '');
+    setEditingDelais(true);
+  }
+
+  const enregistrerEcheances = async () => {
+    if (!ecart) return;
+    if (!delaiPacInput && !delaiRegInput) return;
+    setSavingDelais(true);
+    try {
+      const patch: Partial<Ecart> = {};
+      if (delaiPacInput) patch.delai_pac = new Date(delaiPacInput + 'T00:00:00').toISOString();
+      if (delaiRegInput) patch.delai_regularisation = new Date(delaiRegInput + 'T00:00:00').toISOString();
+      await updateEcart(ecart.id, patch);
+      setEditingDelais(false);
+    } catch (e) {
+      console.error('Erreur mise à jour délais:', e);
+    } finally {
+      setSavingDelais(false);
+    }
+  }
 
   if (!ecart) {
     return (
@@ -316,6 +346,52 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
                 <p className="text-sm text-gray-700 mt-1">{formatDate(ecart.delai_regularisation)}</p>
               </div>
             </div>
+            {peutReajusterDelais && (
+              <div className="border-t border-border pt-3 mt-3">
+                {!editingDelais ? (
+                  <button
+                    className="btn btn-sm btn-secondary gap-1"
+                    onClick={ouvrirEcheances}
+                    title="Réajuster les délais PAC et régularisation pour débloquer le workflow"
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Réajuster les délais
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block text-xs text-gray-500">
+                        Délai PAC
+                        <input
+                          type="date"
+                          value={delaiPacInput}
+                          onChange={ev => setDelaiPacInput(ev.target.value)}
+                          className="form-select w-full text-xs px-2 py-1 rounded border border-border mt-0.5"
+                        />
+                      </label>
+                      <label className="block text-xs text-gray-500">
+                        Délai de régularisation
+                        <input
+                          type="date"
+                          value={delaiRegInput}
+                          onChange={ev => setDelaiRegInput(ev.target.value)}
+                          className="form-select w-full text-xs px-2 py-1 rounded border border-border mt-0.5"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEditingDelais(false)}>Annuler</button>
+                      <button
+                        className="btn btn-sm btn-success gap-1"
+                        disabled={savingDelais}
+                        onClick={enregistrerEcheances}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Enregistrer
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       </div>
