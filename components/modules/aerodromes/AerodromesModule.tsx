@@ -366,7 +366,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
         { value: profil ? `${Math.round(profil.score_global)}/100` : '—', label: 'Score de risque', color: profil ? (profil.score_global >= 70 ? PDF_COLORS.red : profil.score_global >= 40 ? PDF_COLORS.amber : PDF_COLORS.green) : PDF_COLORS.gray },
         { value: risqueLabel, label: 'Niveau de risque', color: PDF_COLORS.primary },
         { value: `${ecartsOuverts.length}`, label: 'Écarts ouverts', color: ecartsOuverts.length > 0 ? PDF_COLORS.red : PDF_COLORS.green },
-        { value: profil ? `${Math.round(profil.c1)}/100` : '—', label: 'Maturité SGS (C1)', color: PDF_COLORS.blue },
+        { value: aero.statut_sgs === 'non_applicable' ? 'Non applicable' : profil ? `${Math.round(profil.c1)}/100` : '—', label: 'Maturité SGS (C1)', color: aero.statut_sgs === 'non_applicable' ? PDF_COLORS.gray : PDF_COLORS.blue },
         { value: `${surveillancesAero.length}`, label: 'Surveillances', color: PDF_COLORS.primary },
         { value: derniereSurv ? new Date(derniereSurv.date_fin).toLocaleDateString('fr-FR') : '—', label: 'Dernière transmise', color: PDF_COLORS.gray },
       ]);
@@ -432,11 +432,11 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
       pdf.kvTable([
         ['Score global', profil ? `${Math.round(profil.score_global)}/100` : '—'],
         ['Niveau de risque', risqueLabel],
-        ['Composante C1 (SGS)', profil ? `${Math.round(profil.c1)}/100` : '—'],
+        ['Composante C1 (SGS)', aero.statut_sgs === 'non_applicable' ? 'Non applicable (exclu du score)' : profil ? `${Math.round(profil.c1)}/100` : '—'],
         ['Composante C2 (Sécurité opérationnelle)', profil ? `${Math.round(profil.c2)}/100` : '—'],
         ['Composante C3 (Surveillance)', profil ? `${Math.round(profil.c3)}/100` : '—'],
         ['Composante C4 (Conformité)', profil ? `${Math.round(profil.c4)}/100` : '—'],
-        ['Composante C5 (Maturité SGS)', profil ? `${Math.round(profil.c5)}/100` : '—'],
+        ['Composante C5 (Résilience & historique)', profil ? `${Math.round(profil.c5)}/100` : '—'],
         ['Tendance', profil?.tendance === 'hausse' ? 'Hausse' : profil?.tendance === 'baisse' ? 'Baisse' : 'Stable'],
         ['Prédiction 3 mois', profil?.prediction_3m ? `${Math.round(profil.prediction_3m)}` : '—'],
         ['Prédiction 6 mois', profil?.prediction_6m ? `${Math.round(profil.prediction_6m)}` : '—'],

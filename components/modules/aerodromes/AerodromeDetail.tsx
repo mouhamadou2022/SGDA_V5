@@ -663,17 +663,23 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: 
                         { key: 'c3', label: 'C3 - Conformité Technique', value: profilRisque.c3 },
                         { key: 'c4', label: 'C4 - Charge Critique Non Résolue', value: profilRisque.c4 },
                         { key: 'c5', label: 'C5 - Résilience & Historique Sécurité', value: profilRisque.c5 },
-                      ].map((critere) => (
+                      ].map((critere) => {
+                        const exempt = critere.key === 'c1' && aerodrome.statut_sgs === 'non_applicable'
+                        return (
                         <div key={critere.key}>
                           <div className="flex items-center justify-between text-small mb-1">
                             <span className="text-foreground">{critere.label}</span>
-                            <span className="font-medium text-foreground">{critere.value || 0}/100</span>
+                            <span className="font-medium text-foreground">{exempt ? 'Non applicable' : `${critere.value || 0}/100`}</span>
                           </div>
-                          <div className="progress h-2">
-                            <div className="progress-bar" style={{ width: `${critere.value || 0}%` }} />
-                          </div>
+                          {!exempt && (
+                            <div className="progress h-2">
+                              <div className="progress-bar" style={{ width: `${critere.value || 0}%` }} />
+                            </div>
+                          )}
+                          {exempt && <p className="text-[10px] text-foreground mt-0.5">SGS non applicable — C1 exclu du score global (calcul sur C2-C5)</p>}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </Card>
 

@@ -177,9 +177,14 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
 
         <Card variant="level" levelColor="primary" contentClassName="p-4">
           <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">SGS</p>
-          <p className={`${sgsBadge} inline-block mt-1`}>{sgsLabel}</p>
-          {aerodrome.statut_sgs === 'simplifie' && <p className="text-[10px] text-muted-foreground mt-0.5">Simplifié</p>}
-          {aerodrome.statut_sgs === 'non_applicable' && <p className="text-[10px] text-muted-foreground mt-0.5">Non applicable</p>}
+          {aerodrome.statut_sgs === 'non_applicable' ? (
+            <p className="badge neutral inline-block mt-1">Non applicable</p>
+          ) : (
+            <>
+              <p className={`${sgsBadge} inline-block mt-1`}>{sgsLabel}</p>
+              {aerodrome.statut_sgs === 'simplifie' && <p className="text-[10px] text-muted-foreground mt-0.5">Simplifié</p>}
+            </>
+          )}
         </Card>
 
         <Card variant="level" levelColor={ecartsActifs.length > 0 ? (ecartsRetard.length > 0 ? 'danger' : 'warning') : 'success'} contentClassName="p-4">
@@ -354,17 +359,22 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
                     { key: 'c3', label: 'C3 — Conformité Technique', value: profilRisque.c3 },
                     { key: 'c4', label: 'C4 — Charge Critique Non Résolue', value: profilRisque.c4 },
                     { key: 'c5', label: 'C5 — Résilience & Historique Sécurité', value: profilRisque.c5 },
-                  ].map(c => (
+                  ].map(c => {
+                    const exempt = c.key === 'c1' && aerodrome.statut_sgs === 'non_applicable'
+                    return (
                     <div key={c.key}>
                       <div className="flex items-center justify-between text-xs mb-0.5">
                         <span className="text-foreground">{c.label}</span>
-                        <span className="font-medium text-foreground">{c.value || 0}/100</span>
+                        <span className="font-medium text-foreground">{exempt ? 'Non applicable' : `${c.value || 0}/100`}</span>
                       </div>
-                      <div className="progress h-1.5">
-                        <div className="progress-bar" style={{ width: `${c.value || 0}%` }} />
-                      </div>
+                      {!exempt && (
+                        <div className="progress h-1.5">
+                          <div className="progress-bar" style={{ width: `${c.value || 0}%` }} />
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </SectionToggle>
             )}
