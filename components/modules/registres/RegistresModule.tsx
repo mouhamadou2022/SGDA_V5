@@ -1186,11 +1186,11 @@ function EcartsTab() {
                         { key: 'niveau', header: 'Niveau', render: (e: any) => <span className={getNiveauBadge(e.niveau_risque)}>{e.niveau_risque}</span> },
                         { key: 'libelle', header: 'Libellé', render: (e: any) => <span className="max-w-md truncate">{e.libelle}</span> },
                         { key: 'cloture', header: 'Clôture', render: (e: any) => <span className="text-small">{e.cloture_le?.slice(0, 10) || '-'}</span> },
-                        { key: 'decision', header: 'Décision PAC', render: (e: any) => e.evaluation_pac ? (
+                        { key: 'decision', header: 'Décision PAC', render: (e: any) => e.evaluation_pac?.decision ? (
                           <span className={getDecisionBadge(e.evaluation_pac.decision)}>
                             {e.evaluation_pac.decision === 'accepte' ? 'Accepté' : e.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}
                           </span>
-                        ) : null },
+                        ) : <span className="text-muted-foreground">—</span> },
                         { key: 'actions', header: 'Actions', headerClassName: 'text-right', className: 'text-right', render: (e: any) => (
                           <button className="action-button hover:scale-105 transition-all duration-200" title="Voir timeline" onClick={() => setSelectedEcart({ ...e, aerodrome })}>
                             <History className="w-4 h-4" />
@@ -1275,7 +1275,7 @@ function EcartsTab() {
           )}
 
           {/* Évaluation PAC */}
-          {selectedEcart.evaluation_pac && (
+          {selectedEcart.evaluation_pac?.decision && (
             <div className="border-l-4 border-l-role-primary p-4 bg-role-primary-soft rounded-r-xl">
               <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-role-primary" />Évaluation du PAC
