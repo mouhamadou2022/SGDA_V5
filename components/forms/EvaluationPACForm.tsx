@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AideMemoirePAC } from '@/components/modules/plans-actions/AideMemoirePAC';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
+import { ecartAgent, EvaluatePACResult } from '@/lib/ia/agents/ecartAgent';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { getCellColor, getRiskLevelFromCell, getOACIValue, getRiskLevelBgColor } from '@/lib/risque';
 
@@ -70,12 +71,16 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   const [showFeedback, setShowFeedback] = useState(false);
   const [showAiHelp, setShowAiHelp] = useState(false);
   const [attestationRisque, setAttestationRisque] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<EvaluatePACResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const userChangedDecision = useRef(false);
 
   // Données risque OACI de l'écart — cohérence garantie entre cellule et niveau
   const ecartCelluleBrut = ecart?.cellule_risque_oaci || (ecart ? getOACIValue(ecart) : '') || '';
   const ecartCellule = /^[1-5][A-E]$/.test(ecartCelluleBrut) ? ecartCelluleBrut : '';
   const ecartNiveau = ecartCellule ? getRiskLevelFromCell(ecartCellule) : (ecart?.niveau_risque || 'moyen');
+  // Domaine SGS : la matrice OACI (cellule probabilité × gravité) n'est pas applicable
+  const estSGS = ecart?.domaine === 'SGS';
 
   // Seuils adaptatifs selon la criticité de l'écart
   const SEUILS: Record<string, { accept: number; reserve: number }> = {
@@ -96,7 +101,13 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   const tousNotes = Object.values(notes).every(v => v > 0);
   const scoreEleve = scorePondere >= 3.0;
   const scoreMoyen = scorePondere >= 2.0 && scorePondere < 3.0;
-  function suggererResiduel(niveau: string, cellule: string, score: number): { niveau: string; cellule: string } {
+  function suggererResiduel(niveau: string, cellule: string, score: number, sgs: boolean): { niveau: string; cellule: string } {
+    // SGS : la matrice OACI n'est pas applicable — seul le niveau cible est proposé (sans cellule)
+    if (sgs) {
+      if (niveau === 'faible' || niveau === 'tres_faible') return { niveau: 'faible', cellule: '' };
+      if (score >= 80) return { niveau: 'faible', cellule: '' };
+      return { niveau: 'moyen', cellule: '' };
+    }
     // Faible → reste faible mais descend dans la plage (ex: 3E → 1E)
     if (niveau === 'faible' || niveau === 'tres_faible') {
       const cells = ['3E', '2C', '2D', '2E', '1A', '1B', '1C', '1D', '1E'];
@@ -124,9 +135,9 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   const userChangedResiduel = useRef(false);
   useEffect(() => {
     if (!userChangedResiduel.current) {
-      setResiduelChoisi(suggererResiduel(ecartNiveau, ecartCellule, scorePourcentage));
+      setResiduelChoisi(suggererResiduel(ecartNiveau, ecartCellule, scorePourcentage, estSGS));
     }
-  }, [scorePourcentage, ecartNiveau]);
+  }, [scorePourcentage, ecartNiveau, estSGS]);
   // Liste des cellules disponibles pour le niveau résiduel choisi
   const CELLULES_PAR_NIVEAU: Record<string, string[]> = {
     critique: ['5A', '5B', '4A', '4B'],
@@ -135,7 +146,7 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
     faible: ['3E', '2C', '2D', '2E', '1A', '1B', '1C', '1D', '1E'],
   };
   const cellulesDispo = CELLULES_PAR_NIVEAU[residuelChoisi.niveau] || [];
-  const suggestionCourante = suggererResiduel(ecartNiveau, ecartCellule, scorePourcentage);
+  const suggestionCourante = suggererResiduel(ecartNiveau, ecartCellule, scorePourcentage, estSGS);
 
   // Vérifications d'objectivité
   const critereZero = Object.entries(notes).filter(([_, v]) => v === 0).map(([k]) => CRITERES.find(c => c.id === k)!.label);
@@ -235,6 +246,29 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
     setShowFeedback(false); onSuccess();
   };
 
+  // Analyse IA du PAC — suggestions de notes 0-4 par critère (via ecartAgent.evaluatePAC)
+  const lancerAnalyseIA = async () => {
+    if (!ecart?.pac) return;
+    setIsAnalyzing(true);
+    try {
+      const resultat = await ecartAgent.evaluatePAC({ ecartId, pac: ecart.pac }, {});
+      setAiSuggestion(resultat);
+      setNotes({
+        pertinence: Math.min(4, Math.round(resultat.notes_detail.pertinence / 25)),
+        exhaustivite: Math.min(4, Math.round(resultat.notes_detail.exhaustivite / 25)),
+        precision: Math.min(4, Math.round(resultat.notes_detail.precision / 25)),
+        specificite: Math.min(4, Math.round(resultat.notes_detail.specificite / 25)),
+        realisme: Math.min(4, Math.round(resultat.notes_detail.realisme / 25)),
+        coherence: Math.min(4, Math.round(resultat.notes_detail.coherence / 25)),
+      });
+    } catch (error) {
+      console.error('Erreur analyse IA du PAC:', error);
+      addNotification({ user_id: user?.id || '', type: 'danger', title: 'Erreur', message: 'Analyse IA indisponible pour le moment', canal: 'in_app' });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   if (!ecart) {
     return <div className="text-center py-8 text-muted-foreground"><AlertTriangle className="w-12 h-12 mx-auto mb-4" /><p>Écart non trouvé</p><button type="button" onClick={onCancel} className="btn btn-secondary mt-4">Fermer</button></div>;
   }
@@ -283,16 +317,18 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
                     <option key={opt.niveau} value={opt.niveau}>{opt.label}</option>
                   ))}
                 </select>
-                <select value={residuelChoisi.cellule}
-                  onChange={e => { userChangedResiduel.current = true; setResiduelChoisi(prev => ({ ...prev, cellule: e.target.value })); }}
-                  className="h-7 text-[10px] px-1.5 rounded border border-border bg-background cursor-pointer font-mono">
-                  {cellulesDispo.map(cell => (
-                    <option key={cell} value={cell}
-                      className={getRiskLevelBgColor(residuelChoisi.niveau)}>
-                      {cell}
-                    </option>
-                  ))}
-                </select>
+                {!estSGS && (
+                  <select value={residuelChoisi.cellule}
+                    onChange={e => { userChangedResiduel.current = true; setResiduelChoisi(prev => ({ ...prev, cellule: e.target.value })); }}
+                    className="h-7 text-[10px] px-1.5 rounded border border-border bg-background cursor-pointer font-mono">
+                    {cellulesDispo.map(cell => (
+                      <option key={cell} value={cell}
+                        className={getRiskLevelBgColor(residuelChoisi.niveau)}>
+                        {cell}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
             <div><p className="text-[10px] text-muted-foreground uppercase">Aérodrome</p><p className="font-medium">{aerodromes?.find((a: any) => a.id === ecart.aerodrome_id)?.nom || ecart.aerodrome_id}</p></div>
@@ -465,10 +501,52 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
           {/* Aide IA */}
           {showAiHelp && (
             <div className="mt-2 p-3 rounded bg-blue-50 border border-blue-200 space-y-2">
-              <div className="flex items-center gap-2">
-                <Star className="w-4 h-4 text-blue-600" />
-                <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4 text-blue-600" />
+                  <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation</span>
+                </div>
+                <button type="button" onClick={lancerAnalyseIA} disabled={isAnalyzing || !ecart.pac?.actions?.length}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  <FileText className="w-3 h-3" /> {isAnalyzing ? 'Analyse...' : aiSuggestion ? 'Ré-analyser' : 'Analyser le PAC'}
+                </button>
               </div>
+
+              {aiSuggestion && (
+                <div className="p-2 rounded bg-white border border-blue-200 space-y-1.5">
+                  <p className="text-[11px] font-semibold text-blue-900">Notes suggérées par AERORISQ (0-4) :</p>
+                  <div className="grid grid-cols-3 gap-1 text-[10px]">
+                    {Object.entries({
+                      pertinence: aiSuggestion.notes_detail.pertinence,
+                      exhaustivite: aiSuggestion.notes_detail.exhaustivite,
+                      precision: aiSuggestion.notes_detail.precision,
+                      specificite: aiSuggestion.notes_detail.specificite,
+                      realisme: aiSuggestion.notes_detail.realisme,
+                      coherence: aiSuggestion.notes_detail.coherence,
+                    }).map(([k, v]) => (
+                      <span key={k} className="px-1.5 py-0.5 rounded bg-blue-100/60 capitalize">
+                        {k}: <strong>{Math.min(4, Math.round((v as number) / 25))}/4</strong> ({v}/100)
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-blue-900">
+                    Note globale : <strong>{aiSuggestion.note_globale}/100</strong> — confiance <strong>{aiSuggestion.confiance}%</strong> —{' '}
+                    <span className={aiSuggestion.decision === 'accepte' ? 'text-success font-semibold' : 'text-red-700 font-semibold'}>
+                      {aiSuggestion.decision === 'accepte' ? 'Acceptation suggérée' : 'Refus suggéré'}
+                    </span>
+                  </p>
+                  {aiSuggestion.commentaire && <p className="text-[11px] text-blue-900 italic">“{aiSuggestion.commentaire}”</p>}
+                  {aiSuggestion.ameliorations_suggestions.length > 0 && (
+                    <ul className="space-y-0.5">
+                      {aiSuggestion.ameliorations_suggestions.map((s, i) => (
+                        <li key={i} className="text-[10px] text-blue-800 flex items-start gap-1">• {s}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-[10px] text-blue-500">Les notes suggérées ont été pré-remplies dans le tableau. Vous pouvez les ajuster librement.</p>
+                </div>
+              )}
+
               <div className="space-y-1.5 text-[11px] text-blue-900">
                 <p>• {tousNotes ? `Score pondéré : ${scorePondere.toFixed(1)}/4 (${scorePourcentage}%)` : 'Évaluez tous les critères pour obtenir une analyse'}</p>
                 <p>• Seuils adaptés au risque <strong className="capitalize">{ecartNiveau}</strong> : Accepté ≥ {seuil.accept}%, Réserves ≥ {seuil.reserve}%</p>
@@ -596,13 +674,15 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${getRiskLevelBgColor(residuelChoisi.niveau)}`}>
                 {residuelChoisi.niveau === 'eleve' ? 'Élevé' : residuelChoisi.niveau.charAt(0).toUpperCase() + residuelChoisi.niveau.slice(1)}
               </span>
-              <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getRiskLevelBgColor(residuelChoisi.niveau)}`}>
-                {residuelChoisi.cellule}
-              </span>
+              {!estSGS && residuelChoisi.cellule && (
+                <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getRiskLevelBgColor(residuelChoisi.niveau)}`}>
+                  {residuelChoisi.cellule}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between mb-2 -mt-1">
-            <span className="text-[9px] text-muted-foreground">Suggestion système : <strong>{suggestionCourante.niveau === 'eleve' ? 'Élevé' : suggestionCourante.niveau.charAt(0).toUpperCase() + suggestionCourante.niveau.slice(1)} ({suggestionCourante.cellule})</strong></span>
+            <span className="text-[9px] text-muted-foreground">Suggestion système : <strong>{suggestionCourante.niveau === 'eleve' ? 'Élevé' : suggestionCourante.niveau.charAt(0).toUpperCase() + suggestionCourante.niveau.slice(1)}{!estSGS && suggestionCourante.cellule ? ` (${suggestionCourante.cellule})` : ''}</strong></span>
             {userChangedResiduel.current && <span className="text-[9px] text-amber-600">Modifié par l'inspecteur</span>}
           </div>
           <label className="flex items-start gap-2 cursor-pointer">
