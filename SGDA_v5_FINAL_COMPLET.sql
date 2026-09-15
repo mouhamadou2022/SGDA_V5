@@ -1857,9 +1857,19 @@ END $$;
 -- 'importe' = document externe (.docx) importé et modifiable (éditeur TipTap/Word libre).
 DO $$
 BEGIN
+  -- Répare d'abord les valeurs obsolètes pour que l'ajout de la contrainte
+  -- ne bloque pas sur des lignes existantes (ex: 'importe' d'anciennes versions).
+  UPDATE surveillances
+     SET rapport_type = CASE
+           WHEN rapport_fichier_url IS NOT NULL THEN 'charge'
+           WHEN rapport_sections IS NOT NULL OR rapport_html IS NOT NULL OR rapport_pdf_url IS NOT NULL THEN 'redige'
+           ELSE 'redige'
+         END
+   WHERE rapport_type IS NOT NULL AND rapport_type NOT IN ('redige','importe','charge');
+
   ALTER TABLE surveillances DROP CONSTRAINT IF EXISTS surveillances_rapport_type_check;
   ALTER TABLE surveillances ADD CONSTRAINT surveillances_rapport_type_check
-    CHECK (rapport_type IN ('redige','charge'));
+    CHECK (rapport_type IN ('redige','importe','charge'));
 END $$;
 
 
