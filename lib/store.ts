@@ -3614,7 +3614,7 @@ getActiveAerodromes: () => {
                   ...e,
                   statut: 'pac_soumis',
                   pac: pacPayload,
-                  evaluation_pac: { ...(e.evaluation_pac || {} as any), deadline: deadlineEval } as any,
+                  evaluation_pac: { deadline: deadlineEval } as any,
                   updated_at: now,
                   ...(pacCellule ? { cellule_risque_reevalue: pacCellule, justification_risque_pac: pacJustification } : {})
                 }

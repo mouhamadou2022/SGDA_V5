@@ -167,7 +167,7 @@ export function EcartCard({
               </span>
             )}
             <span className="code-oaci-badge text-xs">{ecart.reference}</span>
-            {ecart.evaluation_pac && (
+            {ecart.evaluation_pac?.decision && (
               <span className={`badge text-[9px] ${ecart.evaluation_pac.decision === 'accepte' ? 'success' : ecart.evaluation_pac.decision === 'reserve' ? 'warning' : 'danger'}`}>
                 PAC {ecart.evaluation_pac.decision === 'accepte' ? '✓' : ecart.evaluation_pac.decision === 'reserve' ? '⚠' : '✗'}
               </span>
@@ -241,7 +241,7 @@ export function EcartCard({
                 </span>
               )}
               <span className={statutBadge.cls}>{statutBadge.label}</span>
-              {ecart.evaluation_pac && (
+              {ecart.evaluation_pac?.decision && (
                 <span className={`badge text-xs ${ecart.evaluation_pac.decision === 'accepte' ? 'success' : ecart.evaluation_pac.decision === 'reserve' ? 'warning' : 'danger'}`}>
                   PAC {ecart.evaluation_pac.decision === 'accepte' ? '✓' : ecart.evaluation_pac.decision === 'reserve' ? '⚠' : '✗'}
                 </span>
