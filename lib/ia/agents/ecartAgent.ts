@@ -621,9 +621,15 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
     const decision: 'accepte' | 'refuse' = note_globale >= NOTES_SEUILS.ACCEPTE ? 'accepte' : 'refuse'
 
     // Commentaire et suggestions par IA
+    const aerodromeEcart = store.aerodromes?.find((a: Aerodrome) => a.id === ecart.aerodrome_id)
     const contextPAC = {
       ecart_libelle: ecart.libelle?.substring(0, 200),
       ecart_niveau: ecart.niveau_risque,
+      ecart_delai_pac: ecart.delai_pac,
+      ecart_delai_regularisation: ecart.delai_regularisation,
+      aerodrome_sgs_applicable: aerodromeEcart
+        ? (aerodromeEcart.statut_sgs !== 'non_applicable' && aerodromeEcart.type_entite !== 'helistation')
+        : true,
       note_globale,
       decision,
       notes_detail,
@@ -631,6 +637,7 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
       actions_resume: actions.slice(0, 3).map((a: SoumissionPAC['actions'][number]) => ({
         description: a.description?.substring(0, 100),
         responsable: a.responsable,
+        date_debut: (a as any).date_debut || undefined,
         date_prevue: a.date_prevue,
         livrables: a.livrables?.length ?? 0,
       })),

@@ -5,14 +5,14 @@ import { createPortal } from 'react-dom';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import {
-  Star, AlertTriangle, CheckCircle2, XCircle, FileText, X, HelpCircle, User, Calendar,
+  Star, AlertTriangle, CheckCircle2, XCircle, X, HelpCircle, User, Calendar,
   Clock, MinusCircle,
 } from 'lucide-react';
 import { AideMemoirePAC } from '@/components/modules/plans-actions/AideMemoirePAC';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
 import { ecartAgent, EvaluatePACResult } from '@/lib/ia/agents/ecartAgent';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
-import { getCellColor, getRiskLevelFromCell, getOACIValue, getRiskLevelBgColor } from '@/lib/risque';
+import { getCellColor, getRiskLevelFromCell, getOACIValue, getRiskLevelBgColor, isSGSApplicable } from '@/lib/risque';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent";
 
@@ -74,6 +74,11 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   const [aiSuggestion, setAiSuggestion] = useState<EvaluatePACResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const userChangedDecision = useRef(false);
+  const autoProposeAI = useRef(false);
+
+  // Contexte aérodrome — SGS non applicable → exclu de la logique OACI/C1
+  const aerodrome = aerodromes?.find((a: any) => a.id === ecart?.aerodrome_id);
+  const sgsApplicable = isSGSApplicable(aerodrome || null);
 
   // Données risque OACI de l'écart — cohérence garantie entre cellule et niveau
   const ecartCelluleBrut = ecart?.cellule_risque_oaci || (ecart ? getOACIValue(ecart) : '') || '';
@@ -247,20 +252,36 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
   };
 
   // Analyse IA du PAC — suggestions de notes 0-4 par critère (via ecartAgent.evaluatePAC)
+  // L'IA lit l'écart (libellé, niveau, délais) et le PAC (actions, responsable, dates début/fin)
+  // puis propose : notes par critère, décision, commentaire et niveau de risque résiduel.
   const lancerAnalyseIA = async () => {
     if (!ecart?.pac) return;
     setIsAnalyzing(true);
     try {
       const resultat = await ecartAgent.evaluatePAC({ ecartId, pac: ecart.pac }, {});
       setAiSuggestion(resultat);
-      setNotes({
+      const nouvellesNotes = {
         pertinence: Math.min(4, Math.round(resultat.notes_detail.pertinence / 25)),
         exhaustivite: Math.min(4, Math.round(resultat.notes_detail.exhaustivite / 25)),
         precision: Math.min(4, Math.round(resultat.notes_detail.precision / 25)),
         specificite: Math.min(4, Math.round(resultat.notes_detail.specificite / 25)),
         realisme: Math.min(4, Math.round(resultat.notes_detail.realisme / 25)),
         coherence: Math.min(4, Math.round(resultat.notes_detail.coherence / 25)),
-      });
+      };
+      setNotes(nouvellesNotes);
+
+      // Proposition du niveau de risque résiduel selon le score AI (si applicable)
+      const noteIa = Object.entries(nouvellesNotes).reduce((sum, [key, note]) => {
+        const critere = CRITERES.find(c => c.id === key);
+        return sum + (note || 0) * (critere?.ponderation || 0.16);
+      }, 0);
+      setResiduelChoisi(suggererResiduel(ecartNiveau, ecartCellule, Math.round((noteIa / 4) * 100), estSGS));
+
+      // Pré-remplir le commentaire si le PAC n'est pas accepté directement (modifiable)
+      if (!commentaire.trim() && resultat.decision !== 'accepte' && resultat.commentaire) {
+        setCommentaire(resultat.commentaire);
+      }
+      setShowAiHelp(true);
     } catch (error) {
       console.error('Erreur analyse IA du PAC:', error);
       addNotification({ user_id: user?.id || '', type: 'danger', title: 'Erreur', message: 'Analyse IA indisponible pour le moment', canal: 'in_app' });
@@ -268,6 +289,18 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
       setIsAnalyzing(false);
     }
   };
+
+  // Proposition IA automatique à l'ouverture (nouvelle évaluation, aucun brouillon chargé)
+  useEffect(() => {
+    if (autoProposeAI.current) return;
+    const hasExistingNotes = !!initialEvaluation?.notes && Object.values(initialEvaluation.notes).some(v => (v || 0) > 0);
+    if (hasExistingNotes) return;
+    if (!ecart?.pac?.actions?.length) return;
+    autoProposeAI.current = true;
+    const t = setTimeout(() => { lancerAnalyseIA(); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ecartId]);
 
   if (!ecart) {
     return <div className="text-center py-8 text-muted-foreground"><AlertTriangle className="w-12 h-12 mx-auto mb-4" /><p>Écart non trouvé</p><button type="button" onClick={onCancel} className="btn btn-secondary mt-4">Fermer</button></div>;
@@ -402,14 +435,20 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
 
         {/* CRITÈRES AVEC SCORING 0-4 — TABLEAU COMPACT 6 COLONNES */}
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-role-primary">Critères d'évaluation</span>
-            <button type="button" onClick={() => setShowAiHelp(!showAiHelp)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors">
-              <Star className="w-3 h-3" /> Aide IA
-            </button>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setShowAiHelp(!showAiHelp)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors">
+                <Star className="w-3 h-3" /> Aide IA
+              </button>
+              <button type="button" onClick={() => lancerAnalyseIA()} disabled={isAnalyzing || !ecart.pac?.actions?.length}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                <Star className="w-3 h-3" /> {isAnalyzing ? 'Analyse en cours...' : aiSuggestion ? 'Ré-évaluer avec l\'IA' : 'Évaluer avec l\'IA'}
+              </button>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5 mb-3">Notez chaque critère de 0 (insuffisant) à 4 (excellent)</p>
+          <p className="text-xs text-muted-foreground mt-0.5 mb-3">Notez chaque critère de 0 (insuffisant) à 4 (excellent) — la proposition IA est modifiable</p>
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-center table-fixed">
               <thead>
@@ -501,15 +540,10 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
           {/* Aide IA */}
           {showAiHelp && (
             <div className="mt-2 p-3 rounded bg-blue-50 border border-blue-200 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Star className="w-4 h-4 text-blue-600" />
-                  <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation</span>
-                </div>
-                <button type="button" onClick={lancerAnalyseIA} disabled={isAnalyzing || !ecart.pac?.actions?.length}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                  <FileText className="w-3 h-3" /> {isAnalyzing ? 'Analyse...' : aiSuggestion ? 'Ré-analyser' : 'Analyser le PAC'}
-                </button>
+              <div className="flex items-center gap-2">
+                <Star className="w-4 h-4 text-blue-600" />
+                <span className="text-[11px] font-semibold text-blue-800">Analyse AERORISQ de l'évaluation</span>
+                {aiSuggestion && <span className="text-[9px] text-blue-400 ml-auto">Proposition appliquée — modifiez puis validez en bas</span>}
               </div>
 
               {aiSuggestion && (
@@ -685,6 +719,12 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
             <span className="text-[9px] text-muted-foreground">Suggestion système : <strong>{suggestionCourante.niveau === 'eleve' ? 'Élevé' : suggestionCourante.niveau.charAt(0).toUpperCase() + suggestionCourante.niveau.slice(1)}{!estSGS && suggestionCourante.cellule ? ` (${suggestionCourante.cellule})` : ''}</strong></span>
             {userChangedResiduel.current && <span className="text-[9px] text-amber-600">Modifié par l'inspecteur</span>}
           </div>
+          {estSGS && (
+            <p className="text-[10px] text-muted-foreground mb-2">Écart du domaine <strong>SGS</strong> : la cellule OACI (matrice probabilité × gravité) n'est pas applicable — seul le niveau cible est retenu.</p>
+          )}
+          {!sgsApplicable && !estSGS && (
+            <p className="text-[10px] text-muted-foreground mb-2">Aérodrome avec <strong>SGS non applicable</strong> : le risque SGS (C1) est exclu du score global — l'évaluation porte sur les autres critères.</p>
+          )}
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={attestationRisque} onChange={e => setAttestationRisque(e.target.checked)} className="mt-0.5" />
             <span className="text-[11px] text-muted-foreground leading-snug">
