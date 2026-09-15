@@ -62,6 +62,10 @@ export function SoumissionPACForm({
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const niveauCfg = ecart ? NIVEAU_CONFIG[ecart.niveau_risque] : null;
+  // Le domaine SGS n'a pas de contrainte réglementaire sur les délais :
+  // pas de badge de niveau de risque ni d'alerte de soumission tardive,
+  // seules les échéances proposées restent bornées par le délai prescrit par l'inspecteur.
+  const isSgs = ecart?.domaine === 'SGS';
 
   const autoResize = (id: string) => {
     const el = textareaRefs.current[id];
@@ -211,14 +215,14 @@ export function SoumissionPACForm({
             )}
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />Délais : PAC {ecart.delai_pac ? new Date(ecart.delai_pac).toLocaleDateString('fr-FR') : '—'} · régularisation {ecart.delai_regularisation ? new Date(ecart.delai_regularisation).toLocaleDateString('fr-FR') : '—'}</span>
-              {niveauCfg && <span className={niveauCfg.badgeClass}>{niveauCfg.label}</span>}
+              {!isSgs && niveauCfg && <span className={niveauCfg.badgeClass}>{niveauCfg.label}</span>}
               <span className={`px-2 py-0.5 rounded-full text-white font-semibold ${progression === 100 ? 'bg-success' : 'bg-warning'}`}>{progression}%</span>
             </div>
           </div>
         </div>
 
         {/* ALERTE DÉLAI DE SOUMISSION DÉPASSÉ */}
-        {delaiSoumissionPasse && (
+        {delaiSoumissionPasse && !isSgs && (
           <div className="alert alert-warning text-sm flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             Le délai de soumission du PAC était fixé au {delaiPac}. Il est dépassé — la soumission tardive reste possible mais sera signalée comme retard.
