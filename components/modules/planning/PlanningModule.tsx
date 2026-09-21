@@ -48,7 +48,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 
 // Store
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { getDomaineLabel, genererSuggestionsMaintien, verifierCompositionEquipe } from '@/lib/domaines';
+import { genererSuggestionsMaintien } from '@/lib/domaines';
 import { canManageRole } from '@/lib/config';
 import { teamOptimizer } from '@/lib/ia/engines/teamOptimizer';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
@@ -73,8 +73,6 @@ import PreparationModal from './PreparationModal'
 import PlanningDetailsModal from './PlanningDetailsModal'
 import { PlanningCard } from '@/components/cards/PlanningCard';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
-import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
-import { checklistMemory } from '@/lib/checklistMemory';
 
 // Import des fonctions risque
 import {
@@ -90,17 +88,6 @@ import { predictHMM } from '@/lib/risque/hmm'
 import { SuggestionFeedback } from '@/lib/store';
 import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
 
-// Noeud de hiérarchie checklist (DomaineChecklist → SousDomaine → SousSousDomaine) :
-// tous les champs optionnels pour couvrir les trois niveaux dans le prefill récursif.
-interface NoeudPrefillChecklist {
-  id?: string;
-  nom?: string;
-  items?: ChecklistItem[];
-  sousDomaines?: NoeudPrefillChecklist[];
-  sousSousDomaines?: NoeudPrefillChecklist[];
-  isExpanded?: boolean;
-  ordre?: number;
-}
 
 interface AerodromeRisque extends Aerodrome {
   niveauAlerte: string | null;
@@ -129,6 +116,7 @@ interface AerodromeRisque extends Aerodrome {
 }
 
 import type { TablePlanning } from './PlanningTableColumns';
+import { useLancerSurveillance } from './useLancerSurveillance';
 import { buildPlanningTableColumns } from './PlanningTableColumns';
 
 // Planning enrichi côté accueil du module (champs calculés pour l'affichage
@@ -659,381 +647,18 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     setExecuteConfirmOpen(true);
   };
 
-  const handleConfirmExecute = async () => {
-    if (!executeTarget) return;
-    // Garde de sécurité : les dates réelles sont obligatoires avant lancement.
-    if (!executeDateDebut || !executeDateFin) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Dates requises',
-        message: 'Renseignez les dates réelles de début et de fin avant de lancer la surveillance.',
-        canal: 'in_app',
-      });
-      return;
-    }
-    if (new Date(executeDateDebut).getTime() < startOfToday().getTime()) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Date de début invalide',
-        message: 'La date de début doit être égale ou postérieure à la date du jour.',
-        canal: 'in_app',
-      });
-      return;
-    }
-    if (new Date(executeDateFin).getTime() < new Date(executeDateDebut).getTime()) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Dates incohérentes',
-        message: 'La date de fin ne peut pas précéder la date de début.',
-        canal: 'in_app',
-      });
-      return;
-    }
-    setExecuteConfirmOpen(false);
-    await handleLancer(executeTarget, executeDateDebut, executeDateFin);
-  };
+  // Lancement planning → surveillance : orchestration extraite
+  // (voir ./useLancerSurveillance.ts + lib/planning-lancement.ts).
+  const { handleLancer, handleConfirmExecute: confirmerExecution } = useLancerSurveillance({
+    user, aerodromesActifs, aerodromes, utilisateurs, profilsRisque,
+    addNotification, updatePlanning, enregistrerFeedbackPlanning,
+  });
 
-  const handleLancer = async (planning: Planning, dateDebutReelle?: string, dateFinReelle?: string) => {
-    const store = useAppStore.getState()
-    const { addSurveillance, setChecklistHierarchy, updateSurveillance } = store;
-    if (planning.est_proposition) {
-      addNotification({
-        user_id: user?.id || '', type: 'danger',
-        title: 'Validation requise',
-        message: 'Ce planning doit d\'abord être validé via la validation N+1 avant d\'être exécuté.',
-        canal: 'in_app',
-      });
-      return;
-    }
-    if ((planning as Planning & { isLancee?: boolean }).isLancee) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'warning',
-        title: 'Déjà lancée',
-        message: 'Cette surveillance a déjà été lancée',
-        canal: 'in_app',
-      });
-      return;
-    }
-
-    // Seul le chef d'équipe désigné peut lancer la surveillance (garde de sécurité)
-    if (!user?.id || !planning.chef_id || planning.chef_id !== user.id) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'warning',
-        title: 'Réservé au chef d\'équipe',
-        message: 'Seul le chef d\'équipe désigné peut exécuter cette surveillance.',
-        canal: 'in_app',
-      });
-      return;
-    }
-
-    enregistrerFeedbackPlanning(planning, true, 'Planning validé et lancé');
-
-    const planningAerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
-    const sgsApplicable = isSGSApplicable(planningAerodrome);
-
-    // Dates réelles d'exécution : celles ajustées par le chef d'équipe si renseignées,
-    // sinon les dates programmées du planning.
-    const dateDebutReelleISO = dateDebutReelle ? new Date(dateDebutReelle).toISOString() : planning.date_debut;
-    const dateFinReelleISO = dateFinReelle ? new Date(dateFinReelle).toISOString() : planning.date_fin;
-
-    // Certification : tous les domaines techniques + SGS (si applicable)
-    let porteeComplete: string[];
-    if (planning.type === 'certification') {
-      porteeComplete = sgsApplicable ? ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS'] : ['SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']
-    } else if (planning.type === 'homologation') {
-      porteeComplete = sgsApplicable ? ['SGS', ...(planning.portee || [])] : (planning.portee || [])
-    } else {
-      porteeComplete = (planning.portee || [])
-    }
-
-    // Vérifier la composition de l'équipe avant de lancer
-    const equipeIds = planning.equipe_ids || [];
-    if (equipeIds.length > 0) {
-      const { valide, erreurs } = verifierCompositionEquipe(equipeIds, utilisateurs, porteeComplete)
-      if (!valide) {
-        addNotification({
-          user_id: user?.id || '', type: 'danger',
-          title: 'Équipe incompatible',
-          message: erreurs.join('. '),
-          canal: 'in_app',
-        })
-        return
-      }
-    }
-
-    const nouvelleSurveillance: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'> = {
-      aerodrome_id: planning.aerodrome_id,
-      planning_id: planning.id,
-      type: normalizePlanningType(planning.type) as Surveillance['type'],
-      portee: porteeComplete,
-      equipe_ids: planning.equipe_ids || [],
-      chef_id: planning.chef_id || '',
-      date_debut: dateDebutReelleISO,
-      date_fin: dateFinReelleISO,
-      statut: 'en_cours',
-    };
-
-    const surveillance = await addSurveillance(nouvelleSurveillance);
-
-    if (surveillance && surveillance.id) {
-      updatePlanning(planning.id, {
-        statut: 'en_cours',
-        surveillance_id: surveillance.id,
-        updated_at: new Date().toISOString(),
-      });
-
-      // Transférer la checklist préparée depuis le planning vers la surveillance
-      if (planning.checklist_hierarchy && planning.checklist_hierarchy.length > 0) {
-        setChecklistHierarchy(surveillance.id, planning.checklist_hierarchy);
-        updateSurveillance(surveillance.id, { checklist_hierarchy: planning.checklist_hierarchy });
-        console.debug('[Planning] Checklist préparée transférée depuis le planning:', planning.id);
-      }
-      // Transférer l'évaluation SGS PAOE préparée si présente
-      if (planning.sgs_evaluation_prepa) {
-        updateSurveillance(surveillance.id, { sgs_evaluation_prepa: planning.sgs_evaluation_prepa });
-        console.debug('[Planning] Évaluation SGS préparée transférée:', planning.id);
-      }
-
-      // Convertir les délégations planning → store Delegation[]
-      if (planning.delegations && Object.keys(planning.delegations).length > 0) {
-        const now = new Date().toISOString()
-        const hierarchy = surveillance.checklist_hierarchy || planning.checklist_hierarchy || []
-        for (const [domaine, inspecteurId] of Object.entries(planning.delegations)) {
-          if (!inspecteurId) continue
-          const itemsIds = hierarchy.flatMap(d =>
-            d.nom?.toUpperCase() === domaine.toUpperCase()
-              ? (d.items || []).map(i => i.id)
-              : []
-          )
-          store.addDelegation({
-            surveillance_id: surveillance.id,
-            aerodrome_id: planning.aerodrome_id,
-            chef_id: planning.chef_id || surveillance.chef_id || '',
-            domaine: domaine.toUpperCase(),
-            domaine_nom: domaine.toUpperCase(),
-            assigne_a: inspecteurId,
-            assigne_par: user?.id || planning.chef_id || '',
-            items_ids: itemsIds,
-            progression: 0,
-            statut: 'assigne',
-            assigne_le: now,
-            derniere_activite: now,
-            derniere_sync: now,
-          })
-        }
-        console.debug('[Planning] Délégations converties pour la surveillance:', surveillance.id);
-      }
-
-      if (!(planning.checklist_hierarchy && planning.checklist_hierarchy.length > 0)) {
-        // Fallback : générer la checklist si aucune n'a été préparée
-        const profil = profilsRisque?.[planning.aerodrome_id] || undefined;
-        const aerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
-        const normalizedType = normalizePlanningType(planning.type)
-        const typeSurv: import('@/lib/checklistMemory').TypeInspection =
-          normalizedType === 'inopine' ? 'inopine' :
-          normalizedType === 'maintien' ? 'maintien' :
-          normalizedType === 'certification' ? 'certification' :
-          normalizedType === 'homologation' ? 'homologation' :
-          normalizedType === 'suivi_ecarts' ? 'suivi_ecarts' :
-          normalizedType === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
-
-        const master = store.findMasterChecklistForPortee(planning.portee || [],
-          planning.type === 'certification' || planning.type === 'homologation'
-            ? ['IT', 'SOP', 'SGS']
-            : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'],
-          aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
-        if (master) {
-          const snapshot = JSON.parse(JSON.stringify(master.checklist));
-          const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
-          const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
-            entite_id: planning.aerodrome_id,
-            type_entite: aerodrome?.type_entite ?? 'aerodrome',
-            type_surveillance: typeSurv,
-            portee: planning.portee || [],
-            profil_risque: profil,
-          });
-          setChecklistHierarchy(surveillance.id, enriched);
-          updateSurveillance(surveillance.id, { checklist_hierarchy: enriched });
-        } else {
-          try {
-            const checklistPrefix = planning.type === 'certification' ? 'CERT'
-              : planning.type === 'homologation' ? 'HMG' : 'QSC';
-            const result = await kitDocAgent.generateChecklist({
-              surveillance_id: surveillance.id,
-              entite_id: planning.aerodrome_id,
-              type_entite: aerodrome?.type_entite ?? 'aerodrome',
-              type_surveillance: typeSurv,
-              portee: planning.portee || [],
-              profil_risque: profil,
-              prefix_numero: checklistPrefix,
-            });
-            const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines, aerodrome) } : result;
-            kitDocAgent.injectIntoStore(surveillance.id, resultFiltered);
-            updateSurveillance(surveillance.id, { checklist_hierarchy: toDomaineChecklistArray(resultFiltered) });
-          } catch (err) {
-              console.error('[Planning] Erreur génération IA checklist:', err);
-              addNotification({
-                user_id: user?.id || '', type: 'danger',
-                title: 'Erreur AERORISQ',
-                message: 'La génération automatique de la checklist a échoué. Vous pourrez la générer depuis la page checklist.',
-                canal: 'in_app',
-              });
-            }
-        }
-      }
-
-      // ── Pre-remplir les items checklist avec les prédictions IA (checklistMemory) ──
-      try {
-        const profil = store.profilsRisque?.[planning.aerodrome_id]
-        const surv = store.surveillances.find(s => s.id === surveillance.id)
-        const hierarchy = surv?.checklist_hierarchy
-
-        if (hierarchy && profil) {
-          const typeSurv = normalizePlanningType(surv?.type) as import('@/lib/checklistMemory').TypeInspection
-          let changed = false
-
-          const prefillItems = (domaines: NoeudPrefillChecklist[]) => {
-            for (const domaine of domaines) {
-              const items = domaine.items || []
-              for (const item of items) {
-                try {
-                  const pred = checklistMemory.getPredictionForItem(
-                    planning.aerodrome_id,
-                    typeSurv,
-                    domaine.nom || '',
-                    '',
-                    '',
-                    { id: item.id || '', numero: item.numero || '', point_verification: item.point_verification || '' },
-                    profil
-                  )
-                  if (pred && pred.prediction) {
-                    item.resultat = pred.prediction
-                    item.prediction = pred.prediction
-                    item.confiance = pred.confiance || 70
-                    item.justification = pred.justification || ''
-                    changed = true
-                  }
-                } catch { /* ignorer les items sans prediction */ }
-              }
-              if (domaine.sousDomaines) prefillItems(domaine.sousDomaines)
-              if (domaine.sousSousDomaines) {
-                for (const ssd of domaine.sousSousDomaines) {
-                  for (const item of (ssd.items || [])) {
-                    try {
-                      const pred = checklistMemory.getPredictionForItem(
-                        planning.aerodrome_id,
-                        typeSurv,
-                        domaine.nom || '',
-                        ssd.nom || '',
-                        '',
-                        { id: item.id || '', numero: item.numero || '', point_verification: item.point_verification || '' },
-                        profil
-                      )
-                      if (pred && pred.prediction) {
-                        item.resultat = pred.prediction
-                        item.prediction = pred.prediction
-                        item.confiance = pred.confiance || 70
-                        item.justification = pred.justification || ''
-                        changed = true
-                      }
-                    } catch { /* ignorer */ }
-                  }
-                }
-              }
-            }
-          }
-
-          if (hierarchy) {
-            prefillItems(hierarchy)
-            if (changed) {
-              updateSurveillance(surveillance.id, { checklist_hierarchy: hierarchy })
-              store.setChecklistHierarchy(surveillance.id, hierarchy)
-            }
-          }
-        }
-      } catch { /* silencieux si checklistMemory indisponible */ }
-    }
-
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Surveillance lancée',
-      message: `La surveillance pour ${(planning as Planning & { aeroCode?: string }).aeroCode} a été créée`,
-      canal: 'in_app',
+  const handleConfirmExecute = () => {
+    confirmerExecution({
+      executeTarget, executeDateDebut, executeDateFin,
+      onClose: () => { setExecuteConfirmOpen(false); },
     });
-
-    // ── Notifier les exploitants de l'aérodrome ──────────────────
-    {
-      const typeLabel = (planning.type as string)?.replace(/_/g, ' ') ?? 'surveillance';
-      const domainesLabels = (planning.portee || []).map(getDomaineLabel).join(', ');
-      const dateDebut = new Date(dateDebutReelleISO).toLocaleDateString('fr-FR');
-      const dateFin = new Date(dateFinReelleISO).toLocaleDateString('fr-FR');
-      const equipeNoms = (planning.equipe_ids || []).map((id: string) => {
-        const u = utilisateurs.find(x => x.id === id);
-        return u ? `${u.prenom} ${u.nom}` : id;
-      }).join(', ');
-      const aerodrome = aerodromes.find(a => a.id === planning.aerodrome_id);
-      const aeroCode = aerodrome?.code_oaci || '';
-      const message = `Une surveillance ${typeLabel} est programmée du ${dateDebut} au ${dateFin} sur ${aeroCode}.\nDomaines: ${domainesLabels}\nÉquipe: ${equipeNoms}\nPréparez vos documents et registres pour l'équipe ANACIM.`;
-      // Liste vivante des exploitants (le store peut être périmé si un compte a été créé après le chargement)
-      const { chargerExploitants } = await import('@/lib/services/exploitants')
-      const exploitants = await chargerExploitants(planning.aerodrome_id, utilisateurs)
-      exploitants
-        .forEach(u =>
-          addNotification({
-            user_id: u.id,
-            type: 'warning',
-            title: `Surveillance programmée — ${aeroCode}`,
-            message,
-            canal: 'email',
-            link: `/surveillance/${surveillance.id}`,
-          })
-        );
-    }
-
-    // ── Synchroniser surveillance_id vers la certification/homologation liée ──
-    if (planning.type === 'certification') {
-      const relatedCert = store.certifications.find(
-        c => c.aerodrome_id === planning.aerodrome_id && c.phase_active === 3 && c.statut_global === 'en_cours'
-      );
-      if (relatedCert) {
-        const currentPhase3 = relatedCert.phases_data?.phase3;
-        store.updateCertification(relatedCert.id, {
-          phases_data: {
-            ...relatedCert.phases_data,
-            phase3: {
-              ...(currentPhase3 || {}),
-              surveillance_id: surveillance.id,
-            } as NonNullable<Certification['phases_data']['phase3']>,
-          },
-        });
-      }
-    } else if (planning.type === 'homologation') {
-      const relatedHomo = store.homologations.find(
-        (h: Homologation) => h.aerodrome_id === planning.aerodrome_id && h.phase_active === 2 && h.statut_global === 'en_cours'
-      );
-      if (relatedHomo) {
-        const currentPhase2 = relatedHomo.phases_data?.phase2;
-        store.updateHomologation(relatedHomo.id, {
-          phases_data: {
-            ...relatedHomo.phases_data,
-            phase2: {
-              ...(currentPhase2 || {}),
-              surveillance_id: surveillance.id,
-            } as NonNullable<Homologation['phases_data']['phase2']>,
-          },
-        });
-      }
-    }
-    // ─────────────────────────────────────────────────────────────
-
-    // Naviguer vers la page de la surveillance (pas directement la checklist)
-    router.push(`/surveillance/${surveillance.id}`);
   };
 
   const handleEdit = (planning: Planning) => {

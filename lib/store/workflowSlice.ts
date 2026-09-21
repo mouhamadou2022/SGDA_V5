@@ -1,14 +1,14 @@
-// lib/store/workflowSlice.ts — Phase 2 (monolithe modulaire)
-// Tranche Workflow (orchestrateur statuts surveillance) extraite du store
-// monolithique, comportement identique. Inclut les helpers d'extraction
-// d'écarts depuis le HTML du rapport (usage exclusif du workflow).
-// Appels inter-slices via get()/set() (store composé) : surveillances,
-// ecarts, ecartsRedaction, delegations, certifications,
-// homologations, aerodromes, utilisateurs,
-// updateCertification, updateHomologation, updateSurveillance,
-// updateEcart, addEcart, addNotification...
-// Sync planning via ÉVÉNEMENTS (storeEvents) : 'planning:mission-terminee'.
-// (plus d'appel direct à updatePlanning — voir registerStoreSubscriptions).
+// lib/store/workflowSlice.ts — Phase 2 (monolithe modulaire) + Phase 3 (saga)
+// SAGA de coordination des statuts surveillance : les mutations awaited
+// inter-tranches (updateSurveillance, addEcart, updateEcart,
+// updateDelegation) sont le MÉTIER de cette tranche — les convertir en
+// événements fire-and-forget casserait la persistance awaited (la
+// transmission doit finir d'écrire avant de continuer). Toute la logique
+// pure est extraite dans lib/workflow/ (extractionEcarts,
+// reglesSignature, conversionEcarts) et testée isolément ; ici ne reste
+// que l'orchestration.
+// Lectures inter-slices via get() (autorisées). Notifications + sync
+// planning via ÉVÉNEMENTS (storeEvents).
 
 import type { StateCreator } from 'zustand'
 import type { AppStore, Ecart } from '../store'
@@ -21,85 +21,10 @@ import { storeEvents } from './eventBus'
 // (EcartRedaction/Ecart déjà importés ci-dessus pour le typage strict
 // des réparations — remplace les `any` historiques.)
 import { registreUtils } from '../registreUtils'
-
-function stripHtmlToText(value: string): string {
-  return value
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function normalizeEcartNiveau(value: string): Ecart['niveau_risque'] {
-  const normalized = value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-
-  if (normalized.includes('critique')) return 'critique'
-  if (normalized.includes('eleve')) return 'eleve'
-  if (normalized.includes('faible')) return 'faible'
-  return 'moyen'
-}
-
-function extractEcartsFromRapportHtml(surveillance: Surveillance): Partial<EcartRedaction>[] {
-  const html = surveillance.rapport_html
-  if (!html) return []
-
-  if (typeof DOMParser !== 'undefined') {
-    const document = new DOMParser().parseFromString(html, 'text/html')
-    const annexeTitle = Array.from(document.querySelectorAll('h3'))
-      .find(h => h.textContent?.toLowerCase().includes('écarts constatés'))
-    const table = annexeTitle?.nextElementSibling?.tagName === 'TABLE'
-      ? annexeTitle.nextElementSibling
-      : annexeTitle?.parentElement?.querySelector('table')
-
-    return Array.from(table?.querySelectorAll('tbody tr') || [])
-      .map((row, index) => {
-        const cells = Array.from(row.querySelectorAll('td')).map(cell => cell.textContent?.trim() || '')
-        if (cells.length < 4 || cells.join(' ').toLowerCase().includes('aucun écart constaté')) return null
-        return {
-          id: `rapport-${surveillance.id}-${index}`,
-          reference: cells[0],
-          ref_reglementaire: cells[1],
-          libelle: cells[2],
-          niveau: normalizeEcartNiveau(cells[3]),
-          surveillance_id: surveillance.id,
-          aerodrome_id: surveillance.aerodrome_id,
-          domaine: surveillance.portee?.[0] || 'SGS',
-          created_at: surveillance.transmitted_at || surveillance.updated_at || new Date().toISOString(),
-        }
-      })
-      .filter((ecart): ecart is Exclude<typeof ecart, null> => !!ecart && !!ecart.reference && !!ecart.libelle)
-  }
-
-  const annexeMatch = html.match(/Annexe A-2[\s\S]*?(?:<h3>|$)/i)
-  const annexeHtml = annexeMatch?.[0] || ''
-  const rows = Array.from(annexeHtml.matchAll(/<tr[\s\S]*?<\/tr>/gi))
-
-  return rows
-    .map((row, index) => {
-      const cells = Array.from(row[0].matchAll(/<td[\s\S]*?>([\s\S]*?)<\/td>/gi))
-        .map(cell => stripHtmlToText(cell[1]))
-      if (cells.length < 4 || cells.join(' ').toLowerCase().includes('aucun écart constaté')) return null
-      return {
-        id: `rapport-${surveillance.id}-${index}`,
-        reference: cells[0],
-        ref_reglementaire: cells[1],
-        libelle: cells[2],
-        niveau: normalizeEcartNiveau(cells[3]),
-        surveillance_id: surveillance.id,
-        aerodrome_id: surveillance.aerodrome_id,
-        domaine: surveillance.portee?.[0] || 'SGS',
-        created_at: surveillance.transmitted_at || surveillance.updated_at || new Date().toISOString(),
-      }
-    })
-    .filter((ecart): ecart is Exclude<typeof ecart, null> => !!ecart && !!ecart.reference && !!ecart.libelle)
-}
+// Logique pure extraite (saga mince) — voir lib/workflow/.
+import { extractEcartsFromRapportHtml } from '../workflow/extractionEcarts'
+import { fusionnerSignatures, evaluerAvancement, buildPatchSignatureDelegation } from '../workflow/reglesSignature'
+import { buildEcartOfficiel } from '../workflow/conversionEcarts'
 
 // ─────────────────────────────────────────────────────────────
 // Interface publique du slice
@@ -282,76 +207,42 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         const fresh = get().surveillances.find(s => s.id === surveillanceId)
         if (!fresh) return { ok: false, avancee: false, raison: 'Surveillance introuvable' }
 
-        // Fusion des signatures — dédoublonnage par signataire (une
-        // re-signature remplace la précédente au lieu de l'écraser toutes).
-        const nouvelleSignature = {
-          signataire_id: opts.signataire_id,
-          signataire_nom: opts.signataire_nom,
-          date_signature: new Date().toISOString(),
-          signature_url: opts.signature_url,
-        }
-        const allSigs = [
-          ...(fresh.signatures_checklist || []).filter(s => s.signataire_id !== opts.signataire_id),
-          nouvelleSignature,
-        ]
-
+        // Logique pure (lib/workflow/reglesSignature) — la saga ne fait
+        // qu'orchestrer les écritures awaited.
         const now = new Date().toISOString()
+        const allSigs = fusionnerSignatures(fresh.signatures_checklist, opts, now)
+
         const updateData: Partial<Surveillance> = { signatures_checklist: allSigs }
         if (opts.score_global != null) updateData.score_global = opts.score_global
         if (opts.marque_sgs) updateData.sgs_evaluation_signee_le = now
 
-        // Toutes les personnes déléguées doivent avoir signé pour avancer
+        // Toutes les personnes déléguées doivent avoir signé pour avancer.
         const delegations = get().getDelegationsBySurveillance(surveillanceId)
-        const delegatedIds = [...new Set(delegations.map(d => d.assigne_a).filter(Boolean))]
-        const signedIds = new Set(allSigs.map(s => s.signataire_id))
-        const allDelegatedSigned = delegatedIds.every(id => signedIds.has(id))
+        const decision = evaluerAvancement({
+          statut: fresh.statut,
+          portee: fresh.portee || [],
+          delegatedIds: [...new Set(delegations.map(d => d.assigne_a).filter(Boolean))],
+          signatures: allSigs,
+          marqueSgs: !!opts.marque_sgs,
+          sgsEvaluationPrepa: fresh.sgs_evaluation_prepa,
+          sgsEvaluationSigneeLe: fresh.sgs_evaluation_signee_le,
+          scoreGlobalExistant: fresh.score_global,
+          scoreGlobalPropose: opts.score_global,
+        })
 
-        // Prérequis par partie de la portée :
-        //  - SGS      : sgs_evaluation_signee_le (posé ici si marque_sgs) —
-        //               requis uniquement si un workflow d'éval SGS existe
-        //               (éval transférée depuis le planning ou signature SGS en cours)
-        //  - standard : score_global renseigné (posé uniquement par la checklist standard)
-        const portee = fresh.portee || []
-        const hasPortee = portee.length > 0
-        const sgsWorkflow = opts.marque_sgs || !!fresh.sgs_evaluation_prepa || !!fresh.sgs_evaluation_signee_le
-        const needSgs = hasPortee && portee.includes('SGS') && sgsWorkflow
-        const needStd = hasPortee && portee.some(c => c !== 'SGS')
-        const sgsDone = !needSgs || !!updateData.sgs_evaluation_signee_le || !!fresh.sgs_evaluation_signee_le
-        const stdDone = !needStd || opts.score_global != null || fresh.score_global != null
-
-        const statutAvant = fresh.statut
-        const peutAvancer =
-          ['planifiee', 'en_cours'].includes(statutAvant) &&
-          allDelegatedSigned &&
-          sgsDone &&
-          stdDone
-
-        if (peutAvancer) updateData.statut = 'checklist_signee'
+        if (decision.peutAvancer) updateData.statut = 'checklist_signee'
 
         await get().updateSurveillance(surveillanceId, updateData)
 
-        // Avancement automatique des délégations du signataire
+        // Avancement automatique des délégations du signataire.
+        const patchDelegation = buildPatchSignatureDelegation(opts.signature_url, now)
         delegations
           .filter(d => d.assigne_a === opts.signataire_id)
           .forEach(d => {
-            get().updateDelegation(d.id, {
-              statut: 'checklist_signee',
-              progression: 100,
-              checklist_signature_url: opts.signature_url,
-              checklist_signe_le: now,
-              derniere_activite: now,
-              derniere_sync: now,
-            })
+            get().updateDelegation(d.id, patchDelegation)
           })
 
-        let raison: string | undefined
-        if (!peutAvancer && ['planifiee', 'en_cours'].includes(statutAvant)) {
-          if (!allDelegatedSigned) raison = "En attente des signatures des autres membres délégués"
-          else if (!sgsDone) raison = "L'évaluation SGS doit être signée avant de continuer"
-          else if (!stdDone) raison = "La checklist standard doit être signée avant de continuer"
-        }
-
-        return { ok: true, avancee: peutAvancer, raison }
+        return { ok: true, avancee: decision.peutAvancer, raison: decision.raison }
       },
 
       getProchaineEtape: (surveillance) => {
@@ -542,38 +433,9 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
               const ecartExistant = get().ecarts.find(e => e.id === ecartRedaction.id || e.reference === ecartRedaction.reference)
               
               if (!ecartExistant) {
-                // Créer l'écart officiel dans le tableau principal.
-                // UUID garanti + barème via le contrat de flux (lib/flux.ts) :
-                // les vieux brouillons IDB utilisaient "ecart-<ts>-<rand>",
-                // incompatible avec Supabase.
-                const ecartId = normaliserIdEcart(ecartRedaction.id, () => crypto.randomUUID())
-                const newEcart: Ecart = {
-                  id: ecartId,
-                  aerodrome_id: surveillance.aerodrome_id,
-                  surveillance_id: surveillanceId,
-                  // Utiliser le domaine réel de l'écart (SGS, PHY, OLS…) ou fallback sur portée principale
-                  domaine: ecartRedaction.domaine || surveillance.portee?.[0] || 'SGS',
-                  reference: ecartRedaction.reference,
-                  ref_reglementaire: ecartRedaction.ref_reglementaire,
-                  libelle: ecartRedaction.libelle,
-                  niveau_risque: ecartRedaction.niveau,
-                  cellule_risque_oaci: ecartRedaction.cellule_risque_oaci,
-                  probabilite_risque: ecartRedaction.probabilite_risque,
-                  gravite_risque: ecartRedaction.gravite_risque,
-                  justification_risque_ia: ecartRedaction.justification_risque_ia,
-                  cellule_ia_suggeree: ecartRedaction.cellule_ia_suggeree,
-                  statut: 'pac_attendu',
-                  delai_pac: '',
-                  delai_regularisation: '',
-                  inspecteur_ref_id: surveillance.chef_id,
-                  created_at: ecartRedaction.created_at,
-                  updated_at: now,
-                }
-
-                // Délais selon le niveau de risque (barème unique lib/flux.ts).
-                const delais = calculerDelaisEcart(ecartRedaction.niveau)
-                newEcart.delai_pac = delais.delai_pac
-                newEcart.delai_regularisation = delais.delai_regularisation
+                // Écart officiel via le constructeur pur
+                // (lib/workflow/conversionEcarts) — la saga await la création.
+                const newEcart = buildEcartOfficiel(ecartRedaction, surveillance, now)
 
                 await get().addEcart(newEcart)
 

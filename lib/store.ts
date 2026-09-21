@@ -103,8 +103,10 @@ import { createRiskAnalyticsSlice, type RiskAnalyticsSlice, type PredictionHisto
 export type { RiskAnalyticsSlice, PredictionHistoryRecord, ActionOutcomeRecord, ChangePointRecord, VelocitySnapshotRecord, StressHistoryRecord, ProactiveAlertRecord, ModelPerformanceRecord } from './store/riskAnalyticsSlice';
 import { createPlanningsSlice, type PlanningSlice, type Planning, type FicheBriefing } from './store/planningsSlice';
 export type { PlanningSlice, Planning, FicheBriefing } from './store/planningsSlice';
-import { createEcartsSlice, type EcartSlice, type Ecart, type SoumissionPAC, type EvaluationPAC, type SoumissionPreuves, type ValidationPreuves, type HistoriqueEcart, type StatistiquesPAC } from './store/ecartsSlice';
-export type { EcartSlice, Ecart, SoumissionPAC, EvaluationPAC, SoumissionPreuves, ValidationPreuves, HistoriqueEcart, StatistiquesPAC } from './store/ecartsSlice';
+import { createEcartsSlice, type EcartSlice } from './store/ecartsSlice';
+import type { Ecart, SoumissionPAC, EvaluationPAC, SoumissionPreuves, ValidationPreuves, HistoriqueEcart, StatistiquesPAC } from './store/ecartsTypes';
+export type { EcartSlice } from './store/ecartsSlice';
+export type { Ecart, SoumissionPAC, EvaluationPAC, SoumissionPreuves, ValidationPreuves, HistoriqueEcart, StatistiquesPAC } from './store/ecartsTypes';
 import { createSurveillancesSlice, type SurveillanceSlice, type Surveillance } from './store/surveillancesSlice';
 export type { SurveillanceSlice, Surveillance } from './store/surveillancesSlice';
 import { syncLearningFromStore, syncPACFromStore, startScheduledLearningRecalibration } from './learningPersistence';
@@ -173,7 +175,7 @@ export interface SignatureInfo {
 // (importé et réexporté en tête de fichier).
 
 // Types Ecart + PAC/preuves/historique/statistiques : source unique
-// lib/store/ecartsSlice.ts (importés et réexportés en tête de fichier).
+// lib/store/ecartsTypes.ts (importés et réexportés en tête de fichier).
 
 // ============================================================
 // PROFIL RISQUE ENRICHIE AVEC MODÈLES AVANCÉS

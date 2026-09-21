@@ -10,7 +10,7 @@
 
 import type { Notification } from './notificationsSlice';
 import type { Message } from './messagerieSlice';
-import type { Ecart } from './ecartsSlice';
+import type { Ecart } from './ecartsTypes';
 import type { RegistreEntry } from './registresSlice';
 
 export interface StoreEventMap {

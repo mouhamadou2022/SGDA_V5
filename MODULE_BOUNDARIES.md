@@ -66,9 +66,15 @@ seul `registerStoreSubscriptions()` (bas de `lib/store.ts`) S'ABONNE.
 Zéro appel direct `get().autreTranche()` restant hors exceptions ci-dessous
 (vérifié par grep ; les lectures `get().x` pures restent autorisées).
 Exceptions documentées : appels intra-tranche (ex. `updateCertification`
-dans `nettoyerLienPlanningCertification`) ; orchestrateur `workflowSlice`
-(`addEcart`/`updateEcart` — flux complet validation+persistance+notifs,
-pas réductible à `ecart:integrer-externe`, en attente du split workflow).
+dans `nettoyerLienPlanningCertification`) ; SAGA `workflowSlice`
+(`updateSurveillance`, `addEcart`/`updateEcart`, `updateDelegation` —
+coordination awaited : la transmission doit finir d'écrire avant de
+continuer, un événement fire-and-forget casserait la persistance).
+Logique pure du workflow extraite dans `lib/workflow/` et testée
+(`extractionEcarts`, `reglesSignature`, `conversionEcarts` —
+`lib/__tests__/workflowLogic.test.ts`) ; le slice ne fait
+qu'orchestrer. Réparation legacy (`reparerEcartsManquants`) volontairement
+non fusionnée avec la transmission (fallbacks IDB/références).
 
 ## Contrats de flux (Phase 3)
 
@@ -94,11 +100,22 @@ mémoires IA.
 
 ## Découpage composants (Phase 3 — en cours, extraction prop-driven, zéro logique changée)
 
-- `planning/PlanningModule.tsx` (2441 → ~2000) : extraits `planningDates.ts`
+- `planning/PlanningModule.tsx` (2441 → ~1620) : extraits `planningDates.ts`
   (helpers dates purs), `PlanningModals.tsx` (5 modales : suppression,
   exécution, formulaire, suggestions IA, feedback), `PlanningTableColumns.tsx`
-  (`TablePlanning` + `buildPlanningTableColumns`, mêmes permissions/callbacks).
+  (`TablePlanning` + `buildPlanningTableColumns`, mêmes permissions/callbacks),
+  `useLancerSurveillance.ts` (orchestration lancement, mêmes gardes/notifs) +
+  `lib/planning-lancement.ts` (6 briques pures testées :
+  `lib/__tests__/planningLancement.test.ts`).
   Supprimé `getSurveillanceBadge` (code mort : défini, jamais appelé).
+- `lib/workflow/` (saga mince) : `extractionEcarts`, `reglesSignature`,
+  `conversionEcarts` + `lib/__tests__/workflowLogic.test.ts` ; le slice
+  n'orchestre que des écritures awaited (un event fire-and-forget casserait
+  la persistance — pattern saga documenté dans l'en-tête du slice).
+- `lib/store/ecartsTypes.ts` : les 7 interfaces du domaine Écarts extraites
+  de `ecartsSlice.ts` (1365 → ~1150) ; `eventBus.ts` importe depuis les types.
+- `aerodromes/aerodromesExport.ts` : exports PDF liste + fiche extraits de
+  `AerodromesModule.tsx` (910 → ~670), dépendances explicites.
 - `aerodromes/AerodromeDetail.tsx` (1124 → ~350) : préparation des données
   (store, memos, effet IA, coquille header/onglets/footer) conservée ; les
   8 panneaux extraits dans `AerodromeDetailTabs.tsx` + `toDMS`/`MiniMap`
@@ -117,5 +134,11 @@ même persistance. Chaque tranche : types + interface + créateur + tests-contra
 ## Processus
 
 1. Nouvelle dépendance ? → entrée dans `sgda-boundaries.mjs` + **revue architecte**.
-2. Fin de phase → reviewer : `npm run typecheck` + `npx eslint components/modules/` (zéro `sgda/`) + tests du module + smoke-test des 4 workflows si code partagé touché.
+2. Fin de phase → reviewer : `npx tsc --noEmit --incremental false` (le
+   `npm run typecheck` incrémental MASQUE les erreurs des fichiers inchangés —
+   constaté : 2 erreurs `TypeInspection→TypeSurveillanceKit` pré-existantes
+   dans le lancement, invisibles en incrémental, exposées par l'extraction ;
+   gérées par cast documenté, runtime inchangé) + `npx eslint
+   components/modules/` (zéro `sgda/`) + tests du module + smoke-test des
+   4 workflows si code partagé touché.
 3. Interdit : patch contournant une règle, code mort, import relatif qui fuit son module.
