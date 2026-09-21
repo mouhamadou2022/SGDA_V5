@@ -7,7 +7,7 @@ import {
   Mail, Phone, Save, X, Camera,
   AlertCircle, CheckCircle2,
 } from 'lucide-react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, type CompetenceDeclarative, declarativesVersCompetences } from '@/lib/store'
 import { useFormProgress } from '@/hooks/useFormProgress'
 import { FormProgressContext } from '@/components/ui/FormShell'
 import { ROLES } from '@/lib/config'
@@ -78,7 +78,7 @@ export function UtilisateurForm({
     notifications_email: true,
     notifications_sms: false,
     photo_url: '',
-    competences: [] as { domaine: string; niveau: number }[],
+    competences: [] as CompetenceDeclarative[],
     specialites: [] as string[],
     notification_email: '',
   })
@@ -236,7 +236,7 @@ export function UtilisateurForm({
         if (user?.inspecteur_id) {
           const updates: Record<string, any> = {}
           if (formData.photo_url) updates.photo = formData.photo_url
-          if (formData.competences.length) updates.competences = formData.competences
+          if (formData.competences.length) updates.competences = declarativesVersCompetences(user.inspecteur_id, formData.competences)
           if (Object.keys(updates).length) updateInspecteur(user.inspecteur_id, updates as any)
         }
       }

@@ -2,11 +2,12 @@
 // N+1 : génération + revue individuelle avec réajustements + consolidation style AerodromeDetail
 'use client'
 
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useAppStore, Planning, Aerodrome, ProfilRisque } from '@/lib/store'
 import { canManageRole } from '@/lib/config'
 import { DOMAINES_SURVEILLANCE, getDomaineLabel } from '@/lib/domaines'
+import { normalizePlanningType, getPlanningTypeLabel } from '@/lib/planning'
 import {
   Calendar, CheckCircle2, XCircle, X, TrendingUp, AlertTriangle,
   Shield, Target, Zap, Edit2, Save, MapPin, Users, Clock, Brain,
@@ -15,10 +16,12 @@ import {
 
 interface Props { onClose?: () => void; userRole?: string }
 
+// Libellés canoniques (lib/planning.ts). La normalisation gère les valeurs
+// legacy (`programmee`→`periodique`) à l'affichage comme au filtre.
 const TYPE_LABELS: Record<string, string> = {
   certification: 'Certification', suivi_ecarts: 'Suivi écarts',
   mise_oeuvre_pac: 'Mise en œuvre PAC', maintien: 'Maintien',
-  audit_complet: 'Audit complet', periodique: 'Périodique', programmee: 'Périodique',
+  audit_complet: 'Audit complet', periodique: 'Périodique',
 }
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   certification: <Shield className="w-4 h-4" />, suivi_ecarts: <AlertTriangle className="w-4 h-4" />,
@@ -61,27 +64,35 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
   const [showConsolidation, setShowConsolidation] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<Planning> & { observations?: string }>({})
-  const [notified, setNotified] = useState(false)
+  // Gardes d'idempotence : évitent la double notification/génération lors des
+  // remontages (StrictMode) et la régénération quand l'année N+1 existe déjà.
+  const notifiedRef = useRef(false)
+  const generatedRef = useRef(false)
 
-  // Notification + auto-génération si novembre ou plus
+  // Notification unique (un envoi par montage, même en StrictMode)
   useEffect(() => {
-    if (!notified && user?.id) {
-      addNotification({
-        user_id: user.id,
-        type: 'info',
-        title: `Planning N+1 ${anneeN1}`,
-        message: isNovemberOrLater
-          ? `Le planning de surveillance pour ${anneeN1} est disponible. Les propositions sont générées automatiquement.`
-          : `Le planning de surveillance pour ${anneeN1} sera disponible dès novembre ${new Date().getFullYear()}.`,
-        canal: 'in_app',
-      })
-      setNotified(true)
-    }
-    // Auto-génération si novembre+
-    if (isNovemberOrLater && propositionsN1.length === 0 && !generating) {
-      handleGenerer()
-    }
-  }, [notified, user?.id, anneeN1, isNovemberOrLater])
+    if (notifiedRef.current || !user?.id) return
+    notifiedRef.current = true
+    addNotification({
+      user_id: user.id,
+      type: 'info',
+      title: `Planning N+1 ${anneeN1}`,
+      message: isNovemberOrLater
+        ? `Le planning de surveillance pour ${anneeN1} est disponible. Les propositions sont générées automatiquement.`
+        : `Le planning de surveillance pour ${anneeN1} sera disponible dès novembre ${new Date().getFullYear()}.`,
+      canal: 'in_app',
+    })
+  }, [user?.id, anneeN1, isNovemberOrLater, addNotification])
+
+  // Auto-génération idempotente : novembre+, jamais régénérée si des
+  // propositions ou des plannings existent déjà pour l'année cible.
+  // (Pas de dépendance à `generating`/`propositionsN1` : le ref fait foi,
+  // sinon chaque génération relancerait l'effet en boucle.)
+  useEffect(() => {
+    if (!isNovemberOrLater || generatedRef.current) return
+    generatedRef.current = true
+    void handleGenererRef.current(false)
+  }, [isNovemberOrLater, anneeN1])
 
   const planningsN1 = useMemo(() =>
     plannings.filter(p => p.annee_cible === anneeN1 && !p.deleted_at),
@@ -111,15 +122,34 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
     conflits: propositionsN1.filter(p => planningsN1.some(pe => pe.aerodrome_id === p.aerodrome_id && overlap(p, pe))).length,
   }), [propositionsN1, planningsN1])
 
-  const handleGenerer = async () => {
+  const handleGenerer = useCallback(async (force = true) => {
+    // Gardes : pas de génération concurrente ; en auto-génération
+    // (force=false), ne jamais remplacer une revue en cours ni des
+    // plannings déjà consolidés.
+    if (generating) return
+    if (!force) {
+      const st = useAppStore.getState()
+      const existe = st.propositionsN1.some(p => p.annee_cible === anneeN1)
+        || st.plannings.some(p => p.annee_cible === anneeN1 && !p.deleted_at)
+      if (existe) return
+    }
     setGenerating(true)
     setValidatedIds(new Set())
     try {
       const toutes: Planning[] = []
-      for (const g of grouped) { const props = genererPlanningN1(g.aero.id, anneeN1); if (props?.length) toutes.push(...props) }
-      setPropositionsN1(toutes)
+      for (const a of aerodromes) {
+        if (a.deleted_at) continue
+        if (selectedAero !== '' && a.id !== selectedAero) continue
+        const props = genererPlanningN1(a.id, anneeN1)
+        if (props?.length) toutes.push(...props)
+      }
+      setPropositionsN1(toutes.map(p => ({ ...p, type: normalizePlanningType(p.type) as Planning['type'] })))
     } catch (e) { console.error('[N+1] Erreur:', e) } finally { setGenerating(false) }
-  }
+  }, [aerodromes, selectedAero, anneeN1, genererPlanningN1, setPropositionsN1, generating])
+
+  // Réf stable pour l'auto-génération (évite la dépendance circulaire d'effet)
+  const handleGenererRef = useRef(handleGenerer)
+  handleGenererRef.current = handleGenerer
 
   // Ouvrir l'édition inline
   const handleStartEdit = (prop: Planning) => {
@@ -139,7 +169,7 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
     setEditingId(null)
     setPropositionsN1(propositionsN1.map(p => p.id === propId ? {
       ...p,
-      type: editForm.type || p.type,
+      type: (editForm.type ? normalizePlanningType(editForm.type) : p.type) as Planning['type'],
       date_debut: editForm.date_debut ? new Date(editForm.date_debut).toISOString() : p.date_debut,
       date_fin: editForm.date_fin ? new Date(editForm.date_fin).toISOString() : p.date_fin,
       portee: editForm.portee || p.portee,
@@ -267,8 +297,8 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
                 {g.existants.length === 0 ? <p className="text-sm text-muted-foreground italic">Aucun</p> : g.existants.map(p => (
                   <div key={p.id} className="p-2 rounded-lg bg-muted/20 text-sm">
                     <div className="flex items-center gap-2">
-                      {TYPE_ICONS[p.type] || <Calendar className="w-4 h-4" />}
-                      <span className="font-medium">{TYPE_LABELS[p.type] || p.type}</span>
+                      {TYPE_ICONS[normalizePlanningType(p.type)] || <Calendar className="w-4 h-4" />}
+                      <span className="font-medium">{getPlanningTypeLabel(p.type)}</span>
                       <span className="text-muted-foreground">{p.date_debut ? new Date(p.date_debut).toLocaleDateString('fr-FR') : '?'}</span>
                     </div>
                     {p.portee?.length > 0 && <p className="text-sm text-muted-foreground mt-0.5">{p.portee.slice(0, 4).join(', ')}</p>}
@@ -333,8 +363,8 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
                       isValide ? 'border-success/50 bg-success/5' : conflict ? 'border-warning/50 bg-warning/5' : 'border-border bg-role-primary-soft/10'
                     }`}>
                       <div className="flex items-center gap-2 flex-wrap">
-                        {TYPE_ICONS[prop.type] || <Calendar className="w-4 h-4" />}
-                        <span className="font-medium">{TYPE_LABELS[prop.type] || prop.type}</span>
+                        {TYPE_ICONS[normalizePlanningType(prop.type)] || <Calendar className="w-4 h-4" />}
+                        <span className="font-medium">{getPlanningTypeLabel(prop.type)}</span>
                         {source && <span className={`${SOURCE_CLS[source.type] || 'badge-outline'} text-xs`}>{SOURCE_LABEL[source.type] || ''}</span>}
                         <span className={`badge text-xs ${PRIORITE_BADGE[prop.priorite] || 'badge neutral'}`}>{PRIORITE_LABEL[prop.priorite] || prop.priorite}</span>
                         {isValide && <span className="badge success text-xs">Validée</span>}
@@ -411,7 +441,7 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
                             <Target className="w-4 h-4 text-role-primary mt-0.5 shrink-0" />
                             <div>
                               <p className="text-xs text-muted-foreground">Type</p>
-                              <p className="text-sm font-medium">{TYPE_LABELS[prop.type] || prop.type}</p>
+                              <p className="text-sm font-medium">{getPlanningTypeLabel(prop.type)}</p>
                               {source && <span className={`${SOURCE_CLS[source.type] || 'badge-outline'} text-xs mt-0.5`}>{SOURCE_LABEL[source.type] || ''}</span>}
                             </div>
                           </div>

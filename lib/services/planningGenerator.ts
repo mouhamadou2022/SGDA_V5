@@ -4,6 +4,7 @@
 
 import type { Planning, ProfilRisque, Ecart, Certification, Homologation } from '@/lib/store'
 import { computeFinalFrequency, suggestMissionType } from '@/lib/risque/frequency'
+import { normalizePlanningType } from '@/lib/planning'
 import { modelCache } from '@/lib/risque/modelCache'
 
 export interface PlanningSource {
@@ -101,7 +102,7 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
   if (profilRisque) {
     const nbEcartsCritiques = ecartsActifs.filter(e => e.niveau_risque === 'critique').length
     const hasPendingPac = ecartsActifs.some(e => e.pac && ['pac_attendu', 'pac_soumis'].includes(e.statut))
-    const isCertPhase = historiqueSurveillances.some(h => h.type === 'certification')
+    const isCertPhase = historiqueSurveillances.some(h => normalizePlanningType(h.type) === 'certification')
 
     const riskLevel = profilRisque.niveau === 'critique' ? 'critique'
       : profilRisque.niveau === 'eleve' ? 'eleve'
@@ -117,15 +118,20 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
       frequence = Math.min(12, Math.round(frequence * modelOverrides.nb.overdispersion))
     }
 
-    // Mission type — Thompson Sampling override si confiance > 70%
-    let missionType = suggestMissionType({
+    // Mission type — Thompson Sampling override si confiance > 70%.
+    // Normalisé vers le vocabulaire canonique : le moteur TS peut retourner
+    // un identifiant d'action legacy (`programmee`) ou inconnu.
+    let missionType = normalizePlanningType(suggestMissionType({
       riskLevel,
       hasCriticalEcarts: nbEcartsCritiques > 0,
       hasPacInProgress: hasPendingPac,
       isCertificationPhase: isCertPhase,
-    })
+    }))
     if (modelOverrides.ts && modelOverrides.ts.successProbability > 0.7) {
-      missionType = modelOverrides.ts.recommendedAction
+      const tsType = normalizePlanningType(modelOverrides.ts.recommendedAction)
+      // N'accepter l'override TS que s'il désigne un vrai type de mission
+      const TYPES_MISSION = ['periodique', 'inopine', 'speciale', 'suivi_ecarts', 'mise_oeuvre_pac', 'certification', 'homologation', 'audit_complet', 'urgence', 'maintien']
+      if (TYPES_MISSION.includes(tsType)) missionType = tsType
     }
 
     // Domaines — Copulas override (élargir si dépendance de queue)

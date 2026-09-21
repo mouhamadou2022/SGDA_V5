@@ -17,6 +17,7 @@ import {
   Cell,
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
+import { missionChevaucheMois, joursChevauchementMois, joursOuvresDuMois } from '@/lib/planning';
 
 interface WorkloadViewProps {
   userRole: string;
@@ -77,10 +78,13 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
     return utilisateurs.filter(u => u.role === 'inspector' && u.statut !== 'inactif');
   }, [utilisateurs]);
 
-  // Récupérer les plannings du mois sélectionné
+  // Plannings qui chevauchent le mois sélectionné (même partiellement).
+  // Cause racine : le filtre `date_debut.startsWith(mois)` ratait les missions
+  // à cheval sur deux mois et imputait tous leurs jours au mois de début.
   const planningsFiltres = useMemo(() => {
     return plannings.filter((p) => {
-      const dansLeMois = p.date_debut.startsWith(moisSelectionne);
+      if (p.deleted_at || p.est_proposition) return false
+      const dansLeMois = missionChevaucheMois(p.date_debut, p.date_fin, moisSelectionne);
       const dansAerodrome =
         aerodromeFiltre === 'Tous'
           ? true
@@ -89,30 +93,29 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
     });
   }, [plannings, moisSelectionne, aerodromeFiltre, aerodromes]);
 
-  // Calculer la charge de travail réelle
+  // Calculer la charge de travail réelle (jours proratisés au mois affiché,
+  // jours ouvrés réels du mois au lieu du « 22 » fixe).
   const lignesCharge = useMemo<LigneCharge[]>(() => {
     if (inspecteursReels.length === 0) return [];
+    const joursOuvres = joursOuvresDuMois(moisSelectionne);
 
     return inspecteursReels.map((insp) => {
       const missionsInsp = planningsFiltres.filter(
         (p) => p.chef_id === insp.id || (p.equipe_ids ?? []).includes(insp.id)
       );
 
+      // Seuls les jours situés dans le mois comptent (missions à cheval).
       let totalJours = 0;
       missionsInsp.forEach(p => {
-        const debut = new Date(p.date_debut);
-        const fin = new Date(p.date_fin);
-        const jours = Math.ceil((fin.getTime() - debut.getTime()) / (1000 * 60 * 60 * 24));
-        totalJours += Math.max(1, jours);
+        totalJours += joursChevauchementMois(p.date_debut, p.date_fin, moisSelectionne);
       });
 
       const missions = missionsInsp.length;
       const joursTerrain = totalJours;
-      const joursOuverts = 22;
-      const tauxOccupation = joursOuverts > 0 ? Math.min(100, Math.round((joursTerrain / joursOuverts) * 100)) : 0;
-      const enAlerte = joursTerrain > 20;
+      const tauxOccupation = Math.min(100, Math.round((joursTerrain / joursOuvres) * 100));
+      const enAlerte = joursTerrain >= joursOuvres;
 
-      const competences = insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [];
+      const competences = insp.competences?.map((c) => c.domaine) || [];
 
       return {
         inspecteurId: insp.id,
@@ -125,7 +128,7 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
         competences,
       };
     });
-  }, [inspecteursReels, planningsFiltres]);
+  }, [inspecteursReels, planningsFiltres, moisSelectionne]);
 
   const inspecteursSurcharges = lignesCharge.filter((l) => l.enAlerte);
   const inspecteursDisponibles = lignesCharge.filter((l) => !l.enAlerte && l.tauxOccupation < 50);
@@ -186,8 +189,8 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
           <div className="alert-content">
             <div className="alert-title">⚠️ {inspecteursSurcharges.length} inspecteur(s) en surcharge</div>
             <div className="alert-description">
-              {inspecteursSurcharges.map((i) => `${i.prenom} ${i.nom}`).join(', ')}. 
-              Plus de 20 jours terrain planifiés ce mois. Envisagez de redistribuer les missions.
+              {inspecteursSurcharges.map((i) => `${i.prenom} ${i.nom}`).join(', ')}.
+              Charge ≥ 100 % des jours ouvrés du mois ({joursOuvresDuMois(moisSelectionne)} j). Envisagez de redistribuer les missions.
             </div>
           </div>
         </div>
@@ -262,7 +265,7 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-red-500" />
-          <span>Surcharge (&gt;20 jours)</span>
+          <span>Surcharge (≥100 % jours ouvrés)</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-orange-500" />

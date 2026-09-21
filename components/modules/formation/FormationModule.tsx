@@ -50,7 +50,7 @@ import { CompetenceMatrix } from './CompetenceMatrix';
 import { FormationSuggestions } from './FormationSuggestions';
 import { DeleteConfirmationDialog } from '@/components/ui/DeleteConfirmationDialog';
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Formation, Inspecteur, Competence } from '@/lib/store';
+import { useAppStore, Formation, Inspecteur, Competence, declarativesVersCompetences } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { formationUtils } from '@/lib/formationUtils';
 import { canManageRole } from '@/lib/config';
@@ -216,7 +216,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
         superieur_id: u.superieur_id,
         domaine_principal: 'exploitation' as Inspecteur['domaine_principal'],
         statut: (u.statut === 'actif' ? 'en_service' : 'inactif') as Inspecteur['statut'],
-        competences: u.competences || [],
+        competences: declarativesVersCompetences(u.inspecteur_id || u.id, u.competences),
         formations: [],
         photo: u.photo_url,
         created_at: u.created_at || new Date().toISOString(),

@@ -4,8 +4,8 @@
 import React, { useState, useMemo } from 'react'
 import {
   AlertOctagon, AlertTriangle, Brain, Building2, ChevronDown, ChevronRight, Clock,
-  Gauge, History, Minus, Phone,
-  Sparkles, Target, TrendingDown, TrendingUp,
+  Gauge, History, Phone,
+  Sparkles, Target,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -15,30 +15,13 @@ import {
 import { Card } from '@/components/ui/card'
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent'
 import { getGraviteRisqueLabel } from '@/lib/evenementUtils'
+// Affichage SGS et tendance unifiés (source unique — voir aerodromeBadges.tsx).
+import { SgsMaturiteBadge, TendanceIcon } from './aerodromeBadges'
 
 interface Props {
   aerodrome: Aerodrome
   iaAnalysis: RiskAnalysisResult | null
   isLoadingIA: boolean
-}
-
-const SGS_LABELS: Record<number, string> = { 1: 'Absent', 2: 'Présent', 3: 'Approprié', 4: 'Opérationnel', 5: 'Efficace' }
-const SGS_CLASSES: Record<number, string> = { 1: 'badge danger', 2: 'badge warning', 3: 'badge primary', 4: 'badge primary', 5: 'badge success' }
-
-const getSgsNiveau = (score: number): number => {
-  if (!score || score < 20) return 1
-  if (score < 40) return 2
-  if (score < 60) return 3
-  if (score < 80) return 4
-  return 5
-}
-
-const getTendanceIcon = (tendance?: string) => {
-  switch (tendance) {
-    case 'hausse': return <TrendingUp className="h-4 w-4 text-success" />
-    case 'baisse': return <TrendingDown className="h-4 w-4 text-danger" />
-    default: return <Minus className="h-4 w-4 text-muted-foreground" />
-  }
 }
 
 function getCertifStatut(aerodrome: Aerodrome, certifications: Certification[], homologations: Homologation[]): { label: string; color: string; date?: string } {
@@ -133,9 +116,6 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
   }, [aerodrome.id, surveillancesAerodrome, evenements, ecarts])
 
   const certifStatut = getCertifStatut(aerodrome, certifications, homologations)
-  const sgsNiveau = getSgsNiveau(aerodrome.maturite_sgs)
-  const sgsLabel = `${SGS_LABELS[sgsNiveau]} (N${sgsNiveau})`
-  const sgsBadge = SGS_CLASSES[sgsNiveau]
 
   if (isLoadingIA && !iaAnalysis) {
     return (
@@ -165,7 +145,7 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
               <span className={`risk-badge ${profilRisque.niveau} text-[10px] px-1.5 py-0.5`}>
                 {profilRisque.niveau}
               </span>
-              {getTendanceIcon(profilRisque.tendance)}
+              <TendanceIcon tendance={profilRisque.tendance} />
             </div>
           </Card>
         ) : (
@@ -181,7 +161,7 @@ export default function AdminInspecteurDashboard({ aerodrome, iaAnalysis, isLoad
             <p className="badge neutral inline-block mt-1">Non applicable</p>
           ) : (
             <>
-              <p className={`${sgsBadge} inline-block mt-1`}>{sgsLabel}</p>
+              <p className="inline-block mt-1"><SgsMaturiteBadge score={aerodrome.maturite_sgs} /></p>
               {aerodrome.statut_sgs === 'simplifie' && <p className="text-[10px] text-muted-foreground mt-0.5">Simplifié</p>}
             </>
           )}

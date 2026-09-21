@@ -14,6 +14,7 @@ import { formatDate } from '@/lib/utils';
 import { canManageRole } from '@/lib/config';
 import { computeCompetenceScore } from '@/lib/competences';
 import { getDomainesFromSpecialites, couvertureSuffisante, verifierCompositionEquipe } from '@/lib/domaines';
+import { resolvePorteeDomaines, normalizePlanningType } from '@/lib/planning';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import {
   CheckCircle2,
@@ -60,31 +61,12 @@ const selectStyle = {
   backgroundRepeat: 'no-repeat'
 }
 
-// Extraction des domaines depuis la portée du planning
+// Résolution des domaines requis depuis la portée du planning.
+// Source unique : lib/planning.ts (gère codes, AGA/AGA-XXX, labels, doublons).
+// Remplace l'heuristique locale par mots-clés qui manquait la plupart des
+// codes (OLS, MFP, COP…) et inventait des domaines hors référentiel (RH, PAC).
 function extraireDomaines(portee: string[]): string[] {
-  const mapping: Record<string, string[]> = {
-    'SGS': ['SGS', 'culture', 'securite'],
-    'SLI': ['SLI', 'sauvetage', 'incendie'],
-    'PHY': ['PHY', 'piste', 'balisage', 'infrastructure'],
-    'OPS': ['OPS', 'exploitation', 'operations'],
-    'AGA': ['AGA', 'aerodrome'],
-    'ELEC': ['ELEC', 'electrique', 'feux'],
-    'RA': ['RA', 'animalier', 'faune'],
-    'RH': ['RH', 'personnel', 'ressources'],
-    'PAC': ['PAC', 'action', 'corrective'],
-    'Écarts': ['ecart', 'non-conformite', 'nc'],
-  };
-  
-  const domaines = new Set<string>();
-  portee.forEach(p => {
-    Object.entries(mapping).forEach(([domaine, keywords]) => {
-      if (keywords.some(k => p.toLowerCase().includes(k.toLowerCase()))) {
-        domaines.add(domaine);
-      }
-    });
-  });
-  
-  return Array.from(domaines);
+  return resolvePorteeDomaines(portee)
 }
 
 // Seul un inspecteur titulaire ou principal peut être chef d'équipe
@@ -108,7 +90,7 @@ function calculerScoreInspecteur(
     return {
       ...insp,
       disponible: false,
-      specialites: insp.specialites || insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [],
+      specialites: insp.specialites || insp.competences?.map((c) => c.domaine) || [],
       score: 0,
       chargeMissions: 0,
       competenceScore: 0,
@@ -125,7 +107,7 @@ function calculerScoreInspecteur(
   // Domaines de l'inspecteur depuis ses spécialités métier (fallback compétences)
   const domainesInsp = insp.specialites?.length
     ? getDomainesFromSpecialites(insp.specialites)
-    : insp.competences?.map((c: { domaine: string; niveau: string }) => c.domaine) || [];
+    : insp.competences?.map((c) => c.domaine) || [];
   const matching = domainesInsp.filter((c: string) => 
     domainesRequis.some(d => d === c || c.includes(d))
   );
@@ -187,7 +169,7 @@ function calculerScoreInspecteur(
   let niveauCompetence = 'insuffisant';
   try {
     const formationsFiltered = formations.filter(f => f.participants?.includes(insp.id));
-    const competenceResult = computeCompetenceScore(insp, planningsExistants as unknown as import('@/lib/store').Surveillance[], formationsFiltered);
+    const competenceResult = computeCompetenceScore(insp, planningsExistants, formationsFiltered);
     competenceScore = competenceResult.score;
     niveauCompetence = competenceResult.niveau;
     score += competenceScore / 4;
@@ -224,7 +206,7 @@ function calculerScoreInspecteur(
     c.toLowerCase().includes('action') || 
     c.toLowerCase().includes('corrective')
   );
-  if (planning.type === 'mise_oeuvre_pac' && aExpertisePAC) {
+  if (normalizePlanningType(planning.type) === 'mise_oeuvre_pac' && aExpertisePAC) {
     score += 15;
     correspondance.push(`Expertise en suivi PAC`);
   }
@@ -544,7 +526,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
           {inspecteurs.map((insp) => {
             const charge = chargeParInspecteur[insp.id] ?? 0;
             const surcharge = charge > 15;
-            const competence = computeCompetenceScore(insp, planningsEnrichis as unknown as import('@/lib/store').Surveillance[], formations);
+            const competence = computeCompetenceScore(insp, planningsEnrichis, formations);
             const specs = insp.competences?.slice(0, 3).map(c => c.domaine).join(' · ') || '—';
             return (
               <div key={insp.id} className="flex items-center gap-3 flex-wrap">

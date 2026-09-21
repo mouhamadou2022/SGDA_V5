@@ -1,6 +1,0 @@
-[/api/ia/analyze] SyntaxError: Unexpected end of JSON input
-    at JSON.parse (<anonymous>)
-[IA Chat API] Erreur: SyntaxError: Unexpected end of JSON input
-    at JSON.parse (<anonymous>)
-[/api/ia/generate] SyntaxError: Unexpected end of JSON input
-    at JSON.parse (<anonymous>)

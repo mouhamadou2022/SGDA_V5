@@ -23,6 +23,14 @@ import { REGIONS, canWriteOperatorRole } from '@/lib/config';
 import AerodromeForm from '@/components/forms/AerodromeForm';
 import AerodromeDetail from './AerodromeDetail';
 import { QrCodeGenerator } from './QrCodeGenerator';
+// Badges partagés (source unique — voir aerodromeBadges.tsx).
+import {
+  AerodromeStatutBadge,
+  AerodromeTypeBadge,
+  EntiteIcon,
+  getRiskBadgeClass,
+  getRiskProgressClass,
+} from './aerodromeBadges';
 
 const OPERATOR_ROLES = ['dg_operator', 'focal_operator', 'staff_operator'];
 
@@ -45,55 +53,8 @@ const selectStyle = {
 const focusClass = 'focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all';
 
 // ── Helpers d'affichage ──────────────────────────────────────────────────────
-
-function getTypeBadge(type: string, typeEntite?: string) {
-  const Icon = typeEntite === 'helistation'
-    ? () => <span>🚁</span>
-    : typeEntite === 'mixte'
-    ? () => <span>✈🚁</span>
-    : () => <Plane className="w-3 h-3" />;
-  return type === 'international'
-    ? <span className="badge primary inline-flex items-center gap-1"><Icon />International</span>
-    : <span className="badge teal   inline-flex items-center gap-1"><Icon />National</span>;
-}
-
-function getStatutBadge(statut: string) {
-  switch (statut) {
-    case 'actif':     return <span className="badge success">Actif</span>;
-    case 'brouillon': return <span className="badge neutral">Brouillon</span>;
-    case 'suspendu':  return <span className="badge warning">Suspendu</span>;
-    case 'ferme':     return <span className="badge danger">Fermé</span>;
-    default:          return <span className="badge outline">{statut}</span>;
-  }
-}
-
-function getRiskBadgeClass(niveau: string) {
-  const base = 'risk-badge';
-  switch (niveau) {
-    case 'faible':   return `${base} faible`;
-    case 'moyen':    return `${base} moyen`;
-    case 'eleve':    return `${base} eleve`;
-    case 'critique': return `${base} critique`;
-    default:         return 'badge neutral';
-  }
-}
-
-function getRiskProgressClass(niveau: string) {
-  switch (niveau) {
-    case 'faible':   return 'progress-faible';
-    case 'moyen':    return 'progress-moyen';
-    case 'eleve':    return 'progress-eleve';
-    case 'critique': return 'progress-critique';
-    default:         return '';
-  }
-}
-
-/** Icône principale de la card selon le type d'entité */
-function EntiteIcon({ typeEntite, className = 'w-4 h-4' }: { typeEntite?: string; className?: string }) {
-  if (typeEntite === 'helistation') return <span>🚁</span>;
-  if (typeEntite === 'mixte')       return <span>✈🚁</span>;
-  return <Plane className={className} />;
-}
+// getTypeBadge / getStatutBadge / getRiskBadgeClass / getRiskProgressClass /
+// EntiteIcon ont été unifiés dans ./aerodromeBadges.tsx (source unique).
 
 /** Titre du formulaire selon le contexte (création / édition × type d'entité) */
 function getFormTitle(aerodrome?: Aerodrome | null): string {
@@ -519,8 +480,8 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
       { key: 'code_oaci', header: 'Code OACI', render: (a) => <span className="code-oaci-badge">{a.code_oaci}</span> },
       { key: 'nom', header: 'Nom', render: (a) => <span className="font-medium">{a.nom}</span> },
       { key: 'region', header: 'Région', render: (a) => <span>{a.region}</span> },
-      { key: 'type', header: 'Type', render: (a) => getTypeBadge(a.type, a.type_entite) },
-      { key: 'statut', header: 'Statut', render: (a) => getStatutBadge(a.statut) },
+      { key: 'type', header: 'Type', render: (a) => <AerodromeTypeBadge type={a.type} typeEntite={a.type_entite} /> },
+      { key: 'statut', header: 'Statut', render: (a) => <AerodromeStatutBadge statut={a.statut} /> },
       { key: 'certification', header: 'Certification', render: (a) => getCertificationBadge(a.id) },
       {
         key: 'derniere_surv',
@@ -612,7 +573,7 @@ useEffect(() => setCurrentPage(1), [filters, searchTerm])
                 </div>
                 <span className="code-oaci-badge">{aerodrome.code_oaci}</span>
               </div>
-              {getTypeBadge(aerodrome.type, aerodrome.type_entite)}
+              <AerodromeTypeBadge type={aerodrome.type} typeEntite={aerodrome.type_entite} />
             </div>
             <div className="card-content">
               <h4 className="heading-4 font-semibold mb-2 truncate">{aerodrome.nom}</h4>

@@ -13,7 +13,6 @@
 import { useState, useMemo, useEffect, useCallback, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
-import { FormShell } from '@/components/ui/FormShell';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, Planning, Aerodrome, Surveillance, Ecart, Exemption, MesureAtténuation, Certification, Homologation, ChecklistItem, IaSuggestion, Formation } from '@/lib/store';
 import {
@@ -36,16 +35,12 @@ import {
   AlertTriangle,
   Shield,
   Target,
-  Info,
   Filter,
   PlayCircle,
-  Edit2,
-  Trash2,
   MapPin,
   Brain,
   Loader2,
   Send,
-  XCircle,
   RefreshCw,
 } from 'lucide-react';
 
@@ -57,40 +52,20 @@ import { getDomaineLabel, genererSuggestionsMaintien, verifierCompositionEquipe 
 import { canManageRole } from '@/lib/config';
 import { teamOptimizer } from '@/lib/ia/engines/teamOptimizer';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
-
-const PLANNING_TERMINES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee', 'annulee']
-// Statuts considérés comme « réalisés » (terminaux réussis hors annulée) — source unique
-// pour les KPIs globaux, le regroupement par aérodrome et le filtre de visibilité.
-const PLANNING_REALISES = ['realisee', 'archivee', 'transmise', 'checklist_signee', 'ecarts_signes', 'rapport_signe', 'lettre_signee']
-
-// Un planning est « en retard » si son statut l'indique explicitement (en_retard)
-// ou si sa date de fin est dépassée sans qu'il soit clôturé/terminé.
-function estPlanningEnRetard(p: Planning, now = Date.now()): boolean {
-  if (p.statut === 'en_retard') return true
-  if (p.est_proposition || PLANNING_TERMINES.includes(p.statut)) return false
-  const dFin = new Date(p.date_fin || p.date_debut).getTime()
-  return !Number.isNaN(dFin) && dFin < now
-}
-
-// Convertit une date ISO en valeur pour <input type="datetime-local">
-function toDatetimeLocal(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-// Début de la journée courante (heure locale) — garde « date de début ≥ aujourd'hui »
-function startOfToday(): Date {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
+// Source unique des statuts Planning : lib/planning.ts. Le Planning ne porte
+// jamais les statuts Surveillance — la surveillance liée est prise en compte
+// via les prédicats (cause racine des KPIs « réalisés » et du retard faux).
+import {
+  estPlanningEnRetard,
+  isPlanningRealise,
+  normalizePlanningType,
+} from '@/lib/planning';
 
 // Composants du module
+import { toDatetimeLocal, startOfToday } from './planningDates';
+import { ModaleSuppression, ModaleExecution, ModaleFormulaire, ModaleSuggestionsIA, ModaleFeedback } from './PlanningModals';
 import { PlanningCalendarView } from './PlanningCalendarView';
 import PlanningGanttView from './PlanningGanttView';
-import PlanningForm from '@/components/forms/PlanningForm';
 import { WorkloadView } from './WorkloadView';
 import { SmartAssignment } from './SmartAssignment';
 import PlanningNPlus1 from './PlanningNPlus1';
@@ -102,43 +77,18 @@ import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgen
 import { checklistMemory } from '@/lib/checklistMemory';
 
 // Import des fonctions risque
-import { 
-  RISK_LEVELS, 
-  getRiskLevel, 
+import {
+  getRiskLevel,
   computeFinalFrequency,
   isSGSApplicable,
 } from '@/lib/risque';
 import { riskEngine, getEcartTriggers, type EcartTrigger } from '@/lib/riskEngine';
 import { synthetiserModeles } from '@/lib/risque/modelSynthesis';
 import { Card } from '@/components/ui/card';
-import { DataTable, type Column } from '@/components/ui/DataTable'
+import { DataTable } from '@/components/ui/DataTable'
 import { predictHMM } from '@/lib/risque/hmm'
 import { SuggestionFeedback } from '@/lib/store';
 import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
-
-const getSurveillanceBadge = (statut: string) => {
-  const labels: Record<string, string> = {
-    'planifiee': 'Planifié',
-    'en_cours': 'En cours',
-    'checklist_signee': 'Checklist signée',
-    'ecarts_signes': 'Écarts signés',
-    'rapport_signe': 'Rapport signé',
-    'lettre_signee': 'Lettre signée',
-    'transmise': 'Exécuté avec succès',
-    'archivee': 'Archivée'
-  };
-  const classes: Record<string, string> = {
-    'planifiee': 'outline',
-    'en_cours': 'warning',
-    'checklist_signee': 'primary',
-    'ecarts_signes': 'primary',
-    'rapport_signe': 'success',
-    'lettre_signee': 'success',
-    'transmise': 'success',
-    'archivee': 'neutral'
-  };
-  return { label: labels[statut] || statut, cls: classes[statut] || 'neutral' };
-};
 
 // Noeud de hiérarchie checklist (DomaineChecklist → SousDomaine → SousSousDomaine) :
 // tous les champs optionnels pour couvrir les trois niveaux dans le prefill récursif.
@@ -178,15 +128,8 @@ interface AerodromeRisque extends Aerodrome {
   suggestionsMaintien: Array<{ domaines: string[]; typesChecklist: string[]; raison: string; source: string; confiance: number }>;
 }
 
-interface TablePlanning extends Planning {
-  aerodromeCode: string
-  aerodromeNom: string
-  profilScore?: number
-  risqueNiveau?: string | null
-  isLancee?: boolean
-  surveillanceId?: string
-  nomsEquipe: string[]
-}
+import type { TablePlanning } from './PlanningTableColumns';
+import { buildPlanningTableColumns } from './PlanningTableColumns';
 
 // Planning enrichi côté accueil du module (champs calculés pour l'affichage
 // des cartes par aérodrome). Hérite de Planning pour rester compatible.
@@ -341,7 +284,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       list = list.filter(p => p.aerodrome_id === selectedAerodrome);
     }
     if (selectedType !== 'all') {
-      list = list.filter(p => p.type === selectedType);
+      list = list.filter(p => normalizePlanningType(p.type) === normalizePlanningType(selectedType));
     }
     if (selectedStatut !== 'all') {
       list = list.filter(p => p.statut === selectedStatut);
@@ -523,10 +466,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const newSuggestion: IaSuggestion = {
         id: `ia-sug-${crypto.randomUUID()}`,
         aerodrome_id: aero.id,
-        type: (aero.decisionSurveillance.type === 'inopine' ? 'inopine'
-          : aero.decisionSurveillance.type === 'maintien' ? 'maintien'
-          : aero.decisionSurveillance.type === 'periodique' ? 'periodique'
-          : 'programmee') as Planning['type'],
+        type: normalizePlanningType(aero.decisionSurveillance.type) as Planning['type'],
         portee,
         date_debut: new Date(Date.now() + 7 * 86400000).toISOString(),
         date_fin: new Date(Date.now() + 9 * 86400000).toISOString(),
@@ -573,7 +513,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         aDesMesuresEnRetard: risqueData?.aDesMesuresEnRetard || false,
         isLancee,
         surveillanceId,
-        estRetard: estPlanningEnRetard(planning),
+        estRetard: estPlanningEnRetard(planning, surveillances),
       };
     });
   }, [filteredPlannings, aerodromes, aerodromesActifs, profilsRisque, aerodromesRisque, surveillances, exemptionsActivesParAerodrome]);
@@ -600,8 +540,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       group.plannings.push(planning);
       group.stats.total++;
       
-      if (PLANNING_REALISES.includes(planning.statut)) group.stats.realisees++;
-      if (planning.statut === 'en_retard' || estPlanningEnRetard(planning)) group.stats.enRetard++;
+      if (isPlanningRealise(planning, surveillances)) group.stats.realisees++;
+      if (planning.statut === 'en_retard' || estPlanningEnRetard(planning, surveillances)) group.stats.enRetard++;
       if (planning.statut === 'planifiee') group.stats.planifiees++;
       
       if (planning.aDesExemptions) group.aDesExemptions = true;
@@ -610,18 +550,18 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
     return Array.from(grouped.values())
       .sort((a, b) => a.aerodrome.code_oaci.localeCompare(b.aerodrome.code_oaci));
-  }, [planningsEnrichis, aerodromes, aerodromesActifs]);
+  }, [planningsEnrichis, aerodromes, aerodromesActifs, surveillances]);
 
   // Statistiques globales
   const stats = useMemo(() => {
     const total = filteredPlannings.length;
     const planifiees = filteredPlannings.filter(p => p.statut === 'planifiee').length;
     const enCours = filteredPlannings.filter(p => p.statut === 'en_cours').length;
-    const realisees = filteredPlannings.filter(p => PLANNING_REALISES.includes(p.statut)).length;
-    const enRetard = filteredPlannings.filter(p => estPlanningEnRetard(p)).length;
+    const realisees = filteredPlannings.filter(p => isPlanningRealise(p, surveillances)).length;
+    const enRetard = filteredPlannings.filter(p => estPlanningEnRetard(p, surveillances)).length;
     const executionRate = total > 0 ? Math.round((realisees / total) * 100) : 0;
     return { total, planifiees, enCours, realisees, enRetard, executionRate };
-  }, [filteredPlannings]);
+  }, [filteredPlannings, surveillances]);
 
   // Données pour la vue Tableau (flat list enrichie)
   const tablePlannings = useMemo(() => {
@@ -829,7 +769,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     const nouvelleSurveillance: Omit<Surveillance, 'id' | 'created_at' | 'updated_at'> = {
       aerodrome_id: planning.aerodrome_id,
       planning_id: planning.id,
-      type: planning.type,
+      type: normalizePlanningType(planning.type) as Surveillance['type'],
       portee: porteeComplete,
       equipe_ids: planning.equipe_ids || [],
       chef_id: planning.chef_id || '',
@@ -893,13 +833,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         // Fallback : générer la checklist si aucune n'a été préparée
         const profil = profilsRisque?.[planning.aerodrome_id] || undefined;
         const aerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
+        const normalizedType = normalizePlanningType(planning.type)
         const typeSurv: import('@/lib/checklistMemory').TypeInspection =
-          (planning.type === 'inopinee' || planning.type === 'inopine') ? 'inopine' :
-          planning.type === 'maintien' ? 'maintien' :
-          planning.type === 'certification' ? 'certification' :
-          planning.type === 'homologation' ? 'homologation' :
-          planning.type === 'suivi_ecarts' ? 'suivi_ecarts' :
-          planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
+          normalizedType === 'inopine' ? 'inopine' :
+          normalizedType === 'maintien' ? 'maintien' :
+          normalizedType === 'certification' ? 'certification' :
+          normalizedType === 'homologation' ? 'homologation' :
+          normalizedType === 'suivi_ecarts' ? 'suivi_ecarts' :
+          normalizedType === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
 
         const master = store.findMasterChecklistForPortee(planning.portee || [],
           planning.type === 'certification' || planning.type === 'homologation'
@@ -953,7 +894,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         const hierarchy = surv?.checklist_hierarchy
 
         if (hierarchy && profil) {
-          const typeSurv = surv?.type || 'programmee'
+          const typeSurv = normalizePlanningType(surv?.type) as import('@/lib/checklistMemory').TypeInspection
           let changed = false
 
           const prefillItems = (domaines: NoeudPrefillChecklist[]) => {
@@ -1351,8 +1292,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   const typeOptions = [
     { value: 'all', label: 'Tous' },
-    { value: 'programmee', label: 'Programmée' },
-    { value: 'inopinee', label: 'Inopinée' },
+    { value: 'periodique', label: 'Périodique' },
+    { value: 'inopine', label: 'Inopinée' },
     { value: 'speciale', label: 'Spéciale' },
     { value: 'suivi_ecarts', label: 'Suivi écarts' },
     { value: 'mise_oeuvre_pac', label: 'Mise œuvre PAC' },
@@ -1384,113 +1325,16 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const hasMesuresEnRetard = aerodromesRisque.some(a => a.aDesMesuresEnRetard);
 
 /* ───────── Colonnes DataTable pour la vue Tableau ───────── */
-
-const tableColumns: Column<TablePlanning>[] = [
-  {
-    key: 'aerodrome',
-    header: 'Aérodrome',
-    render: (item) => (
-      <div>
-        <div className="flex items-center gap-2">
-          <span className="code-oaci-badge">{item.aerodromeCode}</span>
-          <span className="font-semibold text-sm text-foreground">{item.aerodromeNom}</span>
-          {item.profilScore !== undefined && (
-            <span className={`badge text-xs ${item.profilScore < 30 ? 'danger' : item.profilScore < 60 ? 'warning' : 'success'}`}>
-              Score {item.profilScore}/100
-            </span>
-          )}
-        </div>
-        {item.nomsEquipe.length > 0 && (
-          <span className="text-xs text-muted-foreground">{item.nomsEquipe.join(', ')}</span>
-        )}
-      </div>
-    ),
-  },
-  {
-    key: 'type',
-    header: 'Type',
-    render: (item) => <span className="capitalize text-sm">{item.type?.replace(/_/g, ' ') || '—'}</span>,
-  },
-  {
-    key: 'periode',
-    header: 'Période',
-    render: (item) => (
-      <span className="text-xs text-muted-foreground">
-        {item.date_debut ? new Date(item.date_debut).toLocaleDateString('fr-FR') : '?'} → {item.date_fin ? new Date(item.date_fin).toLocaleDateString('fr-FR') : '?'}
-      </span>
-    ),
-  },
-  {
-    key: 'domaines',
-    header: 'Domaines',
-    render: (item) => <span className="text-xs">{item.portee?.length ? item.portee.slice(0, 4).join(', ') : '—'}</span>,
-  },
-  {
-    key: 'statut',
-    header: 'Statut',
-    render: (item) => {
-      const statutMap: Record<string, { cls: string; label: string }> = {
-        planifiee: { cls: 'badge primary', label: 'Planifiée' },
-        en_cours: { cls: 'badge warning', label: 'En cours' },
-        realisee: { cls: 'badge success', label: 'Réalisée' },
-        annulee: { cls: 'badge neutral', label: 'Annulée' },
-        en_retard: { cls: 'badge danger', label: 'En retard' },
-      }
-      const s = statutMap[item.statut] || { cls: 'badge outline', label: item.statut }
-      return <span className={`badge text-xs ${s.cls}`}>{s.label}</span>
-    },
-  },
-  {
-    key: 'priorite',
-    header: 'Priorité',
-    render: (item) => {
-      const pBadge: Record<string, string> = { critique: 'badge danger', haute: 'badge warning', moyenne: 'badge teal', basse: 'badge success' }
-      const pLabel: Record<string, string> = { critique: 'Critique', haute: 'Élevée', moyenne: 'Moyen', basse: 'Faible' }
-      return item.priorite ? <span className={`badge text-xs ${pBadge[item.priorite] || 'badge neutral'}`}>{pLabel[item.priorite] || item.priorite}</span> : null
-    },
-  },
-  {
-    key: 'actions',
-    header: 'Actions',
-    headerClassName: 'text-right',
-    className: 'text-right',
-    render: (item) => {
-      const isChefEquipe = !!user?.id && !!item.chef_id && item.chef_id === user.id;
-      const isMembreEquipe = !!user?.id && !!item.chef_id && (item.equipe_ids || []).includes(user.id);
-      const equipeDesignee = !!item.chef_id && (item.equipe_ids?.length ?? 0) > 0;
-      const canExecute = isChefEquipe;
-      const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);
-      const canManageTable = isManager && !equipeDesignee;
-      return (
-        <div className="flex justify-end gap-2">
-          {canPrepare && !item.est_proposition && (
-            <button className="action-button" onClick={(e) => { e.stopPropagation(); handlePrepare(item); }} title="Préparer">
-              <PlayCircle className="w-4 h-4" />
-            </button>
-          )}
-          {canExecute && !item.est_proposition && (
-            <button className="action-button" onClick={(e) => { e.stopPropagation(); handleRequestExecute(item); }} title="Exécuter">
-              <CheckCircle2 className="w-4 h-4" />
-            </button>
-          )}
-          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleViewDetails(item); }} title="Voir détails">
-            <Info className="w-4 h-4" />
-          </button>
-          {canManageTable && (
-          <button className="action-button" onClick={(e) => { e.stopPropagation(); handleEdit(item); }} title="Modifier">
-            <Edit2 className="w-4 h-4" />
-          </button>
-          )}
-          {canManageTable && (
-          <button className="action-button danger" onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Supprimer">
-            <Trash2 className="w-4 h-4" />
-          </button>
-          )}
-        </div>
-      )
-    },
-  },
-]
+// Définition extraite : voir ./PlanningTableColumns.tsx
+// (buildPlanningTableColumns — mêmes permissions, mêmes callbacks).
+const tableColumns = buildPlanningTableColumns({
+  user, isManager,
+  onPrepare: handlePrepare,
+  onExecute: handleRequestExecute,
+  onViewDetails: handleViewDetails,
+  onEdit: handleEdit,
+  onDelete: handleDelete,
+})
 
   if (!mounted) return null;
 
@@ -1876,7 +1720,7 @@ const tableColumns: Column<TablePlanning>[] = [
                         aerodrome={aero}
                         isLancee={!!survLiee}
                         surveillanceId={survLiee?.id}
-                        estRetard={estPlanningEnRetard(planning)}
+                        estRetard={estPlanningEnRetard(planning, surveillances)}
                         onPrepare={() => handlePrepare(planning)}
                         onExecute={() => handleRequestExecute(planning)}
                         onView={() => handleViewDetails(planning)}
@@ -2003,8 +1847,8 @@ const tableColumns: Column<TablePlanning>[] = [
                 {aeroPlannings.filter((p: PlanningEnrichi) => {
                   if (visibilityFilter === 'all') return true
                   if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                  if (visibilityFilter === 'retards') return estPlanningEnRetard(p)
-                  if (visibilityFilter === 'terminees') return PLANNING_REALISES.includes(p.statut)
+                  if (visibilityFilter === 'retards') return estPlanningEnRetard(p, surveillances)
+                  if (visibilityFilter === 'terminees') return isPlanningRealise(p, surveillances)
                   return true
                 }).length === 0 ? (
                   <div className="text-center py-6 text-muted-foreground">
@@ -2014,8 +1858,8 @@ const tableColumns: Column<TablePlanning>[] = [
                   aeroPlannings.filter((p: PlanningEnrichi) => {
                     if (visibilityFilter === 'all') return true
                     if (visibilityFilter === 'active') return p.statut === 'planifiee' || p.statut === 'en_cours'
-                    if (visibilityFilter === 'retards') return estPlanningEnRetard(p)
-                    if (visibilityFilter === 'terminees') return PLANNING_REALISES.includes(p.statut)
+                    if (visibilityFilter === 'retards') return estPlanningEnRetard(p, surveillances)
+                    if (visibilityFilter === 'terminees') return isPlanningRealise(p, surveillances)
                   return true
                 }).map((planning: PlanningEnrichi) => (
                   <div key={planning.id} className="space-y-1">
@@ -2023,7 +1867,7 @@ const tableColumns: Column<TablePlanning>[] = [
                      key={planning.id}
                      planning={planning}
                      aerodrome={aerodrome}
-                     estRetard={estPlanningEnRetard(planning)}
+                      estRetard={estPlanningEnRetard(planning, surveillances)}
                      onPrepare={() => handlePrepare(planning)}
                      onExecute={() => handleRequestExecute(planning)}
                      onView={() => handleViewDetails(planning)}
@@ -2050,186 +1894,28 @@ const tableColumns: Column<TablePlanning>[] = [
         </div>
       )}
 
-      {/* Modal Suggestions AERORISQ — propositions de surveillance à valider */}
-      {showIaSuggestionModal && createPortal(
-        <div className="modal-overlay" data-role={userRole} onClick={() => setShowIaSuggestionModal(false)}>
-          <div className="modal-content max-w-4xl max-h-[90vh] overflow-y-auto p-0" onClick={e => e.stopPropagation()}>
-            <div className="bg-background rounded-2xl overflow-hidden shadow-2xl border border-border border-t-4 border-t-role-primary">
-              <div className="modal-header border-b border-border bg-role-primary-soft">
-                <div className="flex items-center gap-3 flex-1">
-                  <div className="w-10 h-10 rounded-xl bg-role-gradient flex items-center justify-center !text-white">
-                    <Brain className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-foreground">Suggestions AERORISQ</h2>
-                    <p className="text-xs text-muted-foreground">{iaSuggestionsExistantes.length} proposition(s) de surveillance en attente de validation</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowIaSuggestionModal(false)} className="btn btn-secondary gap-2">
-                  <X className="h-4 w-4" />Fermer
-                </button>
-              </div>
-              <div className="p-6 space-y-4">
-                {iaSuggestionsExistantes.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p>Aucune suggestion AERORISQ en attente.</p>
-                  </div>
-                )}
-                {iaSuggestionsExistantes.map((s) => {
-                  const aerodrome = aerodromesActifs.find(a => a.id === s.aerodrome_id)
-                  const sourceLabel = s.source === 'risque_critique' ? 'Score critique'
-                    : s.source === 'sgs_absent' ? 'SGS absent'
-                    : s.source === 'sgs_faible' ? 'SGS insuffisant'
-                    : s.source === 'certification_fraiche' ? 'Certification obtenue'
-                    : s.source === 'homologation_fraiche' ? 'Homologation obtenue'
-                    : s.source === 'declencheur_urgent' ? 'Déclencheur urgent'
-                    : s.source
-                  const profil = profilsRisque?.[s.aerodrome_id]
-                  const niveauKey = profil && typeof profil.score_global === 'number'
-                    ? getRiskLevel(profil.score_global)
-                    : null
-                  const niveauLabel = niveauKey ? RISK_LEVELS[niveauKey].label : null
-                  const niveauColor = niveauKey ? RISK_LEVELS[niveauKey].color : null
+      <ModaleSuggestionsIA
+        open={showIaSuggestionModal}
+        onClose={() => setShowIaSuggestionModal(false)}
+        suggestions={iaSuggestionsExistantes}
+        aerodromesActifs={aerodromesActifs}
+        profilsRisque={profilsRisque}
+        utilisateurs={utilisateurs}
+        userRole={userRole}
+        onValider={handleValiderSuggestion}
+        onAjuster={handleAjusterSuggestion}
+        onRejeter={handleRejeterSuggestion}
+      />
 
-                  return (
-                    <div key={s.id} className="border border-border rounded-xl p-4 hover:shadow-md transition-shadow">
-                      <div className="flex items-start justify-between gap-4 mb-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="code-oaci-badge">{aerodrome?.code_oaci || s.aerodrome_id}</span>
-                          <span className="badge text-xs capitalize">{s.type.replace(/_/g, ' ')}</span>
-                          {niveauLabel && niveauColor && (
-                            <span className={`badge text-xs ${niveauColor}`} title="Niveau de risque de l'aérodrome">
-                              {niveauLabel}
-                            </span>
-                          )}
-                          <span className="badge outline text-xs">{Math.round(s.confiance)}% confiance</span>
-                        </div>
-                        <span className="badge neutral text-xs shrink-0">{sourceLabel}</span>
-                      </div>
-                      <p className="text-sm font-medium mb-1">{s.objectifs}</p>
-                      <p className="text-xs text-muted-foreground mb-3">{s.raison}</p>
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {s.portee.map(d => (
-                          <span key={d} className="badge outline text-xs">{d}</span>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 flex-wrap">
-                        <span>Début: {new Date(s.date_debut).toLocaleDateString('fr-FR')}</span>
-                        <span>Fin: {new Date(s.date_fin).toLocaleDateString('fr-FR')}</span>
-                      </div>
-                      {s.equipe_ids.length > 0 && (
-                        <div className="mb-3 p-3 rounded-lg bg-role-primary-soft border border-role-primary-light">
-                          <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-role-primary" />
-                            Équipe de surveillance proposée
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {s.equipe_ids.map(id => {
-                              const membre = utilisateurs.find(u => u.id === id)
-                              const estChef = id === s.chef_id
-                              return (
-                                <span key={id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border ${estChef ? 'badge primary' : 'badge outline'}`}>
-                                  {estChef && <Shield className="w-3 h-3" />}
-                                  {membre ? `${membre.prenom} ${membre.nom}` : id}
-                                  {estChef && <span className="font-bold">Chef</span>}
-                                </span>
-                              )
-                            })}
-                          </div>
-                          {s.equipe_justification && (
-                            <p className="text-[11px] text-muted-foreground mt-2">{s.equipe_justification}</p>
-                          )}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 pt-2 border-t border-border">
-                        <button
-                          onClick={() => handleValiderSuggestion(s)}
-                          className="btn btn-sm btn-success gap-1"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Valider
-                        </button>
-                        <button
-                          onClick={() => handleAjusterSuggestion(s)}
-                          className="btn btn-sm btn-primary gap-1"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          Ajuster
-                        </button>
-                        <button
-                          onClick={() => handleRejeterSuggestion(s)}
-                          className="btn btn-sm btn-outline gap-1 text-danger border-danger/30 hover:bg-danger/5"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          Rejeter
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Modal Feedback Suggestion IA */}
-      {feedbackModalOpen && createPortal(
-        <div className="modal-backdrop" onClick={() => setFeedbackModalOpen(false)}>
-          <div className="modal-content max-w-md rounded-2xl overflow-hidden border-t-4 border-t-role-primary" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent">
-              <div className="modal-title flex items-center gap-2">
-                <Brain className="w-5 h-5 text-role-primary" />
-                Feedback sur la suggestion
-              </div>
-              <button onClick={() => setFeedbackModalOpen(false)} className="modal-close"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="modal-body p-5 space-y-4">
-              <p className="text-sm text-muted-foreground">Cette suggestion était-elle pertinente ?</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setFeedbackValue(true); setFeedbackReason(''); }}
-                  className={`flex-1 py-3 rounded-lg border-2 text-center font-medium transition-all ${feedbackValue ? 'border-success bg-success/10 text-success' : 'border-border hover:bg-muted'}`}
-                >
-                  <CheckCircle2 className="w-5 h-5 mx-auto mb-1" />
-                  Oui, pertinent
-                </button>
-                <button
-                  onClick={() => { setFeedbackValue(false); }}
-                  className={`flex-1 py-3 rounded-lg border-2 text-center font-medium transition-all ${!feedbackValue ? 'border-danger bg-danger/10 text-danger' : 'border-border hover:bg-muted'}`}
-                >
-                  <XCircle className="w-5 h-5 mx-auto mb-1" />
-                  Non, pas pertinent
-                </button>
-              </div>
-              {!feedbackValue && (
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Pourquoi ?</label>
-                  <select
-                    value={feedbackReason}
-                    onChange={(e) => setFeedbackReason(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm"
-                  >
-                    <option value="">Sélectionnez une raison</option>
-                    <option value="Type incorrect">Type de surveillance incorrect</option>
-                    <option value="Pas le bon moment">Pas le bon moment</option>
-                    <option value="Déjà planifié">Déjà planifié ailleurs</option>
-                    <option value="Priorité trop basse">Priorité trop basse</option>
-                    <option value="Autre">Autre raison</option>
-                  </select>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer border-t border-border p-4 flex justify-end gap-2">
-              <button className="btn btn-secondary" onClick={() => setFeedbackModalOpen(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={confirmFeedback}>Envoyer</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <ModaleFeedback
+        open={feedbackModalOpen}
+        onClose={() => setFeedbackModalOpen(false)}
+        value={feedbackValue}
+        onChangeValue={setFeedbackValue}
+        reason={feedbackReason}
+        onChangeReason={setFeedbackReason}
+        onConfirm={confirmFeedback}
+      />
 
       {/* Vue Tableau */}
       {viewMode === 'table' && (
@@ -2306,144 +1992,7 @@ const tableColumns: Column<TablePlanning>[] = [
 
 /* ───────── Composants modales (définis hors du corps du composant pour éviter tout remount à chaque frappe) ───────── */
 
-function ModaleSuppression({ deleteDialogOpen, setDeleteDialogOpen, confirmDelete, userRole }: {
-  deleteDialogOpen: boolean, setDeleteDialogOpen: (v: boolean) => void,
-  confirmDelete: () => void, userRole: string
-}) {
-  if (!deleteDialogOpen) return null;
-  return createPortal(
-    <div className="modal-overlay" data-role={userRole} onClick={() => setDeleteDialogOpen(false)}>
-      <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
-        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-            <div className="modal-title flex items-center gap-2 text-danger">
-              <AlertCircle className="w-5 h-5" />
-              Confirmer la suppression
-            </div>
-            <button className="modal-close" onClick={() => setDeleteDialogOpen(false)}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="modal-body py-6 px-5">
-            <p className="text-foreground">Êtes-vous sûr de vouloir supprimer ce planning ?</p>
-            <p className="text-small text-muted-foreground mt-2">Cette action est irréversible.</p>
-          </div>
-          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-            <button className="btn btn-secondary" onClick={() => setDeleteDialogOpen(false)}>Annuler</button>
-            <button className="btn btn-danger" onClick={confirmDelete}>Supprimer</button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
+// Modales extraites : voir ./PlanningModals.tsx (ModaleSuppression).
 
-function ModaleExecution({ executeConfirmOpen, executeTarget, setExecuteConfirmOpen, setExecuteTarget, aerodromesActifs, aerodromes, userRole, handleConfirmExecute, executeDateDebut, setExecuteDateDebut, executeDateFin, setExecuteDateFin }: {
-  executeConfirmOpen: boolean, executeTarget: Planning | null,
-  setExecuteConfirmOpen: (v: boolean) => void, setExecuteTarget: (v: Planning | null) => void,
-  aerodromesActifs: Aerodrome[], aerodromes: Aerodrome[], userRole: string,
-  handleConfirmExecute: () => void,
-  executeDateDebut: string, setExecuteDateDebut: (v: string) => void,
-  executeDateFin: string, setExecuteDateFin: (v: string) => void,
-}) {
-  if (!executeConfirmOpen || !executeTarget) return null;
-  const aerodrome = aerodromesActifs.find(a => a.id === executeTarget.aerodrome_id) || aerodromes.find(a => a.id === executeTarget.aerodrome_id);
-  return createPortal(
-    <div className="modal-overlay" data-role={userRole} onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-      <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
-        <div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary">
-          <div className="modal-header border-b border-border bg-gradient-to-r from-role-primary/10 to-transparent p-5">
-            <div className="modal-title flex items-center gap-2 text-role-primary">
-              <PlayCircle className="w-5 h-5" />
-              Lancer la surveillance
-            </div>
-            <button className="modal-close" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="modal-body py-6 px-5 space-y-4">
-            <div className="p-3 bg-role-primary-soft rounded-lg">
-              <p className="text-sm font-medium">Aérodrome: <span className="text-foreground">{aerodrome?.code_oaci} — {aerodrome?.nom}</span></p>
-              <p className="text-sm font-medium mt-1">Type: <span className="text-foreground">{executeTarget.type.replace('_', ' ')}</span></p>
-              <p className="text-sm font-medium mt-1">Période programmée: <span className="text-foreground">{new Date(executeTarget.date_debut).toLocaleDateString('fr-FR')} → {new Date(executeTarget.date_fin).toLocaleDateString('fr-FR')}</span></p>
-            </div>
-
-            {/* Dates réelles d'exécution — ajustables par le chef d'équipe */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Dates réelles de la surveillance</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Début réel</label>
-                  <input
-                    type="datetime-local"
-                    value={executeDateDebut}
-                    min={toDatetimeLocal(startOfToday().toISOString())}
-                    onChange={(e) => setExecuteDateDebut(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Fin réelle</label>
-                  <input
-                    type="datetime-local"
-                    value={executeDateFin}
-                    onChange={(e) => setExecuteDateFin(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Pré-remplies avec les dates programmées. Ajustez-les selon les dates réelles de la mission.
-              </p>
-            </div>
-
-            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-              <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Vous allez être redirigé vers le module Surveillance</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                    La surveillance sera créée automatiquement. Vous pourrez ensuite rédiger la checklist, identifier les écarts et produire le rapport.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="modal-footer border-t border-border p-5 flex justify-end gap-3">
-            <button className="btn btn-secondary" onClick={() => { setExecuteConfirmOpen(false); setExecuteTarget(null); }}>Annuler</button>
-            <button className="btn btn-primary" onClick={handleConfirmExecute}>
-              <PlayCircle className="w-4 h-4 mr-1" />
-              Continuer vers Surveillance
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function ModaleFormulaire({ formOpen, setFormOpen, editingPlanning, setEditingPlanning, userRole }: {
-  formOpen: boolean, setFormOpen: (v: boolean) => void,
-  editingPlanning: Planning | null, setEditingPlanning: (v: Planning | null) => void,
-  userRole: string
-}) {
-  return (
-    <FormShell
-      open={!!formOpen}
-      onClose={() => setFormOpen(false)}
-      title={editingPlanning ? 'Modifier le planning' : 'Nouveau planning'}
-      icon={CalendarDays}
-      size="3xl"
-      dataRole={userRole}
-    >
-      <PlanningForm
-        planning={editingPlanning}
-        onClose={() => setFormOpen(false)}
-        onSuccess={() => { setFormOpen(false); setEditingPlanning(null); }}
-      />
-    </FormShell>
-  );
-}
+// Modales extraites : voir ./PlanningModals.tsx (ModaleExecution, ModaleFormulaire).
 

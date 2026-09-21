@@ -5,6 +5,7 @@
 
 import { useAppStore, Planning, IaSuggestion } from '@/lib/store'
 import { riskEngine } from '@/lib/riskEngine'
+import { normaliserScoreSgs } from '@/lib/utils'
 
 let subscribed = false
 let periodicInterval: ReturnType<typeof setInterval> | null = null
@@ -46,7 +47,9 @@ export function initSurveillanceAutoCreator() {
       }
 
       // ── Déclencheur 2 : SGS absent (maturite_sgs == 0) ──
-      const maturiteSgsActuelle = aero.maturite_sgs ?? 0
+      // Échelle canonique 0-100 : le legacy 1-5 (≤ 50) ne doit pas
+      // déclencher à tort « SGS insuffisant ».
+      const maturiteSgsActuelle = normaliserScoreSgs(aero.maturite_sgs, 0)
       const sgsNonApplicable = aero.statut_sgs === 'non_applicable'
       if (!sgsNonApplicable && (maturiteSgsActuelle === 0 || maturiteSgsActuelle == null)) {
         if (state.iaSuggestions.some(s => s.aerodrome_id === aero.id && s.source === 'sgs_absent')) continue
@@ -214,14 +217,14 @@ function createSuggestion(aerodromeId: string, raison: IaSuggestion['source']) {
     priorite = 'critique'
     confiance = 0.95
     objectifs = `Audit SGS — aérodrome sans évaluation PAOE`
-    raisonTexte = `Score SGS nul (${aerodrome.maturite_sgs ?? 'N/A'}/100) — l'aérodrome n'a pas d'évaluation PAOE validée. Une surveillance SGS est nécessaire pour évaluer le système de gestion de la sécurité.`
+    raisonTexte = `Score SGS nul (${aerodrome.maturite_sgs != null ? `${normaliserScoreSgs(aerodrome.maturite_sgs, 0)}/100` : 'N/A'}) — l'aérodrome n'a pas d'évaluation PAOE validée. Une surveillance SGS est nécessaire pour évaluer le système de gestion de la sécurité.`
   } else if (raison === 'sgs_faible') {
     type = 'maintien'
     portee = ['SGS']
     priorite = 'haute'
     confiance = 0.75
     objectifs = `Surveillance SGS renforcée — score insuffisant`
-    raisonTexte = `Score SGS (${aerodrome.maturite_sgs ?? 'inconnu'}/100) ≤ 50 — le système de gestion de la sécurité nécessite une surveillance renforcée pour identifier les lacunes et proposer des mesures correctives.`
+    raisonTexte = `Score SGS (${aerodrome.maturite_sgs != null ? `${normaliserScoreSgs(aerodrome.maturite_sgs, 50)}/100` : 'inconnu'}) ≤ 50 — le système de gestion de la sécurité nécessite une surveillance renforcée pour identifier les lacunes et proposer des mesures correctives.`
   } else if (raison === 'certification_fraiche') {
     type = 'maintien'
     portee = ['PHY', 'OLS', 'ELEC', 'MFP', 'SLI', 'RA', 'COP', 'OPS']

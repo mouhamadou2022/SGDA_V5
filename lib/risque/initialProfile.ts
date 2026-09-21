@@ -5,6 +5,14 @@
 
 import { Aerodrome, ProfilRisque } from '@/lib/store'
 import { calculateC1, calculateGlobalScore } from '@/lib/risque'
+import { normaliserScoreSgs } from '@/lib/utils'
+
+// Normalise l'échelle legacy 1-5 (formulaire pré-correction) vers l'échelle
+// canonique 0-100 (migration SQL 2026-05-21). Appliquée à l'entrée du calcul
+// pour que tous les lecteurs internes travaillent en 0-100.
+function avecSgsNormalise(aerodrome: Aerodrome): Aerodrome {
+  return { ...aerodrome, maturite_sgs: normaliserScoreSgs(aerodrome.maturite_sgs, 50) }
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +127,8 @@ function profilHomologue(aerodrome: Aerodrome): {
 // ─── Calcul principal ────────────────────────────────────────────────────────
 
 export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult {
+  // Normaliser l'échelle SGS une fois pour toutes (legacy 1-5 → 0-100).
+  aerodrome = avecSgsNormalise(aerodrome)
   // Si l'aérodrome est déjà certifié ou homologué, utiliser le profil correspondant
   if (aerodrome.statut_certification === 'certifie') {
     const p = profilCertifie(aerodrome)

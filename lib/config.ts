@@ -164,11 +164,28 @@ export type NiveauRisqueGlobal = 'faible' | 'moyen' | 'eleve' | 'critique'
 export type TendanceGlobale = 'hausse' | 'baisse' | 'stable'
 
 // Helper pour obtenir le niveau à partir du score
+// SOURCE UNIQUE des seuils <30/<60/<80 — utiliser partout (moteur de score,
+// store, cron) au lieu de recopier les seuils.
 export function getNiveauFromScore(score: number): NiveauRisqueGlobal {
   if (score >= 80) return 'faible'
   if (score >= 60) return 'moyen'
   if (score >= 30) return 'eleve'
   return 'critique'
+}
+
+// Règle unique de dérivation de la tendance (convergence store/cron) :
+// évolution constatée vs dernier score enregistré. 'hausse' = le score monte
+// = amélioration, 'baisse' = dégradation. Les prédictions 3m/6m restent
+// calculées à part et n'influencent plus la tendance.
+export function deriverTendance(
+  scoreGlobal: number,
+  dernierScore: number | null | undefined,
+  seuil = 2,
+): TendanceGlobale {
+  if (dernierScore == null || !Number.isFinite(dernierScore)) return 'stable'
+  if (scoreGlobal > dernierScore + seuil) return 'hausse'
+  if (scoreGlobal < dernierScore - seuil) return 'baisse'
+  return 'stable'
 }
 
 // Helper pour obtenir le label à partir du score

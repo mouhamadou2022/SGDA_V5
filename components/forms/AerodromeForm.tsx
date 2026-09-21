@@ -20,6 +20,7 @@ import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { safeParseJSON } from '@/lib/safeParseJSON';
+import { sgsScoreVersNiveau, sgsNiveauVersScore, normaliserScoreSgs } from '@/lib/utils';
 import { engineFeedback } from '@/lib/ia/engines/engineFeedback';
 import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
@@ -1010,7 +1011,8 @@ const pisteSchema = z.object({
 
 const aerodromeSchema = z.object({
   nom:                  z.string().min(3, 'Minimum 3 caractères'),
-  code_oaci:            z.string().length(4, 'Exactement 4 caractères').regex(/^[A-Z]{4}$/, 'Majuscules uniquement (ex: GOBD)').optional(),
+  // Saisi en majuscules (normalisé à la saisie et au pré-remplissage IA).
+  code_oaci:            z.string().length(4, 'Exactement 4 caractères').regex(/^[A-Z]{4}$/, 'Code OACI : 4 lettres majuscules (ex : GOOY)').optional(),
   type:                 z.enum(['international','national']),
   type_entite:          z.enum(['aerodrome','helistation','mixte']),
   categorie_sslia:      z.string().min(1, 'Requis'),
@@ -1070,6 +1072,23 @@ const aerodromeSchema = z.object({
 
 type AerodromeFormData = z.infer<typeof aerodromeSchema>;
 
+/**
+ * Étend le schéma avec l'unicité du code OACI (insensible à la casse,
+ * hors hélistations sans code et hors fiche en cours d'édition).
+ * Le contrôle d'unicité ne peut pas vivre dans le schéma statique :
+ * il dépend des données du store.
+ */
+function createAerodromeSchema(codesExistants: Map<string, string>, courantId?: string) {
+  return aerodromeSchema.superRefine((data, ctx) => {
+    const code = (data.code_oaci || '').trim().toUpperCase()
+    if (!code || data.type_entite === 'helistation') return
+    const proprietaire = codesExistants.get(code)
+    if (proprietaire && proprietaire !== courantId) {
+      ctx.addIssue({ code: 'custom', path: ['code_oaci'], message: `Code OACI ${code} déjà utilisé` })
+    }
+  })
+}
+
 // ── Props ────────────────────────────────────────────────────────────────────
 interface AerodromeFormProps {
   aerodrome?: Aerodrome;
@@ -1118,8 +1137,21 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ── Form ─────────────────────────────────────────────────────────────────
+  // Unicité OACI : index des codes existants (hors fiches supprimées).
+  const codesExistants = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const a of aerodromes) {
+      if (a.deleted_at || !a.code_oaci) continue
+      map.set(a.code_oaci.trim().toUpperCase(), a.id)
+    }
+    return map
+  }, [aerodromes])
+  const schema = useMemo(
+    () => createAerodromeSchema(codesExistants, aerodrome?.id),
+    [codesExistants, aerodrome?.id],
+  )
   const form = useForm<AerodromeFormData>({
-    resolver: zodResolver(aerodromeSchema),
+    resolver: zodResolver(schema),
     defaultValues: aerodrome ? {
       nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, type: aerodrome.type,
       type_entite: aerodrome.type_entite ?? 'aerodrome', categorie_sslia: aerodrome.categorie_sslia,
@@ -1128,9 +1160,11 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
       exploitant_telephone: aerodrome.exploitant_telephone || '',
       latitude: aerodrome.lat, longitude: aerodrome.lon, altitude: aerodrome.altitude,
       piste_principale: aerodrome.piste_principale || undefined,
-      helistation: (aerodrome as any).helistation || undefined,
+      helistation: aerodrome.helistation || undefined,
       horaires: aerodrome.horaires, aides_visuelles: aerodrome.aides_visuelles || [],
-      maturite_sgs: aerodrome.maturite_sgs, statut_sgs: aerodrome.statut_sgs || 'complet', statut: aerodrome.statut, contacts: aerodrome.contacts || [],
+      // Le formulaire travaille en N1-N5, le store en 0-100 (canonique) :
+      // convertir au chargement (gère aussi le legacy 1-5 déjà stocké).
+      maturite_sgs: sgsScoreVersNiveau(normaliserScoreSgs(aerodrome.maturite_sgs, 50)), statut_sgs: aerodrome.statut_sgs || 'complet', statut: aerodrome.statut, contacts: aerodrome.contacts || [],
       statut_certification: aerodrome.statut_certification || undefined,
       certifie_le: aerodrome.certifie_le || '', numero_certificat: aerodrome.numero_certificat || '',
       homologue_le: aerodrome.homologue_le || '', numero_homologation: aerodrome.numero_homologation || '',
@@ -1179,9 +1213,12 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
   return aerodromes.filter(a => !a.deleted_at && a.type===type && a.region===region && a.id!==aerodrome?.id).slice(0,3);
 }, [aerodromes, aerodrome, watchType, watchRegion, watchTypeEntite]);
 
+  // Moyenne en N1-N5 pour l'affichage (« N{…} ») : chaque valeur est
+  // d'abord normalisée en 0-100 (le store mélange legacy 1-5 et 0-100).
   const maturiteMoyenne = useMemo(() => {
     if (!aerodromesSimilaires.length) return null;
-    return Math.round(aerodromesSimilaires.reduce((acc,a)=>acc+a.maturite_sgs,0) / aerodromesSimilaires.length);
+    const moyenneScore = aerodromesSimilaires.reduce((acc, a) => acc + normaliserScoreSgs(a.maturite_sgs, 50), 0) / aerodromesSimilaires.length;
+    return sgsScoreVersNiveau(Math.round(moyenneScore));
   }, [aerodromesSimilaires]);
 
   // ── Progression ─────────────────────────────────────────────────────────
@@ -1244,7 +1281,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
           nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, region: aerodrome.region,
           type: aerodrome.type, type_entite: aerodrome.type_entite,
           categorie_sslia: aerodrome.categorie_sslia,
-          piste_principale: aerodrome.piste_principale, helistation: (aerodrome as any).helistation,
+          piste_principale: aerodrome.piste_principale, helistation: aerodrome.helistation,
           altitude: aerodrome.altitude, horaires: aerodrome.horaires,
           maturite_sgs: aerodrome.maturite_sgs, statut_sgs: aerodrome.statut_sgs,
           statut_certification: aerodrome.statut_certification,
@@ -1308,6 +1345,9 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       if (formField === 'aides_visuelles' && typeof value === 'string') {
         const arr = value.split(',').map(s => s.trim()).filter(Boolean);
         form.setValue(formField as any, arr as any, { shouldValidate: false, shouldDirty: true });
+      } else if (formField === 'code_oaci' && typeof value === 'string') {
+        // Le schéma exige 4 majuscules : normaliser dès l'acceptation IA.
+        form.setValue(formField as any, value.trim().toUpperCase() as any, { shouldValidate: false, shouldDirty: true });
       } else {
         form.setValue(formField as any, value as any, { shouldValidate: false, shouldDirty: true });
       }
@@ -1418,6 +1458,10 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
 
       // Nettoyage des données avant envoi à Supabase
       const cleanData: Record<string, unknown> = { ...data };
+      // Échelle canonique 0-100 (migration SQL 2026-05-21) : le formulaire
+      // travaille en N1-N5, convertir avant stockage.
+      cleanData.maturite_sgs = sgsNiveauVersScore(Number(data.maturite_sgs));
+      if (typeof cleanData.code_oaci === 'string') cleanData.code_oaci = cleanData.code_oaci.trim().toUpperCase();
       if (data.type_entite === 'helistation') delete cleanData.piste_principale;
       if (data.type_entite === 'aerodrome') delete cleanData.helistation;
       Object.keys(cleanData).forEach(key => {
@@ -1437,7 +1481,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       }
 
       if (aerodrome) {
-        await updateAerodrome(aerodrome.id, { ...cleanData, type_entite:data.type_entite as TypeEntiteAerodrome, maturite_sgs:data.maturite_sgs as 1|2|3|4|5, statut_sgs:data.statut_sgs as 'complet'|'simplifie'|'non_applicable', lat:data.latitude, lon:data.longitude, updated_at:now } as any);
+        await updateAerodrome(aerodrome.id, { ...cleanData, type_entite:data.type_entite as TypeEntiteAerodrome, statut_sgs:data.statut_sgs as 'complet'|'simplifie'|'non_applicable', lat:data.latitude, lon:data.longitude, updated_at:now } as any);
         addNotification({ user_id:user?.id||'', type:'success', title:'Mis à jour', message:`${data.code_oaci || data.nom} — ${data.nom}`, canal:'in_app' });
       } else {
         const newId = crypto.randomUUID();

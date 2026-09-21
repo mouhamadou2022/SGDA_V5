@@ -5,6 +5,7 @@
 
 import type { ProfilRisque, Ecart, SuggestionFeedback } from './store';
 import { RISK_LEVELS, getRiskLevel, computeVelocityMetrics } from './risque';
+import { normaliserScoreSgs } from './utils';
 import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes, getDomaineInfo } from './domaines';
 import { suggestionMLAgent, type SurveillanceType, type EnsemblePrediction } from '@/lib/ia/agents/suggestionMLAgent';
 import { anomalyDetector } from '@/lib/ia/models/randomForest';
@@ -216,6 +217,9 @@ export function determineTypeSurveillanceContinue(
   hmmState?: string,  // 'stable' | 'degrading' | 'critical' — override la priorité si dégradé
   maturite_sgs?: number,
 ): DecisionSurveillanceContinue {
+  // Échelle canonique 0-100 : normalise le legacy 1-5 (les seuils <30/<50
+  // ci-dessous supposent du 0-100).
+  if (maturite_sgs != null) maturite_sgs = normaliserScoreSgs(maturite_sgs, 50)
   const infra = profil.infrastructure
   const isHelistation = infra?.type_entite === 'helistation'
   const isJourOnly = infra?.horaires === 'jour'

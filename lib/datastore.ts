@@ -29,6 +29,7 @@ import type {
   ChecklistItem,
   DomaineChecklist,
   CodeAcces,
+  Exemption,
   Inspecteur,
   Formation,
   EvenementSecurite,
@@ -38,6 +39,9 @@ import type {
   ApiKey,
   RegistreEntry,
   ChecklistTemplate,
+  Delegation,
+  Enquete,
+  ReponseEnquete,
 } from './store'
 import type { EngineFeedbackRecord } from './ia/engines/engineFeedback'
 import type { CapaciteInspecteur, ActionInspecteur } from './ia/engines/inspecteurMonitoring'
@@ -88,6 +92,10 @@ export interface InitialData {
   registreEntries: RegistreEntry[]
   amdecAnalyses: AmdecAnalyse[]
   ftaAnalyses: ArbreFTA[]
+  exemptions: Exemption[]
+  delegations: Delegation[]
+  enquetes: Enquete[]
+  reponsesEnquetes: ReponseEnquete[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -128,6 +136,10 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       registreEntriesRes,
       amdecRes,
       ftaRes,
+      exemptionsRes,
+      delegationsRes,
+      enquetesRes,
+      reponsesEnquetesRes,
     ] = await Promise.all([
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
@@ -150,6 +162,10 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('registre_entries').select('*').order('date_entree', { ascending: false }),
       supabase.from('amdec_analyses').select('*').order('updated_at', { ascending: false }),
       supabase.from('fta_analyses').select('*').order('updated_at', { ascending: false }),
+      supabase.from('exemptions').select('*').order('updated_at', { ascending: false }),
+      supabase.from('delegations').select('*').order('assigne_le', { ascending: false }),
+      supabase.from('enquetes').select('*').order('updated_at', { ascending: false }),
+      supabase.from('reponses_enquetes').select('*').order('submitted_at', { ascending: false }),
     ])
 
     const planningsData = (planningsRes.data ?? []) as Planning[]
@@ -237,6 +253,10 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         registreEntries: (registreEntriesRes?.data ?? []) as RegistreEntry[],
         amdecAnalyses: (amdecRes?.data ?? []) as AmdecAnalyse[],
         ftaAnalyses: (ftaRes?.data ?? []) as ArbreFTA[],
+        exemptions: (exemptionsRes?.data ?? []) as Exemption[],
+        delegations: ((delegationsRes?.data ?? []) as any[]).map(unmarshalDelegation),
+        enquetes: (enquetesRes?.data ?? []) as Enquete[],
+        reponsesEnquetes: ((reponsesEnquetesRes?.data ?? []) as any[]).map(unmarshalReponseEnquete),
       },
       error: null,
     }
@@ -354,6 +374,150 @@ export async function updateMessage(id: string, payload: Partial<Message>): Prom
 
 export async function deleteMessage(id: string): Promise<DatastoreResult<null>> {
   const { error } = await supabase.from('messages').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// EXEMPTIONS (Phase 3 : persistance serveur, best-effort côté slice)
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchExemptions(): Promise<DatastoreResult<Exemption[]>> {
+  const { data, error } = await supabase.from('exemptions').select('*').order('updated_at', { ascending: false })
+  return { data: (data ?? []) as Exemption[], error: error?.message ?? null }
+}
+
+export async function createExemption(payload: Exemption): Promise<DatastoreResult<Exemption>> {
+  const { data, error } = await supabase
+    .from('exemptions')
+    .insert({ ...payload, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .select()
+    .single()
+  return { data: data as Exemption | null, error: error?.message ?? null }
+}
+
+export async function updateExemption(id: string, payload: Partial<Exemption>): Promise<DatastoreResult<Exemption>> {
+  const { data, error } = await supabase
+    .from('exemptions')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as Exemption | null, error: error?.message ?? null }
+}
+
+export async function deleteExemption(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('exemptions').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DÉLÉGATIONS (Phase 3 : persistance serveur, best-effort côté slice)
+// La table existait (SQL ligne ~1275) mais n'était ni lue ni écrite.
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Retire les champs purement locaux avant envoi (la table n'a pas
+ * de colonne `assigne_nom` — nom d'affichage calculé côté client).
+ */
+function marshalDelegation(d: Delegation): Record<string, unknown> {
+  const { assigne_nom: _ignoré, ...colonnes } = d
+  return colonnes as Record<string, unknown>
+}
+
+function unmarshalDelegation(row: any): Delegation {
+  return {
+    ...row,
+    items_ids: Array.isArray(row.items_ids) ? row.items_ids : [],
+  } as Delegation
+}
+
+export async function fetchDelegations(): Promise<DatastoreResult<Delegation[]>> {
+  const { data, error } = await supabase.from('delegations').select('*').order('assigne_le', { ascending: false })
+  return { data: ((data ?? []) as any[]).map(unmarshalDelegation), error: error?.message ?? null }
+}
+
+export async function createDelegation(payload: Delegation): Promise<DatastoreResult<Delegation>> {
+  const { data, error } = await supabase
+    .from('delegations')
+    .insert(marshalDelegation(payload))
+    .select()
+    .single()
+  return { data: data ? unmarshalDelegation(data) : null, error: error?.message ?? null }
+}
+
+export async function updateDelegation(id: string, payload: Partial<Delegation>): Promise<DatastoreResult<Delegation>> {
+  const { assigne_nom: _ignoré, ...colonnes } = payload
+  const { data, error } = await supabase
+    .from('delegations')
+    .update({ ...colonnes, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data ? unmarshalDelegation(data) : null, error: error?.message ?? null }
+}
+
+export async function deleteDelegation(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('delegations').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENQUÊTES + RÉPONSES (Phase 3 : tables SECTION 26, best-effort côté slice)
+// ─────────────────────────────────────────────────────────────
+
+export async function fetchEnquetes(): Promise<DatastoreResult<Enquete[]>> {
+  const { data, error } = await supabase.from('enquetes').select('*').order('updated_at', { ascending: false })
+  return { data: (data ?? []) as Enquete[], error: error?.message ?? null }
+}
+
+export async function createEnquete(payload: Enquete): Promise<DatastoreResult<Enquete>> {
+  const { data, error } = await supabase
+    .from('enquetes')
+    .insert({ ...payload, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .select()
+    .single()
+  return { data: data as Enquete | null, error: error?.message ?? null }
+}
+
+export async function updateEnquete(id: string, payload: Partial<Enquete>): Promise<DatastoreResult<Enquete>> {
+  const { data, error } = await supabase
+    .from('enquetes')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data: data as Enquete | null, error: error?.message ?? null }
+}
+
+export async function deleteEnquete(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('enquetes').delete().eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
+/** NUMERIC PostgREST → string : reconverti en nombre (score C1). */
+function unmarshalReponseEnquete(row: any): ReponseEnquete {
+  return {
+    ...row,
+    score_c1: row.score_c1 === null || row.score_c1 === undefined ? undefined : Number(row.score_c1),
+  } as ReponseEnquete
+}
+
+export async function fetchReponsesEnquetes(): Promise<DatastoreResult<ReponseEnquete[]>> {
+  const { data, error } = await supabase.from('reponses_enquetes').select('*').order('submitted_at', { ascending: false })
+  return { data: ((data ?? []) as any[]).map(unmarshalReponseEnquete), error: error?.message ?? null }
+}
+
+export async function createReponseEnquete(payload: ReponseEnquete): Promise<DatastoreResult<ReponseEnquete>> {
+  const { data, error } = await supabase
+    .from('reponses_enquetes')
+    .insert({ ...payload })
+    .select()
+    .single()
+  return { data: data ? unmarshalReponseEnquete(data) : null, error: error?.message ?? null }
+}
+
+export async function deleteReponseEnquete(id: string): Promise<DatastoreResult<null>> {
+  const { error } = await supabase.from('reponses_enquetes').delete().eq('id', id)
   return { data: null, error: error?.message ?? null }
 }
 

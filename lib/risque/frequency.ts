@@ -3,6 +3,7 @@
 // 0 style inline, 0 fetch direct
 
 import { NiveauRisque, Tendance } from './types'
+import { normalizePlanningType } from '../planning'
 
 // Fréquence de base par niveau de risque (nombre de missions par an)
 const FREQUENCE_BASE: Record<NiveauRisque, number> = {
@@ -22,11 +23,15 @@ const FACTEUR_TYPE_AEROPORT: Record<string, number> = {
   national: 1.0,
 }
 
+// Clés canoniques (lib/planning.ts). Les aliases legacy sont conservés en
+// lecture seule pour les données historiques — ne plus les écrire.
 const FACTEUR_TYPE_MISSION: Record<string, number> = {
   audit_complet: 0.8, // Moins fréquent car plus lourd
   suivi_ecarts: 1.2,  // Plus fréquent car ciblé
-  programmee: 1.0,
-  inopinee: 0.6,      // Déclenchée par événement
+  periodique: 1.0,
+  programmee: 1.0,    // legacy → periodique
+  inopine: 0.6,       // Déclenchée par événement
+  inopinee: 0.6,      // legacy → inopine
 }
 
 /**
@@ -75,9 +80,10 @@ export function computeMultipliers(params: {
     multipliers.push(FACTEUR_TYPE_AEROPORT[params.typeAeroport] || 1.0)
   }
   
-  // Type de mission
+  // Type de mission (normalisé : programmee→periodique, inopinee→inopine)
   if (params.typeMission) {
-    const factor = FACTEUR_TYPE_MISSION[params.typeMission]
+    const factor = FACTEUR_TYPE_MISSION[normalizePlanningType(params.typeMission)]
+      ?? FACTEUR_TYPE_MISSION[params.typeMission]
     if (factor) multipliers.push(factor)
   }
   
@@ -176,8 +182,8 @@ export function suggestMissionType(params: {
   if (params.isCertificationPhase) {
     return 'certification'
   }
-  
-  return 'programmee'
+
+  return 'periodique'
 }
 
 /**

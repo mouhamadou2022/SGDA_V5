@@ -1092,12 +1092,39 @@ export default function Page() {
            ...existingDossiers,
            ...(data.dossiers || []).filter(d => !existingDossierIds.has(d.id))
          ]
-         const existingRegistre = useAppStore.getState().registreEntries || []
-         const existingRegIds = new Set(existingRegistre.map(r => r.id))
-         const mergedRegistre = [
-           ...existingRegistre,
-           ...(data.registreEntries || []).filter(r => !existingRegIds.has(r.id))
-         ]
+          const existingRegistre = useAppStore.getState().registreEntries || []
+          const existingRegIds = new Set(existingRegistre.map(r => r.id))
+          const mergedRegistre = [
+            ...existingRegistre,
+            ...(data.registreEntries || []).filter(r => !existingRegIds.has(r.id))
+          ]
+          // Exemptions : le local prime (créées hors-ligne), Supabase complète.
+          const existingExemptions = useAppStore.getState().exemptions || []
+          const existingExIds = new Set(existingExemptions.map(e => e.id))
+          const mergedExemptions = [
+            ...existingExemptions,
+            ...(data.exemptions || []).filter(e => !existingExIds.has(e.id))
+          ]
+          // Délégations : le local prime (assignées hors-ligne), Supabase complète.
+          const existingDelegations = useAppStore.getState().delegations || []
+          const existingDelIds = new Set(existingDelegations.map(d => d.id))
+          const mergedDelegations = [
+            ...existingDelegations,
+            ...(data.delegations || []).filter(d => !existingDelIds.has(d.id))
+          ]
+          // Enquêtes + réponses : le local prime, Supabase complète.
+          const existingEnquetes = useAppStore.getState().enquetes || []
+          const existingEnqIds = new Set(existingEnquetes.map(e => e.id))
+          const mergedEnquetes = [
+            ...existingEnquetes,
+            ...(data.enquetes || []).filter(e => !existingEnqIds.has(e.id))
+          ]
+          const existingReponses = useAppStore.getState().reponsesEnquetes || []
+          const existingRepIds = new Set(existingReponses.map(r => r.id))
+          const mergedReponses = [
+            ...existingReponses,
+            ...(data.reponsesEnquetes || []).filter(r => !existingRepIds.has(r.id))
+          ]
           // Fusionner les utilisateurs existants (indexedDB) avec Supabase
           const existingUtilisateurs = useAppStore.getState().utilisateurs || []
           const existingUserIds = new Set(existingUtilisateurs.map(u => u.id))
@@ -1146,9 +1173,13 @@ export default function Page() {
            competences: data.competences || [],
            kitDocuments: data.kitDocuments || [],
            messages: data.messages && data.messages.length > 0 ? data.messages : existingMessages,
-           apiKeys: data.apiKeys || [],
-           registreEntries: mergedRegistre,
-         })
+            apiKeys: data.apiKeys || [],
+            registreEntries: mergedRegistre,
+            exemptions: mergedExemptions,
+            delegations: mergedDelegations,
+            enquetes: mergedEnquetes,
+            reponsesEnquetes: mergedReponses,
+          })
          if (aeroCount === 0) {
            // Aucun aérodrome — silencieux en production
          }

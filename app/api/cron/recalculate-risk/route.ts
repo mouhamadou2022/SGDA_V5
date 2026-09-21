@@ -48,8 +48,11 @@ export async function GET(request: Request) {
     // Importer les fonctions de calcul (pures, compatibles serveur)
     const risqueUtils = await import('@/lib/risque')
     const { weightController } = await import('@/lib/ia/weightController')
-    // Moteur de score partagé avec le store (convergence store/cron)
-    const { computeProfilScore, appliqueMalusAmdec } = await import('@/lib/risque/profilScoreEngine')
+    // Moteur de score partagé avec le store (convergence store/cron) :
+    // C1-C5, ajustements C3, score global et niveau sortent du moteur —
+    // la route ne recalcule plus rien localement.
+    const { computeProfilScore } = await import('@/lib/risque/profilScoreEngine')
+    const { deriverTendance } = await import('@/lib/config')
 
     // Charger les poids appris C1-C5 depuis ia_thresholds
     let learnedWeights: Record<string, number> | undefined
@@ -78,6 +81,34 @@ export async function GET(request: Request) {
       amdecParAerodrome.set(a.aerodrome_id, liste)
     }
 
+    // Exemptions : persistées serveur depuis la Phase 3 (même forme que le
+    // store : getExemptionsActives — statut active + date_fin_prevue future).
+    interface ExemptionRow {
+      id: string
+      aerodrome_id?: string | null
+      statut?: string | null
+      date_fin_prevue?: string | null
+      domaines_concerne?: string[] | null
+      mesures?: { statut?: string; efficacite_validee?: number }[] | null
+    }
+    const { data: exemptionRows } = await supabaseAdmin.from('exemptions').select('*')
+    const nowEx = Date.now()
+    const exemptionsParAerodrome = new Map<string, { id: string; domaines_concerne: string[]; mesures: { statut: string; efficacite_validee?: number }[] }[]>()
+    for (const e of ((exemptionRows || []) as ExemptionRow[])) {
+      if (e.aerodrome_id && e.statut === 'active' && e.date_fin_prevue && new Date(e.date_fin_prevue).getTime() >= nowEx) {
+        const liste = exemptionsParAerodrome.get(e.aerodrome_id) || []
+        liste.push({
+          id: e.id,
+          domaines_concerne: e.domaines_concerne || [],
+          mesures: (e.mesures || []).map((m) => ({
+            statut: m.statut || '',
+            efficacite_validee: m.efficacite_validee,
+          })),
+        })
+        exemptionsParAerodrome.set(e.aerodrome_id, liste)
+      }
+    }
+
     const results: Array<{ id: string; code_oaci: string; score: number; status: string }> = []
 
     for (const aerodrome of aerodromes) {
@@ -98,29 +129,23 @@ export async function GET(request: Request) {
           date: e.date || e.created_at,
         }))
 
-        // 3. Calcul C1-C5 via le moteur partagé (identique au store : C3 élargi
-        //    aux 3 statuts de surveillance, C2 dégradée par âge sans écarts,
-        //    pondérations apprises) → converge store/cron
+        // 3. Calcul via le moteur partagé (identique au store).
+        // Limite serveur restante : enquêtes C1 (réponses stockées côté
+        // client uniquement) → undefined ici comme avant.
         const moteur = computeProfilScore({
           aerodrome,
           ecarts: ecartsTous,
           surveillances: surveillancesTous,
           evenements: evenementsPourPred,
+          scoreC1Enquetes: undefined,
+          exemptionsActives: exemptionsParAerodrome.get(aerodromeId) || [],
+          analysesAmdec: amdecParAerodrome.get(aerodromeId) || [],
           weights: learnedWeights,
           now: Date.now(),
         })
-        let c3 = moteur.c3
-        // Malus AMDEC : modes de défaillance à criticité élevée non corrigés
-        const amdecAerodrome = amdecParAerodrome.get(aerodromeId) || []
-        if (amdecAerodrome.length > 0) c3 = appliqueMalusAmdec(c3, amdecAerodrome)
-        const c1 = moteur.c1
-        const c2 = moteur.c2
-        const c4 = moteur.c4
-        const c5 = moteur.c5
-        let scoreGlobal = moteur.scoreGlobal
-        if (c3 !== moteur.c3) {
-          scoreGlobal = risqueUtils.calculateGlobalScore({ c1, c2, c3, c4, c5 }, learnedWeights, moteur.sgsNonApplicable)
-        }
+        const { c1, c2, c3, c4, c5 } = moteur
+        const scoreGlobal = moteur.scoreGlobal
+        const niveau = moteur.niveau
 
         // 4. Prédictions et tendances
         const incidentPred = computeIncidentPrediction(evenementsPourPred || [])
@@ -142,21 +167,16 @@ export async function GET(request: Request) {
             ? risqueUtils.predictWithEnsemble(historiqueScores)
             : { score3m: scoreGlobal, score6m: scoreGlobal, confidence: 30 }
 
-        // Dériver la tendance : delta entre score actuel et prédiction 3m
-        // Convention repo : 'hausse' = score qui monte = amélioration, 'baisse' = dégradation
-        const deltaPrediction = predictions.score3m - scoreGlobal
-        const tendance: 'hausse' | 'baisse' | 'stable' = Math.abs(deltaPrediction) < 5
-          ? 'stable'
-          : deltaPrediction > 0
-            ? 'hausse'
-            : 'baisse'
+        // Tendance : règle unique partagée avec le store (vs dernier score).
+        // Convention repo : 'hausse' = score qui monte = amélioration.
+        const tendance = deriverTendance(scoreGlobal, dernierScoreHistorique)
 
         // 5. Construire le profil
         const now = new Date().toISOString()
         const profil = {
           aerodrome_id: aerodromeId,
           score_global: scoreGlobal,
-          niveau: scoreGlobal >= 80 ? 'faible' : scoreGlobal >= 60 ? 'moyen' : scoreGlobal >= 30 ? 'eleve' : 'critique',
+          niveau,
           c1, c2, c3, c4, c5,
           prediction_3m: Number.isFinite(predictions.score3m) ? predictions.score3m : scoreGlobal,
           prediction_6m: Number.isFinite(predictions.score6m) ? predictions.score6m : scoreGlobal,

@@ -3581,3 +3581,158 @@ CREATE INDEX IF NOT EXISTS idx_ml_samples_created ON ml_samples (created_at);
 -- ║  → Archivés dans _archived_migrations/ (à supprimer après validation)    ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
+
+-- ============================================================
+-- SECTION 25 � PERSISTANCE SERVEUR DES EXEMPTIONS (2026-09-20)
+-- La table existait (RLS + politiques 7.10) mais n'etait ni lue ni ecrite
+-- (donnees 100 % locales). Tout en IF NOT EXISTS : reexecutable sans risque.
+-- ============================================================
+-- Colonnes métier du slice (mesures imbriquées en JSONB, comme
+-- checklist_hierarchy sur surveillances).
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS reference            text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS parent_id            uuid;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS parent_type          text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS certification_id     uuid;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS homologation_id      uuid;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS aerodrome_id         uuid;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_demande         timestamptz;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS domaines_concerne    jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS description          text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS etude_securite_url   text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS formulaire_dg_url    text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS decision             text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS numero_arrete        text;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_arrete          timestamptz;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_debut           timestamptz;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_fin             timestamptz;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_fin_prevue      timestamptz;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS duree_mois           integer;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS statut               text DEFAULT 'active';
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS mesures              jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS created_at           timestamptz DEFAULT now();
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS updated_at           timestamptz DEFAULT now();
+ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS created_by           uuid;
+
+-- updated_at automatique (même trigger que les autres tables si présent).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_exemptions_updated_at') THEN
+    CREATE TRIGGER trg_exemptions_updated_at
+      BEFORE UPDATE ON exemptions
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  -- Fonction utilitaire absente sur certaines bases : non bloquant.
+  NULL;
+END $$;
+
+-- ============================================================
+-- SECTION 26 — PERSISTANCE SERVEUR DES ENQUÊTES + RÉPONSES (2026-09-20)
+-- Les enquêtes et leurs réponses étaient 100 % locales (perdues au
+-- rechargement — les réponses alimentent le score C1 via profilsSlice).
+-- La table delegations existait déjà (ligne 1275) mais n'était ni lue
+-- ni écrite : aucun changement SQL requis pour elle.
+-- Tout en IF NOT EXISTS : réexécutable sans risque.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS enquetes (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reference       TEXT,
+  titre           TEXT NOT NULL DEFAULT '',
+  description     TEXT NOT NULL DEFAULT '',
+  type_enquete    TEXT NOT NULL DEFAULT '',
+  aerodrome_ids   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  questions       JSONB NOT NULL DEFAULT '[]'::jsonb,
+  deadline        TIMESTAMPTZ,
+  statut          TEXT NOT NULL DEFAULT 'brouillon',
+  created_by      UUID
+);
+
+CREATE TABLE IF NOT EXISTS reponses_enquetes (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  enquete_id      UUID NOT NULL REFERENCES enquetes(id) ON DELETE CASCADE,
+  aerodrome_id    UUID,
+  repondant_id    UUID,
+  repondant_nom   TEXT NOT NULL DEFAULT '',
+  repondant_role  TEXT NOT NULL DEFAULT '',
+  reponses        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  score_c1        NUMERIC,
+  submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_enquetes_statut ON enquetes(statut);
+CREATE INDEX IF NOT EXISTS idx_reponses_enquete ON reponses_enquetes(enquete_id);
+CREATE INDEX IF NOT EXISTS idx_reponses_aerodrome ON reponses_enquetes(aerodrome_id);
+
+-- updated_at automatique (même garde-fou que la SECTION 25).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_enquetes_updated_at') THEN
+    CREATE TRIGGER trg_enquetes_updated_at
+      BEFORE UPDATE ON enquetes
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_reponses_enquetes_updated_at') THEN
+    CREATE TRIGGER trg_reponses_enquetes_updated_at
+      BEFORE UPDATE ON reponses_enquetes
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+ALTER TABLE enquetes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reponses_enquetes ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON enquetes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON reponses_enquetes TO authenticated;
+
+-- Lecture : ANACIM + exploitants des aérodromes ciblés (ou sans filtre).
+DROP POLICY IF EXISTS "enquetes_select" ON enquetes;
+CREATE POLICY "enquetes_select" ON enquetes
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_ids = '[]'::jsonb
+      OR aerodrome_ids @> to_jsonb(get_user_aerodrome_id()::text)
+    )
+  );
+
+DROP POLICY IF EXISTS "enquetes_write" ON enquetes;
+CREATE POLICY "enquetes_write" ON enquetes
+  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+
+DROP POLICY IF EXISTS "reponses_select" ON reponses_enquetes;
+CREATE POLICY "reponses_select" ON reponses_enquetes
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_id = get_user_aerodrome_id()
+      OR repondant_id = get_user_internal_id()
+    )
+  );
+
+-- Écriture : ANACIM + tout utilisateur authentifié répondant (insert),
+-- modification/suppression réservées ANACIM.
+DROP POLICY IF EXISTS "reponses_insert" ON reponses_enquetes;
+CREATE POLICY "reponses_insert" ON reponses_enquetes
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "reponses_update" ON reponses_enquetes;
+CREATE POLICY "reponses_update" ON reponses_enquetes
+  FOR UPDATE USING (get_user_role() IN ('admin','inspector'));
+
+DROP POLICY IF EXISTS "reponses_delete" ON reponses_enquetes;
+CREATE POLICY "reponses_delete" ON reponses_enquetes
+  FOR DELETE USING (get_user_role() IN ('admin','inspector'));

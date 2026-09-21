@@ -10,6 +10,7 @@
 import { aiClient } from './aiClient'
 import { RISK_SYSTEM_PROMPT } from './prompts'
 import type { ProfilRisque, Ecart } from '@/lib/store'
+import { getSgsMaturiteLabel } from '@/lib/utils'
 
 export interface CygneNoirExplication {
   explication: string
@@ -38,12 +39,9 @@ function bayesFactor(prior?: number, posterior?: number): number | null {
   return posteriorOdds / priorOdds
 }
 
+// Libellé SGS unifié (AGENTS.md) : getSgsMaturiteLabel(c1), N1-N5 OACI.
 function getMaturiteLabel(c1: number): string {
-  if (c1 >= 85) return 'N5 — optimisée'
-  if (c1 >= 70) return 'N4 — mesurée'
-  if (c1 >= 50) return 'N3 — maîtrisée'
-  if (c1 >= 30) return 'N2 — en développement'
-  return 'N1 — inexistante'
+  return getSgsMaturiteLabel(c1)
 }
 
 function contexteReel(input: CygneNoirInput): string {

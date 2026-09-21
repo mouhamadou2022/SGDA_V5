@@ -32,7 +32,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { useAppStore, type Planning, type ProfilRisque } from '@/lib/store';
+import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { getRiskLevel, suggestMissionType, computeFinalFrequency, isSGSApplicable } from '@/lib/risque';
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
@@ -268,7 +268,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         // Expandre les domaines (si AGA/XXX, obtenir les domaines individuels)
         const domainesExpandus = expandDomaines(domaines);
         
-        return insp.competences.some((c: { domaine: string; niveau: string }) => {
+        return insp.competences.some((c: CompetenceDeclarative) => {
           const domaineInsp = c.domaine;
           // Si c'est un code AGA/XXX, vérifier si ça correspond aux domaines expandus
           if (domaineInsp.startsWith('AGA/')) {
@@ -290,7 +290,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
       .map(insp => {
         // Calculer le score de correspondance
         const domainesExpandus = expandDomaines(domaines);
-        const matchCount = (insp.competences || []).filter((c: { domaine: string; niveau: string }) => {
+        const matchCount = (insp.competences || []).filter((c: CompetenceDeclarative) => {
           const domaineInsp = c.domaine;
           if (domaineInsp.startsWith('AGA/')) {
             const mapping: Record<string, string[]> = {
@@ -306,13 +306,13 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         }).length;
         
         // Privilégier les experts
-        const hasExpert = (insp.competences || []).some((c: { domaine: string; niveau: string }) => c.niveau === 'expert');
+        const hasExpert = (insp.competences || []).some((c: CompetenceDeclarative) => c.niveau === 'expert');
         
         return {
           id: insp.id,
           nom: insp.nom,
           prenom: insp.prenom,
-          competences: (insp.competences || []).map((c: { domaine: string; niveau: string }) => c.domaine),
+          competences: (insp.competences || []).map((c: CompetenceDeclarative) => c.domaine),
           matchScore: matchCount + (hasExpert ? 10 : 0),
           isExpert: hasExpert
         };
@@ -934,7 +934,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
                       || (insp.competences && insp.competences.length > 0
                         ? insp.competences
                             .slice(0, 3)
-                            .map((c: { domaine: string; niveau: string }) =>
+                            .map((c: CompetenceDeclarative) =>
                               `${c.domaine}${c.niveau === 'expert' ? ' ★' : c.niveau === 'confirme' ? ' ✓' : ''}`
                             )
                             .join(' · ')

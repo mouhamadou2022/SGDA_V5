@@ -189,10 +189,10 @@ describe('suggestMissionType', () => {
     ).toBe('certification')
   })
 
-  it('retourne "programmee" par défaut', () => {
+  it('retourne "periodique" par défaut (canonique — "programmee" est un alias legacy)', () => {
     expect(
       suggestMissionType({ riskLevel: 'faible', hasCriticalEcarts: false, hasPacInProgress: false, isCertificationPhase: false })
-    ).toBe('programmee')
+    ).toBe('periodique')
   })
 
   it('priorité : critique > écarts critiques > PAC > certification', () => {

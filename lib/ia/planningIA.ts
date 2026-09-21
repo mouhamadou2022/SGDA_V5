@@ -11,6 +11,7 @@ import { aiClient } from './aiClient'
 import { RISK_SYSTEM_PROMPT } from './prompts'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { getDomaineLabel } from '@/lib/domaines'
+import { normalizePlanningType } from '../planning'
 
 export interface InspectionClair {
   pourquoi: string
@@ -55,12 +56,16 @@ const TYPE_LABELS: Record<string, string> = {
   maintien: 'un maintien de la surveillance',
   audit_complet: 'un audit complet',
   periodique: 'une surveillance périodique',
-  programmee: 'une surveillance périodique',
   urgence: 'une surveillance en urgence',
 }
 
 function typeLabel(type: string): string {
-  return TYPE_LABELS[type] || `une surveillance de type « ${type} »`
+  // Normalise les aliases legacy (programmee→periodique, inopinee→inopine)
+  // avant le libellé — les données historiques restent lisibles.
+  const canonique = normalizePlanningType(type)
+  if (canonique === 'inopine') return 'une surveillance inopinée'
+  if (canonique === 'speciale') return 'une surveillance spéciale'
+  return TYPE_LABELS[canonique] || `une surveillance de type « ${type} »`
 }
 
 function dateFr(d?: string): string {
@@ -108,12 +113,13 @@ export function fallbackPourquoiInspection(input: InspectionClairInput): Inspect
 
   // ── À préparer avant l'inspection ──
   const preparation: string[] = []
-  if (input.type === 'suivi_ecarts') {
+  const typeCanonique = normalizePlanningType(input.type)
+  if (typeCanonique === 'suivi_ecarts') {
     if (nbPacAttendu > 0) preparation.push('soumettre ou reprendre les PAC en attente')
     if (nbPacAccepte > 0) preparation.push('rassembler et fournir les preuves des PAC acceptés')
     if (nbEnRetard > 0) preparation.push('régulariser les écarts en retard (mettre à jour les échéances)')
   }
-  if (input.type === 'mise_oeuvre_pac') {
+  if (typeCanonique === 'mise_oeuvre_pac') {
     preparation.push('vérifier que les actions des PAC sont réellement mises en œuvre')
     preparation.push('préparer les preuves (documents, photos, rapports) pour chaque action')
     preparation.push('corriger les échéances dépassées des actions')
