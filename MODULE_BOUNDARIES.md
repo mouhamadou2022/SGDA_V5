@@ -155,9 +155,8 @@ même persistance. Chaque tranche : types + interface + créateur + tests-contra
 1. Nouvelle dépendance ? → entrée dans `sgda-boundaries.mjs` + **revue architecte**.
 2. Fin de phase → reviewer : `npx tsc --noEmit --incremental false` (le
    `npm run typecheck` incrémental MASQUE les erreurs des fichiers inchangés —
-   constaté : 2 erreurs `TypeInspection→TypeSurveillanceKit` pré-existantes
-   dans le lancement, invisibles en incrémental, exposées par l'extraction ;
-   gérées par cast documenté, runtime inchangé) + `npx eslint
+   constaté puis corrigé : `TypeSurveillanceKit` désormais alias de
+   `TypeInspection`, casts retirés, runtime inchangé) + `npx eslint
    components/modules/` (zéro `sgda/`) + tests du module + smoke-test des
    4 workflows si code partagé touché.
 3. Interdit : patch contournant une règle, code mort, import relatif qui fuit son module.

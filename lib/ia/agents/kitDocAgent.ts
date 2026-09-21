@@ -12,7 +12,7 @@ import { useAppStore, KitDocument, ProfilRisque, Aerodrome, KitChecklistItemGene
 import type { DossierAnalyseResult, DossierAnalyseCritere, DossierChecklistItem, FicheBriefing } from '@/lib/store'
 import type { ResultatChecklist } from '@/types/checklist'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
-import { checklistMemory } from '@/lib/checklistMemory'
+import { checklistMemory, type TypeInspection } from '@/lib/checklistMemory'
 import { aiClient } from '@/lib/ia/aiClient'
 import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT, ANALYSER_DOCUMENT_DOSSIER_PROMPT, GENERER_CHECKLIST_TRAITEMENT_PROMPT, GENERER_FICHE_BRIEFING_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
@@ -25,7 +25,12 @@ import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagCl
 // ============================================================
 
 export type TypeEntite = 'aerodrome' | 'helistation' | 'mixte'
-export type TypeSurveillanceKit = 'periodique' | 'inopine' | 'maintien' | 'certification' | 'homologation' | 'suivi_ecarts' | 'mise_oeuvre_pac'
+/**
+ * Aligné avec TypeInspection (checklistMemory) : le kit reçoit tous les
+ * types réels de surveillance — la logique interne ne branche que sur
+ * 'maintien', les autres valeurs traversent sans effet (runtime inchangé).
+ */
+export type TypeSurveillanceKit = TypeInspection
 export type ResultatKit = 'SA' | 'NS' | 'NA' | 'NV'
 export type TypeDocumentOACI =
   | 'RAS-14'

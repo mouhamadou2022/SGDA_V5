@@ -315,11 +315,8 @@ async function genererChecklistFallback(
     const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
       entite_id: planning.aerodrome_id,
       type_entite: aerodrome?.type_entite ?? 'aerodrome',
-      // Décalage de types pré-existant (révélé par l'extraction — le
-      // tsc incrémental le masquait) : le kit ne déclare qu'un sous-ensemble
-      // de TypeInspection. Cast conservé pour garder le runtime identique ;
-      // l'alignement des deux unions est un chantier séparé.
-      type_surveillance: typeSurv as Parameters<typeof kitDocAgent.applyRiskProfileToChecklist>[1]['type_surveillance'],
+      // TypeSurveillanceKit aligné sur TypeInspection : plus de cast.
+      type_surveillance: typeSurv,
       portee: planning.portee || [],
       profil_risque: profil,
     });
@@ -333,8 +330,7 @@ async function genererChecklistFallback(
         surveillance_id: surveillanceId,
         entite_id: planning.aerodrome_id,
         type_entite: aerodrome?.type_entite ?? 'aerodrome',
-        // Même décalage pré-existant qu'au-dessus (runtime inchangé).
-        type_surveillance: typeSurv as Parameters<typeof kitDocAgent.generateChecklist>[0]['type_surveillance'],
+        type_surveillance: typeSurv,
         portee: planning.portee || [],
         profil_risque: profil,
         prefix_numero: checklistPrefix,
