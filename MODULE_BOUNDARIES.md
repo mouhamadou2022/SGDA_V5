@@ -113,6 +113,13 @@ mémoires IA.
   inspecteur, couleur délai) + `lib/__tests__/ecartsRappels.test.ts` ;
   `ecartsSlice` applique (set/emit). Lint slice : 14 → 12 erreurs
   `no-explicit-any` pré-existantes, 0 nouvelle.
+- Vigies propriétaires : `verifierRappelsAutomatiques` (écarts + dossiers +
+  plannings mélangés) scindé en `verifierRappelsEcarts` (écarts),
+  `verifierRappelsDossiers` (dossiers) et `verifierPlanningsDepasses`
+  (plannings) ; décisions pures dossiers/plannings dans `lib/vigie.ts` +
+  `lib/__tests__/vigie.test.ts`. Les 2 appelants (timer `lib/store.ts`,
+  `PlansActionsModule`) appellent les trois. Lint 3 slices : 34 → 32
+  problèmes (que du pré-existant).
   Supprimé `getSurveillanceBadge` (code mort : défini, jamais appelé).
 - `lib/workflow/` (saga mince) : `extractionEcarts`, `reglesSignature`,
   `conversionEcarts` + `lib/__tests__/workflowLogic.test.ts` ; le slice

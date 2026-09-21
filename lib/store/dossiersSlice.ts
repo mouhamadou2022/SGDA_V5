@@ -9,6 +9,8 @@ import type { RegistreEntry } from './registresSlice'
 import * as datastore from '../datastore'
 import { registreUtils } from '../registreUtils'
 import { supabase } from '../supabase'
+import { storeEvents } from './eventBus'
+import { evaluerRappelsDossier } from '../vigie'
 
 // ─────────────────────────────────────────────────────────────
 // Sync périodique dossiers (démarrée à la connexion — voir authSlice).
@@ -240,6 +242,12 @@ export interface DossierSlice {
   ajouterFormulaireDossier: (dossierId: string, formulaire: Omit<DossierFormulaire, 'id' | 'date_upload'>) => Promise<void>
   retirerFormulaireDossier: (dossierId: string, formulaireId: string) => Promise<void>
   evaluerTravailInspecteur: (dossierId: string, assignmentId: string, decision: 'valide' | 'retour', commentaire: string) => Promise<void>
+  /**
+   * Vigie périodique des dossiers (retard + échéances J-15/J-7/J-3).
+   * Déménagé de ecartsSlice.verifierRappelsAutomatiques : chaque tranche
+   * est propriétaire de sa vigie. Décisions pures dans lib/vigie.ts.
+   */
+  verifierRappelsDossiers: () => void
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -712,5 +720,45 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
           : d
       ),
     }))
+  },
+
+  verifierRappelsDossiers: () => {
+    const state = get()
+    const maintenant = new Date()
+    const dossiersActifs = state.dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente')
+    dossiersActifs.forEach(dossier => {
+      // Décision pure (lib/vigie) — la tranche applique.
+      const decision = evaluerRappelsDossier(dossier, maintenant)
+      if (decision.notifierRetard) {
+        const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
+        assignes.forEach(a => {
+          storeEvents.emit('notification:envoyer', {
+            user_id: a.inspecteur_id, type: 'danger', title: 'Dossier en retard',
+            message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
+            canal: 'in_app',
+          })
+        })
+        if (dossier.created_by) {
+          storeEvents.emit('notification:envoyer', {
+            user_id: dossier.created_by, type: 'danger', title: 'Dossier en retard',
+            message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
+            canal: 'in_app',
+          })
+        }
+        set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, _retard_notifie: true } : d) }))
+      }
+      decision.seuils.forEach(seuil => {
+        const key = `_rappel_j${seuil}`
+        const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
+        assignes.forEach(a => {
+          storeEvents.emit('notification:envoyer', {
+            user_id: a.inspecteur_id, type: 'warning', title: `Échéance J-${seuil}`,
+            message: `Dossier ${dossier.reference} — ${dossier.titre} : échéance dans ${seuil} jours`,
+            canal: 'in_app',
+          })
+        })
+        set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, [key]: true } : d) }))
+      })
+    })
   },
 })

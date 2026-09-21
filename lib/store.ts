@@ -845,8 +845,12 @@ function startRappelsTimer() {
   clearRappelsTimer()
   if (typeof window === 'undefined') return
   rappelsTimerId = setInterval(() => {
-    useAppStore.getState().verifierRappelsAutomatiques()
-    import('./services/vigieRisque').then(({ declencherVigie }) => declencherVigie()).catch((err) => console.error('[Vigie] Échec déclenchement:', err))
+    // Un appelant = trois vigies propriétaires (écarts, dossiers, plannings).
+    const s = useAppStore.getState()
+    s.verifierRappelsEcarts()
+    s.verifierRappelsDossiers()
+    s.verifierPlanningsDepasses()
+    import('./services/vigieRisque').then(({ declencherVigie }) => declencherVigie()).catch((err) => console.error('[Vigie] échec déclenchement:', err))
   }, 60 * 60 * 1000)
 }
 

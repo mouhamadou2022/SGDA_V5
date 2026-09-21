@@ -195,7 +195,11 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
 
   useEffect(() => {
     const interval = setInterval(() => {
-      useAppStore.getState().verifierRappelsAutomatiques()
+      // Un appelant = trois vigies propriétaires (écarts, dossiers, plannings).
+      const s = useAppStore.getState()
+      s.verifierRappelsEcarts()
+      s.verifierRappelsDossiers()
+      s.verifierPlanningsDepasses()
     }, 60 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])

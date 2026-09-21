@@ -10,7 +10,6 @@ import type { AppStore } from '../store'
 import { storeEvents } from './eventBus'
 import type { Surveillance } from './surveillancesSlice'
 import { NIVEAUX_RISQUE_ECART } from '../config'
-import { isPlanningTerminal } from '../planning'
 import { evaluatePAC } from '../risque/bowTieEngine'
 import * as datastore from '../datastore'
 import { plansActionsUtils } from '../plansActionsUtils'
@@ -49,7 +48,13 @@ export interface EcartSlice {
   getHistoriqueEcart: (ecartId: string) => HistoriqueEcart[]
   addHistoriqueEntry: (ecartId: string, entry: Omit<HistoriqueEcart, 'id'>) => void
   getStatistiquesPAC: (aerodromeId?: string) => StatistiquesPAC
-  verifierRappelsAutomatiques: () => void
+  /**
+   * Vigie périodique des écarts (retard + échéances + délais inspecteur).
+   * Les vigies dossiers/plannings vivent dans leurs tranches
+   * (verifierRappelsDossiers, verifierPlanningsDepasses) — chaque tranche
+   * est propriétaire de sa vigie.
+   */
+  verifierRappelsEcarts: () => void
   marquerEcartEnRetard: (ecartId: string) => void
   envoyerRappelEcart: (ecartId: string, typeRappel: string) => void
   getActiveEcarts: () => Ecart[]
@@ -758,7 +763,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         }
       },
 
-      verifierRappelsAutomatiques: () => {
+      verifierRappelsEcarts: () => {
         const state = get()
         const maintenant = new Date()
         state.ecarts.forEach(ecart => {
@@ -854,97 +859,6 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
               })
             }
         })
-        // Rappels automatiques pour les dossiers
-        const dossiersActifs = state.dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente')
-        dossiersActifs.forEach(dossier => {
-          const dateLimite = new Date(dossier.date_limite)
-          const joursRestants = Math.ceil((dateLimite.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-          if (joursRestants < 0) {
-            const dejaNotifie = (dossier as any)._retard_notifie
-            if (!dejaNotifie) {
-              const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
-              assignes.forEach(a => {
-                storeEvents.emit('notification:envoyer', {
-                  user_id: a.inspecteur_id, type: 'danger', title: 'Dossier en retard',
-                  message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
-                  canal: 'in_app',
-                })
-              })
-              if (dossier.created_by) {
-                storeEvents.emit('notification:envoyer', {
-                  user_id: dossier.created_by, type: 'danger', title: 'Dossier en retard',
-                  message: `Dossier ${dossier.reference} — ${dossier.titre} : délai dépassé`,
-                  canal: 'in_app',
-                })
-              }
-              set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, _retard_notifie: true } : d) }))
-            }
-          } else if (joursRestants <= 15 && joursRestants > 0) {
-            const seuils = [15, 7, 3]
-            seuils.forEach(seuil => {
-              if (joursRestants === seuil) {
-                const key = `_rappel_j${seuil}`
-                const dejaEnvoye = (dossier as any)[key]
-                if (!dejaEnvoye) {
-                  const assignes = dossier.assignments?.filter(a => a.statut !== 'termine' && a.statut !== 'valide') || []
-                  assignes.forEach(a => {
-                    storeEvents.emit('notification:envoyer', {
-                      user_id: a.inspecteur_id, type: 'warning', title: `Échéance J-${seuil}`,
-                      message: `Dossier ${dossier.reference} — ${dossier.titre} : échéance dans ${seuil} jours`,
-                      canal: 'in_app',
-                    })
-                  })
-                  set((s) => ({ dossiers: s.dossiers.map(d => d.id === dossier.id ? { ...d, [key]: true } : d) }))
-                }
-              }
-            })
-          }
-        })
-
-          // ── Alertes plannings dont la date de fin est dépassée ─────
-          // Source unique : lib/planning.ts — le Planning ne porte jamais les
-          // statuts Surveillance ; la surveillance liée est prise en compte.
-          state.plannings?.forEach(planning => {
-            if (planning.deleted_at || planning.est_proposition) return
-            if (isPlanningTerminal(planning, state.surveillances)) return
-            if (planning.rappels_envoyes?.overdue) return
-            const dFin = new Date(planning.date_fin || planning.date_debut).getTime()
-            if (Number.isNaN(dFin) || dFin >= Date.now()) return
-
-            const updated = { ...planning.rappels_envoyes, overdue: true }
-            storeEvents.emit('planning:marquer-rappels', { planning_id: planning.id, rappels: updated })
-
-            const aerodrome = state.aerodromes.find(a => a.id === planning.aerodrome_id)
-            const codeOaci = aerodrome?.code_oaci || planning.aerodrome_id
-            const typeLabel = (planning.type as string)?.replace(/_/g, ' ') || 'surveillance'
-            const dateStr = new Date(planning.date_fin || planning.date_debut).toLocaleDateString('fr-FR')
-            const joursRetard = Math.max(1, Math.ceil((Date.now() - dFin) / (1000 * 60 * 60 * 24)))
-            const message = `Le planning ${typeLabel} de ${codeOaci} a dépassé sa date de fin (${dateStr}, ${joursRetard} j de retard) sans être clôturé. Réajustez les dates ou clôturez-le.`
-
-            const equipeIds = planning.equipe_ids || []
-            const cibles = [...equipeIds]
-            if (planning.chef_id && !cibles.includes(planning.chef_id)) cibles.push(planning.chef_id)
-            cibles.forEach(uid => {
-              storeEvents.emit('notification:envoyer', {
-                user_id: uid, type: 'danger',
-                title: `⛔ Planning dépassé — ${codeOaci}`,
-                message, canal: 'in_app', link: `/planning`,
-              })
-            })
-
-            const exploitants = state.utilisateurs?.filter(u =>
-              u.aerodrome_id === planning.aerodrome_id &&
-              ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
-            ) || []
-            exploitants.forEach(op => {
-              storeEvents.emit('notification:envoyer', {
-                user_id: op.id, type: 'warning',
-                title: `⛔ Surveillance dépassée — ${codeOaci}`,
-                message: `La surveillance ${typeLabel} dont la date de fin était le ${dateStr} n'a pas eu lieu. Contactez l'équipe ANACIM pour connaître les nouvelles dates.`,
-                canal: 'in_app', link: `/operatorDashboard`,
-              })
-            })
-          })
       },
 
       marquerEcartEnRetard: (ecartId) => {

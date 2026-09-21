@@ -9,6 +9,7 @@ import type { AppStore } from '../store'
 import { storeEvents } from './eventBus'
 import type { DomaineChecklist } from './checklistSlice'
 import { normalizePlanningType, type PlanningStatut, type PlanningType } from '../planning'
+import { evaluerDepassementPlanning } from '../vigie'
 import { genererPlanning } from '../services/planningGenerator'
 import * as datastore from '../datastore'
 
@@ -141,6 +142,12 @@ export interface PlanningSlice {
     planning_id: string,
     rappels: { j30?: boolean; j15?: boolean; j7?: boolean; overdue?: boolean },
   ) => void
+  /**
+   * Vigie des plannings dont la date de fin est dépassée (sans clôture).
+   * Déménagé de ecartsSlice.verifierRappelsAutomatiques : chaque tranche
+   * est propriétaire de sa vigie. Décision pure dans lib/vigie.ts.
+   */
+  verifierPlanningsDepasses: () => void
 }
 
 
@@ -505,5 +512,50 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
               : p
           ),
         }))
+      },
+
+      verifierPlanningsDepasses: () => {
+        const state = get()
+        const maintenantMs = Date.now()
+        // Source unique : lib/planning.ts — le Planning ne porte jamais les
+        // statuts Surveillance ; la surveillance liée est prise en compte.
+        state.plannings?.forEach(planning => {
+          // Décision pure (lib/vigie) — la tranche applique.
+          const decision = evaluerDepassementPlanning(planning, state.surveillances, maintenantMs)
+          if (!decision.depasse) return
+
+          const updated = { ...planning.rappels_envoyes, overdue: true }
+          storeEvents.emit('planning:marquer-rappels', { planning_id: planning.id, rappels: updated })
+
+          const aerodrome = state.aerodromes.find(a => a.id === planning.aerodrome_id)
+          const codeOaci = aerodrome?.code_oaci || planning.aerodrome_id
+          const typeLabel = (planning.type as string)?.replace(/_/g, ' ') || 'surveillance'
+          const dateStr = new Date(planning.date_fin || planning.date_debut).toLocaleDateString('fr-FR')
+          const message = `Le planning ${typeLabel} de ${codeOaci} a dépassé sa date de fin (${dateStr}, ${decision.joursRetard} j de retard) sans être clôturé. Réajustez les dates ou clôturez-le.`
+
+          const equipeIds = planning.equipe_ids || []
+          const cibles = [...equipeIds]
+          if (planning.chef_id && !cibles.includes(planning.chef_id)) cibles.push(planning.chef_id)
+          cibles.forEach(uid => {
+            storeEvents.emit('notification:envoyer', {
+              user_id: uid, type: 'danger',
+              title: `⛔ Planning dépassé — ${codeOaci}`,
+              message, canal: 'in_app', link: `/planning`,
+            })
+          })
+
+          const exploitants = state.utilisateurs?.filter(u =>
+            u.aerodrome_id === planning.aerodrome_id &&
+            ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? '')
+          ) || []
+          exploitants.forEach(op => {
+            storeEvents.emit('notification:envoyer', {
+              user_id: op.id, type: 'warning',
+              title: `⛔ Surveillance dépassée — ${codeOaci}`,
+              message: `La surveillance ${typeLabel} dont la date de fin était le ${dateStr} n'a pas eu lieu. Contactez l'équipe ANACIM pour connaître les nouvelles dates.`,
+              canal: 'in_app', link: `/operatorDashboard`,
+            })
+          })
+        })
       },
 })
