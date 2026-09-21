@@ -105,8 +105,14 @@ mémoires IA.
   exécution, formulaire, suggestions IA, feedback), `PlanningTableColumns.tsx`
   (`TablePlanning` + `buildPlanningTableColumns`, mêmes permissions/callbacks),
   `useLancerSurveillance.ts` (orchestration lancement, mêmes gardes/notifs) +
-  `lib/planning-lancement.ts` (6 briques pures testées :
-  `lib/__tests__/planningLancement.test.ts`).
+  `useIaSuggestions.ts` (cluster suggestions/assistant/feedback) +
+  `lib/planning-lancement.ts` (10 briques pures testées :
+  `lib/__tests__/planningLancement.test.ts`, dont `buildPlanningFromSuggestion`
+  qui déduplique valider/ajuster).
+- `lib/ecarts-rappels.ts` (décisions pures : retard, rappels J, délais
+  inspecteur, couleur délai) + `lib/__tests__/ecartsRappels.test.ts` ;
+  `ecartsSlice` applique (set/emit). Lint slice : 14 → 12 erreurs
+  `no-explicit-any` pré-existantes, 0 nouvelle.
   Supprimé `getSurveillanceBadge` (code mort : défini, jamais appelé).
 - `lib/workflow/` (saga mince) : `extractionEcarts`, `reglesSignature`,
   `conversionEcarts` + `lib/__tests__/workflowLogic.test.ts` ; le slice
@@ -114,6 +120,12 @@ mémoires IA.
   la persistance — pattern saga documenté dans l'en-tête du slice).
 - `lib/store/ecartsTypes.ts` : les 7 interfaces du domaine Écarts extraites
   de `ecartsSlice.ts` (1365 → ~1150) ; `eventBus.ts` importe depuis les types.
+- `useIaSuggestions.ts` + `buildPlanningFromSuggestion`/`buildExportCSV`
+  (`lib/planning-lancement.ts`, testés) : cluster IA extrait de
+  `PlanningModule` (~1620 → ~1470, déduplication valider/ajuster).
+- Non découpés (volontaire, rendement nul) : `PreparationModal` (880),
+  `SmartAssignment` (784) — un composant par fichier déjà, helpers purs
+  déjà factorisés en tête de fichier, onglets/états profondément couplés.
 - `aerodromes/aerodromesExport.ts` : exports PDF liste + fiche extraits de
   `AerodromesModule.tsx` (910 → ~670), dépendances explicites.
 - `aerodromes/AerodromeDetail.tsx` (1124 → ~350) : préparation des données

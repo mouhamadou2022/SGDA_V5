@@ -192,3 +192,50 @@ export function appliquerPredictionsPrefill(
 export function peutLancer(userId: string | undefined, chefId: string | undefined): boolean {
   return !!userId && !!chefId && chefId === userId
 }
+
+export interface SuggestionPlanifiable {
+  aerodrome_id: string;
+  type: Planning['type'];
+  date_debut: string;
+  date_fin: string;
+  portee: string[];
+  equipe_ids: string[];
+  chef_id: string;
+  priorite: Planning['priorite'];
+  objectifs: string;
+}
+
+/**
+ * Construit un planning depuis une suggestion AERORISQ (valider ET ajuster
+ * fabriquaient le même objet — dédupliqué ici).
+ */
+export function buildPlanningFromSuggestion(
+  suggestion: SuggestionPlanifiable,
+  now: string,
+): Planning {
+  return {
+    id: crypto.randomUUID(),
+    aerodrome_id: suggestion.aerodrome_id,
+    type: suggestion.type,
+    date_debut: suggestion.date_debut,
+    date_fin: suggestion.date_fin,
+    portee: suggestion.portee,
+    equipe_ids: suggestion.equipe_ids,
+    chef_id: suggestion.chef_id,
+    statut: 'planifiee',
+    priorite: suggestion.priorite,
+    objectifs: suggestion.objectifs,
+    est_proposition: false,
+    annee_cible: new Date().getFullYear(),
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+/** Ligne CSV d'export (en-têtes + lignes depuis les plannings enrichis). */
+export function buildExportCSV(
+  headers: string[],
+  rows: (string | number | undefined | null)[][],
+): string {
+  return [headers, ...rows].map(row => row.join(',')).join('\n')
+}

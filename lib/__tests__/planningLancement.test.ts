@@ -11,6 +11,8 @@ import {
   nomsEquipe,
   appliquerPredictionsPrefill,
   peutLancer,
+  buildPlanningFromSuggestion,
+  buildExportCSV,
 } from '../planning-lancement'
 
 const PLANNING = {
@@ -76,6 +78,29 @@ describe('resoudreTypeSurveillance', () => {
     expect(resoudreTypeSurveillance('certification')).toBe('certification')
     expect(resoudreTypeSurveillance('suivi_ecarts')).toBe('suivi_ecarts')
     expect(resoudreTypeSurveillance('inconnu')).toBe('periodique')
+  })
+})
+
+describe('buildPlanningFromSuggestion', () => {
+  const suggestion = {
+    aerodrome_id: 'a1', type: 'periodique', date_debut: '2026-01-01',
+    date_fin: '2026-01-03', portee: ['SGS'], equipe_ids: ['i1'],
+    chef_id: 'c1', priorite: 'haute', objectifs: 'Obj',
+  }
+  test('valider et ajuster partagent le même objet (hors id unique)', () => {
+    const a = buildPlanningFromSuggestion(suggestion as never, 'now')
+    const b = buildPlanningFromSuggestion(suggestion as never, 'now')
+    const { id: _a, ...resteA } = a
+    const { id: _b, ...resteB } = b
+    expect(resteA).toEqual(resteB)
+    expect(a).toMatchObject({
+      aerodrome_id: 'a1', statut: 'planifiee', est_proposition: false,
+      created_at: 'now', updated_at: 'now',
+    })
+    expect(a.id).toBeTruthy()
+  })
+  test('buildExportCSV : en-têtes + lignes', () => {
+    expect(buildExportCSV(['A', 'B'], [['1', '2']])).toBe('A,B\n1,2')
   })
 })
 

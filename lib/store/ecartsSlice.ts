@@ -14,6 +14,8 @@ import { isPlanningTerminal } from '../planning'
 import { evaluatePAC } from '../risque/bowTieEngine'
 import * as datastore from '../datastore'
 import { plansActionsUtils } from '../plansActionsUtils'
+// Décisions pures des rappels (la tranche applique : set/emit).
+import { evaluerRappelsEcart, evaluerDelaisInspecteur, calculerDelaiRestant } from '../ecarts-rappels'
 
 import type {
   Ecart,
@@ -760,35 +762,18 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         const state = get()
         const maintenant = new Date()
         state.ecarts.forEach(ecart => {
-          if (ecart.statut === 'cloture') return
-          const delaiPAC = new Date(ecart.delai_pac)
-          const delaiReg = new Date(ecart.delai_regularisation)
-          const joursAvantPAC = Math.ceil((delaiPAC.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-          const joursAvantReg = Math.ceil((delaiReg.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-          if (joursAvantPAC < 0 || joursAvantReg < 0) {
-            if (ecart.statut !== 'en_retard') {
-              get().marquerEcartEnRetard(ecart.id)
-            }
+          // Décisions pures (lib/ecarts-rappels) — le slice applique.
+          const decision = evaluerRappelsEcart(ecart, maintenant)
+          if (decision.passerEnRetard) {
+            get().marquerEcartEnRetard(ecart.id)
           }
-          const rappels = [
-            { jours: 7, type: 'J-7' },
-            { jours: 3, type: 'J-3' },
-            { jours: 1, type: 'J-1' }
-          ]
-          rappels.forEach(({ jours, type }) => {
-            if (joursAvantPAC === jours || joursAvantReg === jours) {
-              const dejaEnvoye = ecart.rappels_envoyes?.[`j${jours}` as keyof typeof ecart.rappels_envoyes]
-              if (!dejaEnvoye) {
-                get().envoyerRappelEcart(ecart.id, type)
-              }
-            }
+          decision.rappels.forEach((type) => {
+            get().envoyerRappelEcart(ecart.id, type)
           })
 
           // ── Délais d'évaluation inspecteur (PAC soumis) ───────────
-          if (ecart.statut === 'pac_soumis' && ecart.evaluation_pac?.deadline) {
-            const deadlineInsp = new Date(ecart.evaluation_pac.deadline)
-            const joursRestantsInsp = Math.ceil((deadlineInsp.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-            if (joursRestantsInsp < 0 && !ecart.retard_inspecteur) {
+          const delaisInsp = evaluerDelaisInspecteur(ecart, maintenant)
+          if (delaisInsp.marquerRetardEvalPAC) {
               // Marquer le retard ANACIM
               set((s) => ({
                 ecarts: s.ecarts.map(e =>
@@ -813,9 +798,10 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                 message: `Vous avez dépassé le délai d'évaluation du PAC pour l'écart ${ecart.reference}. Une notification a été envoyée à votre supérieur.`,
                 link: `/plans-actions/${ecart.id}`, canal: 'in_app'
               })
-            } else if (joursRestantsInsp > 0 && [7, 3, 1].includes(joursRestantsInsp)) {
-              const key = `_rappel_eval_j${joursRestantsInsp}` as any
-              if (!(ecart as any)[key]) {
+            } else {
+              const deadlineInsp = new Date(ecart.evaluation_pac!.deadline!)
+              delaisInsp.rappelsEvalPAC.forEach((joursRestantsInsp) => {
+                const key = `_rappel_eval_j${joursRestantsInsp}` as any
                 storeEvents.emit('notification:envoyer', {
                   user_id: ecart.inspecteur_ref_id, type: 'warning',
                   title: `Rappel évaluation PAC J-${joursRestantsInsp}`,
@@ -825,15 +811,11 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                 set((s) => ({
                   ecarts: s.ecarts.map(e => e.id === ecart.id ? { ...e, [key]: true } : e)
                 }))
-              }
+              })
             }
-          }
 
           // ── Délais de validation preuves (preuves soumises) ──────
-          if (ecart.statut === 'preuves_soumises' && ecart.validation_preuves?.deadline) {
-            const deadlineInsp = new Date(ecart.validation_preuves.deadline)
-            const joursRestantsInsp = Math.ceil((deadlineInsp.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-            if (joursRestantsInsp < 0 && !ecart.retard_inspecteur) {
+          if (delaisInsp.marquerRetardValidation) {
               set((s) => ({
                 ecarts: s.ecarts.map(e =>
                   e.id === ecart.id
@@ -856,9 +838,10 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                 message: `Vous avez dépassé le délai de validation des preuves pour l'écart ${ecart.reference}. Notification envoyée à votre supérieur.`,
                 link: `/plans-actions/${ecart.id}`, canal: 'in_app'
               })
-            } else if (joursRestantsInsp > 0 && [7, 3, 1].includes(joursRestantsInsp)) {
-              const key = `_rappel_val_j${joursRestantsInsp}` as any
-              if (!(ecart as any)[key]) {
+            } else {
+              const deadlineInsp = new Date(ecart.validation_preuves!.deadline!)
+              delaisInsp.rappelsValidation.forEach((joursRestantsInsp) => {
+                const key = `_rappel_val_j${joursRestantsInsp}` as any
                 storeEvents.emit('notification:envoyer', {
                   user_id: ecart.inspecteur_ref_id, type: 'warning',
                   title: `Rappel validation preuves J-${joursRestantsInsp}`,
@@ -868,9 +851,8 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                 set((s) => ({
                   ecarts: s.ecarts.map(e => e.id === ecart.id ? { ...e, [key]: true } : e)
                 }))
-              }
+              })
             }
-          }
         })
         // Rappels automatiques pour les dossiers
         const dossiersActifs = state.dossiers.filter(d => d.statut === 'en_cours' || d.statut === 'en_attente')
@@ -1099,18 +1081,8 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         })
       },
 
-      getDelaiRestant: (ecart) => {
-        const maintenant = new Date()
-        const delai = ecart.statut === 'ouvert' || ecart.statut === 'pac_attendu'
-          ? new Date(ecart.delai_pac)
-          : new Date(ecart.delai_regularisation)
-        const joursRestants = Math.ceil((delai.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-        let couleur: 'vert' | 'orange' | 'rouge' = 'vert'
-        if (joursRestants < 0) couleur = 'rouge'
-        else if (joursRestants < 7) couleur = 'rouge'
-        else if (joursRestants < 15) couleur = 'orange'
-        return { jours: joursRestants, couleur, depasse: joursRestants < 0 }
-      },
+      // Règle d'affichage unique (lib/ecarts-rappels, testée).
+      getDelaiRestant: (ecart) => calculerDelaiRestant(ecart),
 
       getHistoriqueEcart: (ecartId) => {
         return get().historiqueEcarts?.[ecartId] || []

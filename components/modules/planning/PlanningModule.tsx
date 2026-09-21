@@ -14,7 +14,7 @@ import { useState, useMemo, useEffect, useCallback, startTransition } from 'reac
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Planning, Aerodrome, Surveillance, Ecart, Exemption, MesureAtténuation, Certification, Homologation, ChecklistItem, IaSuggestion, Formation } from '@/lib/store';
+import { useAppStore, Planning, Aerodrome, Surveillance, Ecart, Exemption, MesureAtténuation, IaSuggestion } from '@/lib/store';
 import {
   CalendarDays,
   Calendar,
@@ -62,7 +62,8 @@ import {
 } from '@/lib/planning';
 
 // Composants du module
-import { toDatetimeLocal, startOfToday } from './planningDates';
+import { toDatetimeLocal } from './planningDates';
+import { buildExportCSV } from '@/lib/planning-lancement';
 import { ModaleSuppression, ModaleExecution, ModaleFormulaire, ModaleSuggestionsIA, ModaleFeedback } from './PlanningModals';
 import { PlanningCalendarView } from './PlanningCalendarView';
 import PlanningGanttView from './PlanningGanttView';
@@ -72,7 +73,6 @@ import PlanningNPlus1 from './PlanningNPlus1';
 import PreparationModal from './PreparationModal'
 import PlanningDetailsModal from './PlanningDetailsModal'
 import { PlanningCard } from '@/components/cards/PlanningCard';
-import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 
 // Import des fonctions risque
 import {
@@ -85,8 +85,6 @@ import { synthetiserModeles } from '@/lib/risque/modelSynthesis';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/DataTable'
 import { predictHMM } from '@/lib/risque/hmm'
-import { SuggestionFeedback } from '@/lib/store';
-import { suggestionMLAgent, extractFeatures } from '@/lib/ia/agents/suggestionMLAgent';
 
 
 interface AerodromeRisque extends Aerodrome {
@@ -117,6 +115,7 @@ interface AerodromeRisque extends Aerodrome {
 
 import type { TablePlanning } from './PlanningTableColumns';
 import { useLancerSurveillance } from './useLancerSurveillance';
+import { useIaSuggestions, type FeedbackTarget } from './useIaSuggestions';
 import { buildPlanningTableColumns } from './PlanningTableColumns';
 
 // Planning enrichi côté accueil du module (champs calculés pour l'affichage
@@ -233,7 +232,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const [executeConfirmOpen, setExecuteConfirmOpen] = useState(false);
   const [executeDateDebut, setExecuteDateDebut] = useState('');
   const [executeDateFin, setExecuteDateFin] = useState('');
-  const [feedbackTarget, setFeedbackTarget] = useState<{ aerodromeId: string; suggestionType: string; missionType: string; ecartIds?: string[] } | null>(null);
+  const [feedbackTarget, setFeedbackTarget] = useState<FeedbackTarget | null>(null);
   const [feedbackValue, setFeedbackValue] = useState(true);
   const [feedbackReason, setFeedbackReason] = useState('');
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
@@ -649,7 +648,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
   // Lancement planning → surveillance : orchestration extraite
   // (voir ./useLancerSurveillance.ts + lib/planning-lancement.ts).
-  const { handleLancer, handleConfirmExecute: confirmerExecution } = useLancerSurveillance({
+  const { handleConfirmExecute: confirmerExecution } = useLancerSurveillance({
     user, aerodromesActifs, aerodromes, utilisateurs, profilsRisque,
     addNotification, updatePlanning, enregistrerFeedbackPlanning,
   });
@@ -668,152 +667,24 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   // Valider une suggestion IA → crée le planning
-  const handleValiderSuggestion = useCallback(async (suggestion: IaSuggestion) => {
-    if (!isManager) return;
-    const now = new Date().toISOString()
-    const planning: Planning = {
-      id: crypto.randomUUID(),
-      aerodrome_id: suggestion.aerodrome_id,
-      type: suggestion.type,
-      date_debut: suggestion.date_debut,
-      date_fin: suggestion.date_fin,
-      portee: suggestion.portee,
-      equipe_ids: suggestion.equipe_ids,
-      chef_id: suggestion.chef_id,
-      statut: 'planifiee',
-      priorite: suggestion.priorite,
-      objectifs: suggestion.objectifs,
-      est_proposition: false,
-      annee_cible: new Date().getFullYear(),
-      created_at: now,
-      updated_at: now,
-    }
-    try {
-      await addPlanning(planning)
-      removeIaSuggestion(suggestion.id)
-      submitSuggestionFeedbackStore({
-        aerodrome_id: suggestion.aerodrome_id,
-        suggestion_type: 'audit_complet',
-        mission_type_suggeree: suggestion.type,
-        etait_pertinent: true,
-        date_suggestion: suggestion.created_at,
-        date_feedback: now,
-      })
-      addNotification({
-        user_id: user?.id || '',
-        type: 'success',
-        title: 'Planning créé',
-        message: `Planning ${suggestion.type.replace(/_/g, ' ')} créé à partir de la suggestion AERORISQ.`,
-        canal: 'in_app',
-      })
-    } catch (e) {
-      console.error('Erreur validation suggestion:', e)
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Erreur',
-        message: 'Impossible de créer le planning.',
-        canal: 'in_app',
-      })
-    }
-  }, [addPlanning, removeIaSuggestion, submitSuggestionFeedbackStore, addNotification, user, isManager])
-
-  // Ajuster une suggestion → ouvre le formulaire de planning pré-rempli
-  const handleAjusterSuggestion = useCallback((suggestion: IaSuggestion) => {
-    if (!isManager) return;
-    setEditingPlanning({
-      id: crypto.randomUUID(),
-      aerodrome_id: suggestion.aerodrome_id,
-      type: suggestion.type,
-      date_debut: suggestion.date_debut,
-      date_fin: suggestion.date_fin,
-      portee: suggestion.portee,
-      equipe_ids: suggestion.equipe_ids,
-      chef_id: suggestion.chef_id,
-      statut: 'planifiee',
-      priorite: suggestion.priorite,
-      objectifs: suggestion.objectifs,
-      est_proposition: false,
-      annee_cible: new Date().getFullYear(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    setFormOpen(true)
-    setShowIaSuggestionModal(false)
-  }, [setEditingPlanning, setFormOpen, isManager])
-
-  // Rejeter une suggestion → enregistre le feedback et la supprime
-  const handleRejeterSuggestion = useCallback((suggestion: IaSuggestion, motif?: string) => {
-    if (!isManager) return;
-    const now = new Date().toISOString()
-    removeIaSuggestion(suggestion.id)
-    submitSuggestionFeedbackStore({
-      aerodrome_id: suggestion.aerodrome_id,
-      suggestion_type: 'audit_complet',
-      mission_type_suggeree: suggestion.type,
-      etait_pertinent: false,
-      raison_inexactitude: motif || 'rejetée',
-      date_suggestion: suggestion.created_at,
-      date_feedback: now,
-    })
-  }, [removeIaSuggestion, submitSuggestionFeedbackStore, isManager])
-
-
-  const submitSuggestionFeedback = (aerodromeId: string, suggestionType: string, missionType: string, etaitPertinent: boolean, raison?: string, ecartIds?: string[]) => {
-    const feedback: Omit<SuggestionFeedback, 'id'> = {
-      aerodrome_id: aerodromeId,
-      suggestion_type: suggestionType as SuggestionFeedback['suggestion_type'],
-      mission_type_suggeree: missionType,
-      etait_pertinent: etaitPertinent,
-      raison_inexactitude: raison,
-      ecart_ids: ecartIds,
-      date_suggestion: new Date().toISOString(),
-    };
-    submitSuggestionFeedbackStore(feedback);
-
-    const ecart = ecartIds?.[0] ? ecarts.find(e => e.id === ecartIds[0]) : null;
-    if (ecart) {
-      const profil = profilsRisque[aerodromeId];
-      const features = extractFeatures(ecart, profil, ecarts, suggestionFeedbacks);
-      const model = suggestionMLAgent.loadModelWeights();
-      suggestionMLAgent.updateModelWithFeedback(
-        { id: crypto.randomUUID(), ...feedback, date_feedback: new Date().toISOString() },
-        features,
-        model,
-      );
-    }
-
-    addNotification({
-      user_id: user?.id || '',
-      type: etaitPertinent ? 'success' : 'info',
-      title: etaitPertinent ? 'Feedback enregistré ✓' : 'Feedback enregistré',
-      message: etaitPertinent
-        ? 'La suggestion était pertinente — le modèle ML renforce ce pattern.'
-        : 'Le modèle ML sera ajusté pour cet aérodrome.',
-      canal: 'in_app',
-    });
-  };
-
-  const openFeedbackModal = (aerodromeId: string, suggestionType: string, missionType: string, ecartIds?: string[]) => {
-    setFeedbackTarget({ aerodromeId, suggestionType, missionType, ecartIds });
-    setFeedbackValue(true);
-    setFeedbackReason('');
-    setFeedbackModalOpen(true);
-  };
-
-  const confirmFeedback = () => {
-    if (!feedbackTarget) return;
-    submitSuggestionFeedback(
-      feedbackTarget.aerodromeId,
-      feedbackTarget.suggestionType,
-      feedbackTarget.missionType,
-      feedbackValue,
-      feedbackValue ? undefined : feedbackReason || undefined,
-      feedbackTarget.ecartIds,
-    );
-    setFeedbackModalOpen(false);
-    setFeedbackTarget(null);
-  };
+  // Suggestions AERORISQ + assistant IA : cluster extrait
+  // (voir ./useIaSuggestions.ts + buildPlanningFromSuggestion dans
+  // lib/planning-lancement.ts — même objet planning, mêmes feedbacks).
+  const {
+    handleValiderSuggestion,
+    handleAjusterSuggestion,
+    handleRejeterSuggestion,
+    confirmFeedback,
+    handleAskAssistant,
+  } = useIaSuggestions({
+    isManager, user, userRole, addNotification,
+    addPlanning, removeIaSuggestion, submitSuggestionFeedbackStore,
+    setEditingPlanning, setFormOpen, setShowIaSuggestionModal,
+    feedbackTarget, setFeedbackTarget, feedbackValue, setFeedbackValue,
+    feedbackReason, setFeedbackReason, setFeedbackModalOpen,
+    ecarts, profilsRisque, suggestionFeedbacks,
+    iaQuestion, setIsAskingIa, setIaAnswer, selectedAerodrome,
+  });
 
   const handleView = (planning: Planning & { surveillanceId?: string }) => {
     const surveillanceId = planning.surveillanceId
@@ -873,7 +744,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       ];
     });
 
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const csv = buildExportCSV(headers, rows);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -889,31 +760,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     setSearchTerm('');
   };
 
-  const handleAskAssistant = async () => {
-    if (!iaQuestion.trim()) return;
-    setIsAskingIa(true);
-    try {
-      const result = await assistantAgent.chat({
-        message: iaQuestion,
-        contexte: {
-          module: 'planning',
-          aerodromeId: selectedAerodrome !== 'all' ? selectedAerodrome : undefined,
-        },
-        userRole: userRole,
-      });
-      setIaAnswer(result.message);
-    } catch (error) {
-      addNotification({
-        user_id: user?.id || '',
-        type: 'danger',
-        title: 'Erreur',
-        message: "Impossible de contacter l'assistant",
-        canal: 'in_app',
-      });
-    } finally {
-      setIsAskingIa(false);
-    }
-  };
+  // handleAskAssistant : voir useIaSuggestions (même requête, mêmes gardes).
 
   const typeOptions = [
     { value: 'all', label: 'Tous' },
