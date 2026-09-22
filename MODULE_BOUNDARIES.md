@@ -142,6 +142,25 @@ mémoires IA.
   `OngletRisque`. Lint : 24 → 17 problèmes (16 erreurs pré-existantes
   déplacées verbatim, 0 nouvelle).
 
+## Noyau partagé (verrouillé, allégé sans changer les contrats)
+
+- `lib/datastore.ts` (2000 → ~270 lignes) : hub (point d'entrée unique,
+  `loadInitialData`, ré-exports) + `lib/datastore/<domaine>.ts` (29 fichiers)
+  + `_shared.ts` (types + helpers purs). R4 amendée : « fichier unique »
+  signifiait « point d'accès unique » — le hub le garantit, importateurs
+  inchangés. Lint : 61 problèmes avant/après (tout pré-existant).
+- `lib/store.ts` (1053 → ~870) : hooks React extraits vers
+  `lib/store/hooks.ts` (réexportés, importateurs inchangés ; cycle
+  store↔hooks sûr : `useAppStore` lu uniquement dans les corps).
+  Composition + abonnements + timer restent (centre incompressible).
+  Lint : 120 → 118 problèmes (tout pré-existant).
+- `lib/planning.ts` (260 lignes) : noyau déjà petit, couvert par
+  `lib/__tests__/planningReferentiel.test.ts` (8 tests).
+- `components/ui/` : 10 fichiers morts supprimés (`LineChart`,
+  `confidence-badge`, `EmptyState`, `StyletCanvas`, `multi-select`,
+  `timeline`, `slider`, `AIInsight`, `progress`, `separator` — zéro
+  importateur code). `InfoTooltip` conservée (utilisée).
+
 ## État du découpage (Phase 2 — terminé)
 
 `lib/store.ts` : 9265 → ~820 lignes. Zéro interface `*Slice` inline restante.
