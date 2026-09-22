@@ -13,13 +13,13 @@ import {
   Radar, Compass, Navigation, Wifi,
   Key, HelpCircle, Phone, CheckCircle2, XCircle, RefreshCw
 } from 'lucide-react'
-import { useAppStore, flattenHierarchyItems, type Surveillance, type ChecklistItem, type DomaineChecklist } from '@/lib/store'
+import { useAppStore } from '@/lib/store'
 import { loadInitialData, sanitizeEcart } from '@/lib/datastore'
+import { fusionnerParId, fusionnerUtilisateurs, fusionnerInspecteurs, rehydraterChecklists } from '@/lib/hydratation'
 import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances, subscribeToNotifications, subscribeToMessages, subscribeToEvenements } from '@/lib/subscriptions'
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
-import { dedupeHierarchyItems } from '@/lib/checklistNormalize'
 import { AppShell } from '@/components/layout/AppShell'
 import AdminPortal from '@/components/modules/admin/AdminPortal'
 import AerorisqDNAState from '@/components/modules/admin/AerorisqDNAState'
@@ -1070,90 +1070,29 @@ export default function Page() {
         const formCount = data.formations?.length ?? 0
         // Fusionner les inspecteurs existants (indexedDB) avec ceux de Supabase
         // Déduplication par id, puis email, puis matricule (rétrocompatibilité ID auto-généré)
-        const existingInspecteurs = useAppStore.getState().inspecteurs || []
-        const supabaseInspecteurs = data.inspecteurs || []
-        const existingIds = new Set(existingInspecteurs.map(i => i.id))
-        const existingEmails = new Set(existingInspecteurs.map(i => i.email).filter(Boolean))
-        const existingMatricules = new Set(existingInspecteurs.map(i => i.matricule).filter(Boolean))
-        const mergedInspecteurs = [
-          ...existingInspecteurs,
-          ...supabaseInspecteurs.filter(i =>
-            !existingIds.has(i.id) &&
-            !(i.email && existingEmails.has(i.email)) &&
-            !(i.matricule && existingMatricules.has(i.matricule))
-          )
-        ]
-        
+          // Fusions local-prime : voir lib/hydratation.ts (le local
+          // IndexedDB, créé hors-ligne, prime ; Supabase complète).
+          const mergedInspecteurs = fusionnerInspecteurs(
+            useAppStore.getState().inspecteurs, data.inspecteurs)
+
           const existingMessages = useAppStore.getState().messages || []
-         // Fusionner les dossiers locaux (Zustand persist) avec ceux de Supabase
-         const existingDossiers = useAppStore.getState().dossiers || []
-         const existingDossierIds = new Set(existingDossiers.map(d => d.id))
-         const mergedDossiers = [
-           ...existingDossiers,
-           ...(data.dossiers || []).filter(d => !existingDossierIds.has(d.id))
-         ]
-          const existingRegistre = useAppStore.getState().registreEntries || []
-          const existingRegIds = new Set(existingRegistre.map(r => r.id))
-          const mergedRegistre = [
-            ...existingRegistre,
-            ...(data.registreEntries || []).filter(r => !existingRegIds.has(r.id))
-          ]
-          // Exemptions : le local prime (créées hors-ligne), Supabase complète.
-          const existingExemptions = useAppStore.getState().exemptions || []
-          const existingExIds = new Set(existingExemptions.map(e => e.id))
-          const mergedExemptions = [
-            ...existingExemptions,
-            ...(data.exemptions || []).filter(e => !existingExIds.has(e.id))
-          ]
-          // Délégations : le local prime (assignées hors-ligne), Supabase complète.
-          const existingDelegations = useAppStore.getState().delegations || []
-          const existingDelIds = new Set(existingDelegations.map(d => d.id))
-          const mergedDelegations = [
-            ...existingDelegations,
-            ...(data.delegations || []).filter(d => !existingDelIds.has(d.id))
-          ]
-          // Enquêtes + réponses : le local prime, Supabase complète.
-          const existingEnquetes = useAppStore.getState().enquetes || []
-          const existingEnqIds = new Set(existingEnquetes.map(e => e.id))
-          const mergedEnquetes = [
-            ...existingEnquetes,
-            ...(data.enquetes || []).filter(e => !existingEnqIds.has(e.id))
-          ]
-          const existingReponses = useAppStore.getState().reponsesEnquetes || []
-          const existingRepIds = new Set(existingReponses.map(r => r.id))
-          const mergedReponses = [
-            ...existingReponses,
-            ...(data.reponsesEnquetes || []).filter(r => !existingRepIds.has(r.id))
-          ]
-          // Fusionner les utilisateurs existants (indexedDB) avec Supabase
-          const existingUtilisateurs = useAppStore.getState().utilisateurs || []
-          const existingUserIds = new Set(existingUtilisateurs.map(u => u.id))
-          const existingUserEmails = new Set(existingUtilisateurs.map(u => u.email).filter(Boolean))
-          const mergedUtilisateurs = [
-            ...existingUtilisateurs,
-            ...(data.utilisateurs || []).filter(u =>
-              !existingUserIds.has(u.id) &&
-              !(u.email && existingUserEmails.has(u.email))
-            )
-          ]
-          // Réhydrater les checklists depuis la colonne persistée
-          // checklist_hierarchy : sans ça, la rédaction des écarts et le
-          // rapport repartent de zéro après un rechargement.
+          const mergedDossiers = fusionnerParId(
+            useAppStore.getState().dossiers, data.dossiers)
+          const mergedRegistre = fusionnerParId(
+            useAppStore.getState().registreEntries, data.registreEntries)
+          const mergedExemptions = fusionnerParId(
+            useAppStore.getState().exemptions, data.exemptions)
+          const mergedDelegations = fusionnerParId(
+            useAppStore.getState().delegations, data.delegations)
+          const mergedEnquetes = fusionnerParId(
+            useAppStore.getState().enquetes, data.enquetes)
+          const mergedReponses = fusionnerParId(
+            useAppStore.getState().reponsesEnquetes, data.reponsesEnquetes)
+          const mergedUtilisateurs = fusionnerUtilisateurs(
+            useAppStore.getState().utilisateurs, data.utilisateurs)
+          const { hierarchyFromDb, itemsFromDb } = rehydraterChecklists(data.surveillances)
           const existingHierarchy = useAppStore.getState().checklistHierarchy || {}
           const existingItems = useAppStore.getState().checklistItems || {}
-          const hierarchyFromDb: Record<string, DomaineChecklist[]> = {}
-          const itemsFromDb: Record<string, ChecklistItem[]> = {}
-          for (const sv of (data.surveillances || []) as Surveillance[]) {
-            if (Array.isArray(sv.checklist_hierarchy) && sv.checklist_hierarchy.length > 0) {
-              // Normalisation à l'hydratation : les hiérarchies legacy peuvent
-              // contenir des items au même id en double (artefact d'import de
-              // template) → on déduplique avant de les injecter dans le store
-              // pour corriger clés React et comptage (NS/NV, écarts traités).
-              const normalized = dedupeHierarchyItems(sv.checklist_hierarchy as any)
-              hierarchyFromDb[sv.id] = (normalized as any) ?? sv.checklist_hierarchy
-              itemsFromDb[sv.id] = flattenHierarchyItems(hierarchyFromDb[sv.id])
-            }
-          }
           useAppStore.setState({
              aerodromes: data.aerodromes || [],
              surveillances: data.surveillances || [],

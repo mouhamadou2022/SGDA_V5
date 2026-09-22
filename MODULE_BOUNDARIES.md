@@ -135,6 +135,15 @@ mémoires IA.
   déjà factorisés en tête de fichier, onglets/états profondément couplés.
 - `aerodromes/aerodromesExport.ts` : exports PDF liste + fiche extraits de
   `AerodromesModule.tsx` (910 → ~670), dépendances explicites.
+- `surveillance/SurveillanceEcartsRedaction.tsx` (2465 → ~1600) :
+  `EcartCard`, `IaSuggestionBanner`, `IaAssistant`, `RiskCellSelect`,
+  `NotesInspecteurPopover` extraits (prop-driven) + `EcartsRedactionTypes.ts`
+  (types, réexportés pour les 2 pages) + `ecartsRedactionUtils.ts`
+  (constantes + 3 helpers purs testés). Lint : 59 → 52 problèmes
+  (tout pré-existant, malgré 4 fichiers de plus).
+- `lib/hydratation.ts` : fusions local-prime de `app/page.tsx`
+  (`fusionnerParId/Utilisateurs/Inspecteurs`, `rehydraterChecklists`) +
+  `lib/__tests__/hydratation.test.ts`.
 - `aerodromes/AerodromeDetail.tsx` (1124 → ~350) : préparation des données
   (store, memos, effet IA, coquille header/onglets/footer) conservée ; les
   8 panneaux extraits dans `AerodromeDetailTabs.tsx` + `toDMS`/`MiniMap`
