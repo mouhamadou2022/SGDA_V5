@@ -127,6 +127,11 @@ mémoires IA.
   la persistance — pattern saga documenté dans l'en-tête du slice).
 - `lib/store/ecartsTypes.ts` : les 7 interfaces du domaine Écarts extraites
   de `ecartsSlice.ts` (1365 → ~1150) ; `eventBus.ts` importe depuis les types.
+- Passe ciblée `any` : **zéro `any` + zéro warning** sur `lib/datastore/`
+  (30 fichiers) et `lib/store/ecartsSlice.ts` — typages précis
+  (`Record<string, unknown>`, `PostgrestError` direct, `REALTIME_LISTEN_TYPES`
+  + adaptateur de callbacks, assertions ciblées `NonNullable<Ecart[...]>`
+  documentées pour les partiels réels). Runtime inchangé partout.
 - `useIaSuggestions.ts` + `buildPlanningFromSuggestion`/`buildExportCSV`
   (`lib/planning-lancement.ts`, testés) : cluster IA extrait de
   `PlanningModule` (~1620 → ~1470, déduplication valider/ajuster).

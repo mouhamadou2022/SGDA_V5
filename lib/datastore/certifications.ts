@@ -24,8 +24,8 @@ export async function createCertification(payload: Certification): Promise<Datas
     ]
     const clean: Record<string, unknown> = { updated_at: new Date().toISOString() }
     for (const key of allowedCols) {
-      if ((payload as any)[key] !== undefined) {
-        clean[key] = (payload as any)[key]
+      if ((payload as unknown as Record<string, unknown>)[key] !== undefined) {
+        clean[key] = (payload as unknown as Record<string, unknown>)[key]
       }
     }
     if (!clean.created_at) clean.created_at = new Date().toISOString()
@@ -37,8 +37,8 @@ export async function createCertification(payload: Certification): Promise<Datas
       .single()
     if (error) {
       console.error('[datastore/createCertification] Supabase error:', JSON.stringify(error))
-      if ((error as any).details) console.error('[datastore/createCertification] details:', (error as any).details)
-      if ((error as any).code) console.error('[datastore/createCertification] code:', (error as any).code)
+      if (error.details) console.error('[datastore/createCertification] details:', error.details)
+      if (error.code) console.error('[datastore/createCertification] code:', error.code)
     }
     return { data: data as Certification | null, error: error?.message ?? JSON.stringify(error) ?? null }
   } catch (err) {
@@ -58,8 +58,8 @@ export async function updateCertification(id: string, payload: Partial<Certifica
     // Éviter d'écraser created_at
     const clean: Record<string, unknown> = { updated_at: new Date().toISOString() }
     for (const key of allowedCols) {
-      if ((payload as any)[key] !== undefined) {
-        clean[key] = (payload as any)[key]
+      if ((payload as unknown as Record<string, unknown>)[key] !== undefined) {
+        clean[key] = (payload as unknown as Record<string, unknown>)[key]
       }
     }
 
@@ -71,9 +71,9 @@ export async function updateCertification(id: string, payload: Partial<Certifica
       .single()
     if (error) {
       console.error('[datastore/updateCertification] Supabase error:', JSON.stringify(error))
-      if ((error as any).details) console.error('[datastore/updateCertification] details:', (error as any).details)
-      if ((error as any).hint) console.error('[datastore/updateCertification] hint:', (error as any).hint)
-      if ((error as any).code) console.error('[datastore/updateCertification] code:', (error as any).code)
+      if (error.details) console.error('[datastore/updateCertification] details:', error.details)
+      if (error.hint) console.error('[datastore/updateCertification] hint:', error.hint)
+      if (error.code) console.error('[datastore/updateCertification] code:', error.code)
     }
     return { data: data as Certification | null, error: error?.message ?? JSON.stringify(error) ?? null }
   } catch (err) {

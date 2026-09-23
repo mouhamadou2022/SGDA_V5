@@ -2,7 +2,7 @@
 // Point d'entree public : lib/datastore.ts (hub, re-export).
 
 import { supabase } from '../supabase';
-import type { Ecart } from '../store';
+import type { Ecart, EcartRedaction } from '../store';
 import { DatastoreResult, sanitizeEcart } from './_shared';
 
 // ─────────────────────────────────────────────────────────────
@@ -47,9 +47,9 @@ export async function upsertEcart(payload: Ecart): Promise<DatastoreResult<Ecart
     .single()
   if (error) {
     console.error('[datastore/upsertEcart] Supabase error message:', error.message)
-    console.error('[datastore/upsertEcart] Supabase error details:', (error as any).details)
-    console.error('[datastore/upsertEcart] Supabase error hint:', (error as any).hint)
-    console.error('[datastore/upsertEcart] Supabase error code:', (error as any).code)
+    console.error('[datastore/upsertEcart] Supabase error details:', error.details)
+    console.error('[datastore/upsertEcart] Supabase error hint:', error.hint)
+    console.error('[datastore/upsertEcart] Supabase error code:', error.code)
   }
   return { data: data as Ecart | null, error: error?.message ?? null }
 }
@@ -73,8 +73,8 @@ const ECARTS_REDACTION_COLUMNS = [
 // vides ("invalid input syntax for type uuid: \"\"") pour ces champs.
 const ECARTS_REDACTION_UUID_COLUMNS = new Set(['id', 'surveillance_id', 'created_by', 'updated_by'])
 
-function toEcartRedactionRow(e: Record<string, any>): Record<string, any> {
-  const row: Record<string, any> = {}
+function toEcartRedactionRow(e: Record<string, unknown>): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
   for (const col of ECARTS_REDACTION_COLUMNS) {
     if (e[col] === undefined) continue
     // On omet toute valeur vide (ex: user non authentifié) pour les colonnes uuid,
@@ -105,12 +105,15 @@ function toEcartRedactionRow(e: Record<string, any>): Record<string, any> {
  * Sauvegarde (upsert) les écarts rédaction d'une surveillance dans Supabase.
  * Appelé depuis les pages /ecarts et /ecarts/sgs après chaque modification.
  */
-export async function upsertEcartsRedaction(ecarts: any[]): Promise<void> {
+export async function upsertEcartsRedaction(ecarts: EcartRedaction[]): Promise<void> {
   if (!ecarts.length) return
   const { error } = await supabase
     .from('ecarts_redaction')
     .upsert(
-      ecarts.map(e => toEcartRedactionRow({ ...e, updated_at: new Date().toISOString() })),
+      // Record<string, unknown> : l'interface n'a pas de signature d'index
+      // (cast contenu, lecture seule — le schéma de ligne est validé
+      // colonne par colonne dans toEcartRedactionRow).
+      ecarts.map(e => toEcartRedactionRow({ ...e, updated_at: new Date().toISOString() } as unknown as Record<string, unknown>)),
       { onConflict: 'id', ignoreDuplicates: false }
     )
   if (error) console.error('[datastore] upsertEcartsRedaction error:', error.message)
@@ -128,12 +131,12 @@ export async function upsertEcartsRedaction(ecarts: any[]): Promise<void> {
  * pour que la page standard ne supprime pas les écarts SGS de la page dédiée
  * (et inversement) sur une surveillance mixte.
  */
-async function purgeEcartsRedaction(ecarts: any[]): Promise<void> {
+async function purgeEcartsRedaction(ecarts: EcartRedaction[]): Promise<void> {
   const surv = String(ecarts[0]?.surveillance_id || '')
   if (!surv) return
   const keepIds = new Set(ecarts.map(e => String(e.id)).filter(Boolean))
   // Famille de domaine de cet appel : SGS si TOUS les écarts sont SGS, sinon standard
-  const isSgsCall = ecarts.every(e => (e as any).domaine === 'SGS')
+  const isSgsCall = ecarts.every(e => e.domaine === 'SGS')
   const eq = isSgsCall ? 'SGS' : { neq: 'SGS' }
 
   // Récupère d'abord les ids réellement présents en base pour la surveillance +
@@ -144,7 +147,7 @@ async function purgeEcartsRedaction(ecarts: any[]): Promise<void> {
   // du proxy PostgREST et l'URL est refusée au parsing ("failed to parse filter").
   // Charger + différencier + supprimer par petits `.in()` est robuste quel que
   // soit le volume de la surveillance.
-  let existing = null as any
+  let existing: Array<{ id?: unknown }> | null = null
   try {
     const { data, error } = await supabase
       .from('ecarts_redaction')
@@ -181,11 +184,11 @@ async function purgeEcartsRedaction(ecarts: any[]): Promise<void> {
  * Charge les écarts rédaction d'une surveillance depuis Supabase.
  * Utilisé comme fallback dans passerEtapeSuivante si le store Zustand est vide.
  */
-export async function fetchEcartsRedactionBySurveillance(surveillanceId: string): Promise<any[]> {
+export async function fetchEcartsRedactionBySurveillance(surveillanceId: string): Promise<EcartRedaction[]> {
   const { data, error } = await supabase
     .from('ecarts_redaction')
     .select('*')
     .eq('surveillance_id', surveillanceId)
   if (error) console.error('[datastore] fetchEcartsRedactionBySurveillance error:', error.message)
-  return data ?? []
+  return (data ?? []) as EcartRedaction[]
 }

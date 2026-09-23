@@ -61,7 +61,7 @@ export async function createSurveillance(payload: Omit<Surveillance, 'id' | 'cre
   const now = new Date().toISOString()
 
   // equipe_ids est géré via la table junction surveillance_equipe
-  const { equipe_ids, ...payloadClean } = payload as any
+  const { equipe_ids, ...payloadClean } = payload
 
   let result = await ecrireAvecReparation<Surveillance>(
     (p) => supabase.from('surveillances').insert({ ...p, created_at: now, updated_at: now }).select().single(),
@@ -75,7 +75,8 @@ export async function createSurveillance(payload: Omit<Surveillance, 'id' | 'cre
   const isPlanningFkError = (err: string | null) =>
     !!err && err.toLowerCase().includes('surveillances_planning_id_fkey')
   if (error && isPlanningFkError(error) && 'planning_id' in payloadClean) {
-    const { planning_id: _, ...payloadSansPlanning } = payloadClean
+    const payloadSansPlanning = { ...payloadClean }
+    delete payloadSansPlanning.planning_id
     result = await ecrireAvecReparation<Surveillance>(
       (p) => supabase.from('surveillances').insert({ ...p, created_at: now, updated_at: now }).select().single(),
       payloadSansPlanning
@@ -102,7 +103,7 @@ export async function updateSurveillance(id: string, payload: Partial<Surveillan
   // equipe_ids est géré via la table junction surveillance_equipe ;
   // tout le reste (dont les champs SGS) est persisté tel quel — et si une
   // colonne manque encore en base, ecrireAvecReparation dégrade proprement.
-  const { equipe_ids, ...payloadClean } = payload as any
+  const { equipe_ids, ...payloadClean } = payload
 
   const { data, error } = await ecrireAvecReparation<Surveillance>(
     (p) => supabase.from('surveillances').update({ ...p, updated_at: new Date().toISOString() }).eq('id', id).select().single(),

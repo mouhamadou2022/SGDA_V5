@@ -18,7 +18,7 @@ import { DatastoreResult, marshalDelegation, unmarshalDelegation } from './_shar
 
 export async function fetchDelegations(): Promise<DatastoreResult<Delegation[]>> {
   const { data, error } = await supabase.from('delegations').select('*').order('assigne_le', { ascending: false })
-  return { data: ((data ?? []) as any[]).map(unmarshalDelegation), error: error?.message ?? null }
+  return { data: (data ?? []).map(unmarshalDelegation), error: error?.message ?? null }
 }
 
 export async function createDelegation(payload: Delegation): Promise<DatastoreResult<Delegation>> {
@@ -31,7 +31,8 @@ export async function createDelegation(payload: Delegation): Promise<DatastoreRe
 }
 
 export async function updateDelegation(id: string, payload: Partial<Delegation>): Promise<DatastoreResult<Delegation>> {
-  const { assigne_nom: _ignoré, ...colonnes } = payload
+  const colonnes = { ...payload }
+  delete colonnes.assigne_nom
   const { data, error } = await supabase
     .from('delegations')
     .update({ ...colonnes, updated_at: new Date().toISOString() })

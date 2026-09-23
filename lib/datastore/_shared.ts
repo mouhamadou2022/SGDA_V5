@@ -19,8 +19,8 @@ export function groupEquipeIds(plannings: Planning[], equipeRows: { planning_id:
   return plannings.map(p => ({ ...p, equipe_ids: map.get(p.id) || [] }))
 }
 
-export function marshalMessage(msg: Partial<Message>): any {
-  const out: any = {}
+export function marshalMessage(msg: Partial<Message>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
   // to_id : toujours une string simple (UUID) — la colonne est uuid en DB
   if (msg.to_id !== undefined) {
     out.to_id = typeof msg.to_id === 'string' ? msg.to_id : msg.to_id[0]
@@ -44,13 +44,14 @@ export function marshalMessage(msg: Partial<Message>): any {
   return out
 }
 
-export function unmarshalMessage(data: any): Message {
-  const parseJSON = (val: any): any => {
+export function unmarshalMessage(data: Record<string, unknown>): Message {
+  const parseJSON = (val: unknown): unknown => {
     if (typeof val === 'string') {
       try { return JSON.parse(val) } catch { return val }
     }
     return val
   }
+  // Assertion contenue : la forme ligne DB est validée champ par champ ci-dessus.
   return {
     ...data,
     to_id: parseJSON(data.to_id),
@@ -58,33 +59,36 @@ export function unmarshalMessage(data: any): Message {
     read_by: data.read_by ? parseJSON(data.read_by) : undefined,
     archived_by: data.archived_by ? parseJSON(data.archived_by) : undefined,
     attachments: data.attachments ? parseJSON(data.attachments) : undefined,
-  }
+  } as Message
 }
 
 export function marshalDelegation(d: Delegation): Record<string, unknown> {
-  const { assigne_nom: _ignoré, ...colonnes } = d
+  // assigne_nom est un champ d'affichage local, sans colonne DB.
+  const colonnes = { ...d }
+  delete colonnes.assigne_nom
   return colonnes as Record<string, unknown>
 }
 
-export function unmarshalDelegation(row: any): Delegation {
+export function unmarshalDelegation(row: Record<string, unknown>): Delegation {
   return {
     ...row,
     items_ids: Array.isArray(row.items_ids) ? row.items_ids : [],
   } as Delegation
 }
 
-export function unmarshalReponseEnquete(row: any): ReponseEnquete {
+export function unmarshalReponseEnquete(row: Record<string, unknown>): ReponseEnquete {
   return {
     ...row,
     score_c1: row.score_c1 === null || row.score_c1 === undefined ? undefined : Number(row.score_c1),
   } as ReponseEnquete
 }
 
-export function normalizeInspecteurCompetences(ins: any): Inspecteur {
-  if (!ins || !Array.isArray(ins.competences)) return ins as Inspecteur
+export function normalizeInspecteurCompetences(ins: unknown): Inspecteur {
+  const rec = ins as Record<string, unknown> | null | undefined
+  if (!rec || !Array.isArray(rec.competences)) return ins as Inspecteur
   // Rétrocompatibilité : les competences étaient stockées en string[]
   // Maintenant on stocke des objets { domaine, niveau, ... }
-  ins.competences = ins.competences.map((c: any) =>
+  rec.competences = (rec.competences as unknown[]).map((c: unknown) =>
     typeof c === 'string' ? { id: crypto.randomUUID(), domaine: c, niveau: 1 } : c
   )
   return ins as Inspecteur

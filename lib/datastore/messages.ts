@@ -57,7 +57,7 @@ export async function updateMessage(id: string, payload: Partial<Message>): Prom
   try {
     const { data, error } = await supabase
       .from('messages')
-      .update(marshalMessage(payload as any))
+      .update(marshalMessage(payload))
       .eq('id', id)
       .select()
       .single()

@@ -15,16 +15,19 @@ export async function fetchPlannings(): Promise<DatastoreResult<Planning[]>> {
     supabase.from('planning_equipe').select('*'),
   ])
   if (planningsRes.error) return { data: null, error: planningsRes.error.message }
-  const data = groupEquipeIds(planningsRes.data as Planning[], (equipeRes.data ?? []) as any[])
+  const data = groupEquipeIds(planningsRes.data as Planning[], (equipeRes.data ?? []) as { planning_id: string; utilisateur_id: string }[])
   return { data, error: null }
 }
 
 export async function createPlanning(payload: Omit<Planning, 'id' | 'created_at' | 'updated_at'>): Promise<DatastoreResult<Planning>> {
   const now = new Date().toISOString()
-  const { equipe_ids, id: _ignoredId, ...restPayload } = payload as any
+  const { equipe_ids, ...restPayload } = payload
+  // Un id fourni par erreur serait rejeté (conflit) : on l'écarte défensivement.
+  const clean = { ...restPayload } as Record<string, unknown>
+  delete clean.id
   const { data, error } = await supabase
     .from('plannings')
-    .insert({ ...restPayload, created_at: now, updated_at: now })
+    .insert({ ...clean, created_at: now, updated_at: now })
     .select()
     .single()
   if (error || !data) return { data: null, error: error?.message ?? null }
@@ -40,7 +43,7 @@ export async function updatePlanning(id: string, payload: Partial<Planning>): Pr
     console.error('[datastore] updatePlanning called with invalid id:', id)
     return { data: null, error: 'ID de planning invalide' }
   }
-  const { equipe_ids, ...restPayload } = payload as any
+  const { equipe_ids, ...restPayload } = payload
   const { data, error } = await supabase
     .from('plannings')
     .update({ ...restPayload, updated_at: new Date().toISOString() })

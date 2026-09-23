@@ -196,7 +196,9 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                   ...e,
                   statut: 'pac_soumis',
                   pac: pacPayload,
-                  evaluation_pac: { deadline: deadlineEval } as any,
+                  // Partiel volontaire (deadline posée à la soumission, notes à
+                  // l'évaluation) — cible documentée par l'assertion.
+                  evaluation_pac: { deadline: deadlineEval } as Ecart['evaluation_pac'],
                   updated_at: now,
                   ...(pacCellule ? { cellule_risque_reevalue: pacCellule, justification_risque_pac: pacJustification } : {})
                 }
@@ -283,11 +285,13 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         const dateSoumission = new Date(ecart.pac?.soumis_le || ecart.created_at)
         const dateEvaluation = new Date(evaluation.evalue_le || now)
         const delaiTraitement = Math.ceil((dateEvaluation.getTime() - dateSoumission.getTime()) / (1000 * 60 * 60 * 24))
-        const evaluationPac: any = {
+        // Partiel réel (evalue_le complété à la validation chef) —
+        // cible documentée par l'assertion, runtime inchangé.
+        const evaluationPac = {
           ...evaluation,
           note_globale: plansActionsUtils.calculerNoteGlobale(evaluation),
           delai_traitement: delaiTraitement
-        }
+        } as NonNullable<Ecart['evaluation_pac']>
         const validationChef = { type: 'evaluation_pac' as const, statut: 'en_attente' as const }
 
         // Supabase EN PREMIER
@@ -304,15 +308,16 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
 
         // Supabase OK → store local
         set((state) => {
-          const updatedFields: any = { statut: 'en_attente_validation_chef', evaluation_pac: evaluationPac, validation_chef: validationChef, updated_at: now }
+          const updatedFields: Partial<Ecart> = { statut: 'en_attente_validation_chef', evaluation_pac: evaluationPac, validation_chef: validationChef, updated_at: now }
           if (evaluation.niveau_risque_reevalue) {
             updatedFields.niveau_risque = evaluation.niveau_risque_reevalue
+            // Partiel réel (notes détaillées calculées plus tard) — cible documentée.
             updatedFields.evaluation_niveau_risque = {
               note_globale: evaluation.note_globale,
               niveau_suggere: evaluation.niveau_risque_reevalue,
               evalue_par: evaluation.evalue_par,
               evalue_le: evaluation.evalue_le || now,
-            }
+            } as NonNullable<Ecart['evaluation_niveau_risque']>
           }
           if (evaluation.cellule_risque_oaci_reevaluee) {
             updatedFields.cellule_risque_oaci = evaluation.cellule_risque_oaci_reevaluee
@@ -381,7 +386,8 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
           ...ecart,
           statut: 'preuves_soumises',
           preuves: preuvesPayload,
-          validation_preuves: { ...(ecart.validation_preuves || {} as any), deadline: deadlineValidation } as any,
+                            // Partiel réel (décision à la soumission) — cible documentée.
+                            validation_preuves: { ...(ecart.validation_preuves || {}), deadline: deadlineValidation } as NonNullable<Ecart['validation_preuves']>,
           updated_at: now
         })
         if (syncResult.error) {
@@ -396,7 +402,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                   ...e,
                   statut: 'preuves_soumises',
                   preuves: preuvesPayload,
-                  validation_preuves: { ...(e.validation_preuves || {} as any), deadline: deadlineValidation } as any,
+                  validation_preuves: { ...(e.validation_preuves || {}), deadline: deadlineValidation } as NonNullable<Ecart['validation_preuves']>,
                   updated_at: now
                 }
               : e
@@ -464,7 +470,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
 
         // Supabase OK → store local
         set((state) => {
-          const updatedFields: any = {
+          const updatedFields: Partial<Ecart> = {
             statut: 'en_attente_validation_chef',
             validation_preuves: validation,
             validation_chef: validationChef,
@@ -806,7 +812,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             } else {
               const deadlineInsp = new Date(ecart.evaluation_pac!.deadline!)
               delaisInsp.rappelsEvalPAC.forEach((joursRestantsInsp) => {
-                const key = `_rappel_eval_j${joursRestantsInsp}` as any
+                const key: string = `_rappel_eval_j${joursRestantsInsp}`
                 storeEvents.emit('notification:envoyer', {
                   user_id: ecart.inspecteur_ref_id, type: 'warning',
                   title: `Rappel évaluation PAC J-${joursRestantsInsp}`,
@@ -846,7 +852,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             } else {
               const deadlineInsp = new Date(ecart.validation_preuves!.deadline!)
               delaisInsp.rappelsValidation.forEach((joursRestantsInsp) => {
-                const key = `_rappel_val_j${joursRestantsInsp}` as any
+                const key: string = `_rappel_val_j${joursRestantsInsp}`
                 storeEvents.emit('notification:envoyer', {
                   user_id: ecart.inspecteur_ref_id, type: 'warning',
                   title: `Rappel validation preuves J-${joursRestantsInsp}`,

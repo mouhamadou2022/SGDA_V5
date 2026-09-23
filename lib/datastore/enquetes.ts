@@ -42,7 +42,7 @@ export async function deleteEnquete(id: string): Promise<DatastoreResult<null>> 
 
 export async function fetchReponsesEnquetes(): Promise<DatastoreResult<ReponseEnquete[]>> {
   const { data, error } = await supabase.from('reponses_enquetes').select('*').order('submitted_at', { ascending: false })
-  return { data: ((data ?? []) as any[]).map(unmarshalReponseEnquete), error: error?.message ?? null }
+  return { data: (data ?? []).map(unmarshalReponseEnquete), error: error?.message ?? null }
 }
 
 export async function createReponseEnquete(payload: ReponseEnquete): Promise<DatastoreResult<ReponseEnquete>> {

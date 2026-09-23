@@ -82,7 +82,7 @@ export async function createDecision(payload: {
 }
 
 export async function updateDecisionStatus(id: string, status: string, effectiveness?: string, commentaire?: string): Promise<DatastoreResult<null>> {
-  const upd: Record<string, any> = { status }
+  const upd: Record<string, unknown> = { status }
   if (status === 'applied') upd.applied_at = new Date().toISOString()
   if (effectiveness) upd.effectiveness = effectiveness
   if (commentaire) upd.commentaire = commentaire
