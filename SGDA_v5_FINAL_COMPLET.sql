@@ -3736,3 +3736,13 @@ CREATE POLICY "reponses_update" ON reponses_enquetes
 DROP POLICY IF EXISTS "reponses_delete" ON reponses_enquetes;
 CREATE POLICY "reponses_delete" ON reponses_enquetes
   FOR DELETE USING (get_user_role() IN ('admin','inspector'));
+
+-- ============================================================
+-- SECTION 27 — NATURE DES TEMPLATES (2026-09-20)
+-- Les templates ne sont plus que des checklists : fiches, formulaires,
+-- guides cohabitent dans la même table. La sélection pour les
+-- surveillances ne retient QUE les checklists (voir loadTemplates...).
+-- Tout en IF NOT EXISTS : réexécutable sans risque.
+-- ============================================================
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS nature text DEFAULT 'checklist';
+UPDATE checklist_templates SET nature = 'checklist' WHERE nature IS NULL;

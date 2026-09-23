@@ -1705,6 +1705,57 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                     </AccordionSection>
                   )
                 })}
+                {(['fiche', 'formulaire', 'guide'] as const).map(nature => {
+                  const items = supaTemplates.filter(t => t.nature === nature)
+                  if (items.length === 0) return null
+                  const labels = { fiche: 'Fiches', formulaire: 'Formulaires', guide: 'Guides' } as const
+                  return (
+                    <AccordionSection
+                      key={nature}
+                      icon={<FileText className="w-4 h-4 !text-white" />}
+                      title={labels[nature]}
+                      badges={<span className="badge outline">{items.length}</span>}
+                      defaultOpen={true}
+                    >
+                      {items.map(t => {
+                        const themeKey = `${t.type}_${t.code}`
+                        return (
+                        <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/30">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-foreground">{t.nom}</span>
+                              <span className="text-xs text-muted-foreground font-mono">{themeKey}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-role-primary-soft/40 text-role-primary font-medium">v{t.version || '—'}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.etat === 'publie' ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>{t.etat}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              <span>{formatDate(t.updated_at || t.created_at)}</span>
+                              {(() => {
+                                const meta = (t.metadonnees || {}) as Record<string, unknown>
+                                const auteur = meta.updated_by_name || meta.created_by_name
+                                return auteur ? <span>— par {String(auteur)}</span> : null
+                              })()}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button className="action-button" onClick={() => setShowVersionHistory(themeKey)} title="Historique des versions"><History className="w-3.5 h-3.5" /></button>
+                            {isManager && t.etat !== 'publie' && (
+                              <button
+                                className="action-button"
+                                title="Publier — rend visible par tous les inspecteurs"
+                                onClick={() => publierTemplate(t)}
+                              >
+                                <Send className="w-3 h-3" /> Publier
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        )
+                      })}
+                    </AccordionSection>
+                  )
+                })}
               </AccordionGroup>
             )
           })()}

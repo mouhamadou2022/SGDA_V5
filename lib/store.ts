@@ -210,6 +210,8 @@ export type ChecklistTemplateEtat = 'brouillon' | 'publie' | 'archive'
 export type ChecklistTemplateCategorie = 'homologation' | 'certification' | 'surveillance_continue' | 'validation_site' | 'autres'
 export type ChecklistTemplateRegime = 'certifie' | 'homologue' | 'tous'
 export type ChecklistTemplateSousTypeEntite = 'helistation_surface' | 'helistation_mer' | 'heliplateforme'
+/** Nature d'un template : seules les checklists alimentent les surveillances. */
+export type ChecklistTemplateNature = 'checklist' | 'fiche' | 'formulaire' | 'guide'
 
 export interface ChecklistTemplate {
   id: string
@@ -230,6 +232,8 @@ export interface ChecklistTemplate {
   /** Régime pour la surveillance continue : certifie | homologue | tous */
   regime?: ChecklistTemplateRegime
   etat: ChecklistTemplateEtat
+  /** Nature (checklist par défaut) : seule 'checklist' alimente les surveillances. */
+  nature?: ChecklistTemplateNature
   hierarchie: DomaineChecklist[]
   metadonnees?: Record<string, unknown>
   actif: boolean

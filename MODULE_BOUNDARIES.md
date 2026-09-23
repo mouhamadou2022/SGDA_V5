@@ -118,6 +118,11 @@ mémoires IA.
   `filtresTemplatesParType` (COP ∈ certification, HMG ∈ homologation,
   IT = infra, SOP = procédures) utilisée aux 3 points de sélection
   (lancement, préparation, exécution) + tests.
+- Natures de templates (SECTION 27 : colonne `nature`, backfill
+  checklist) : checklist (sélection surveillances) + fiche/formulaire/guide
+  (consultables, jamais sélectionnés — garde dans `loadTemplates...` et
+  `setMasterChecklist` à l'import). Sections dédiées dans l'onglet,
+  historique et Publier réutilisés.
 - Vigies propriétaires : `verifierRappelsAutomatiques` (écarts + dossiers +
   plannings mélangés) scindé en `verifierRappelsEcarts` (écarts),
   `verifierRappelsDossiers` (dossiers) et `verifierPlanningsDepasses`

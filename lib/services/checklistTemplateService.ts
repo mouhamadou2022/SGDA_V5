@@ -3,9 +3,10 @@
 import { useAppStore } from '@/lib/store'
 import { supabase } from '@/lib/supabase'
 import { aiClient } from '@/lib/ia/aiClient'
-import type { ChecklistTemplate, DomaineChecklist, ChecklistTemplateType, ChecklistTemplateCategorie, ChecklistTemplateRegime, ChecklistTemplateSousTypeEntite } from '@/lib/store'
+import type { ChecklistTemplate, DomaineChecklist, ChecklistTemplateType, ChecklistTemplateCategorie, ChecklistTemplateRegime, ChecklistTemplateSousTypeEntite, ChecklistTemplateNature } from '@/lib/store'
 
 export interface TemplateImportMeta {
+  nature?: ChecklistTemplateNature
   categorie?: ChecklistTemplateCategorie
   regime?: ChecklistTemplateRegime
   type_entite_cible?: 'aerodrome' | 'helistation' | 'mixte' | 'tous'
@@ -85,6 +86,7 @@ export async function saveTemplateToSupabase(
       sous_type_entite: meta?.sous_type_entite,
       categorie: meta?.categorie,
       regime: meta?.regime,
+      nature: meta?.nature || 'checklist',
       etat: meta?.etat || 'brouillon',
       hierarchie,
       actif: meta?.actif !== false,
@@ -141,6 +143,7 @@ export async function importTemplateToSupabase(
       sous_type_entite: meta?.sous_type_entite,
       categorie: meta?.categorie,
       regime: meta?.regime,
+      nature: meta?.nature || 'checklist',
       etat: meta?.etat || 'brouillon',
       hierarchie,
       actif: meta?.actif !== false,
@@ -290,12 +293,14 @@ export async function loadTemplatesFromSupabase(): Promise<ChecklistTemplate[]> 
     if (result.error) throw new Error(result.error)
     const templates = result.data || []
 
-    // Remplir masterChecklists dans le store. Garde : un hierarchie NULL/malformé
-    // en base injecterait une valeur non-array dans le store et ferait planter le
-    // rendu de l'onglet templates (TypeError sur domaines.some/map). On ignore ces
-    // templates corrompus plutôt que de propager le null.
+    // Remplir masterChecklists dans le store. Gardes :
+    // - hierarchie NULL/malformée ignorée (planterait le rendu) ;
+    // - seules les CHECKLISTS alimentent le pool de sélection des
+    //   surveillances (fiches/formulaires/guides restent visibles dans
+    //   l'onglet mais ne sont jamais choisis comme checklist).
     for (const t of templates) {
       if (!Array.isArray(t.hierarchie)) continue
+      if (t.nature && t.nature !== 'checklist') continue
       const storeId = `${t.type}_${t.code}`
       store.setMasterChecklist(storeId, t.hierarchie)
     }
