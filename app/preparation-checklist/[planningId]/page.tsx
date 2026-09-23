@@ -21,7 +21,7 @@ import {
   Activity, LayoutGrid, FileText, Eye, Trash2, Upload, X, Check, Loader2,
   Users, Target, Download, Lock,
 } from 'lucide-react';
-import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF';
 import type { DomaineChecklist, ChecklistItem, EvaluationSGS, PAOELevel, EvaluationAction } from '@/types/checklist';
 import { computeEvaluationActionScore } from '@/types/checklist';
@@ -887,9 +887,6 @@ export default function PreparationChecklistPage() {
       : planning.type === 'suivi_ecarts' ? 'suivi_ecarts'
       : planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac'
       : 'periodique';
-    const checklistPrefix = planning.type === 'certification' ? 'CERT'
-      : planning.type === 'homologation' ? 'HMG' : 'QSC';
-
     // Détermine si on doit charger un type de données
     const needsStandard = checklistType === 'standard' || isMixte;
     const needsPAC = checklistType === 'pac' || isMixte;
@@ -932,16 +929,14 @@ export default function PreparationChecklistPage() {
             enriched.forEach(d => walk(d));
             setIaPrefilledCount(prev => prev + cnt);
           } else {
-            try {
-              const result = await kitDocAgent.generateChecklist({
-                surveillance_id: planningId, entite_id: planning.aerodrome_id,
-                type_entite: aerodrome?.type_entite ?? 'aerodrome', type_surveillance: typeSurv,
-                portee: planning.portee || [], profil_risque: profil,
-                prefix_numero: checklistPrefix,
-              });
-              const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodrome) } : result;
-              setStandardDomaines(normalizeDomaines(excludeSGSDomaines(toDomaineChecklistArray(resultFiltered) as unknown as DomaineChecklist[], planning.portee || [])));
-            } catch (e) { console.error(e); }
+            // PAS de génération IA ici (données réelles uniquement) : sans
+            // template du kit couvrant la portée, la checklist reste vide et
+            // l'import d'un template est requis (voir kit inspecteur).
+            console.error(
+              '[Preparation] Aucun template du kit ne couvre la portée',
+              planning.portee,
+              '— importez un template dans le kit inspecteur.',
+            );
           }
         }
       }

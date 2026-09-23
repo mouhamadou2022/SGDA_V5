@@ -12,7 +12,7 @@ import {
 import { isSGSApplicable } from '@/lib/risque';
 import { normalizePlanningType } from '@/lib/planning';
 import { verifierCompositionEquipe, getDomaineLabel } from '@/lib/domaines';
-import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { startOfToday } from './planningDates';
 import {
   calculerPorteeLancement,
@@ -323,29 +323,19 @@ async function genererChecklistFallback(
     store.setChecklistHierarchy(surveillanceId, enriched);
     store.updateSurveillance(surveillanceId, { checklist_hierarchy: enriched });
   } else {
-    try {
-      const checklistPrefix = planning.type === 'certification' ? 'CERT'
-        : planning.type === 'homologation' ? 'HMG' : 'QSC';
-      const result = await kitDocAgent.generateChecklist({
-        surveillance_id: surveillanceId,
-        entite_id: planning.aerodrome_id,
-        type_entite: aerodrome?.type_entite ?? 'aerodrome',
-        type_surveillance: typeSurv,
-        portee: planning.portee || [],
-        profil_risque: profil,
-        prefix_numero: checklistPrefix,
-      });
-      const resultFiltered = aerodrome ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines, aerodrome) } : result;
-      kitDocAgent.injectIntoStore(surveillanceId, resultFiltered);
-      store.updateSurveillance(surveillanceId, { checklist_hierarchy: toDomaineChecklistArray(resultFiltered) });
-    } catch (err) {
-      console.error('[Planning] Erreur génération IA checklist:', err);
-      addNotification({
-        user_id: userId, type: 'danger',
-        title: 'Erreur AERORISQ',
-        message: 'La génération automatique de la checklist a échoué. Vous pourrez la générer depuis la page checklist.',
-        canal: 'in_app',
-      });
-    }
+    // PAS de génération IA ici (données réelles uniquement) : sans template
+    // du kit couvrant la portée, la checklist reste à préparer — importez un
+    // template dans le kit inspecteur (ou préparez-la dans Préparation).
+    console.error(
+      '[Planning] Aucun template du kit ne couvre la portée',
+      planning.portee,
+      '— checklist non générée.',
+    );
+    addNotification({
+      user_id: userId, type: 'warning',
+      title: 'Checklist à préparer',
+      message: `Aucun template du kit ne couvre la portée (${(planning.portee || []).join(', ')}). Importez un template dans le kit inspecteur ou préparez la checklist manuellement.`,
+      canal: 'in_app',
+    });
   }
 }

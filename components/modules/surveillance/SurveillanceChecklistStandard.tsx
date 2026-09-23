@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Save, PenLine, Calendar, Users, MapPin,
@@ -22,9 +22,8 @@ import {
 } from '@/types/checklist';
 import { SGSEvaluationModal } from './SGSEvaluation';
 import { ChecklistLearningPanel } from './ChecklistLearningPanel';
-import { kitDocAgent, toDomaineChecklistArray } from '@/lib/ia/agents/kitDocAgent';
+import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
-import { getMappingForDomaine } from '@/lib/kitDocMapping';
 import { recordTextModification, type TextModification } from '@/lib/checklistMemory';
 import { uploadPreuveFile } from '@/lib/preuves';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
@@ -136,8 +135,6 @@ export function SurveillanceChecklistStandard({
 }) {
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
-  const updateSurveillance = useAppStore(s => s.updateSurveillance);
-  const updateDelegation = useAppStore(s => s.updateDelegation);
   const profilsRisque = useOptimizedStore(s => s.profilsRisque);
   const plannings = useAppStore(s => s.plannings);
   const recordCorrection = useAppStore(s => s.recordCorrection);
@@ -314,11 +311,9 @@ export function SurveillanceChecklistStandard({
           surv?.type === 'homologation' ? 'homologation' :
           surv?.type === 'suivi_ecarts' ? 'suivi_ecarts' :
           surv?.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
-        const checklistPrefix = surv?.type === 'certification' ? 'CERT'
-          : surv?.type === 'homologation' ? 'HMG' : 'QSC';
         let generated: DomaineChecklist[];
         // Source maîtresse : Kit Inspecteur (master) — puis template sauvegardé
-        // (apprentissage IA), puis génération IA.
+        // (apprentissage IA). PAS de génération IA (données réelles uniquement).
         const templateTypes = surv?.type === 'certification' || surv?.type === 'homologation'
           ? ['IT', 'SOP', 'SGS']
           : (surv?.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'])
@@ -341,15 +336,15 @@ export function SurveillanceChecklistStandard({
             });
             generated = enriched as unknown as DomaineChecklist[];
           } else {
-            const result = await kitDocAgent.generateChecklist({
-              surveillance_id: surveillanceId, entite_id: surv?.aerodrome_id || '',
-              type_entite: aerodromeStore?.type_entite ?? 'aerodrome', type_surveillance: typeSurv,
-              portee, profil_risque: profil, prefix_numero: checklistPrefix,
-            });
-            const resultFiltered = aerodromeStore ? { ...result, domaines: kitDocAgent.filterChecklistByAerodrome(result.domaines as any[], aerodromeStore) } : result;
-            generated = toDomaineChecklistArray(resultFiltered) as unknown as DomaineChecklist[];
-            kitDocAgent.injectIntoStore(surveillanceId, resultFiltered);
-            store.updateSurveillance(surveillanceId, { checklist_hierarchy: generated as any });
+            // PAS de génération IA ici (données réelles uniquement) : sans
+            // template du kit ni template sauvegardé, la checklist reste
+            // vide — importez un template dans le kit inspecteur.
+            console.error(
+              '[SurveillanceChecklistStandard] Aucun template du kit ne couvre la portée',
+              portee,
+              '— checklist non générée.',
+            );
+            generated = [];
           }
         }
         if (effectiveExclude.length > 0) {
@@ -369,90 +364,6 @@ export function SurveillanceChecklistStandard({
     return () => clearTimeout(timer);
   }, [surveillanceId]);
 
-  // Vérification silencieuse : si un document source a évolué, régénération auto
-  const autoRegenRef = useRef(false);
-  useEffect(() => {
-    if (!surveillanceId || autoRegenRef.current) return;
-    const store = useAppStore.getState();
-    const surv = store.surveillances.find(s => s.id === surveillanceId);
-    if (!surv?.checklist_hierarchy?.length) return;
-
-    // Collecter les IDs de documents depuis les items
-    const docIds = new Set<string>();
-    const walk = (items: any[] | undefined) => {
-      (items || []).forEach((i: any) => {
-        if (i.id) docIds.add(i.id.split('_')[0]);
-      });
-    };
-    for (const d of surv.checklist_hierarchy) {
-      walk(d.items);
-      for (const sd of (d as any).sousDomaines || []) {
-        walk(sd.items);
-        for (const ssd of sd.sousSousDomaines || []) walk(ssd.items);
-      }
-    }
-
-    // Vérifier si un document a évolué ou a trop peu d'items pour couvrir tous les chapitres
-    const ITEMS_PER_CHAPTER = 3
-    const docsAVerifier = store.kitDocuments.filter(k => docIds.has(k.id) && k.items_generes?.length)
-    const docsEvolues = docsAVerifier.filter(k => k.items_generes_version && k.items_generes_version !== k.version)
-    const docsInsuffisants = docsAVerifier.filter(k => {
-      if (docsEvolues.includes(k)) return false
-      const counts = new Map<string, number>()
-      ;(k.items_generes || []).forEach(i => counts.set(i.domaine, (counts.get(i.domaine) || 0) + 1))
-      return [...counts.entries()].some(([domaine, count]) => {
-        const mapping = getMappingForDomaine(domaine, 'aerodrome')
-        if (!mapping) return count < 4
-        const chapitresAttendus = new Set<string>()
-        mapping.sources.forEach(s => {
-          const chaps = Array.isArray(s.chapitre) ? s.chapitre : s.chapitre ? [s.chapitre] : []
-          chaps.forEach(c => chapitresAttendus.add(c))
-        })
-        if (chapitresAttendus.size === 0) return count < 4
-        return count < chapitresAttendus.size * ITEMS_PER_CHAPTER
-      })
-    })
-
-    if (docsEvolues.length === 0 && docsInsuffisants.length === 0) return;
-
-    const docsConcernes = [...new Set([...docsEvolues, ...docsInsuffisants])]
-    console.log(`[SurveillanceChecklistStandard] ${docsConcernes.length} document(s) nécessitent régénération (${docsEvolues.length} évolués, ${docsInsuffisants.length} items insuffisants)`)
-
-    console.log(`[SurveillanceChecklistStandard] ${docsEvolues.length} document(s) ont évolué — régénération silencieuse`);
-    autoRegenRef.current = true;
-
-    const portee = surv.portee || [];
-    const aerodromeStore = store.aerodromes.find(a => a.id === surv.aerodrome_id);
-    const profil = store.profilsRisque?.[surv.aerodrome_id || ''] || undefined;
-    const typeSurv: import('@/lib/checklistMemory').TypeInspection =
-      surv.type === 'inopine' || surv.type === 'inopinee' ? 'inopine' :
-      surv.type === 'maintien' ? 'maintien' :
-      surv.type === 'certification' ? 'certification' :
-      surv.type === 'homologation' ? 'homologation' :
-      surv.type === 'suivi_ecarts' ? 'suivi_ecarts' :
-      surv.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac' : 'periodique';
-
-    (async () => {
-      try {
-        const result = await kitDocAgent.generateChecklist({
-          surveillance_id: surveillanceId,
-          entite_id: surv.aerodrome_id || '',
-          type_entite: aerodromeStore?.type_entite ?? 'aerodrome',
-          type_surveillance: typeSurv,
-          portee, profil_risque: profil,
-          prefix_numero: surv.type === 'certification' ? 'CERT' : surv.type === 'homologation' ? 'HMG' : 'QSC',
-        });
-        const generated = toDomaineChecklistArray(result) as unknown as DomaineChecklist[];
-        const storeNow = useAppStore.getState();
-        kitDocAgent.injectIntoStore(surveillanceId, result);
-        storeNow.updateSurveillance(surveillanceId, { checklist_hierarchy: generated as any });
-        setDomaines(generated);
-        console.log(`[SurveillanceChecklistStandard] Régénération silencieuse terminée — ${generated.length} domaine(s)`);
-      } catch (err) {
-        console.warn('[SurveillanceChecklistStandard] Échec régénération silencieuse:', err);
-      }
-    })();
-  }, [surveillanceId]);
 
   const stats = useMemo(() => {
     let total = 0, sa = 0, ns = 0, nv = 0, na = 0;
