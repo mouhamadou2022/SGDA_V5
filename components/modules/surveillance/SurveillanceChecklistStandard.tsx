@@ -23,6 +23,7 @@ import {
 import { SGSEvaluationModal } from './SGSEvaluation';
 import { ChecklistLearningPanel } from './ChecklistLearningPanel';
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
+import { filtresTemplatesParType } from '@/lib/planning-lancement';
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
 import { recordTextModification, type TextModification } from '@/lib/checklistMemory';
 import { uploadPreuveFile } from '@/lib/preuves';
@@ -314,9 +315,8 @@ export function SurveillanceChecklistStandard({
         let generated: DomaineChecklist[];
         // Source maîtresse : Kit Inspecteur (master) — puis template sauvegardé
         // (apprentissage IA). PAS de génération IA (données réelles uniquement).
-        const templateTypes = surv?.type === 'certification' || surv?.type === 'homologation'
-          ? ['IT', 'SOP', 'SGS']
-          : (surv?.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'])
+        // Familles centralisées (COP ∈ certification, HMG ∈ homologation).
+        const templateTypes = filtresTemplatesParType(surv?.type || 'periodique')
         const master = store.findMasterChecklistForPortee(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation } : undefined);
         if (master) {
           const snapshot = JSON.parse(JSON.stringify(master.checklist));

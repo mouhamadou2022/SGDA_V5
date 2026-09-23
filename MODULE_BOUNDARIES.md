@@ -113,6 +113,11 @@ mémoires IA.
   inspecteur, couleur délai) + `lib/__tests__/ecartsRappels.test.ts` ;
   `ecartsSlice` applique (set/emit). Lint slice : 14 → 12 erreurs
   `no-explicit-any` pré-existantes, 0 nouvelle.
+- Kit inspecteur : rangement TYPES puis checklists PAR DOMAINE (sous-groupes
+  triés, template listé sous chaque domaine couvert) ; règle centrale
+  `filtresTemplatesParType` (COP ∈ certification, HMG ∈ homologation,
+  IT = infra, SOP = procédures) utilisée aux 3 points de sélection
+  (lancement, préparation, exécution) + tests.
 - Vigies propriétaires : `verifierRappelsAutomatiques` (écarts + dossiers +
   plannings mélangés) scindé en `verifierRappelsEcarts` (écarts),
   `verifierRappelsDossiers` (dossiers) et `verifierPlanningsDepasses`

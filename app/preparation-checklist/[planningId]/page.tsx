@@ -22,6 +22,7 @@ import {
   Users, Target, Download, Lock,
 } from 'lucide-react';
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
+import { filtresTemplatesParType } from '@/lib/planning-lancement';
 import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF';
 import type { DomaineChecklist, ChecklistItem, EvaluationSGS, PAOELevel, EvaluationAction } from '@/types/checklist';
 import { computeEvaluationActionScore } from '@/types/checklist';
@@ -910,11 +911,9 @@ export default function PreparationChecklistPage() {
           planning.checklist_hierarchy.forEach(d => walk(d));
           setIaPrefilledCount(prev => prev + cnt);
         } else {
-          // Générer depuis le kit inspecteur
+          // Générer depuis le kit inspecteur (familles centralisées : voir filtresTemplatesParType)
           const master = findMasterChecklistForPortee(planning.portee || [],
-            planning.type === 'certification' || planning.type === 'homologation'
-              ? ['IT', 'SOP', 'SGS']
-              : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'],
+            filtresTemplatesParType(planning.type),
             aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
           if (master) {
             const snapshot = JSON.parse(JSON.stringify(master.checklist));

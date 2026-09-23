@@ -1521,7 +1521,15 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                       badges={<span className="badge outline">{entries.length} template{entries.length > 1 ? 's' : ''}</span>}
                       defaultOpen={true}
                     >
-                      {entries.map(e => {
+                      {[...new Set(entries.flatMap(e => e.domaines))].sort().map(dom => {
+                        const duDomaine = entries.filter(e => e.domaines.includes(dom))
+                        if (duDomaine.length === 0) return null
+                        return (
+                          <div key={dom}>
+                            <p className="text-[11px] font-semibold text-role-primary uppercase tracking-wide mt-2 mb-1">
+                              Domaine {dom} — {duDomaine.length} checklist{duDomaine.length > 1 ? 's' : ''}
+                            </p>
+                            {duDomaine.map(e => {
                         const isArchived = e.archived
                         return (
                           <div key={e.key} className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${isArchived ? 'opacity-60 hover:opacity-100 bg-muted/10' : 'hover:bg-muted/30'}`}>
@@ -1688,6 +1696,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                 </>
                               )}
                             </div>
+                          </div>
+                        )
+                      })}
                           </div>
                         )
                       })}

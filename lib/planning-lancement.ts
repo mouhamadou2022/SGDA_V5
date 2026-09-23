@@ -193,6 +193,20 @@ export function peutLancer(userId: string | undefined, chefId: string | undefine
   return !!userId && !!chefId && chefId === userId
 }
 
+/**
+ * Familles de templates du kit par type de mission (préfixes d'ID) —
+ * source unique (remplace les ternaires dupliqués aux 3 points de sélection).
+ * Règles architecte : IT = domaines techniques d'infrastructure (SLI, RA,
+ * PHY, MFP…), SOP = procédures de mise en œuvre, COP ∈ certification
+ * (jamais validation de site), HMG ∈ homologation.
+ */
+export function filtresTemplatesParType(type: string): string[] {
+  if (type === 'certification') return ['IT', 'SOP', 'SGS', 'COP']
+  if (type === 'homologation') return ['HMG', 'IT', 'SOP', 'SGS']
+  if (type === 'maintien') return ['QSC', 'SGS']
+  return ['QSC']
+}
+
 export interface SuggestionPlanifiable {
   aerodrome_id: string;
   type: Planning['type'];

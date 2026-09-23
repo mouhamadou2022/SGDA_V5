@@ -13,6 +13,7 @@ import {
   peutLancer,
   buildPlanningFromSuggestion,
   buildExportCSV,
+  filtresTemplatesParType,
 } from '../planning-lancement'
 
 const PLANNING = {
@@ -101,6 +102,16 @@ describe('buildPlanningFromSuggestion', () => {
   })
   test('buildExportCSV : en-têtes + lignes', () => {
     expect(buildExportCSV(['A', 'B'], [['1', '2']])).toBe('A,B\n1,2')
+  })
+})
+
+describe('filtresTemplatesParType', () => {
+  test('COP en certification, HMG en homologation, QSC sinon', () => {
+    expect(filtresTemplatesParType('certification')).toEqual(['IT', 'SOP', 'SGS', 'COP'])
+    expect(filtresTemplatesParType('homologation')).toEqual(['HMG', 'IT', 'SOP', 'SGS'])
+    expect(filtresTemplatesParType('maintien')).toEqual(['QSC', 'SGS'])
+    expect(filtresTemplatesParType('periodique')).toEqual(['QSC'])
+    expect(filtresTemplatesParType('inconnu')).toEqual(['QSC'])
   })
 })
 

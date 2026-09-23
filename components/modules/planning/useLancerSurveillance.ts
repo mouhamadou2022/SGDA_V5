@@ -23,6 +23,7 @@ import {
   nomsEquipe,
   appliquerPredictionsPrefill,
   peutLancer,
+  filtresTemplatesParType,
 } from '@/lib/planning-lancement';
 type Notifier = (n: Omit<Notification, 'id' | 'sent_at'>) => void;
 
@@ -305,9 +306,7 @@ async function genererChecklistFallback(
   const typeSurv = resoudreTypeSurveillance(normalizedType);
 
   const master = store.findMasterChecklistForPortee(planning.portee || [],
-    planning.type === 'certification' || planning.type === 'homologation'
-      ? ['IT', 'SOP', 'SGS']
-      : planning.type === 'maintien' ? ['QSC', 'SGS'] : ['QSC'],
+    filtresTemplatesParType(planning.type),
     aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
   if (master) {
     const snapshot = JSON.parse(JSON.stringify(master.checklist));
