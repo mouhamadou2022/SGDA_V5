@@ -65,6 +65,7 @@ import { generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDo
 import { getDomainesIndividuelsCodes } from '@/lib/domaines';
 import { parseChecklistWord } from '@/lib/services/checklistParser';
 import type { TemplateDiff } from '@/lib/services/checklistTemplateService';
+import { diffHierarchieVersions, type DiffHierarchie } from '@/lib/checklistDiff';
 import { KitDocForm } from '@/components/forms';
 import { TYPES_DOCUMENTS, DOMAINES, ETATS_DOCUMENT } from '@/lib/kitOptions';
 
@@ -280,6 +281,34 @@ function ShareModalAction({ showShareModal, selectedDocument, setShowShareModal,
   );
 }
 
+// Pastilles de traçabilité : sections ajoutées/retirées/modifiées
+// entre deux versions d'un template.
+function DiffVersionsChips({ diff, versionPrecedente }: {
+  diff: DiffHierarchie;
+  versionPrecedente: string;
+}) {
+  if ((diff.ajoutes.length + diff.retires.length + diff.modifies.length) === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground mt-1">
+        Aucun changement de sections vs v{versionPrecedente} (métadonnées uniquement).
+      </p>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {diff.ajoutes.map(nom => (
+        <span key={`+${nom}`} className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success">+ {nom}</span>
+      ))}
+      {diff.retires.map(nom => (
+        <span key={`-${nom}`} className="text-[10px] px-1.5 py-0.5 rounded bg-danger/15 text-danger">− {nom}</span>
+      ))}
+      {diff.modifies.map(nom => (
+        <span key={`~${nom}`} className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning">~ {nom}</span>
+      ))}
+    </div>
+  )
+}
+
 export default function KitInspecteurModule({ userRole }: KitInspecteurModuleProps) {
   const isManager = canManageRole(userRole);
   const kitDocuments = useAppStore(s => s.kitDocuments);
@@ -302,15 +331,14 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
   // Templates persistés en Supabase (versions, dates, utilisateurs) pour l'accordéon
   const [supaTemplates, setSupaTemplates] = useState<ChecklistTemplate[]>([]);
 
-  // Publier un template (brouillon → publié) : sans ça, la RLS le cache
-  // aux inspecteurs non-créateurs (ne voient que publie/archive/leurs).
-  const publierTemplate = async (templateId: string) => {
+  // Publier un template (brouillon → publié, auteur tracé) : sans ça,
+  // la RLS le cache aux inspecteurs non-créateurs.
+  const publierTemplate = async (template: ChecklistTemplate) => {
     if (!isManager) return;
     try {
-      const { updateChecklistTemplate } = await import('@/lib/datastore')
-      const res = await updateChecklistTemplate(templateId, { etat: 'publie' })
-      if (res.error) throw new Error(res.error)
-      const { loadTemplatesFromSupabase } = await import('@/lib/services/checklistTemplateService')
+      const { publierTemplateSupabase, loadTemplatesFromSupabase } = await import('@/lib/services/checklistTemplateService')
+      const res = await publierTemplateSupabase(template)
+      if (!res.ok) throw new Error(res.error)
       await loadTemplatesFromSupabase().then(list => setSupaTemplates(list)).catch(() => {})
       addNotification({
         user_id: user?.id || '', type: 'success',
@@ -1530,6 +1558,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                         {t.etat && t.etat !== 'publie' && (
                                           <span className="px-1 rounded bg-warning/15 text-warning" title="Invisible des inspecteurs non-créateurs (RLS)">{t.etat}</span>
                                         )}
+                                        {t.etat && t.etat !== 'publie' && (
+                                          <span className="px-1 rounded bg-warning/15 text-warning" title="Invisible des inspecteurs non-créateurs (RLS)">{t.etat}</span>
+                                        )}
                                         <span>{formatDate(t.updated_at || t.created_at)}</span>
                                         {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name) && (
                                           <span>— {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name)}</span>
@@ -1538,7 +1569,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                           <button
                                             className="action-button"
                                             title="Publier — rend visible par tous les inspecteurs"
-                                            onClick={() => publierTemplate(t.id)}
+                                            onClick={() => publierTemplate(t)}
                                           >
                                             <Send className="w-3 h-3" /> Publier
                                           </button>
@@ -1859,6 +1890,10 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                   if (versions.length === 0) {
                     return <p className="text-sm text-muted-foreground">Aucun historique de version pour ce template.</p>
                   }
+                  // Traçabilité : diff de sections vs version précédente
+                  // (tri du plus récent : versions[i+1] est l'ancienne).
+                  const diffs = versions.map((v, i) =>
+                    diffHierarchieVersions(versions[i + 1]?.hierarchie, v.hierarchie))
                   return versions.map((v, i) => (
                     <div key={v.id} className="flex items-start gap-3 p-3 rounded-lg border border-border">
                       <div className="w-8 h-8 rounded-full bg-primary-soft flex items-center justify-center shrink-0">
@@ -1870,12 +1905,17 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                           {i === 0 && <span className="text-[10px] text-muted-foreground">dernière version</span>}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {new Date(v.updated_at || v.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {new Date(v.updated_at || v.created_at).toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           {((v.metadonnees as any)?.updated_by_name || (v.metadonnees as any)?.created_by_name) && ` — par ${(v.metadonnees as any)?.updated_by_name || (v.metadonnees as any)?.created_by_name}`}
                         </p>
                         <p className="text-xs text-foreground mt-1">
                           {(v.hierarchie || []).length} domaine{(v.hierarchie || []).length > 1 ? 's' : ''} : {[...new Set((v.hierarchie || []).map((d: any) => d.nom))].join(', ')}
                         </p>
+                        {versions[i + 1] ? (
+                          <DiffVersionsChips diff={diffs[i]} versionPrecedente={versions[i + 1].version} />
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground mt-1">Version initiale.</p>
+                        )}
                         {v.source_fichier && <p className="text-[10px] text-muted-foreground mt-0.5">Fichier : {v.source_fichier}</p>}
                       </div>
                     </div>

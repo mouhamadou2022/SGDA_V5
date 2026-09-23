@@ -31,6 +31,33 @@ async function getAuthUserId(fallback?: string): Promise<string | undefined> {
   return fallback
 }
 
+/**
+ * Publie un template (brouillon → publié) en traçant l'auteur.
+ * Sans publication, la RLS cache le template aux inspecteurs non-créateurs.
+ */
+export async function publierTemplateSupabase(
+  template: Pick<ChecklistTemplate, 'id' | 'metadonnees'>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { updateChecklistTemplate } = await import('@/lib/datastore')
+    const store = useAppStore.getState()
+    const user = store.user
+    const auteurId = await getAuthUserId(user?.id)
+    const auteurNom = user ? `${user.prenom || ''} ${user.nom || ''}`.trim() : ''
+    const meta = { ...((template.metadonnees as Record<string, unknown>) || {}) }
+    if (auteurNom) meta.updated_by_name = auteurNom
+    const result = await updateChecklistTemplate(template.id, {
+      etat: 'publie',
+      updated_by: auteurId,
+      metadonnees: meta,
+    })
+    if (result.error) return { ok: false, error: result.error }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Erreur inconnue' }
+  }
+}
+
 export async function saveTemplateToSupabase(
   templateId: string,
   type: ChecklistTemplateType,
