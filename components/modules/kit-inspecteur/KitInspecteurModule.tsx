@@ -48,6 +48,7 @@ import {
   Shield,
   ChevronRight,
   History,
+  Send,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { SGS_COMPOSANTES_STRUCTURE } from '@/types/checklist';
@@ -300,6 +301,31 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
   // Templates persistés en Supabase (versions, dates, utilisateurs) pour l'accordéon
   const [supaTemplates, setSupaTemplates] = useState<ChecklistTemplate[]>([]);
+
+  // Publier un template (brouillon → publié) : sans ça, la RLS le cache
+  // aux inspecteurs non-créateurs (ne voient que publie/archive/leurs).
+  const publierTemplate = async (templateId: string) => {
+    if (!isManager) return;
+    try {
+      const { updateChecklistTemplate } = await import('@/lib/datastore')
+      const res = await updateChecklistTemplate(templateId, { etat: 'publie' })
+      if (res.error) throw new Error(res.error)
+      const { loadTemplatesFromSupabase } = await import('@/lib/services/checklistTemplateService')
+      await loadTemplatesFromSupabase().then(list => setSupaTemplates(list)).catch(() => {})
+      addNotification({
+        user_id: user?.id || '', type: 'success',
+        title: 'Template publié', message: 'Visible par tous les inspecteurs.',
+        canal: 'in_app',
+      })
+    } catch (err) {
+      addNotification({
+        user_id: user?.id || '', type: 'danger',
+        title: 'Échec publication',
+        message: err instanceof Error ? err.message : 'Erreur inconnue',
+        canal: 'in_app',
+      })
+    }
+  };
 
   useEffect(() => {
     let cancelled = false
@@ -1501,9 +1527,21 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                       <div key={t.id} className="flex items-center gap-2 text-[10px] text-muted-foreground">
                                         <span className="font-mono">v{t.version || '—'}</span>
                                         <span className={`px-1 rounded ${t.actif ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>{t.actif ? 'actif' : t.etat}</span>
+                                        {t.etat && t.etat !== 'publie' && (
+                                          <span className="px-1 rounded bg-warning/15 text-warning" title="Invisible des inspecteurs non-créateurs (RLS)">{t.etat}</span>
+                                        )}
                                         <span>{formatDate(t.updated_at || t.created_at)}</span>
                                         {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name) && (
                                           <span>— {((t.metadonnees as any)?.updated_by_name || (t.metadonnees as any)?.created_by_name)}</span>
+                                        )}
+                                        {isManager && t.etat !== 'publie' && (
+                                          <button
+                                            className="action-button"
+                                            title="Publier — rend visible par tous les inspecteurs"
+                                            onClick={() => publierTemplate(t.id)}
+                                          >
+                                            <Send className="w-3 h-3" /> Publier
+                                          </button>
                                         )}
                                       </div>
                                     ))}
