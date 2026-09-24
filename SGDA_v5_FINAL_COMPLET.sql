@@ -1,68 +1,77 @@
--- SGDA v5 — SCHÉMA PRODUCTION (SOURCE UNIQUE DE VÉRITÉ)
--- Généré le 2026-05-17 | Mis à jour le 2026-08-25
--- ✅ Idempotent : safe à ré-exécuter sur une DB existante
--- ✅ Sans perte de données (pas de DROP TABLE)
--- ✅ Rattrapage des colonnes ajoutées par les migrations pour les
---    tables déjà créées par une version antérieure du schéma
---    (ex. checklist_templates : categorie, regime, updated_by)
--- ✅ Inclut les tables des migrations récentes :
---    ia_langage_clair, ia_training_dataset, ia_training_logs (2026-08-04),
---    inspecteur_feedback (2026-08-04)
--- ✅ SECTION 24 — Boucle d'apprentissage AERORISQ complète (rattrapage
---    migrations 2026-07-08 → 2026-08-25) : ia_model_state, ia_feedback,
---    ia_thresholds, ia_decisions (+ outcomes & score_history),
---    ia_bayes_network_state, ml_samples
--- ✅ Colonnes persistance checklist SGS (2026-08-25) :
---    sgs_evaluation_prepa, sgs_evaluation_signee_le, sgs_ecarts_signes_le,
---    checklist_suivi_ecarts, checklist_pac, rapport_sections, rapport_versions
--- ✅ Corrige TOUTES les causes des erreurs RLS
--- ✅ Inclut colonnes checklist préparée sur plannings
--- ✅ Fichiers orphelins nettoyés : CertDashboard.tsx, HomoDashboard.tsx, OperatorPACConsolideModule.tsx
 -- ============================================================
+-- SGDA V5 — Schéma & politiques RLS (fichier unique, source de vérité DB)
+-- Généré le 2026-05-17 | Mis à jour le 2026-09-20
 --
--- CAUSES RACINES DES ERREURS "violates row-level security" :
+-- USAGE
+--   1. Base existante (prod) : exécuter tel quel, dans l'ordre.
+--      Tout est idempotent (IF NOT EXISTS, DROP IF EXISTS, ON CONFLICT,
+--      WHERE NOT EXISTS) : réexécutable sans risque ni perte de données.
+--   2. Base neuve : ce fichier est un PATCH — il suppose les tables
+--      métier de base. Clonez d'abord le schéma de prod
+--      (supabase db dump --schema public), puis exécutez ce fichier.
+--      La SECTION 0 bloque avec un message clair si le socle manque.
 --
--- 🔴 CAUSE 1 (principale) — auth_id = null dans le seed admin
---    Le trigger handle_new_user tente INSERT avec email déjà
---    existant → conflit UNIQUE sur email non géré → auth_id
---    reste NULL → get_user_role() retourne NULL → RLS bloque
---    toutes les opérations admin.
---    → FIX : trigger réécrit pour UPDATE l'existant par email
---    → FIX : requête de réparation auth_id en section 1
+-- CONVENTIONS
+--   - Pas de DROP TABLE, pas de DELETE massif (sauf backfills ciblés).
+--   - Chaque CREATE POLICY est précédé de son DROP IF EXISTS.
+--   - Les ALTER fragiles sont enveloppés en DO ... EXCEPTION WHEN OTHERS.
+--   - gen_random_uuid() partout (pgcrypto natif Supabase).
 --
--- 🔴 CAUSE 2 — Utilisateurs code d'accès sans session Supabase
---    loginWithCode() dans auth.ts ne crée pas de session auth
---    → auth.uid() = null → toutes les policies bloquent
---    → FIX SQL : policies anon pour lecture minimale opérateurs
---    → FIX auth.ts requis : voir section IMPORTANT en fin de fichier
---
--- 🟡 CAUSE 3 — 3 tables avec RLS activé mais ZÉRO policy
---    exemptions, plannings, formation_participants → lock-out total
---
--- 🟡 CAUSE 4 — 30 tables sans RLS du tout (accès ouvert)
---    conversations, alertes_securite, scores_historique, etc.
---
--- 🟡 CAUSE 5 — Rôle dg_operator absent de toutes les policies
---
--- 🟡 CAUSE 6 — Messages de conversation non couverts (to_id null)
---
--- 🟡 CAUSE 7 — codes_acces manque colonnes utilisées par auth.ts
---    (dg_prenom, dg_nom, focal_prenom, focal_nom, etc.)
---
--- 🟢 CAUSE 8 — notifications sans politique INSERT
---    Les notifications créées via le store (addNotification → sendNotification)
---    échouaient pour tous les rôles car aucune policy FOR INSERT n'existait.
---    → FIX : ajout de notifications_insert policy
---
--- 🟢 CAUSE 9 — profils_risque écriture bloquée pour focal_operator
---    loadInitialData upsertait les profils via le client anon, mais la
---    policy profils_write n'autorisait que admin/inspector.
---    → FIX : focal_operator autorisé à écrire sur son propre aerodrome
---
--- 🟢 CAUSE 10 — prediction_history écriture bloquée pour focal_operator
---    Les appels ML (api/ia/ml) échouaient pour le rôle opérateur.
---    → FIX : focal_operator autorisé à écrire sur son propre aerodrome
---
+-- SOMMAIRE
+--   SECTION 0   Pré-requis (garde bloquante)
+--   SECTION 1   Réparation auth_id / trigger handle_new_user
+--   SECTION 2   Colonnes codes_acces (auth par code)
+--   SECTION 3   Colonnes checklist préparée (plannings)
+--   SECTION 4   Index RLS + fonctions helper (get_user_*)
+--   SECTION 5   Trigger corrigé + tables IA (suggestion_feedbacks,
+--               ml_model_weights, api_keys, self_assessments) + colonnes
+--               dossiers/messages
+--   SECTION 6   Activation RLS (tables manquantes)
+--   SECTION 7   Politiques RLS complètes (+ storage, seed admin)
+--   SECTIONS 8-11  Permissions, seed admin, vérifications, note auth.ts
+--   SECTION 12  Évaluation SGS PAOE (Annexe 19 OACI)
+--   SECTION 13  Colonnes de cohérence code ↔ SQL
+--   SECTION 14  Améliorations session 2026-05-21
+--   SECTION 15  Correctif portail exploitant
+--   SECTION 16  Workflow instructeur (exemptions)
+--   SECTION 17  Nettoyage fichiers orphelins
+--   SECTION 18  Checklist templates (+ SECTION 26 nature)
+--   SECTION 19  AMDEC — SECTION 20 FTA
+--   SECTION 21  IA langage clair & entraînement
+--   SECTION 22  Inspecteur virtuel (suivi ML)
+--   SECTION 23  Demandes d'accès (portail public)
+--   SECTION 24  Boucle d'apprentissage AERORISQ
+--   SECTION 25  Persistance serveur des exemptions
+--   SECTION 26  Persistance enquêtes + réponses (+ durcissement colonnes)
+--   SECTION 27  Nature des templates (checklist/fiche/formulaire/guide)
+--   SECTION 28  Mémoire checklist partagée
+-- ============================================================
+-- ============================================================
+-- SECTION 0 — PRÉREQUIS (vérification bloquante, message clair)
+-- Ce fichier est un PATCH : il suppose les tables métier de base
+-- (créées à l'origine via le dashboard). Sur une base neuve, clonez
+-- d'abord le schéma de prod (supabase db dump --schema public),
+-- puis exécutez ce fichier. Sans les tables, on s'arrête ici avec
+-- une erreur explicite au lieu d'un obscur « relation does not exist ».
+-- ============================================================
+
+DO $$ DECLARE
+  t text;
+BEGIN
+  FOR t IN SELECT unnest(ARRAY[
+    'utilisateurs','aerodromes','inspecteurs','competences','formations',
+    'plannings','surveillances','ecarts','evenements_securite','checklist_items',
+    'certifications','homologations','profils_risque','notifications','codes_acces',
+    'messages','dossiers','api_keys','registre_entries','exemptions'
+  ]) LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = t
+    ) THEN
+      RAISE EXCEPTION 'SGDA — table socle manquante : % (clonez le schéma de prod avant ce patch)', t;
+    END IF;
+  END LOOP;
+END $$;
 
 -- ============================================================
 -- SECTION 1 — RÉPARATION URGENTE (à exécuter EN PREMIER)
@@ -1621,7 +1630,7 @@ INSERT INTO utilisateurs (
   notifications_email
 )
 VALUES (
-  uuid_generate_v4(),
+  gen_random_uuid(),
   null,
   'admin@anacim.sn',
   'admin',
