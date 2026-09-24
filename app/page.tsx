@@ -1088,6 +1088,10 @@ export default function Page() {
             useAppStore.getState().enquetes, data.enquetes)
           const mergedReponses = fusionnerParId(
             useAppStore.getState().reponsesEnquetes, data.reponsesEnquetes)
+          // Mémoire checklist : le local prime (apprentissage du poste),
+          // Supabase complète (mutualisation inter-postes).
+          const mergedMemory = fusionnerParId(
+            useAppStore.getState().checklistMemoryRecords, data.checklistMemory)
           const mergedUtilisateurs = fusionnerUtilisateurs(
             useAppStore.getState().utilisateurs, data.utilisateurs)
           const { hierarchyFromDb, itemsFromDb } = rehydraterChecklists(data.surveillances)
@@ -1118,6 +1122,7 @@ export default function Page() {
             delegations: mergedDelegations,
             enquetes: mergedEnquetes,
             reponsesEnquetes: mergedReponses,
+            checklistMemoryRecords: mergedMemory,
           })
          if (aeroCount === 0) {
            // Aucun aérodrome — silencieux en production

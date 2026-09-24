@@ -69,6 +69,13 @@ upsertItemHistory: (aerodrome_id, type_inspection, domaine, sous_domaine, sous_s
   set((state) => ({
     checklistMemoryRecords: state.checklistMemoryRecords.filter(r => r.id !== record.id).concat([record])
   }));
+  // Sync serveur best-effort (mutualisation inter-postes) : le local reste
+  // la source de vérité immédiate — un échec réseau ne bloque jamais l'UI.
+  import('../datastore').then(({ upsertChecklistMemory }) => {
+    upsertChecklistMemory(record).then(r => {
+      if (r.error) console.error('[checklistMemory] Sync upsert échouée:', r.error)
+    }).catch(() => {})
+  }).catch(() => {})
 },
 getPredictionForItem: (aerodrome_id, type_inspection, domaine, sous_domaine, sous_sous_domaine, item, profil) => {
   return checklistMemory.getPredictionForItem(
@@ -87,9 +94,18 @@ recordCorrection: (aerodrome_id, type_inspection, domaine, sous_domaine, sous_so
   if (record) {
     set((state) => ({
       checklistMemoryRecords: state.checklistMemoryRecords.map(r =>
-        r.item_id === item_id ? { ...r, feedback_correction: correction as ResultatChecklist, dernier_feedback: new Date().toISOString() } : r
+        r.item_id === item_id ? { ...r, feedback_correction: correction as ResultatChecklist, dernier_feedback: new Date().toISOString() } :
+        r
       )
     }));
+    const misAJour = get().checklistMemoryRecords.find(r => r.item_id === item_id);
+    if (misAJour) {
+      import('../datastore').then(({ upsertChecklistMemory }) => {
+        upsertChecklistMemory(misAJour).then(r => {
+          if (r.error) console.error('[checklistMemory] Sync correction échouée:', r.error)
+        }).catch(() => {})
+      }).catch(() => {})
+    }
   }
 },
 getProblematicItems: (aerodrome_id, seuilErreur = 20) => {

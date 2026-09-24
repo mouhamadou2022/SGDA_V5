@@ -30,6 +30,7 @@ import type {
   Delegation,
   Enquete,
   ReponseEnquete,
+  ChecklistMemoryRecord,
 } from './store'
 import type { AmdecAnalyse } from './risque/amdecEngine'
 import type { ArbreFTA } from './risque/ftaEngine'
@@ -69,6 +70,7 @@ export interface InitialData {
   delegations: Delegation[]
   enquetes: Enquete[]
   reponsesEnquetes: ReponseEnquete[]
+  checklistMemory: ChecklistMemoryRecord[]
 }
 
 export async function loadInitialData(userId: string, role: string): Promise<DatastoreResult<InitialData>> {
@@ -99,6 +101,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       delegationsRes,
       enquetesRes,
       reponsesEnquetesRes,
+      checklistMemoryRes,
     ] = await Promise.all([
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
@@ -125,6 +128,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('delegations').select('*').order('assigne_le', { ascending: false }),
       supabase.from('enquetes').select('*').order('updated_at', { ascending: false }),
       supabase.from('reponses_enquetes').select('*').order('submitted_at', { ascending: false }),
+      supabase.from('checklist_memory').select('*').order('updated_at', { ascending: false }).limit(5000),
     ])
 
     const planningsData = (planningsRes.data ?? []) as Planning[]
@@ -216,6 +220,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         delegations: ((delegationsRes?.data ?? []) as any[]).map(unmarshalDelegation),
         enquetes: (enquetesRes?.data ?? []) as Enquete[],
         reponsesEnquetes: ((reponsesEnquetesRes?.data ?? []) as any[]).map(unmarshalReponseEnquete),
+        checklistMemory: (checklistMemoryRes?.data ?? []) as ChecklistMemoryRecord[],
       },
       error: null,
     }
@@ -257,5 +262,6 @@ export * from './datastore/codesAcces';
 export * from './datastore/apiKeys';
 export * from './datastore/dossiers';
 export * from './datastore/checklistTemplates';
+export * from './datastore/checklistMemory';
 export type { DatastoreResult } from './datastore/_shared';
 export { sanitizeEcart } from './datastore/_shared';

@@ -3771,3 +3771,100 @@ CREATE POLICY "reponses_delete" ON reponses_enquetes
 -- ============================================================
 ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS nature text DEFAULT 'checklist';
 UPDATE checklist_templates SET nature = 'checklist' WHERE nature IS NULL;
+
+-- ============================================================
+-- SECTION 28 — MÉMOIRE CHECKLIST PARTAGÉE (2026-09-20)
+-- L'apprentissage (historique par item) vivait en IndexedDB par poste :
+-- perdu au changement de poste, jamais mutualisé. Cette table le
+-- partage entre inspecteurs (last-write-wins à l'upsert, comme exemptions).
+-- id = clé composite texte (aerodrome_type_domaine_..._item), PAS un uuid.
+-- Tout en IF NOT EXISTS : réexécutable sans risque.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS checklist_memory (
+  id                      TEXT PRIMARY KEY,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  aerodrome_id            TEXT,
+  type_inspection         TEXT,
+  domaine                 TEXT,
+  sous_domaine            TEXT,
+  sous_sous_domaine       TEXT,
+  item_id                 TEXT,
+  item_numero             TEXT,
+  item_description        TEXT,
+  historique_resultats    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  taux_conformite         NUMERIC,
+  nb_occurrences          INTEGER NOT NULL DEFAULT 0,
+  dernier_resultat        TEXT,
+  derniere_observation    TEXT,
+  fichiers_types          JSONB DEFAULT '[]'::jsonb,
+  confiance               NUMERIC,
+  feedback_ajustement     NUMERIC,
+  dernier_feedback        TIMESTAMPTZ,
+  feedback_correction     TEXT,
+  nb_corrections          INTEGER NOT NULL DEFAULT 0,
+  nb_erreurs_correction   INTEGER NOT NULL DEFAULT 0,
+  alerte_ecart_recurrent  BOOLEAN NOT NULL DEFAULT false,
+  text_modifications      JSONB DEFAULT '[]'::jsonb
+);
+
+-- Robustesse (modèle SECTION 26) : complète si la table pré-existait autrement.
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS aerodrome_id TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS type_inspection TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS domaine TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS sous_domaine TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS sous_sous_domaine TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS item_id TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS item_numero TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS item_description TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS historique_resultats JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS taux_conformite NUMERIC;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS nb_occurrences INTEGER DEFAULT 0;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS dernier_resultat TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS derniere_observation TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS fichiers_types JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS confiance NUMERIC;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS feedback_ajustement NUMERIC;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS dernier_feedback TIMESTAMPTZ;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS feedback_correction TEXT;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS nb_corrections INTEGER DEFAULT 0;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS nb_erreurs_correction INTEGER DEFAULT 0;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS alerte_ecart_recurrent BOOLEAN DEFAULT false;
+ALTER TABLE checklist_memory ADD COLUMN IF NOT EXISTS text_modifications JSONB DEFAULT '[]'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_checklist_memory_aerodrome ON checklist_memory(aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_checklist_memory_item ON checklist_memory(item_id);
+CREATE INDEX IF NOT EXISTS idx_checklist_memory_domaine ON checklist_memory(domaine);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_checklist_memory_updated_at') THEN
+    CREATE TRIGGER trg_checklist_memory_updated_at
+      BEFORE UPDATE ON checklist_memory
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+ALTER TABLE checklist_memory ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON checklist_memory TO authenticated;
+
+-- Lecture : apprentissage mutualisé — tout ANACIM + exploitants.
+DROP POLICY IF EXISTS "checklist_memory_select" ON checklist_memory;
+CREATE POLICY "checklist_memory_select" ON checklist_memory
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_id = get_user_aerodrome_id()::text
+    )
+  );
+
+-- Écriture : ANACIM (upsert last-write-wins).
+DROP POLICY IF EXISTS "checklist_memory_write" ON checklist_memory;
+CREATE POLICY "checklist_memory_write" ON checklist_memory
+  FOR ALL USING (get_user_role() IN ('admin','inspector'));

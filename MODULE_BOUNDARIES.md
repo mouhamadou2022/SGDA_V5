@@ -95,8 +95,13 @@ sans colonne), `loadInitialData` + fusion `app/page.tsx`, sync best-effort.
 Enquêtes + réponses persistées : nouvelles tables SECTION 26 (`enquetes`,
 `reponses_enquetes`, RLS + politiques), CRUD + `loadInitialData` + fusion,
 sync best-effort (`unmarshalReponseEnquete` reconvertit `NUMERIC` → nombre).
+Mémoire checklist partagée : table SECTION 28 (`checklist_memory`, id texte
+composite, RLS lecture mutualisée ANACIM/exploitants, écriture ANACIM),
+CRUD `lib/datastore.ts` + `loadInitialData` + fusion `app/page.tsx`, sync
+best-effort dans la tranche (`upsertItemHistory`, `recordCorrection`,
+last-write-wins à l'upsert).
 Restent 100 % locales : propositions N+1, suggestions IA, checklist volatile,
-mémoires IA.
+mémoires IA hors checklist.
 
 ## Découpage composants (Phase 3 — en cours, extraction prop-driven, zéro logique changée)
 
