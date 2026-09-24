@@ -3663,6 +3663,31 @@ CREATE TABLE IF NOT EXISTS reponses_enquetes (
   submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Robustesse (erreur 42703 constatée) : si les tables pré-existaient avec
+-- un autre schéma, CREATE IF NOT EXISTS est sauté mais les politiques
+-- ci-dessous exigent ces colonnes → on les complète (modèle SECTION 25).
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS reference TEXT;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS titre TEXT;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS type_enquete TEXT;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS aerodrome_ids JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS questions JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS statut TEXT DEFAULT 'brouillon';
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS enquete_id UUID;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS aerodrome_id UUID;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS repondant_id UUID;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS repondant_nom TEXT;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS repondant_role TEXT;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS reponses JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS score_c1 NUMERIC;
+ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS idx_enquetes_statut ON enquetes(statut);
 CREATE INDEX IF NOT EXISTS idx_reponses_enquete ON reponses_enquetes(enquete_id);
 CREATE INDEX IF NOT EXISTS idx_reponses_aerodrome ON reponses_enquetes(aerodrome_id);
