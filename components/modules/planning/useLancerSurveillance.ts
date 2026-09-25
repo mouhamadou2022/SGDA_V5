@@ -318,11 +318,25 @@ async function genererChecklistFallback(
   const normalizedType = normalizePlanningType(planning.type)
   const typeSurv = resoudreTypeSurveillance(normalizedType);
 
-  const master = store.findMasterChecklistForPortee(planning.portee || [],
+  // Strict puis assemblage par domaine (données réelles uniquement).
+  const resolution = store.resoudreChecklist(planning.portee || [],
     filtresTemplatesParType(planning.type),
     aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
-  if (master) {
-    const snapshot = JSON.parse(JSON.stringify(master.checklist));
+  if (resolution) {
+    if (resolution.manquants.length > 0) {
+      console.warn(
+        '[Planning] Domaines sans template :',
+        resolution.manquants.join(', '),
+        '— importez un template les couvrant.',
+      );
+      addNotification({
+        user_id: userId, type: 'warning',
+        title: 'Couverture partielle',
+        message: `Aucun template pour : ${resolution.manquants.join(', ')}. Checklist partielle chargée — importez un template dans le kit inspecteur.`,
+        canal: 'in_app',
+      });
+    }
+    const snapshot = JSON.parse(JSON.stringify(resolution.checklist));
     const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
     const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
       entite_id: planning.aerodrome_id,

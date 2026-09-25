@@ -787,7 +787,7 @@ export default function PreparationChecklistPage() {
   const ecarts = useAppStore(s => s.ecarts);
   const user = useAppStore(s => s.user);
   const updatePlanning = useAppStore(s => s.updatePlanning);
-  const findMasterChecklistForPortee = useAppStore(s => s.findMasterChecklistForPortee);
+  const resoudreChecklist = useAppStore(s => s.resoudreChecklist);
   const masterChecklists = useAppStore(s => s.masterChecklists);
 
   const planning = plannings.find(p => p.id === planningId);
@@ -912,10 +912,17 @@ export default function PreparationChecklistPage() {
           setIaPrefilledCount(prev => prev + cnt);
         } else {
           // Générer depuis le kit inspecteur (familles centralisées : voir filtresTemplatesParType)
-          const master = findMasterChecklistForPortee(planning.portee || [],
-            filtresTemplatesParType(planning.type),
-            aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
+          // Strict puis assemblage par domaine (données réelles uniquement).
+          const resolution = resoudreChecklist(planning.portee || [], filtresTemplatesParType(planning.type))
+          const master = resolution
           if (master) {
+            if (master.manquants.length > 0) {
+              console.warn(
+                '[Preparation] Domaines sans template :',
+                master.manquants.join(', '),
+                '— importez un template les couvrant.',
+              );
+            }
             const snapshot = JSON.parse(JSON.stringify(master.checklist));
             const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
             const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
@@ -1031,7 +1038,7 @@ export default function PreparationChecklistPage() {
     };
 
     load();
-  }, [planning, aerodrome, profil, planningId, checklistType, ecarts, findMasterChecklistForPortee]);
+  }, [planning, aerodrome, profil, planningId, checklistType, ecarts, resoudreChecklist]);
 
   // ── Save helper ────────────────────────────────────────────
   const saveAll = useCallback(async (data: typeof dataRef.current) => {

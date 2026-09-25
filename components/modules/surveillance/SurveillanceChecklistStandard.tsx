@@ -316,9 +316,16 @@ export function SurveillanceChecklistStandard({
         // Source maîtresse : Kit Inspecteur (master) — puis template sauvegardé
         // (apprentissage IA). PAS de génération IA (données réelles uniquement).
         // Familles centralisées (COP ∈ certification, HMG ∈ homologation).
+        // Strict puis assemblage par domaine (données réelles uniquement).
         const templateTypes = filtresTemplatesParType(surv?.type || 'periodique')
-        const master = store.findMasterChecklistForPortee(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation } : undefined);
+        const master = store.resoudreChecklist(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation } : undefined);
         if (master) {
+          if (master.manquants.length > 0) {
+            console.warn(
+              '[SurveillanceChecklistStandard] Domaines sans template :',
+              master.manquants.join(', '),
+            );
+          }
           const snapshot = JSON.parse(JSON.stringify(master.checklist));
           const filtered = aerodromeStore ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodromeStore) : snapshot;
           const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {

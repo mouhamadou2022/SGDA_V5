@@ -124,10 +124,14 @@ mémoires IA hors checklist.
   IT = infra, SOP = procédures) utilisée aux 3 points de sélection
   (lancement, préparation, exécution) + tests.
 - Natures de templates (SECTION 27 : colonne `nature`, backfill
-  checklist) : checklist (sélection surveillances) + fiche/formulaire/guide
+  `checklist`) : checklist (sélection surveillances) + fiche/formulaire/guide
   (consultables, jamais sélectionnés — garde dans `loadTemplates...` et
   `setMasterChecklist` à l'import). Sections dédiées dans l'onglet,
   historique et Publier réutilisés.
+- Résolution avec assemblage (`resoudreChecklist`, testé) : template unique
+  couvrant tout d'abord, sinon un template par domaine fusionné (dédupliqué
+  par nom/id). `manquants` signalés (import requis) au lieu d'une checklist
+  vide silencieuse — utilisée au lancement, préparation et exécution.
 - Vigies propriétaires : `verifierRappelsAutomatiques` (écarts + dossiers +
   plannings mélangés) scindé en `verifierRappelsEcarts` (écarts),
   `verifierRappelsDossiers` (dossiers) et `verifierPlanningsDepasses`
