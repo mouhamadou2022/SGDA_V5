@@ -16,6 +16,7 @@ import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { startOfToday } from './planningDates';
 import {
   calculerPorteeLancement,
+  porteeCertification,
   buildNouvelleSurveillance,
   convertirDelegationsPlanning,
   resoudreTypeSurveillance,
@@ -81,13 +82,25 @@ export function useLancerSurveillance(deps: DepsLancement) {
 
     const planningAerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
     const sgsApplicable = isSGSApplicable(planningAerodrome);
+    // Cycle de certification (initiale vs renouvellement) : pilote la
+    // portée (renouvellement = OPS + SGS + COP). Inconnu → portée complète.
+    const relatedCert = planning.type === 'certification'
+      ? store.certifications.find(
+        c => c.aerodrome_id === planning.aerodrome_id && c.phase_active === 3 && c.statut_global === 'en_cours'
+      )
+      : undefined;
+    const cycleCertification = (relatedCert?.type_certification === 'renouvellement' ? 'renouvellement'
+      : relatedCert?.type_certification === 'initiale' ? 'initiale'
+      : undefined) as 'initiale' | 'renouvellement' | undefined;
 
     // Dates réelles d'exécution : celles ajustées par le chef d'équipe si renseignées,
     // sinon les dates programmées du planning.
     const dateDebutReelleISO = dateDebutReelle ? new Date(dateDebutReelle).toISOString() : planning.date_debut;
     const dateFinReelleISO = dateFinReelle ? new Date(dateFinReelle).toISOString() : planning.date_fin;
 
-    const porteeComplete = calculerPorteeLancement(planning.type, planning.portee, sgsApplicable)
+    const porteeComplete = planning.type === 'certification'
+      ? porteeCertification(cycleCertification, sgsApplicable)
+      : calculerPorteeLancement(planning.type, planning.portee, sgsApplicable)
 
     // Vérifier la composition de l'équipe avant de lancer
     const equipeIds = planning.equipe_ids || [];

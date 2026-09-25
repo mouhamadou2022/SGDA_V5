@@ -31,14 +31,44 @@ export function calculerPorteeLancement(
   sgsApplicable: boolean,
 ): string[] {
   if (type === 'certification') {
-    return sgsApplicable
-      ? ['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']
-      : ['SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']
+    return porteeCertification(undefined, sgsApplicable)
   }
   if (type === 'homologation') {
-    return sgsApplicable ? ['SGS', ...(portee || [])] : (portee || [])
+    return porteeHomologation(portee, sgsApplicable)
   }
   return portee || []
+}
+
+/** Domaines techniques d'infrastructure couverts par les IT. */
+export const DOMAINES_TECHNIQUES_IT = ['SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP'] as const
+
+/**
+ * Portée certification selon le cycle (règle métier) :
+ * - initiale : IT (infra) + SOP (procédures) + SGS + COP ;
+ * - renouvellement : OPS seul (procédures liées : maintenance PHY,
+ *   SLI, RA…) + SGS + COP.
+ * Sans info de cycle, on garde la portée complète (initiale, prudent).
+ */
+export function porteeCertification(
+  cycle: 'initiale' | 'renouvellement' | undefined,
+  sgsApplicable: boolean,
+): string[] {
+  const sgs = sgsApplicable ? ['SGS'] : []
+  if (cycle === 'renouvellement') return [...sgs, 'OPS', 'COP']
+  return [...sgs, ...DOMAINES_TECHNIQUES_IT, 'COP', 'OPS']
+}
+
+/**
+ * Portée homologation (règle métier) : SGS si applicable + tous les
+ * autres domaines lus depuis la fiche aérodrome (ici : la portée
+ * planifiée, qui en est le reflet).
+ */
+export function porteeHomologation(
+  porteePlanifiee: string[] | undefined,
+  sgsApplicable: boolean,
+): string[] {
+  const portee = porteePlanifiee || []
+  return sgsApplicable && !portee.includes('SGS') ? ['SGS', ...portee] : portee
 }
 
 /** Corps de la surveillance créée au lancement (id/dates générés par le slice). */

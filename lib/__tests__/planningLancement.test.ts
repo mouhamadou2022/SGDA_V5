@@ -14,6 +14,8 @@ import {
   buildPlanningFromSuggestion,
   buildExportCSV,
   filtresTemplatesParType,
+  porteeCertification,
+  porteeHomologation,
 } from '../planning-lancement'
 
 const PLANNING = {
@@ -112,6 +114,25 @@ describe('filtresTemplatesParType', () => {
     expect(filtresTemplatesParType('maintien')).toEqual(['QSC', 'SGS'])
     expect(filtresTemplatesParType('periodique')).toEqual(['QSC'])
     expect(filtresTemplatesParType('inconnu')).toEqual(['QSC'])
+  })
+})
+
+describe('porteeCertification / porteeHomologation', () => {
+  test('initiale : IT + SOP implicite + SGS + COP (portée complète)', () => {
+    const p = porteeCertification('initiale', true)
+    expect(p).toEqual(expect.arrayContaining(['SGS', 'SLI', 'PHY', 'OLS', 'RA', 'ELEC', 'MFP', 'COP', 'OPS']))
+    expect(porteeCertification(undefined, true)).toEqual(p)
+    expect(porteeCertification('initiale', false)).not.toContain('SGS')
+  })
+  test('renouvellement : OPS + SGS + COP uniquement', () => {
+    expect(porteeCertification('renouvellement', true)).toEqual(['SGS', 'OPS', 'COP'])
+    expect(porteeCertification('renouvellement', false)).toEqual(['OPS', 'COP'])
+  })
+  test('homologation : portée planifiée + SGS si applicable (sans doublon)', () => {
+    expect(porteeHomologation(['PHY', 'OPS'], true)).toEqual(['SGS', 'PHY', 'OPS'])
+    expect(porteeHomologation(['SGS', 'PHY'], true)).toEqual(['SGS', 'PHY'])
+    expect(porteeHomologation(['PHY'], false)).toEqual(['PHY'])
+    expect(porteeHomologation(undefined, true)).toEqual(['SGS'])
   })
 })
 
