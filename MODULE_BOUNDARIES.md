@@ -132,6 +132,14 @@ mémoires IA hors checklist.
   couvrant tout d'abord, sinon un template par domaine fusionné (dédupliqué
   par nom/id). `manquants` signalés (import requis) au lieu d'une checklist
   vide silencieuse — utilisée au lancement, préparation et exécution.
+- Gouvernance chef d'équipe : `addPlanning` ne désigne plus jamais
+  l'utilisateur courant/admin comme chef (repli supprimé) ; sans chef liable,
+  chef vide + lancement bloqué avec message d'action. Les gardes
+  `isChefEquipe`/`peutLancer` couvrent tableau, cartes et modale.
+- Suggestions IA pilotées par le risque : `delaisSuggestionIA`
+  (critique +3/+5j, haute +7/+9j) et `exigencesEquipe` (critique → niveau
+  confirmé mini + équipe de 3) branchées sur `teamOptimizer.proposer`
+  (paramètre optionnel, appelants existants inchangés) + tests.
 - Vigies propriétaires : `verifierRappelsAutomatiques` (écarts + dossiers +
   plannings mélangés) scindé en `verifierRappelsEcarts` (écarts),
   `verifierRappelsDossiers` (dossiers) et `verifierPlanningsDepasses`

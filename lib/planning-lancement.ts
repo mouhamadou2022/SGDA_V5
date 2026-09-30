@@ -223,6 +223,36 @@ export function peutLancer(userId: string | undefined, chefId: string | undefine
   return !!userId && !!chefId && chefId === userId
 }
 
+function estCritique(niveauAlerte: string | undefined | null, prioriteDecision: string | undefined | null): boolean {
+  return niveauAlerte === 'critique' || prioriteDecision === 'critique'
+}
+
+/**
+ * Délais de la suggestion IA pilotés par le risque (au lieu du +7/+9 fixe) :
+ * critique → mission rapprochée, haute → semaine suivante.
+ */
+export function delaisSuggestionIA(
+  niveauAlerte: string | undefined | null,
+  prioriteDecision: string | undefined | null,
+): { debutJours: number; finJours: number } {
+  return estCritique(niveauAlerte, prioriteDecision)
+    ? { debutJours: 3, finJours: 5 }
+    : { debutJours: 7, finJours: 9 }
+}
+
+/**
+ * Exigences d'équipe pilotées par le risque : mission critique → niveau
+ * confirmé minimum et équipe renforcée (3 mini).
+ */
+export function exigencesEquipe(
+  niveauAlerte: string | undefined | null,
+  prioriteDecision: string | undefined | null,
+): { niveauMin?: 'confirme' | 'expert'; tailleMin?: number } {
+  return estCritique(niveauAlerte, prioriteDecision)
+    ? { niveauMin: 'confirme', tailleMin: 3 }
+    : {}
+}
+
 /**
  * Familles de templates du kit par type de mission (préfixes d'ID) —
  * source unique (remplace les ternaires dupliqués aux 3 points de sélection).

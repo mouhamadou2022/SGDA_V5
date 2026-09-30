@@ -175,7 +175,8 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
         if (!cleanPlanning.date_fin) cleanPlanning.date_fin = undefined as any;
         if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '') cleanPlanning.chef_id = undefined as any;
         if (!cleanPlanning.chef_id || cleanPlanning.chef_id === '00000000-0000-0000-0000-000000000000') {
-          // 1) Inspecteur principal ou titulaire
+          // 1) Inspecteur principal ou titulaire LIÉ à un compte (user_id).
+          // Sans lien, personne ne pourrait se connecter en tant que chef.
           const inspecteurs = get().inspecteurs || []
           const chefDefaut = inspecteurs.find(i => i.type === 'inspecteur_principal' && i.statut === 'en_service' && !i.deleted_at)
             || inspecteurs.find(i => i.type === 'inspecteur_titulaire' && i.statut === 'en_service' && !i.deleted_at)
@@ -183,12 +184,11 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
           if (chefDefaut?.user_id) {
             cleanPlanning.chef_id = chefDefaut.user_id
           } else {
-            // 2) Utilisateur actif ou admin
-            const utilisateurs = get().utilisateurs || []
-            const userDefaut = get().user
-              || utilisateurs.find(u => u.role === 'admin' && u.statut === 'actif')
-              || utilisateurs.find(u => u.statut === 'actif')
-            cleanPlanning.chef_id = userDefaut?.id || crypto.randomUUID()
+            // 2) JAMAIS l'utilisateur courant ni un admin par défaut : un chef
+            // d'équipe est un inspecteur désigné. Sans chef liable, le chef
+            // reste vide et le lancement est bloqué jusqu'à désignation
+            // explicite (gardes isChefEquipe / peutLancer).
+            cleanPlanning.chef_id = undefined as any
           }
         }
         const result = await datastore.createPlanning(cleanPlanning)

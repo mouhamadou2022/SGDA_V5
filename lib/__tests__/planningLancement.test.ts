@@ -16,6 +16,8 @@ import {
   filtresTemplatesParType,
   porteeCertification,
   porteeHomologation,
+  delaisSuggestionIA,
+  exigencesEquipe,
 } from '../planning-lancement'
 
 const PLANNING = {
@@ -133,6 +135,16 @@ describe('porteeCertification / porteeHomologation', () => {
     expect(porteeHomologation(['SGS', 'PHY'], true)).toEqual(['SGS', 'PHY'])
     expect(porteeHomologation(['PHY'], false)).toEqual(['PHY'])
     expect(porteeHomologation(undefined, true)).toEqual(['SGS'])
+  })
+})
+
+describe('delaisSuggestionIA / exigencesEquipe', () => {
+  test('critique → rapprochée + renforcée, haute → standard', () => {
+    expect(delaisSuggestionIA('critique', undefined)).toEqual({ debutJours: 3, finJours: 5 })
+    expect(delaisSuggestionIA('haute', undefined)).toEqual({ debutJours: 7, finJours: 9 })
+    expect(delaisSuggestionIA('haute', 'critique')).toEqual({ debutJours: 3, finJours: 5 })
+    expect(exigencesEquipe('critique', undefined)).toEqual({ niveauMin: 'confirme', tailleMin: 3 })
+    expect(exigencesEquipe('haute', undefined)).toEqual({})
   })
 })
 

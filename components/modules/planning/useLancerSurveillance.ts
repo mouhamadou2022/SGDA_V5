@@ -66,6 +66,18 @@ export function useLancerSurveillance(deps: DepsLancement) {
       return;
     }
 
+    // Chef d'équipe requis : sans chef désigné, on bloque avec un message
+    // d'action (pas de chef auto-asssigné — voir addPlanning).
+    if (!planning.chef_id) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'warning',
+        title: 'Chef d\'équipe à désigner',
+        message: 'Aucun chef d\'équipe désigné pour ce planning. Modifiez le planning pour désigner un chef inspecteur avant de lancer.',
+        canal: 'in_app',
+      });
+      return;
+    }
     // Seul le chef d'équipe désigné peut lancer la surveillance (garde de sécurité)
     if (!peutLancer(user?.id, planning.chef_id)) {
       addNotification({

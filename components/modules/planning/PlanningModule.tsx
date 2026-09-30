@@ -63,7 +63,7 @@ import {
 
 // Composants du module
 import { toDatetimeLocal } from './planningDates';
-import { buildExportCSV } from '@/lib/planning-lancement';
+import { buildExportCSV, delaisSuggestionIA, exigencesEquipe } from '@/lib/planning-lancement';
 import { ModaleSuppression, ModaleExecution, ModaleFormulaire, ModaleSuggestionsIA, ModaleFeedback } from './PlanningModals';
 import { PlanningCalendarView } from './PlanningCalendarView';
 import PlanningGanttView from './PlanningGanttView';
@@ -442,12 +442,15 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 
       const portee = (aero.decisionSurveillance.domainesCibles || aero.domainesCritiques.map((d: { domaine: string; code: string; seuil: number; group: string | null; score: number }) => d.domaine).filter(Boolean))
           .filter(d => d !== 'SGS' || isSGSApplicable(aero))
-      // Équipe proposée par le moteur teamOptimizer (compétences, charge, disponibilité)
+      // Équipe proposée par le moteur teamOptimizer (compétences, charge,
+      // disponibilité + exigences pilotées par le risque).
+      const delais = delaisSuggestionIA(aero.niveauAlerte, prioriteDecision)
       const propositionEquipe = teamOptimizer.proposer(
         utilisateurs,
         planningsStore,
         portee.length > 0 ? portee : (isSGSApplicable(aero) ? ['SGS'] : ['OPS']),
         formations,
+        exigencesEquipe(aero.niveauAlerte, prioriteDecision),
       )
 
       const newSuggestion: IaSuggestion = {
@@ -455,8 +458,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
         aerodrome_id: aero.id,
         type: normalizePlanningType(aero.decisionSurveillance.type) as Planning['type'],
         portee,
-        date_debut: new Date(Date.now() + 7 * 86400000).toISOString(),
-        date_fin: new Date(Date.now() + 9 * 86400000).toISOString(),
+        date_debut: new Date(Date.now() + delais.debutJours * 86400000).toISOString(),
+        date_fin: new Date(Date.now() + delais.finJours * 86400000).toISOString(),
         equipe_ids: propositionEquipe.inspecteurs.map(i => i.id),
         chef_id: propositionEquipe.chefPropose || propositionEquipe.inspecteurs[0]?.id || '',
         priorite: (aero.niveauAlerte === 'critique' || prioriteDecision === 'critique' ? 'critique' : 'haute') as Planning['priorite'],
@@ -620,6 +623,15 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   const handleRequestExecute = (planning: Planning) => {
+    if (!planning.chef_id) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning',
+        title: 'Chef d\'équipe à désigner',
+        message: 'Aucun chef d\'équipe désigné pour ce planning. Modifiez le planning pour désigner un chef inspecteur avant de lancer.',
+        canal: 'in_app',
+      });
+      return;
+    }
     const isChefEquipe = !!user?.id && !!planning.chef_id && planning.chef_id === user.id;
     if (!isChefEquipe) {
       addNotification({

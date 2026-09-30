@@ -22,12 +22,22 @@ interface InspecteurAvecCompetence extends Utilisateur {
   _insp?: { type?: string; domaine_principal?: string }
 }
 
+export interface ExigencesEquipe {
+  /** Niveau minimal requis ('confirme' ou 'expert') — piloté par le risque. */
+  niveauMin?: 'debutant' | 'confirme' | 'expert';
+  /** Taille minimale d'équipe — pilotée par le risque. */
+  tailleMin?: number;
+}
+
+const RANG_NIVEAU: Record<string, number> = { debutant: 1, confirme: 2, expert: 3, inconnu: 0 };
+
 export class TeamOptimizer {
   proposer(
     utilisateurs: Utilisateur[],
     plannings: Planning[],
     domaines: string[],
     formations: Formation[],
+    exigences?: ExigencesEquipe,
   ): TeamProposal {
     const inspecteurs: InspecteurAvecCompetence[] = utilisateurs
       .filter((u: InspecteurAvecCompetence) =>
@@ -60,6 +70,7 @@ export class TeamOptimizer {
       ...new Set(domainesExpandus.flatMap(d => competencesParDomaine[d] || [])),
     ]
 
+    const rangMin = exigences?.niveauMin ? (RANG_NIVEAU[exigences.niveauMin] ?? 0) : 0
     const notes = inspecteurs.map(insp => {
       const comps = (insp as any).competences || []
       const match = competencesRequises.filter(c =>
@@ -80,12 +91,15 @@ export class TeamOptimizer {
         chargeActuelle: charge, niveauMax: ['', 'debutant', 'confirme', 'expert'][niveauMax] || 'inconnu',
         score: match * 5 - charge * 2 + (peutEtreChef ? 3 : 0) + niveauMax * 2,
         peutEtreChef,
+        _rang: niveauMax,
       }
     })
-      .filter(n => n.score > 0 || domainesExpandus.length <= 2)
+      .filter(n => (n.score > 0 || domainesExpandus.length <= 2) && n._rang >= rangMin)
       .sort((a, b) => b.score - a.score)
+      .map(({ _rang, ...n }) => n)
 
-    const equipeFinale = notes.slice(0, Math.min(4, Math.max(2, domainesExpandus.length)))
+    const taille = Math.min(4, Math.max(exigences?.tailleMin ?? 2, 2, domainesExpandus.length))
+    const equipeFinale = notes.slice(0, taille)
     const chef = equipeFinale.find(i => i.peutEtreChef) || equipeFinale[0]
 
     return {
