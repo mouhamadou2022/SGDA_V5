@@ -133,6 +133,10 @@ mémoires IA hors checklist.
   fiche `DecisionTab` réutilisés du profil de risque (dépendance
   `dashboard → profil-risque` déclarée, lecture seule) ; onglet Signatures
   en placeholder (fonctionnalité ultérieure).
+- Onglets DG décisionnels (`synthesesDgIA`, fallback + IA) : Pilotage
+  (où intervenir + fiche site au clic), Conformité (qui est en règle +
+  fiche site), Décisions (efficacité + lien signatures). Pensés pour
+  répondre vite à une question ministre/président, drill-down inclus.
 - Résolution avec assemblage (`resoudreChecklist`, testé) : template unique
   couvrant tout d'abord, sinon un template par domaine fusionné (dédupliqué
   par nom/id). `manquants` signalés (import requis) au lieu d'une checklist

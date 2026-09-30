@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Target,
   TrendingUp,
@@ -20,6 +20,11 @@ import {
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
+import {
+  fallbackDecisions,
+  expliquerDecisions,
+  type ContexteDecisions,
+} from '@/lib/ia/synthesesDgIA';
 
 export default function DecisionsImpactModule({ user: _user }: { user: any }) {
   const aerodromes = useAppStore(s => s.aerodromes);
@@ -93,14 +98,54 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
     };
   }, [aerodromes, ecarts, surveillances, profilsRisque, registreEntries, certifications, homologations]);
 
+  // Synthèse DG : fallback immédiat, réécriture IA en arrière-plan.
+  const topAmelioration = [...(data?.evolutionAerodromes || [])]
+    .filter(a => (a.evolution ?? 0) > 0)
+    .sort((a, b) => (b.evolution ?? 0) - (a.evolution ?? 0))[0];
+  const topDegradation = [...(data?.evolutionAerodromes || [])]
+    .filter(a => (a.evolution ?? 0) < 0)
+    .sort((a, b) => (a.evolution ?? 0) - (b.evolution ?? 0))[0];
+  const contexteDecisions: ContexteDecisions = {
+    efficacite: data && data.totalEcartsNational > 0
+      ? Math.round((data.totalFermesNational / data.totalEcartsNational) * 100) : 0,
+    fermes: data?.totalFermesNational ?? 0,
+    totaux: data?.totalEcartsNational ?? 0,
+    ameliorations: data?.ameliorations ?? 0,
+    degradations: data?.degradations ?? 0,
+    signaturesAttente: data?.signaturesAttente ?? 0,
+    topAmelioration: topAmelioration?.code ?? null,
+    topDegradation: topDegradation?.code ?? null,
+  };
+  const [syntheseIA, setSyntheseIA] = useState<{ texte: string; fallbackIA: boolean } | null>(null);
+  const synthese = syntheseIA ?? { texte: fallbackDecisions(contexteDecisions), fallbackIA: true };
+  useEffect(() => {
+    let actif = true;
+    expliquerDecisions(contexteDecisions).then(s => {
+      if (actif && !s.fallbackIA) setSyntheseIA(s);
+    }).catch(() => {});
+    return () => { actif = false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.totalFermesNational, data?.totalEcartsNational, data?.signaturesAttente]);
+
   return (
     <div className="space-y-6 animate-fade-in" data-role="dg_anacim" data-module="dg-decisions-impact">
 
       <ModuleHeader
         icon={<Target className="h-8 w-8 text-white" />}
         title="Décisions & Impact"
-        description="Mesure de l'efficacité des actions — Signatures DG (à venir)"
+        description="Nos actions marchent-elles — que décider"
       />
+
+      {/* Synthèse DG en langage clair (IA si disponible, fallback sinon) */}
+      <div className="p-4 rounded-xl border border-role-primary/20 bg-role-primary-soft/40 flex items-start gap-3">
+        <Target className="w-5 h-5 text-role-primary flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm text-foreground">{synthese.texte}</p>
+          {!synthese.fallbackIA && (
+            <p className="text-[11px] text-muted-foreground mt-1">Synthèse rédigée par l'IA</p>
+          )}
+        </div>
+      </div>
 
       <div className="kpi-grid">
         <div className="kpi-card border-l-4 border-l-role-primary">
@@ -131,13 +176,18 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
             </div>
           </div>
         </div>
-        <div className="kpi-card border-l-4 border-l-warning">
+        <div className="kpi-card border-l-4 border-l-warning cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setActiveModule('signatures')} title="Ouvrir les signatures">
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-warning-soft"><PenLine className="w-5 h-5 text-warning" /></div>
             <div className="flex-1">
               <div className="kpi-label">Signatures en attente</div>
               <div className="kpi-value text-warning">{data?.signaturesAttente ?? 0}</div>
-              <span className="text-xs text-muted-foreground">Module Signature DG à venir</span>
+              <span className="text-xs text-muted-foreground">
+                {(data?.signaturesAttente ?? 0) > 0
+                  ? 'Dossiers à signer — cliquez pour ouvrir'
+                  : 'Aucun dossier en attente'}
+              </span>
             </div>
           </div>
         </div>

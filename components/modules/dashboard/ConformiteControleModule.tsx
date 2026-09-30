@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Shield,
   Scale,
@@ -17,14 +17,26 @@ import {
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
+import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
+import {
+  fallbackConformite,
+  expliquerConformite,
+  type ContexteConformite,
+} from '@/lib/ia/synthesesDgIA';
 
 export default function ConformiteControleModule({ user: _user }: { user: any }) {
+  const user = useAppStore(s => s.user);
   const aerodromes = useAppStore(s => s.aerodromes);
+  const profilsRisque = useAppStore(s => s.profilsRisque);
+  const ecarts = useAppStore(s => s.ecarts);
   const certifications = useAppStore(s => s.certifications);
   const homologations = useAppStore(s => s.homologations);
   const surveillances = useAppStore(s => s.surveillances);
   const plannings = useAppStore(s => s.plannings);
   const setActiveModule = useAppStore(s => s.setActiveModule);
+  const recalculerProfilRisque = useAppStore(s => s.recalculerProfilRisque);
+  const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null);
+  const [syntheseIA, setSyntheseIA] = useState<{ texte: string; fallbackIA: boolean } | null>(null);
 
   const data = useMemo(() => {
     const total = aerodromes?.length || 0;
@@ -88,14 +100,73 @@ export default function ConformiteControleModule({ user: _user }: { user: any })
     };
   }, [aerodromes, certifications, homologations, surveillances, plannings]);
 
+  // Synthèse DG : fallback immédiat, réécriture IA en arrière-plan.
+  const contexteConformite: ContexteConformite = {
+    taux: data?.tauxConformite ?? 0,
+    certifies: data?.certifies ?? 0,
+    homologues: data?.homologues ?? 0,
+    total: data?.total ?? 0,
+    expirations: (data?.expiresBientot || []).map(e => ({
+      aerodrome: e.aerodrome, type: e.type, jours: e.jours,
+    })),
+    sansSurveillance: (data?.sansSurveillanceAn || []).map(a => a.code),
+    planifiees: (data?.planifiees.length ?? 0) + (data?.planningEnPrep.length ?? 0),
+  };
+  const synthese = syntheseIA ?? { texte: fallbackConformite(contexteConformite), fallbackIA: true };
+  useEffect(() => {
+    let actif = true;
+    expliquerConformite(contexteConformite).then(s => {
+      if (actif && !s.fallbackIA) setSyntheseIA(s);
+    }).catch(() => {});
+    return () => { actif = false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.tauxConformite, data?.total]);
+
   return (
     <div className="space-y-6 animate-fade-in" data-role="dg_anacim" data-module="dg-conformite-controle">
 
       <ModuleHeader
         icon={<Shield className="h-8 w-8 text-white" />}
         title="Conformité & Contrôle"
-        description="Statut réglementaire national et planification"
+        description="Qui est en règle, quoi renouveler, quoi planifier"
       />
+
+      {/* Synthèse DG en langage clair (IA si disponible, fallback sinon) */}
+      <div className="p-4 rounded-xl border border-role-primary/20 bg-role-primary-soft/40 flex items-start gap-3">
+        <Shield className="w-5 h-5 text-role-primary flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm text-foreground">{synthese.texte}</p>
+          {!synthese.fallbackIA && (
+            <p className="text-[11px] text-muted-foreground mt-1">Synthèse rédigée par l'IA</p>
+          )}
+        </div>
+      </div>
+
+      {/* Fiche site (drill-down depuis les listes) */}
+      {selectedAerodromeId && (() => {
+        const aero = (aerodromes || []).find(a => a.id === selectedAerodromeId);
+        const profil = aero ? profilsRisque?.[aero.id] : null;
+        if (!aero || !profil) return null;
+        return (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedAerodromeId(null)} className="btn btn-sm btn-secondary gap-1.5">
+              ← Retour à la conformité
+            </button>
+            <DecisionTab
+              profil={profil}
+              aerodromeCode={aero.code_oaci}
+              aerodromeName={aero.nom}
+              nbEcartsCritiques={(ecarts || []).filter(e => e.aerodrome_id === aero.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+              userRole={user?.role || 'dg_anacim'}
+              onRecalculate={() => recalculerProfilRisque(aero.id)}
+              prochainesSurveillances={(surveillances || []).filter(s => s.aerodrome_id === aero.id)}
+              ecartsActifs={(ecarts || []).filter(e => e.aerodrome_id === aero.id)}
+              evenements={[]}
+              sgsNonApplicable={aero.statut_sgs === 'non_applicable'}
+            />
+          </div>
+        );
+      })()}
 
       <div className="kpi-grid">
         <div className="kpi-card border-l-4 border-l-role-primary">
@@ -150,7 +221,10 @@ export default function ConformiteControleModule({ user: _user }: { user: any })
           {data?.expiresBientot && data.expiresBientot.length > 0 ? (
             <div className="space-y-2">
               {data.expiresBientot.map((e, i) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-warning/5 border border-warning/20 rounded-lg">
+                <div key={i} onClick={() => {
+                  const aero = (aerodromes || []).find(a => a.code_oaci === e.aerodrome);
+                  if (aero) setSelectedAerodromeId(aero.id);
+                }} title="Voir la fiche détaillée" className="flex items-center justify-between p-3 bg-warning/5 border border-warning/20 rounded-lg cursor-pointer hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-2">
                     {e.type === 'Certification' ? <Shield className="w-4 h-4 text-success" /> : <Scale className="w-4 h-4 text-primary" />}
                     <div>
@@ -180,7 +254,10 @@ export default function ConformiteControleModule({ user: _user }: { user: any })
           {data?.sansSurveillanceAn && data.sansSurveillanceAn.length > 0 ? (
             <div className="space-y-1">
               {data.sansSurveillanceAn.slice(0, 10).map(a => (
-                <div key={a.code} className="flex items-center justify-between py-2 px-3 bg-muted/5 rounded-lg text-sm">
+                <div key={a.code} onClick={() => {
+                  const aero = (aerodromes || []).find(x => x.code_oaci === a.code);
+                  if (aero) setSelectedAerodromeId(aero.id);
+                }} title="Voir la fiche détaillée" className="flex items-center justify-between py-2 px-3 bg-muted/5 rounded-lg text-sm cursor-pointer hover:shadow-md transition-shadow">
                   <div>
                     <span className="text-xs font-medium">{a.code}</span>
                     <span className="text-xs text-muted-foreground ml-2">{a.nom}</span>

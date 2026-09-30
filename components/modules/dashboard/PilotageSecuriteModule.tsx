@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Flame,
   AlertTriangle,
@@ -16,18 +16,28 @@ import {
   Building2,
   ChevronRight,
   Globe,
+  Brain,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
+import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
+import {
+  fallbackPilotage,
+  expliquerPilotage,
+  type ContextePilotage,
+} from '@/lib/ia/synthesesDgIA';
 
 export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
+  const user = useAppStore(s => s.user);
   const aerodromes = useAppStore(s => s.aerodromes);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const ecarts = useAppStore(s => s.ecarts);
   const surveillances = useAppStore(s => s.surveillances);
   const evenements = useAppStore(s => s.evenements);
-  const setActiveModule = useAppStore(s => s.setActiveModule);
+  const recalculerProfilRisque = useAppStore(s => s.recalculerProfilRisque);
+  const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null);
+  const [syntheseIA, setSyntheseIA] = useState<{ texte: string; fallbackIA: boolean } | null>(null);
 
   const data = useMemo(() => {
     // Aérodromes en alerte (critique + élevé)
@@ -87,14 +97,73 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
     };
   }, [aerodromes, profilsRisque, ecarts, surveillances, evenements]);
 
+  // Synthèse DG : fallback immédiat, réécriture IA en arrière-plan.
+  const contextePilotage: ContextePilotage = {
+    sitesAlerte: (data?.enAlerte || []).map(a => a.code),
+    nbEcartsCritiques: data?.totalCritiques ?? 0,
+    topDomaine: data?.parDomaine?.[0]?.[0] ?? null,
+    topDomaineTotal: data?.parDomaine?.[0]?.[1]?.total ?? 0,
+    topDomaineCritiques: data?.parDomaine?.[0]?.[1]?.critiques ?? 0,
+    nbEvenements90j: data?.evenementsRecents.length ?? 0,
+    nbPacRetard: data?.totalPacRetard ?? 0,
+  };
+  const synthese = syntheseIA ?? { texte: fallbackPilotage(contextePilotage), fallbackIA: true };
+  useEffect(() => {
+    let actif = true;
+    expliquerPilotage(contextePilotage).then(s => {
+      if (actif && !s.fallbackIA) setSyntheseIA(s);
+    }).catch(() => {});
+    return () => { actif = false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.enAlerte.length, data?.totalCritiques, data?.totalPacRetard]);
+
   return (
     <div className="space-y-6 animate-fade-in" data-role="dg_anacim" data-module="dg-pilotage-securite">
 
       <ModuleHeader
         icon={<Activity className="h-8 w-8 text-white" />}
         title="Pilotage Sécurité"
-        description="Situation sécuritaire nationale — vue macro"
+        description="Où intervenir — vue macro pour décision"
       />
+
+      {/* Synthèse DG en langage clair (IA si disponible, fallback sinon) */}
+      <div className="p-4 rounded-xl border border-role-primary/20 bg-role-primary-soft/40 flex items-start gap-3">
+        <Shield className="w-5 h-5 text-role-primary flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm text-foreground">{synthese.texte}</p>
+          {!synthese.fallbackIA && (
+            <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
+              <Brain className="w-3 h-3" /> Synthèse rédigée par l'IA
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Fiche site (drill-down depuis les alertes) */}
+      {selectedAerodromeId && (() => {
+        const aero = (aerodromes || []).find(a => a.id === selectedAerodromeId);
+        const profil = aero ? profilsRisque?.[aero.id] : null;
+        if (!aero || !profil) return null;
+        return (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedAerodromeId(null)} className="btn btn-sm btn-secondary gap-1.5">
+              ← Retour au pilotage
+            </button>
+            <DecisionTab
+              profil={profil}
+              aerodromeCode={aero.code_oaci}
+              aerodromeName={aero.nom}
+              nbEcartsCritiques={(ecarts || []).filter(e => e.aerodrome_id === aero.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+              userRole={user?.role || 'dg_anacim'}
+              onRecalculate={() => recalculerProfilRisque(aero.id)}
+              prochainesSurveillances={(surveillances || []).filter(s => s.aerodrome_id === aero.id)}
+              ecartsActifs={(ecarts || []).filter(e => e.aerodrome_id === aero.id)}
+              evenements={(evenements || []).filter(e => e.aerodrome_id === aero.id)}
+              sgsNonApplicable={aero.statut_sgs === 'non_applicable'}
+            />
+          </div>
+        );
+      })()}
 
       <div className="kpi-grid">
         <div className="kpi-card border-l-4 border-l-danger">
@@ -147,7 +216,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           {data?.enAlerte && data.enAlerte.length > 0 ? (
             <div className="space-y-2">
               {data.enAlerte.map(a => (
-                <div key={a.id} className={`p-3 rounded-lg border ${a.niveau === 'critique' ? 'bg-danger/5 border-danger/20' : 'bg-warning/5 border-warning/20'}`}>
+                <div key={a.id} onClick={() => setSelectedAerodromeId(a.id)} className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${a.niveau === 'critique' ? 'bg-danger/5 border-danger/20' : 'bg-warning/5 border-warning/20'}`} title="Voir la fiche détaillée">
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-sm font-medium">{a.nom}</span>
