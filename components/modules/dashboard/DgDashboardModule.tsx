@@ -15,15 +15,12 @@ import {
   Globe,
   Shield,
   AlertTriangle,
-  Building2,
-  ChevronRight,
   Brain,
   Target,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
-import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { RiskPrediction } from '@/lib/risque';
 import { ComparativeAnalysis } from '@/components/modules/profil-risque/ComparativeAnalysis';
 import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
@@ -39,14 +36,6 @@ interface RegionStat {
   scoreMoyen: number;
   critiques: number;
   certifies: number;
-}
-
-interface ExploitantStat {
-  nom: string;
-  aerodromes: number;
-  scoreMoyen: number;
-  critiques: number;
-  pacRetard: number;
 }
 
 export default function DgDashboardModule({ user: _user }: { user: any }) {
@@ -110,17 +99,6 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
     });
     Object.values(regions).forEach(r => r.scoreMoyen = Math.round(r.scoreMoyen / r.nb));
 
-    const exploitants: Record<string, ExploitantStat> = {};
-    aerodromes?.forEach(a => {
-      const nom = a.exploitant_nom || 'Non spécifié';
-      if (!exploitants[nom]) exploitants[nom] = { nom, aerodromes: 0, scoreMoyen: 0, critiques: 0, pacRetard: 0 };
-      exploitants[nom].aerodromes++;
-      exploitants[nom].scoreMoyen += profilsRisque?.[a.id]?.score_global || 0;
-      if (profilsRisque?.[a.id]?.niveau === 'critique') exploitants[nom].critiques++;
-      exploitants[nom].pacRetard += ecarts?.filter(e => e.aerodrome_id === a.id && e.statut === 'en_retard').length || 0;
-    });
-    Object.values(exploitants).forEach(e => e.scoreMoyen = Math.round(e.scoreMoyen / e.aerodromes));
-
     const historiqueScores = surveillances
       .filter(s => s.score_global != null)
       .sort((a, b) => new Date(b.date_debut || '-').getTime() - new Date(a.date_debut || '-').getTime())
@@ -151,7 +129,6 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
       certifies, homologues, certifsExpirantes,
       pacRetard, ecritsCritiques, signaturesAttente, surveillancesAn, evenementsRecents,
       regions: Object.values(regions).sort((a, b) => b.scoreMoyen - a.scoreMoyen),
-      exploitants: Object.values(exploitants).sort((a, b) => b.scoreMoyen - a.scoreMoyen),
       scoreNationalParMois,
     };
   }, [aerodromes, profilsRisque, certifications, ecarts, surveillances, evenements]);
@@ -176,6 +153,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
     nomsCritiques: (aerodromes || [])
       .filter(a => profilsRisque?.[a.id]?.niveau === 'critique')
       .map(a => a.code_oaci || a.nom),
+    nomsEleves: (aerodromes || [])
+      .filter(a => profilsRisque?.[a.id]?.niveau === 'eleve')
+      .map(a => a.code_oaci || a.nom),
     certifsExpirantes: stats?.certifsExpirantes ?? 0,
     certifies: stats?.certifies ?? 0,
     homologues: stats?.homologues ?? 0,
@@ -184,7 +164,13 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
     surveillancesAn: stats?.surveillancesAn ?? 0,
     signaturesAttente: stats?.signaturesAttente ?? 0,
     tendance6m: prediction?.trend,
+    prediction3m: prediction?.score3m,
     prediction6m: prediction?.score6m,
+    probabiliteDegradation: prediction?.probabilityDegradation,
+    confiancePrediction: prediction?.confidence,
+    regions: (stats?.regions || []).map(r => ({
+      region: r.region, scoreMoyen: r.scoreMoyen, critiques: r.critiques,
+    })),
   };
   const synthese = syntheseIA ?? fallbackSyntheseNationale(contexteNational);
   useEffect(() => {
@@ -194,49 +180,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
         if (actif && !s.fallbackIA) setSyntheseIA(s);
       }).catch(() => {});
     }).catch(() => {});
+    return () => { actif = false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats?.scoreNational, stats?.total, prediction?.score6m]);
-
-  const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 20
-  const exploitants = stats?.exploitants || []
-  const paginatedExploitants = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return exploitants.slice(start, start + PAGE_SIZE)
-  }, [exploitants, currentPage])
-  useEffect(() => setCurrentPage(1), [exploitants])
-
-  const exploitantColumns: Column<ExploitantStat>[] = [
-    { key: 'nom', header: 'Exploitant', render: (item) => <span className="font-medium">{item.nom}</span> },
-    { key: 'nb', header: 'Aérodromes', render: (item) => <span>{item.aerodromes}</span> },
-    { key: 'score', header: 'Score moyen', render: (item) => (
-      <div className="flex items-center gap-2">
-        <div className="progress w-12">
-          <div className={`progress-bar ${item.scoreMoyen >= 80 ? 'bg-success' : item.scoreMoyen >= 60 ? 'bg-warning' : 'bg-danger'}`}
-            style={{ width: `${item.scoreMoyen}%` }} />
-        </div>
-        <span className={`text-xs font-bold ${item.scoreMoyen >= 80 ? 'text-success' : item.scoreMoyen >= 60 ? 'text-warning' : 'text-danger'}`}>
-          {item.scoreMoyen}
-        </span>
-      </div>
-    )},
-    { key: 'alertes', header: 'Alertes', render: (item) =>
-      item.critiques > 0
-        ? <span className="badge danger text-[10px]">{item.critiques}</span>
-        : <span className="text-xs text-muted-foreground">—</span>
-    },
-    { key: 'pac', header: 'PAC retard', render: (item) =>
-      item.pacRetard > 0
-        ? <span className="badge warning text-[10px]">{item.pacRetard}</span>
-        : <span className="text-xs text-muted-foreground">0</span>
-    },
-    { key: 'action', header: 'Action', render: (item) => (
-      <button className="btn btn-secondary btn-xs"
-        onClick={() => setActiveModule('dg-pilotage-securite')}>
-        Voir <ChevronRight className="w-3 h-3 inline ml-1" />
-      </button>
-    )},
-  ]
 
   return (
     <div className="space-y-6 animate-fade-in" data-role={user?.role || 'dg_anacim'} data-module="dg-dashboard">
@@ -446,17 +392,21 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
                 ))}
               </div>
 
-              {prediction && (
-                <div className="p-2 bg-role-primary/5 border border-role-primary/20 rounded-lg flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-role-primary flex-shrink-0" />
+              <div className="p-2 bg-role-primary/5 border border-role-primary/20 rounded-lg flex items-center gap-2">
+                <Brain className="w-4 h-4 text-role-primary flex-shrink-0" />
+                <div className="flex-1">
                   <p className="text-xs text-muted-foreground">
-                    <strong>Prédiction IA :</strong> score estimé à <strong>{prediction.score6m}%</strong> dans 6 mois
-                    {prediction.trend === 'baisse' && ' — une dégradation est probable, des actions correctives sont recommandées.'}
-                    {prediction.trend === 'hausse' && ' — la tendance est positive, maintenez les efforts.'}
-                    {prediction.trend === 'stable' && ' — le score devrait rester stable.'}
+                    <strong>Prévision détaillée :</strong> score estimé à <strong>{prediction?.score6m ?? '—'}%</strong> dans 6 mois
+                    {prediction && ` (3 mois : ${prediction.score3m}%)`} — risque de dégradation{' '}
+                    <strong>{prediction ? `${Math.round(prediction.probabilityDegradation * 100)} %` : '—'}</strong>
+                    {prediction && ` (fiabilité ${Math.round(prediction.confidence * 100)} %)`}.
                   </p>
+                  <p className="text-xs text-foreground mt-1">{synthese.previsions}</p>
+                  {!synthese.fallbackIA && (
+                    <p className="text-[11px] text-muted-foreground mt-1">Interprétation rédigée par l'IA</p>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="py-8 text-center text-muted-foreground text-sm">
@@ -474,25 +424,30 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           subtitle="Score moyen et aérodromes critiques"
         >
           {stats?.regions && stats.regions.length > 0 ? (
-            <div className="space-y-1">
-              {stats.regions.map(r => (
-                <div key={r.region} className="flex items-center gap-3 py-2 px-3 bg-muted/5 rounded-lg text-sm">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{r.region}</p>
-                    <p className="text-xs text-muted-foreground">{r.nb} aérodrome(s)</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="progress w-16">
+            <div className="space-y-3">
+              <div className="p-2 bg-role-primary/5 border border-role-primary/20 rounded-lg flex items-center gap-2">
+                <Brain className="w-4 h-4 text-role-primary flex-shrink-0" />
+                <p className="text-xs text-foreground">{synthese.regions}</p>
+              </div>
+              <div className="space-y-1">
+                {stats.regions.map(r => (
+                  <div key={r.region} className="flex items-center gap-2 py-1 text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate text-sm">{r.region}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {r.nb} aérodrome(s){r.critiques > 0 ? ` · ${r.critiques} critique(s)` : ''}
+                      </p>
+                    </div>
+                    <div className="progress flex-1">
                       <div className={`progress-bar ${r.scoreMoyen >= 80 ? 'bg-success' : r.scoreMoyen >= 60 ? 'bg-warning' : 'bg-danger'}`}
                         style={{ width: `${r.scoreMoyen}%` }} />
                     </div>
-                    <span className={`text-xs font-bold w-8 text-right ${
+                    <span className={`text-xs font-medium w-8 text-right ${
                       r.scoreMoyen >= 80 ? 'text-success' : r.scoreMoyen >= 60 ? 'text-warning' : 'text-danger'
                     }`}>{r.scoreMoyen}</span>
-                    {r.critiques > 0 && <span className="badge danger text-[10px]">{r.critiques}</span>}
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="py-6 text-center text-muted-foreground text-sm">
@@ -534,29 +489,6 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
       ) : (
         <ComparativeAnalysis onSelectAerodrome={(id) => setSelectedAerodromeId(id)} />
       )}
-
-      {/* Classement exploitants */}
-      <DataTable
-        data={paginatedExploitants}
-        columns={exploitantColumns}
-        keyExtractor={(item) => item.nom}
-        cardProps={{
-          icon: <Building2 className="h-5 w-5 text-role-primary" />,
-          title: 'Classement des exploitants',
-          subtitle: 'Performance comparée par opérateur d\'aérodrome',
-        }}
-        emptyState={{
-          icon: Building2,
-          title: 'Aucun exploitant',
-        }}
-        pagination={exploitants.length > PAGE_SIZE ? {
-          total: exploitants.length,
-          current: currentPage,
-          pageSize: PAGE_SIZE,
-          onPageChange: setCurrentPage,
-        } : undefined}
-        headerClassName="bg-role-primary-soft/40"
-      />
 
     </div>
   );

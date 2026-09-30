@@ -10,12 +10,19 @@
 import { aiClient } from './aiClient'
 import { RISK_SYSTEM_PROMPT } from './prompts'
 
+export interface RegionSynthese {
+  region: string
+  scoreMoyen: number
+  critiques: number
+}
+
 export interface ContexteNational {
   scoreNational: number
   totalAerodromes: number
   critiques: number
   eleves: number
   nomsCritiques: string[]
+  nomsEleves: string[]
   certifsExpirantes: number
   certifies: number
   homologues: number
@@ -24,7 +31,11 @@ export interface ContexteNational {
   surveillancesAn: number
   signaturesAttente: number
   tendance6m?: 'hausse' | 'baisse' | 'stable'
+  prediction3m?: number
   prediction6m?: number
+  probabiliteDegradation?: number
+  confiancePrediction?: number
+  regions: RegionSynthese[]
 }
 
 export interface SyntheseNationale {
@@ -35,6 +46,8 @@ export interface SyntheseNationale {
   pac: string
   missions: string
   conformite: string
+  previsions: string
+  regions: string
   fallbackIA: boolean
 }
 
@@ -45,7 +58,6 @@ function niveauMot(score: number): string {
 }
 
 export function fallbackSyntheseNationale(ctx: ContexteNational): SyntheseNationale {
-  const nbAlertes = ctx.critiques + ctx.eleves
   const priorite = ctx.critiques > 0
     ? `${ctx.critiques} aérodrome(s) en situation critique à traiter en priorité${ctx.nomsCritiques.length > 0 ? ` (${ctx.nomsCritiques.slice(0, 3).join(', ')})` : ''}`
     : ctx.pacRetard > 0
@@ -64,11 +76,18 @@ export function fallbackSyntheseNationale(ctx: ContexteNational): SyntheseNation
       ? 'Niveau à surveiller : des progrès restent à faire.'
       : 'Niveau préoccupant — des actions correctives sont requises.'
 
+  // Sites (niveaux profils) ET écarts critiques ouverts : un site peut ne
+  // pas être classé critique tout en portant des écarts critiques.
+  const sites: string[] = []
+  if (ctx.nomsCritiques.length > 0) sites.push(`critiques : ${ctx.nomsCritiques.slice(0, 5).join(', ')}`)
+  if (ctx.nomsEleves.length > 0) sites.push(`vigilance élevée : ${ctx.nomsEleves.slice(0, 5).join(', ')}`)
   const alertes = ctx.critiques > 0
-    ? `Dont ${ctx.critiques} en situation critique — intervention immédiate.`
+    ? `Sites concernés — ${sites.join(' ; ')} — intervention immédiate.`
     : ctx.eleves > 0
-      ? `${ctx.eleves} en vigilance élevée — à suivre de près.`
-      : 'Aucun site en alerte — situation nominale.'
+      ? `Sites concernés — ${sites.join(' ; ')} — à suivre de près.`
+      : ctx.ecartsCritiquesOuverts > 0
+        ? `Aucun site classé en alerte, mais ${ctx.ecartsCritiquesOuverts} écart(s) critique(s) ouvert(s) à traiter.`
+        : 'Aucun site en alerte — situation nominale.'
 
   const certifications = `${ctx.certifies} sites certifiés sur ${ctx.totalAerodromes} au total.` +
     (ctx.certifsExpirantes > 0 ? ` ${ctx.certifsExpirantes} arrivent à échéance — prévoir les renouvellements.` : '')
@@ -86,7 +105,24 @@ export function fallbackSyntheseNationale(ctx: ContexteNational): SyntheseNation
     : 0
   const conformite = `${ctx.certifies} certifiés, ${ctx.homologues} homologués sur ${ctx.totalAerodromes} sites (soit ${taux} % en règle).`
 
-  return { resume, sante, alertes, certifications, pac, missions, conformite, fallbackIA: true }
+  const previsions = ctx.prediction6m != null
+    ? `D'ici 6 mois : score estimé ${ctx.prediction6m}/100` +
+      (ctx.prediction3m != null ? ` (3 mois : ${ctx.prediction3m}/100)` : '') +
+      (ctx.probabiliteDegradation != null
+        ? ` ; risque de dégradation estimé à ${Math.round(ctx.probabiliteDegradation * 100)} %` +
+          (ctx.probabiliteDegradation > 0.5 ? ' — des actions correctives sont recommandées.' : ' — situation sous contrôle.')
+        : '.') +
+      (ctx.confiancePrediction != null ? ` Fiabilité : ${Math.round(ctx.confiancePrediction * 100)} %.` : '')
+    : 'Prévisions disponibles quand au moins 3 mois de données seront réunis.'
+
+  const regionsTriees = [...ctx.regions].sort((a, b) => a.scoreMoyen - b.scoreMoyen)
+  const regions = regionsTriees.length > 0
+    ? `Écart entre ${regionsTriees[regionsTriees.length - 1].region} (${regionsTriees[regionsTriees.length - 1].scoreMoyen}/100)` +
+      ` et ${regionsTriees[0].region} (${regionsTriees[0].scoreMoyen}/100).` +
+      (regionsTriees[0].critiques > 0 ? ` ${regionsTriees[0].critiques} site(s) critique(s) en ${regionsTriees[0].region} — priorité régionale.` : '')
+    : 'Aucune donnée régionale pour le moment.'
+
+  return { resume, sante, alertes, certifications, pac, missions, conformite, previsions, regions, fallbackIA: true }
 }
 
 export async function expliquerSyntheseNationale(ctx: ContexteNational): Promise<SyntheseNationale> {
@@ -99,6 +135,8 @@ export async function expliquerSyntheseNationale(ctx: ContexteNational): Promise
     pac: fallback.pac,
     missions: fallback.missions,
     conformite: fallback.conformite,
+    previsions: fallback.previsions,
+    regions: fallback.regions,
   }
 
   const userMessage = `Explique en langage clair et très simple, pour le Directeur Général de l'ANACIM (non-expert), la situation nationale de la sécurité des aérodromes.
@@ -109,6 +147,8 @@ ${JSON.stringify(ctx, null, 2)}
 Contraintes :
 - « resume » : 2 phrases maximum : état global du réseau + priorité du moment, avec les chiffres réels.
 - Une phrase courte par carte : sante, alertes, certifications, pac, missions, conformite.
+- « previsions » : 1-2 phrases : détail chiffré 3/6 mois, risque de dégradation et ce qu'il implique.
+- « regions » : 1-2 phrases : disparités régionales (meilleure/pire région) et priorité régionale.
 - Langage très simple, phrases courtes, aucun acronyme sans explication.
 - Ne pas inventer de données absentes du contexte.
 
@@ -120,7 +160,9 @@ Retourne uniquement un JSON :
   "certifications": "...",
   "pac": "...",
   "missions": "...",
-  "conformite": "..."
+  "conformite": "...",
+  "previsions": "...",
+  "regions": "..."
 }`
 
   const result = await aiClient.callJSON<Record<string, string>>(
@@ -147,6 +189,8 @@ Retourne uniquement un JSON :
     pac: clean('pac'),
     missions: clean('missions'),
     conformite: clean('conformite'),
+    previsions: clean('previsions'),
+    regions: clean('regions'),
     fallbackIA: false,
   }
 
@@ -157,7 +201,9 @@ Retourne uniquement un JSON :
     texte.certifications === fallback.certifications &&
     texte.pac === fallback.pac &&
     texte.missions === fallback.missions &&
-    texte.conformite === fallback.conformite
+    texte.conformite === fallback.conformite &&
+    texte.previsions === fallback.previsions &&
+    texte.regions === fallback.regions
 
   return { ...texte, fallbackIA: toutFallback }
 }
