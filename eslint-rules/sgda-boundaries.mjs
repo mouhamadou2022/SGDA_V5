@@ -21,6 +21,9 @@ export const CROSS_MODULE_ALLOW = {
   "portail-exploitant": ["certification", "dashboard", "plans-actions", "profil-risque"],
   "profil-risque": ["amdec"],
   "ml-monitoring": ["profil-risque"],
+  // Dashboard DG : réutilise le comparatif + la fiche détaillée du profil
+  // de risque (revue architecte : demandé explicitement, lecture seule).
+  dashboard: ["profil-risque"],
 };
 
 // Modules UI autorisés (temporairement) à appeler lib/datastore directement.

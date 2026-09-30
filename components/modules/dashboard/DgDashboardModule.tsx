@@ -25,6 +25,8 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { RiskPrediction } from '@/lib/risque';
+import { ComparativeAnalysis } from '@/components/modules/profil-risque/ComparativeAnalysis';
+import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
 import {
   fallbackSyntheseNationale,
   type ContexteNational,
@@ -57,8 +59,10 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
   const surveillances = useAppStore(s => s.surveillances);
   const evenements = useAppStore(s => s.evenements);
   const setActiveModule = useAppStore(s => s.setActiveModule);
+  const recalculerProfilRisque = useAppStore(s => s.recalculerProfilRisque);
   const [prediction, setPrediction] = useState<RiskPrediction | null>(null);
   const [syntheseIA, setSyntheseIA] = useState<SyntheseNationale | null>(null);
+  const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const total = aerodromes?.length || 0;
@@ -498,6 +502,38 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           )}
         </Card>
       </div>
+
+      {/* Benchmark détaillé par aérodrome (réutilisé du profil de risque :
+          rang, score, tendance, C1-C5, filtres région/tri, vue liste/grille).
+          Clic sur un aérodrome = fiche détaillée DG ci-dessous. */}
+      {selectedAerodromeId ? (
+        (() => {
+          const aero = (aerodromes || []).find(a => a.id === selectedAerodromeId);
+          const profil = aero ? profilsRisque?.[aero.id] : null;
+          if (!aero || !profil) return null;
+          return (
+            <div className="space-y-4">
+              <button onClick={() => setSelectedAerodromeId(null)} className="btn btn-sm btn-secondary gap-1.5">
+                ← Retour au classement
+              </button>
+              <DecisionTab
+                profil={profil}
+                aerodromeCode={aero.code_oaci}
+                aerodromeName={aero.nom}
+                nbEcartsCritiques={(ecarts || []).filter(e => e.aerodrome_id === aero.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
+                userRole={user?.role || 'dg_anacim'}
+                onRecalculate={() => recalculerProfilRisque(aero.id)}
+                prochainesSurveillances={(surveillances || []).filter(s => s.aerodrome_id === aero.id)}
+                ecartsActifs={(ecarts || []).filter(e => e.aerodrome_id === aero.id)}
+                evenements={(evenements || []).filter(e => e.aerodrome_id === aero.id)}
+                sgsNonApplicable={aero.statut_sgs === 'non_applicable'}
+              />
+            </div>
+          );
+        })()
+      ) : (
+        <ComparativeAnalysis onSelectAerodrome={(id) => setSelectedAerodromeId(id)} />
+      )}
 
       {/* Classement exploitants */}
       <DataTable

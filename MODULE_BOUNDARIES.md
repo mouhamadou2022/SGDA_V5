@@ -128,6 +128,11 @@ mémoires IA hors checklist.
   (consultables, jamais sélectionnés — garde dans `loadTemplates...` et
   `setMasterChecklist` à l'import). Sections dédiées dans l'onglet,
   historique et Publier réutilisés.
+- Dashboard DG : synthèse nationale en langage clair (`syntheseNationaleIA`,
+  fallback + IA), cartes interprétées, benchmark `ComparativeAnalysis` +
+  fiche `DecisionTab` réutilisés du profil de risque (dépendance
+  `dashboard → profil-risque` déclarée, lecture seule) ; onglet Signatures
+  en placeholder (fonctionnalité ultérieure).
 - Résolution avec assemblage (`resoudreChecklist`, testé) : template unique
   couvrant tout d'abord, sinon un template par domaine fusionné (dédupliqué
   par nom/id). `manquants` signalés (import requis) au lieu d'une checklist
