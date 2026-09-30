@@ -25,6 +25,11 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { RiskPrediction } from '@/lib/risque';
+import {
+  fallbackSyntheseNationale,
+  type ContexteNational,
+  type SyntheseNationale,
+} from '@/lib/ia/syntheseNationaleIA';
 
 interface RegionStat {
   region: string;
@@ -53,6 +58,7 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
   const evenements = useAppStore(s => s.evenements);
   const setActiveModule = useAppStore(s => s.setActiveModule);
   const [prediction, setPrediction] = useState<RiskPrediction | null>(null);
+  const [syntheseIA, setSyntheseIA] = useState<SyntheseNationale | null>(null);
 
   const stats = useMemo(() => {
     const total = aerodromes?.length || 0;
@@ -156,6 +162,37 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
     });
   }, [stats?.scoreNationalParMois]);
 
+  // Synthèse en langage clair : fallback immédiat (déterministe), puis
+  // réécriture IA en arrière-plan — l'écran n'attend jamais l'IA.
+  const contexteNational: ContexteNational = {
+    scoreNational: stats?.scoreNational ?? 0,
+    totalAerodromes: stats?.total ?? 0,
+    critiques: stats?.aerodromesCritiques ?? 0,
+    eleves: stats?.aerodromesEleves ?? 0,
+    nomsCritiques: (aerodromes || [])
+      .filter(a => profilsRisque?.[a.id]?.niveau === 'critique')
+      .map(a => a.code_oaci || a.nom),
+    certifsExpirantes: stats?.certifsExpirantes ?? 0,
+    certifies: stats?.certifies ?? 0,
+    homologues: stats?.homologues ?? 0,
+    pacRetard: stats?.pacRetard ?? 0,
+    ecartsCritiquesOuverts: stats?.ecritsCritiques ?? 0,
+    surveillancesAn: stats?.surveillancesAn ?? 0,
+    signaturesAttente: stats?.signaturesAttente ?? 0,
+    tendance6m: prediction?.trend,
+    prediction6m: prediction?.score6m,
+  };
+  const synthese = syntheseIA ?? fallbackSyntheseNationale(contexteNational);
+  useEffect(() => {
+    let actif = true;
+    import('@/lib/ia/syntheseNationaleIA').then(m => {
+      m.expliquerSyntheseNationale(contexteNational).then(s => {
+        if (actif && !s.fallbackIA) setSyntheseIA(s);
+      }).catch(() => {});
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats?.scoreNational, stats?.total, prediction?.score6m]);
+
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 20
   const exploitants = stats?.exploitants || []
@@ -220,14 +257,28 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
         }
       />
 
-      {/* KPIs Nationaux */}
+      {/* Résumé en langage clair — IA si disponible, fallback sinon */}
+      <div className="p-4 rounded-xl border border-role-primary/20 bg-role-primary-soft/40 flex items-start gap-3">
+        <Shield className="w-5 h-5 text-role-primary flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm text-foreground">{synthese.resume}</p>
+          {!synthese.fallbackIA && (
+            <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
+              <Brain className="w-3 h-3" /> Synthèse rédigée par l'IA
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* KPIs Nationaux — libellés métier + interprétation */}
       <div className="kpi-grid">
         <div className="kpi-card border-l-4 border-l-role-primary">
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-role-primary/10"><Gauge className="w-5 h-5 text-role-primary" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Score national moyen</div>
+              <div className="kpi-label">Santé globale du réseau</div>
               <div className="kpi-value">{stats?.scoreNational ?? '—'}%</div>
+              <span className="text-xs text-muted-foreground">{synthese.sante}</span>
               <div className="progress h-1.5 mt-1">
                 <div className="progress-bar" style={{ width: `${stats?.scoreNational || 0}%` }} />
               </div>
@@ -238,9 +289,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-danger-soft"><Flame className="w-5 h-5 text-danger" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Aérodromes en alerte</div>
+              <div className="kpi-label">Sites à surveiller en priorité</div>
               <div className="kpi-value text-danger">{(stats?.aerodromesCritiques ?? 0) + (stats?.aerodromesEleves ?? 0)}</div>
-              <span className="text-xs text-muted-foreground">{stats?.aerodromesCritiques} critiques · {stats?.aerodromesEleves} élevés</span>
+              <span className="text-xs text-muted-foreground">{synthese.alertes}</span>
             </div>
           </div>
         </div>
@@ -248,9 +299,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-warning-soft"><Clock className="w-5 h-5 text-warning" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Certifications expirantes (90j)</div>
+              <div className="kpi-label">Certificats à renouveler (90 jours)</div>
               <div className="kpi-value text-warning">{stats?.certifsExpirantes ?? 0}</div>
-              <span className="text-xs text-muted-foreground">{stats?.certifies ?? 0} certifiés / {stats?.total ?? 0} aérodromes</span>
+              <span className="text-xs text-muted-foreground">{synthese.certifications}</span>
             </div>
           </div>
         </div>
@@ -258,9 +309,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-danger-soft"><AlertTriangle className="w-5 h-5 text-danger" /></div>
             <div className="flex-1">
-              <div className="kpi-label">PAC en retard</div>
+              <div className="kpi-label">Actions correctives en retard</div>
               <div className="kpi-value text-danger">{stats?.pacRetard ?? 0}</div>
-              <span className="text-xs text-muted-foreground">{stats?.ecritsCritiques} écarts critiques ouverts</span>
+              <span className="text-xs text-muted-foreground">{synthese.pac}</span>
             </div>
           </div>
         </div>
@@ -268,9 +319,9 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-primary-soft"><Eye className="w-5 h-5 text-primary" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Surveillances (12 mois)</div>
+              <div className="kpi-label">Missions réalisées (12 mois)</div>
               <div className="kpi-value">{stats?.surveillancesAn ?? 0}</div>
-              <span className="text-xs text-muted-foreground">{stats?.signaturesAttente} signatures en attente</span>
+              <span className="text-xs text-muted-foreground">{synthese.missions}</span>
             </div>
           </div>
         </div>
@@ -278,11 +329,11 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-role-primary/10"><Activity className="w-5 h-5 text-role-primary" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Taux de conformité</div>
+              <div className="kpi-label">Sites en règle</div>
               <div className="kpi-value">
                 {stats?.total ? Math.round(((stats.certifies + stats.homologues) / stats.total) * 100) : 0}%
               </div>
-              <span className="text-xs text-muted-foreground">{stats?.certifies} certifiés · {stats?.homologues} homologués</span>
+              <span className="text-xs text-muted-foreground">{synthese.conformite}</span>
             </div>
           </div>
         </div>
