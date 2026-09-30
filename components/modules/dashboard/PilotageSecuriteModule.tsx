@@ -25,6 +25,7 @@ import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
 import {
   fallbackPilotage,
   expliquerPilotage,
+  detailsPilotage,
   type ContextePilotage,
 } from '@/lib/ia/synthesesDgIA';
 
@@ -108,6 +109,13 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
     nbPacRetard: data?.totalPacRetard ?? 0,
   };
   const synthese = syntheseIA ?? { texte: fallbackPilotage(contextePilotage), fallbackIA: true };
+  const details = detailsPilotage(
+    data?.parDomaine?.[0]?.[0] ?? null,
+    data?.parDomaine?.[0]?.[1]?.total ?? 0,
+    data?.parDomaine?.[0]?.[1]?.critiques ?? 0,
+    data?.evenementsRecents.length ?? 0,
+    (data?.derniersScores || []).map(s => ({ score: s.score ?? null })),
+  );
   useEffect(() => {
     let actif = true;
     expliquerPilotage(contextePilotage).then(s => {
@@ -255,6 +263,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           subtitle="Domaines les plus impactés"
           badge={<span className="badge neutral">{(data?.totalCritiques ?? 0) + (data?.totalEleves ?? 0) + (data?.totalMoyens ?? 0) + (data?.totalFaibles ?? 0)} total</span>}
         >
+          <p className="text-xs text-foreground mb-2">{details.domaines}</p>
           {data?.parDomaine && data.parDomaine.length > 0 ? (
             <div className="space-y-1">
               {data.parDomaine.map(([domaine, stats]) => (
@@ -286,6 +295,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           subtitle="Incidents de sécurité déclarés"
           badge={data?.evenementsRecents.length ? <span className="badge warning">{data.evenementsRecents.length}</span> : undefined}
         >
+          <p className="text-xs text-foreground mb-2">{details.evenements}</p>
           {data?.evenementsRecents && data.evenementsRecents.length > 0 ? (
             <div className="space-y-1">
               {data.evenementsRecents.map(e => {
@@ -316,6 +326,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           title="Derniers scores de surveillance"
           subtitle="5 dernières surveillances transmises"
         >
+          <p className="text-xs text-foreground mb-2">{details.scores}</p>
           {data?.derniersScores && data.derniersScores.length > 0 ? (
             <div className="space-y-1">
               {data.derniersScores.map((s, i) => (

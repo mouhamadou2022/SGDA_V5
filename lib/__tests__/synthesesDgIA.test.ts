@@ -4,6 +4,7 @@ import {
   fallbackPilotage,
   fallbackConformite,
   fallbackDecisions,
+  detailsPilotage,
 } from '../ia/synthesesDgIA'
 
 describe('fallbackPilotage', () => {
@@ -28,6 +29,22 @@ describe('fallbackPilotage', () => {
       topDomaineTotal: 0, topDomaineCritiques: 0, nbEvenements90j: 0, nbPacRetard: 0,
     })
     expect(t).toContain('Aucun site en alerte')
+  })
+})
+
+describe('detailsPilotage', () => {
+  test('lignes par carte avec chiffres réels', () => {
+    const d = detailsPilotage('PHY', 5, 1, 3, [{ score: 72 }, { score: null }])
+    expect(d.domaines).toContain('PHY')
+    expect(d.domaines).toContain('(5 dont 1 critique(s))')
+    expect(d.evenements).toContain('3 événement')
+    expect(d.scores).toContain('72/100')
+  })
+  test('vide : messages nominaux', () => {
+    const d = detailsPilotage(null, 0, 0, 0, [])
+    expect(d.domaines).toContain('Aucun écart ouvert')
+    expect(d.evenements).toContain('Aucun événement')
+    expect(d.scores).toContain('Aucun score')
   })
 })
 
