@@ -34,15 +34,16 @@ describe('fallbackPilotage', () => {
 
 describe('detailsPilotage', () => {
   test('lignes par carte avec chiffres réels', () => {
-    const d = detailsPilotage('PHY', 5, 1, 3, [{ score: 72 }, { score: null }])
+    const d = detailsPilotage('PHY', 5, 1, 3, [{ score: 72 }, { score: null }], 2)
+    expect(d.domaines).toContain('2 écart(s) critique(s)')
     expect(d.domaines).toContain('PHY')
-    expect(d.domaines).toContain('(5 dont 1 critique(s))')
     expect(d.evenements).toContain('3 événement')
     expect(d.scores).toContain('72/100')
+    expect(d.nbEcartsCritiques).toBe(2)
   })
   test('vide : messages nominaux', () => {
-    const d = detailsPilotage(null, 0, 0, 0, [])
-    expect(d.domaines).toContain('Aucun écart ouvert')
+    const d = detailsPilotage(null, 0, 0, 0, [], 0)
+    expect(d.domaines).toContain('Aucun écart critique ouvert')
     expect(d.evenements).toContain('Aucun événement')
     expect(d.scores).toContain('Aucun score')
   })

@@ -77,6 +77,8 @@ export interface DetailsPilotage {
   domaines: string
   evenements: string
   scores: string
+  /** Nombre d'écarts critiques listés par aérodrome. */
+  nbEcartsCritiques: number
 }
 
 /** Lignes d'interprétation par carte (déterministes, chiffres réels). */
@@ -86,11 +88,12 @@ export function detailsPilotage(
   topDomaineCritiques: number,
   nbEvenements90j: number,
   derniersScores: Array<{ score: number | null }>,
+  nbEcartsCritiques = 0,
 ): DetailsPilotage {
-  const domaines = topDomaine
-    ? `Le domaine ${topDomaine} concentre le plus d'écarts ouverts (${topDomaineTotal}` +
-      (topDomaineCritiques > 0 ? ` dont ${topDomaineCritiques} critique(s)` : '') + ').'
-    : 'Aucun écart ouvert par domaine.'
+  const domaines = nbEcartsCritiques > 0
+    ? `${nbEcartsCritiques} écart(s) critique(s) ouvert(s), listés par aérodrome ci-dessous` +
+      (topDomaine ? ` — domaine le plus touché : ${topDomaine} (${topDomaineTotal} écarts).` : '.')
+    : 'Aucun écart critique ouvert.'
   const evenements = nbEvenements90j > 0
     ? `${nbEvenements90j} événement(s) déclarés ces 90 derniers jours — à croiser avec les sites en alerte.`
     : 'Aucun événement déclaré ces 90 derniers jours.'
@@ -98,7 +101,7 @@ export function detailsPilotage(
   const scoresTexte = scores.length > 0
     ? `Dernier score relevé : ${scores[0].score}/100.`
     : 'Aucun score de surveillance transmis pour le moment.'
-  return { domaines, evenements, scores: scoresTexte }
+  return { domaines, evenements, scores: scoresTexte, nbEcartsCritiques }
 }
 
 // ── Conformité & Contrôle ──────────────────────────────────────

@@ -41,22 +41,59 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
   const [syntheseIA, setSyntheseIA] = useState<{ texte: string; fallbackIA: boolean } | null>(null);
 
   const data = useMemo(() => {
-    // Aérodromes en alerte (critique + élevé)
+    // Aérodromes en alerte : profil critique/élevé OU écarts critiques
+    // ouverts (même sans profil critique). Libellé clair du motif.
     const enAlerte = aerodromes?.filter(a => {
       const p = profilsRisque?.[a.id];
-      return p?.niveau === 'critique' || p?.niveau === 'eleve';
-    }).map(a => ({
-      id: a.id,
-      nom: a.nom,
-      code: a.code_oaci,
-      region: a.region,
-      exploitant: a.exploitant_nom,
-      niveau: profilsRisque?.[a.id]?.niveau || 'inconnu',
-      score: profilsRisque?.[a.id]?.score_global || 0,
-      tendance: profilsRisque?.[a.id]?.tendance || 'stable',
-      ecritsCritiques: ecarts?.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0,
-      pacRetard: ecarts?.filter(e => e.aerodrome_id === a.id && e.statut === 'en_retard').length || 0,
-    })).sort((a, b) => a.score - b.score) || [];
+      const critiquesOuverts = ecarts?.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0;
+      return p?.niveau === 'critique' || p?.niveau === 'eleve' || critiquesOuverts > 0;
+    }).map(a => {
+      const p = profilsRisque?.[a.id];
+      const ecritsCritiques = ecarts?.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0;
+      const pacRetard = ecarts?.filter(e => e.aerodrome_id === a.id && e.statut === 'en_retard').length || 0;
+      const motifs: string[] = [];
+      if (p?.niveau === 'critique') motifs.push('profil critique');
+      else if (p?.niveau === 'eleve') motifs.push('vigilance élevée');
+      if (ecritsCritiques > 0) motifs.push(`${ecritsCritiques} écart(s) critique(s) ouvert(s)`);
+      return {
+        id: a.id,
+        nom: a.nom,
+        code: a.code_oaci,
+        region: a.region,
+        exploitant: a.exploitant_nom,
+        niveau: p?.niveau || 'sous surveillance',
+        score: p?.score_global || 0,
+        tendance: p?.tendance || 'stable',
+        ecritsCritiques,
+        pacRetard,
+        motif: motifs.join(' · ') || 'à suivre',
+      };
+    }).sort((a, b) => a.score - b.score) || [];
+
+    // Écarts critiques ouverts, par aérodrome, en langage clair.
+    const ecartsCritiquesDetail = (ecarts || [])
+      .filter(e => e.niveau_risque === 'critique' && e.statut !== 'cloture')
+      .map(e => {
+        const aero = aerodromes?.find(a => a.id === e.aerodrome_id);
+        const jours = e.delai_pac ? Math.ceil((new Date(e.delai_pac).getTime() - Date.now()) / 86400000) : null;
+        return {
+          id: e.id,
+          code: aero?.code_oaci || e.aerodrome_id,
+          nom: aero?.nom || '',
+          reference: e.reference,
+          libelle: e.libelle,
+          domaine: e.domaine,
+          jours,
+          delaiTexte: jours === null ? 'délai non fixé' : jours < 0 ? `dépassé de ${-jours} jour(s)` : `reste ${jours} jour(s)`,
+          enRetard: jours !== null && jours < 0,
+        };
+      })
+      .sort((a, b) => a.code.localeCompare(b.code));
+
+    // Échéance critique la plus proche (délais PAC des écarts critiques).
+    const echeancePlusProche = ecartsCritiquesDetail
+      .filter(e => e.jours !== null)
+      .sort((a, b) => (a.jours as number) - (b.jours as number))[0] || null;
 
     // Statistiques nationales des écarts
     const totalCritiques = ecarts?.filter(e => e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0;
@@ -94,7 +131,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
     return {
       enAlerte, totalCritiques, totalEleves, totalMoyens, totalFaibles,
       totalPacRetard, totalFermes, parDomaine: Object.entries(parDomaine).sort((a, b) => b[1].total - a[1].total),
-      evenementsRecents, derniersScores,
+      evenementsRecents, derniersScores, ecartsCritiquesDetail, echeancePlusProche,
     };
   }, [aerodromes, profilsRisque, ecarts, surveillances, evenements]);
 
@@ -115,6 +152,7 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
     data?.parDomaine?.[0]?.[1]?.critiques ?? 0,
     data?.evenementsRecents.length ?? 0,
     (data?.derniersScores || []).map(s => ({ score: s.score ?? null })),
+    data?.totalCritiques ?? 0,
   );
   useEffect(() => {
     let actif = true;
@@ -178,8 +216,13 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           <div className="flex items-center gap-3">
             <div className="kpi-icon bg-danger-soft"><Flame className="w-5 h-5 text-danger" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Aérodromes en alerte</div>
+              <div className="kpi-label">Sites sous alerte</div>
               <div className="kpi-value text-danger">{data?.enAlerte.length || 0}</div>
+              <span className="text-xs text-muted-foreground">
+                {(data?.enAlerte.length ?? 0) > 0
+                  ? `À traiter en priorité : ${(data?.enAlerte || []).slice(0, 3).map(a => a.code).join(', ')}`
+                  : 'Réseau nominal — aucune intervention requise'}
+              </span>
             </div>
           </div>
         </div>
@@ -189,6 +232,11 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
             <div className="flex-1">
               <div className="kpi-label">Écarts critiques ouverts</div>
               <div className="kpi-value text-danger">{data?.totalCritiques ?? 0}</div>
+              <span className="text-xs text-muted-foreground">
+                {(data?.totalCritiques ?? 0) > 0
+                  ? 'Détail par site dans la carte ci-dessous'
+                  : 'Aucun écart critique en cours'}
+              </span>
             </div>
           </div>
         </div>
@@ -198,15 +246,25 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
             <div className="flex-1">
               <div className="kpi-label">PAC en retard</div>
               <div className="kpi-value text-warning">{data?.totalPacRetard ?? 0}</div>
+              <span className="text-xs text-muted-foreground">
+                {(data?.totalPacRetard ?? 0) > 0
+                  ? 'Plans à relancer auprès des exploitants'
+                  : 'Tous les plans sont à jour'}
+              </span>
             </div>
           </div>
         </div>
         <div className="kpi-card border-l-4 border-l-role-primary">
           <div className="flex items-center gap-3">
-            <div className="kpi-icon bg-role-primary/10"><CheckCircle2 className="w-5 h-5 text-role-primary" /></div>
+            <div className="kpi-icon bg-role-primary/10"><Eye className="w-5 h-5 text-role-primary" /></div>
             <div className="flex-1">
-              <div className="kpi-label">Écarts fermés</div>
-              <div className="kpi-value">{data?.totalFermes ?? 0}</div>
+              <div className="kpi-label">Échéance critique la plus proche</div>
+              <div className="kpi-value">{data?.echeancePlusProche ? data.echeancePlusProche.code : '—'}</div>
+              <span className="text-xs text-muted-foreground">
+                {data?.echeancePlusProche
+                  ? `${data.echeancePlusProche.reference} — ${data.echeancePlusProche.delaiTexte}`
+                  : 'Aucune échéance critique suivie'}
+              </span>
             </div>
           </div>
         </div>
@@ -241,9 +299,10 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
                     <Globe className="w-3 h-3" /> {a.region}
                     <Building2 className="w-3 h-3 ml-2" /> {a.exploitant || '—'}
                   </div>
+                  <p className="mt-1 text-xs text-foreground">Pourquoi ce site : {a.motif}.</p>
                   <div className="mt-1 flex gap-2">
                     {a.ecritsCritiques > 0 && <span className="badge danger text-[10px]">{a.ecritsCritiques} critique(s)</span>}
-                    {a.pacRetard > 0 && <span className="badge warning text-[10px]">{a.pacRetard} PAC retard</span>}
+                    {a.pacRetard > 0 && <span className="badge warning text-[10px]">{a.pacRetard} PAC en retard (info)</span>}
                   </div>
                 </div>
               ))}
@@ -256,31 +315,32 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           )}
         </Card>
 
-        {/* Répartition par domaine */}
+        {/* Écarts critiques par aérodrome — le DG lit chaque écart critique */}
         <Card
-          icon={<AlertTriangle className="h-5 w-5 text-warning" />}
-          title="Écarts par domaine"
-          subtitle="Domaines les plus impactés"
-          badge={<span className="badge neutral">{(data?.totalCritiques ?? 0) + (data?.totalEleves ?? 0) + (data?.totalMoyens ?? 0) + (data?.totalFaibles ?? 0)} total</span>}
+          icon={<AlertTriangle className="h-5 w-5 text-danger" />}
+          title="Écarts critiques par aérodrome"
+          subtitle="Lecture site par site — seuls les critiques"
+          badge={<span className="badge danger">{data?.totalCritiques ?? 0} critique(s)</span>}
         >
           <p className="text-xs text-foreground mb-2">{details.domaines}</p>
-          {data?.parDomaine && data.parDomaine.length > 0 ? (
-            <div className="space-y-1">
-              {data.parDomaine.map(([domaine, stats]) => (
-                <div key={domaine} className="flex items-center gap-3 py-1.5 px-2 bg-muted/5 rounded text-sm">
-                  <span className="text-xs font-medium w-24 truncate">{domaine}</span>
-                  <div className="progress flex-1">
-                    <div className="progress-bar" style={{ width: `${Math.min(100, stats.total * 8)}%` }} />
+          {data?.ecartsCritiquesDetail && data.ecartsCritiquesDetail.length > 0 ? (
+            <div className="space-y-2">
+              {data.ecartsCritiquesDetail.map(e => (
+                <div key={e.id} className={`p-3 rounded-lg border ${e.enRetard ? 'bg-danger/5 border-danger/20' : 'bg-muted/5 border-border'}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="code-oaci-badge">{e.code}</span>
+                    <span className="text-xs font-medium">{e.reference}</span>
+                    <span className="badge outline text-[10px]">{e.domaine}</span>
+                    <span className={`text-[10px] font-medium ${e.enRetard ? 'text-danger' : 'text-muted-foreground'}`}>{e.delaiTexte}</span>
                   </div>
-                  <span className="text-xs font-medium w-6 text-right">{stats.total}</span>
-                  {stats.critiques > 0 && <span className="badge danger text-[10px] w-12 text-center">{stats.critiques} crit.</span>}
+                  <p className="text-xs text-foreground mt-1">{e.libelle}</p>
                 </div>
               ))}
             </div>
           ) : (
             <div className="py-6 text-center text-muted-foreground text-sm">
-              <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p>Aucun écart ouvert</p>
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-success" />
+              <p>Aucun écart critique ouvert</p>
             </div>
           )}
         </Card>
