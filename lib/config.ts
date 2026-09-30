@@ -90,6 +90,7 @@ export const PERMISSIONS = {
       'dg-pilotage-securite',
       'dg-conformite-controle',
       'dg-decisions-impact',
+      'signatures',
       'agents',
     ],
   },

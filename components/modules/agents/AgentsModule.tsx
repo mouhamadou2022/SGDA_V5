@@ -70,7 +70,9 @@ function formatDate(iso: string): string {
 }
 
 export function AgentsModule({ user }: Props) {
-  const canTrain = ['admin', 'inspector', 'dg_anacim'].includes(user?.role ?? '')
+  const isDG = user?.role === 'dg_anacim'
+  // DG : copilote uniquement (entraînement et stats masqués).
+  const canTrain = !isDG && ['admin', 'inspector', 'dg_anacim'].includes(user?.role ?? '')
   const [tab, setTab] = useState<'copilote' | 'entrainement' | 'stats'>('copilote')
   const [customTasks, setCustomTasks] = useState<CustomTask[]>([])
   const [customForm, setCustomForm] = useState({ nom: '', description: '', agentId: '', prompt: '' })
@@ -144,12 +146,12 @@ export function AgentsModule({ user }: Props) {
         description="Interrogez librement l'IA, entraînez les agents et suivez leur apprentissage."
       />
 
-      {/* Onglets */}
+      {/* Onglets (DG : copilote uniquement) */}
       <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1 w-fit">
         {([
           ['copilote', 'Copilote'],
           ...(canTrain ? ([['entrainement', 'Entraînement']] as const) : []),
-          ['stats', 'Apprentissage'],
+          ...(!isDG ? ([['stats', 'Apprentissage']] as const) : []),
         ] as const).map(([key, label]) => (
           <button
             key={key}
