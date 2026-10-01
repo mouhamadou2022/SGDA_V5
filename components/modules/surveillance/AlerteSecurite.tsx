@@ -1,27 +1,8 @@
 // components/modules/surveillance/AlerteSecurite.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import {
-  AlertTriangle,
-  AlertOctagon,
-  Flame,
-  CheckCircle2,
-  XCircle,
-  Eye,
-  Download,
-  Trash2,
-  Upload,
-  X,
-  Clock,
-  UserCheck,
-  FileText,
-  Camera,
-  Send,
-  Bell,
-  BellRing,
-  ChevronDown,
-} from 'lucide-react';
+import React, { useState } from 'react'
+import { AlertTriangle, AlertOctagon, Flame, CheckCircle2, Eye, Download, Trash2, X, Clock, UserCheck, FileText, Send, Bell, BellRing, ChevronDown } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { FileUploader } from '@/components/ui/FileUploader';

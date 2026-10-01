@@ -18,17 +18,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection'
 import { Role } from '@/lib/config'
 import { canEditSurveillanceContent } from '@/lib/config'
-import { plansActionsUtils } from '@/lib/plansActionsUtils'
-import {
-  ClipboardList, AlertTriangle, CheckCircle2, Clock,
-  Search, Filter, Download, Eye, PenSquare, Trash2,
-  Calendar, User, FileText,
-  TrendingUp, TrendingDown, Minus, AlertOctagon, Flame,
-  AlertCircle, Info, MessageSquare, History, Send,
-  CheckSquare, XCircle, Bell, Mail, Phone,
-  Activity, Shield, Target, Zap, Brain, BarChart3,
-  Archive, Loader2, Sparkles, X, RefreshCw,
-} from 'lucide-react'
+import { ClipboardList, AlertTriangle, CheckCircle2, Clock, Search, Filter, Download, Eye, FileText, TrendingUp, Flame, Send, Mail, Shield, Target, Brain, Archive, Loader2, Sparkles, X, RefreshCw } from 'lucide-react'
 import { EcartCard } from '@/components/cards/EcartCard'
 import { EvaluationPACModal } from './EvaluationPACModal'
 import { EvaluationPreuvesModal } from './EvaluationPreuvesModal'
@@ -50,6 +40,59 @@ interface PlansActionsModuleProps {
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,backgroundPosition:'right 0.75rem center',backgroundRepeat:'no-repeat'}
 
+/**
+ * Listes cliquables évalués / restants (comme les liens d'écarts) : chaque
+ * ligne saute directement vers l'évaluation du PAC concerné.
+ */
+function ListesEvaluation({ aEvaluer, complets, onEvaluer }: {
+  aEvaluer: any[]
+  complets: any[]
+  onEvaluer: (ecart: any) => void
+}) {
+  const completIds = new Set(complets.map(e => e.id))
+  const restants = aEvaluer.filter(e => !completIds.has(e.id))
+  if (aEvaluer.length === 0) return null
+  const ligne = (e: any, evalue: boolean) => (
+    <button
+      key={e.id}
+      onClick={() => onEvaluer(e)}
+      title={evalue ? 'Revoir l’évaluation' : 'Évaluer ce PAC'}
+      className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40 transition-colors"
+    >
+      {evalue
+        ? <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0" />
+        : <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0" />}
+      <span className="font-mono font-medium flex-shrink-0">{e.reference || e.id.slice(0, 8)}</span>
+      <span className="text-muted-foreground truncate flex-1">{e.libelle || ''}</span>
+      <span className="text-role-primary font-medium flex-shrink-0">{evalue ? 'Revoir →' : 'Évaluer →'}</span>
+    </button>
+  )
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+      <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={restants.length > 0}>
+        <summary className="text-xs font-semibold cursor-pointer">
+          ⚠ Restants ({restants.length}) — cliquer pour évaluer
+        </summary>
+        <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+          {restants.length > 0
+            ? restants.map(e => ligne(e, false))
+            : <p className="text-xs text-muted-foreground px-2 py-1">Aucun — tout est évalué.</p>}
+        </div>
+      </details>
+      <details className="rounded-lg border border-success/30 bg-success/5 p-2">
+        <summary className="text-xs font-semibold cursor-pointer">
+          ✓ Évalués ({complets.length}) — cliquer pour revoir
+        </summary>
+        <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+          {complets.length > 0
+            ? complets.map(e => ligne(e, true))
+            : <p className="text-xs text-muted-foreground px-2 py-1">Aucun pour le moment.</p>}
+        </div>
+      </details>
+    </div>
+  )
+}
+
 export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aerodromeId: aerodromeIdProp }: PlansActionsModuleProps) {
   const { startTransition } = useGlobalTransition()
   const ecarts = useOptimizedStore(s => s.ecarts)
@@ -68,6 +111,15 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const addNotification = useAppStore(s => s.addNotification)
   const setActiveModule = useAppStore(s => s.setActiveModule)
   const checklistItems = useOptimizedStore(s => s.checklistItems)
+
+  // Saut direct vers l'évaluation d'un PAC (même cible que le bouton Évaluer des cartes).
+  const ouvrirEvaluationEcart = useCallback((ecart: any) => {
+    setSelectedEcart(ecart.id)
+    startTransition(() => {
+      if (ecart.statut === 'preuves_soumises') setShowPreuvesEvaluationModal(true)
+      else setShowEvaluationModal(true)
+    })
+  }, [startTransition])
 
   // Détermine si l'utilisateur peut évaluer un écart lié à une surveillance :
   // seuls le chef d'équipe, les membres de l'équipe ou l'inspecteur délégué sur
@@ -129,6 +181,9 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const [evalDrafts, setEvalDrafts] = useState<Record<string, any>>({})
   const [showEvalTransmissionModal, setShowEvalTransmissionModal] = useState(false)
   const [isSubmittingEvalBulk, setIsSubmittingEvalBulk] = useState(false)
+  // Affichage progressif : nb de cartes par groupe (surveillance+domaine), 10 par défaut.
+  const [limitesGroupes, setLimitesGroupes] = useState<Record<string, number>>({})
+  const LIMITE_GROUPE_DEFAUT = 10
   const [pendingEvalGroup, setPendingEvalGroup] = useState<{ domaine: string; ecarts: any[] } | null>(null)
   const evaluerPAC = useAppStore(s => s.evaluerPAC)
 
@@ -728,6 +783,27 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
         </div>
       </Card>
 
+      {/* Compteur de résultats après filtres */}
+      <p className="text-xs text-muted-foreground -mt-1 mb-1">
+        {sortedEcarts.length} écart(s) affiché(s){sortedEcarts.length !== ecarts.length ? ` sur ${ecarts.length} (filtres actifs)` : ''}
+      </p>
+
+      {/* Brouillons non transmis : locaux à ce navigateur, perdus si vidé — transmettre vite. */}
+      {(() => {
+        const brouillons = Object.keys(evalDrafts).filter(id =>
+          sortedEcarts.some((e: any) => e.id === id && e.statut === 'pac_soumis'))
+        if (brouillons.length === 0) return null
+        return (
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-3">
+            <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-foreground">
+              <strong>{brouillons.length} évaluation(s) en brouillon local</strong> — visibles uniquement sur cet appareil. Transmettez-les
+              (cartes « Transmission groupée » ci-dessous) sinon elles seront perdues en cas de vidage du navigateur.
+            </p>
+          </div>
+        )
+      })()}
+
       {/* Onglets */}
       <div className="tabs">
         <button className={`tab ${activeTab === 'surveillances' ? 'active' : ''}`} onClick={() => setActiveTab('surveillances')}>
@@ -765,10 +841,38 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
         </button>
       </div>
 
+      {/* Suivi des preuves (tous onglets) : restants cliquables vers l'évaluation, évalués vers la relecture. */}
+      {(() => {
+        const preuvesAEvaluer = sortedEcarts.filter((e: any) => e.statut === 'preuves_soumises')
+        const preuvesEvaluees = sortedEcarts.filter((e: any) => ['preuves_evaluees', 'cloture'].includes(e.statut))
+        if (preuvesAEvaluer.length === 0 && preuvesEvaluees.length === 0) return null
+        return (
+          <Card variant="role" size="sm" className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2 className="w-4 h-4 text-role-primary" />
+              <span className="font-semibold text-sm">Suivi des preuves</span>
+              <span className="badge neutral text-[10px]">{preuvesEvaluees.length}/{preuvesAEvaluer.length + preuvesEvaluees.length} évaluées</span>
+            </div>
+            <ListesEvaluation aEvaluer={preuvesAEvaluer} complets={preuvesEvaluees} onEvaluer={ouvrirEvaluationEcart} />
+          </Card>
+        )
+      })()}
+
       <div className="tab-content">
         {activeTab === 'surveillances' && (<>
           <AccordionGroup spacing="sm">
-            {Object.entries(ecartsParSurveillance).map(([survId, { surveillance, ecarts }]) => {
+            {Object.entries(ecartsParSurveillance)
+              // Urgences d'abord : retards, critiques, puis moins avancés.
+              .sort(([, a], [, b]) => {
+                const retard = (g: { ecarts: any[] }) => g.ecarts.filter(e => e.statut === 'en_retard').length
+                const critiques = (g: { ecarts: any[] }) => g.ecarts.filter(e => e.prioriteDynamique === 'critique').length
+                const closRatio = (g: { ecarts: any[] }) => {
+                  const clos = g.ecarts.filter(e => e.statut === 'cloture').length
+                  return g.ecarts.length > 0 ? clos / g.ecarts.length : 1
+                }
+                return (retard(b) - retard(a)) || (critiques(b) - critiques(a)) || (closRatio(a) - closRatio(b))
+              })
+              .map(([survId, { surveillance, ecarts }]) => {
               const aerodrome = aerodromes.find(a => a.id === surveillance.aerodrome_id)
               const totalEcarts = ecarts.length
               const clos = ecarts.filter(e => e.statut === 'cloture').length
@@ -814,6 +918,10 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     const draftComplet = ecartsAEvaluer.filter((e: any) => {
                       const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision
                     })
+                    const cleGroupe = `${survId}:${groupe.domaine}`
+                    const limite = limitesGroupes[cleGroupe] ?? LIMITE_GROUPE_DEFAUT
+                    const visibles = groupe.items.slice(0, limite)
+                    const masques = groupe.items.length - visibles.length
                     return (
                     <div key={groupe.domaine} className="space-y-3">
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/20 rounded-lg border border-border/50">
@@ -826,7 +934,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                           </span>
                         )}
                       </div>
-                      {groupe.items.map((ecart: any) => {
+                      {visibles.map((ecart: any) => {
                       const evalAutorise = peutEvaluerEcart(ecart)
                       return (
                         <EcartCard
@@ -847,6 +955,15 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                         />
                       )
                     })}
+                    {masques > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setLimitesGroupes(prev => ({ ...prev, [cleGroupe]: (prev[cleGroupe] ?? LIMITE_GROUPE_DEFAUT) + 20 }))}
+                        className="btn btn-sm btn-secondary w-full"
+                      >
+                        Afficher plus ({masques} restant{masques > 1 ? 's' : ''})
+                      </button>
+                    )}
                     </div>
                     )
                   })}
@@ -881,6 +998,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 ) : (
                   <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
                 )}
+                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
               </Card>
             )
           })()}
@@ -980,6 +1098,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 ) : (
                   <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
                 )}
+                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
               </Card>
             )
           })()}
@@ -1100,13 +1219,13 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                             canValiderChef={estChefDeSurveillance(ecart)}
                             userRole={userRole}
                             userId={user?.id || ''}
-                            evalDraft={evalDrafts[ecart.id] || null}
-                          />
-                        )
-                      })}
-                      </div>
+                          evalDraft={evalDrafts[ecart.id] || null}
+                        />
                       )
                     })}
+                    </div>
+                    )
+                  })}
                     {aeroEcarts.length === 0 && (
                       <Card className="text-center">
                         <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
@@ -1144,6 +1263,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 ) : (
                   <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
                 )}
+                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
               </Card>
             )
           })()}

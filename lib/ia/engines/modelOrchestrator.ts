@@ -148,7 +148,7 @@ function scoreModel(
 ): { score: number; reason: string } {
   const p = ctx.profil
   let score = model.baseConfidence
-  let penalties: string[] = []
+  const penalties: string[] = []
 
   // Vérifier les prérequis
   if (model.requirements.minDataPoints && (ctx.historicalLength ?? 0) < model.requirements.minDataPoints) {

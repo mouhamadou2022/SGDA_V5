@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useAppStore } from '@/lib/store'
-import { FolderOpen, X, Plus, Edit3, CheckCircle2, Trash2, Clock, User, FileText } from 'lucide-react'
+import { FolderOpen, Plus, Edit3, CheckCircle2, Trash2, Clock, User, FileText } from 'lucide-react'
 import { FormShell } from '@/components/ui/FormShell'
 
 interface HistoriqueDossierModalProps {

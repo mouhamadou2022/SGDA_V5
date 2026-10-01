@@ -40,7 +40,10 @@ jest.mock('@/hooks/useFormProgress', () => ({
 }))
 
 jest.mock('@/components/ui/FormShell', () => {
-  const R = require('react')
+  // `jest.requireActual` (et non un `require` nu) : seule forme autorisée à
+  // l'intérieur d'une factory `jest.mock` (les imports hors portée y sont
+  // interdits par babel-plugin-jest-hoist).
+  const R = jest.requireActual<typeof import('react')>('react')
   return {
     // La valeur par défaut doit être une fonction (même signature que dans FormShell.tsx)
     FormProgressContext: R.createContext(() => {}),

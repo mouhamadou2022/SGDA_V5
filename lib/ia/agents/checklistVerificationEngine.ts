@@ -4,10 +4,10 @@
 
 'use client'
 
-import { useAppStore, type KitDocument, type DomaineChecklist, type Surveillance } from '@/lib/store'
+import { useAppStore, type KitDocument, type Surveillance } from '@/lib/store'
 import { aiClient } from '@/lib/ia/aiClient'
 import { decouperChapitres } from '@/lib/services/pdfExtractor'
-import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
+import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
 export interface ChapitreCoverage {
   chapitre: string

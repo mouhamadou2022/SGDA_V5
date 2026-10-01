@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Trash2, ChevronDown, Eye, Plus, Copy, MoveUp, MoveDown, MessageSquare } from 'lucide-react';
+import { Trash2, ChevronDown, Eye, Copy, MoveUp, MoveDown, MessageSquare } from 'lucide-react'
 
 export interface ChefDeBordChecklistItemToolbarProps {
   itemId: string;

@@ -9,11 +9,10 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppStore, type Planning, type Utilisateur, type Formation, type Exemption, type ProfilRisque } from '@/lib/store';
-import type { ResultatChecklist } from '@/types/surveillance';
 import { formatDate } from '@/lib/utils';
 import { canManageRole } from '@/lib/config';
 import { computeCompetenceScore } from '@/lib/competences';
-import { getDomainesFromSpecialites, couvertureSuffisante, verifierCompositionEquipe } from '@/lib/domaines';
+import { getDomainesFromSpecialites, verifierCompositionEquipe } from '@/lib/domaines'
 import { resolvePorteeDomaines, normalizePlanningType } from '@/lib/planning';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import {

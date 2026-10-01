@@ -5,9 +5,8 @@
 
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { ProfilRisque, EvenementSecurite, Ecart, useAppStore } from '@/lib/store'
-import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Shield, Zap, Clock, BarChart3, Gauge, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Zap, BarChart3, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
 import { synthetiserModeles, DiagnosticUnifie, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
 import { ModeleDetailsAvances } from './ModeleDetailsAvances'
 import { StatutModelesExplication } from './StatutModelesExplication'

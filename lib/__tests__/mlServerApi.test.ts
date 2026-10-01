@@ -1,6 +1,8 @@
 // lib/__tests__/mlServerApi.test.ts
 // Tests pour NeuralNet (9→32→16→1) et SimpleLSTM
 
+import * as ab from '../ab_testing'
+
 describe('NeuralNet (architecture 9→32→16→1)', () => {
   class NeuralNet {
     weights: number[][][] = []
@@ -89,7 +91,6 @@ describe('A/B Testing (lib/ab_testing.ts)', () => {
   })
 
   test('enregistrement et stats', () => {
-    const ab = require('../ab_testing')
     ab.recordABTest({
       aerodrome_id: 'a1', code_oaci: 'GOBD',
       features: [80, 70, 75, 80, 90, 80, 2, 1, 85],
@@ -99,7 +100,6 @@ describe('A/B Testing (lib/ab_testing.ts)', () => {
   })
 
   test('bestProvider basé sur MAE', () => {
-    const ab = require('../ab_testing')
     const r = ab.recordABTest({
       aerodrome_id: 'a1', code_oaci: 'GOBD',
       features: [80, 70, 75, 80, 90, 80, 2, 1, 85],
@@ -110,7 +110,6 @@ describe('A/B Testing (lib/ab_testing.ts)', () => {
   })
 
   test('limite 500 entrées', () => {
-    const ab = require('../ab_testing')
     for (let i = 0; i < 600; i++) {
       ab.recordABTest({
         aerodrome_id: `a${i}`, code_oaci: `T${i}`,

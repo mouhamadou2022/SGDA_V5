@@ -1,13 +1,8 @@
 // components/forms/EvenementForm.tsx
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
-import {
-  AlertTriangle, FileText, Calendar, Clock, MapPin,
-  Plane, Users, Save, X, Upload, AlertCircle,
-  Flame, AlertOctagon, Info, Sparkles, TrendingUp, TrendingDown, Wand2,
-  CheckCircle2
-} from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { AlertTriangle, FileText, Calendar, Clock, MapPin, Plane, Users, Save, X, Upload, AlertCircle, Flame, AlertOctagon, Info, Sparkles, Wand2, CheckCircle2 } from 'lucide-react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { TYPES_EVENEMENT } from '@/lib/config'
 import { evenementUtils } from '@/lib/evenementUtils'

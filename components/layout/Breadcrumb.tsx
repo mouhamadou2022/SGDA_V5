@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Home, Plane, Navigation } from 'lucide-react';
+import { ChevronRight, Home, Plane } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 
 interface BreadcrumbItem {

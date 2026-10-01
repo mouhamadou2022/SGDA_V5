@@ -1,7 +1,7 @@
 ﻿// components/modules/evenements/EvenementsModule.tsx
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import EvenementAnalytics from './EvenementAnalytics'
 import { createPortal } from 'react-dom'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
@@ -10,14 +10,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 import { FormShell } from '@/components/ui/FormShell'
 import { Role, GRAVITE_EVENEMENT, TYPES_EVENEMENT } from '@/lib/config'
 import { evenementUtils, getGraviteRisque } from '@/lib/evenementUtils'
-import {
-  AlertTriangle, AlertOctagon, AlertCircle, Info,
-  Calendar, MapPin, Plane, Users, FileText,
-  Clock, User, CheckCircle2, XCircle, Send,
-  Eye, PenSquare, Trash2, Download, Plus,
-  Search, Filter, List, BarChart,
-  Phone, Mail, MessageSquare, Flame, Activity, X
-} from 'lucide-react'
+import { AlertTriangle, AlertOctagon, AlertCircle, Info, Calendar, MapPin, Plane, User, Eye, PenSquare, Plus, Search, Filter, List, BarChart, Flame, Activity } from 'lucide-react'
 import EvenementWorkflow from './EvenementWorkflow'
 import EvenementRapport from './EvenementRapport'
 import { EvenementForm } from '@/components/forms/EvenementForm'

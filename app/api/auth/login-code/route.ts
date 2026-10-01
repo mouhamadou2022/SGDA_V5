@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
     if (!utilisateur) {
       // Fallback: chercher par aérodrome + rôle (si l'email a changé entre-temps)
-      let { data: fallbackUser } = await supabaseAdmin
+      const { data: fallbackUser } = await supabaseAdmin
         .from('utilisateurs')
         .select('*')
         .eq('aerodrome_id', codeData.aerodrome_id)

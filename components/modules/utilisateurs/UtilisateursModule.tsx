@@ -2,28 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  Users,
-  UserPlus,
-  Search,
-  Filter,
-  Edit3,
-  Trash2,
-  Eye,
-  Mail,
-  Phone,
-  Clock,
-  CheckCircle2,
-  Key,
-  Shield,
-  Building,
-  Briefcase,
-  XCircle,
-  AlertCircle,
-  X,
-  List,
-  LayoutGrid,
-} from 'lucide-react';
+import { Users, UserPlus, Search, Filter, Edit3, Trash2, Eye, Mail, Phone, Clock, CheckCircle2, Key, Shield, Building, Briefcase, XCircle, AlertCircle, List, LayoutGrid } from 'lucide-react'
 import { useAppStore, type Utilisateur } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';

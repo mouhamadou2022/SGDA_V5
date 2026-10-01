@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
-import { CheckCircle2, XCircle, AlertTriangle, X, User, Calendar, Clock, ArrowLeftRight, ShieldCheck, PenLine } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle, X, Calendar, Clock, ArrowLeftRight, ShieldCheck, PenLine } from 'lucide-react'
 import { getRiskLevelBgColor, getCellColor } from '@/lib/risque'
 
 interface ValidationChefModalProps {

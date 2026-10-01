@@ -12,6 +12,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { SGSLearningPanel } from './SGSLearningPanel';
 import { uploadPreuveFile } from '@/lib/preuves';
+import { veillerSGSQuestions } from '@/lib/ia/watchdogEvaluation';
 import {
   SGS_COMPOSANTES,
   PAOE_LABELS,
@@ -101,7 +102,10 @@ function StylusCanvas({ value, onChange, height = 80 }: { value: string; onChang
   const sigPadRef = useRef<SignaturePad | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const valueRef = useRef(value);
-  valueRef.current = value;
+  // Écriture du ref DANS un effet (react-hooks/refs) : l'assigner pendant le
+  // rendu est un anti-pattern. La valeur initiale vient du useRef ci-dessus,
+  // donc les gestionnaires SignaturePad lisent toujours la bonne valeur.
+  useEffect(() => { valueRef.current = value; }, [value]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -1348,6 +1352,75 @@ export function SGSEvaluationModal({
               </div>
             </div>
 
+            {/* Second regard AERORISQ : restants + cohérence (temps réel) */}
+            {(() => {
+              const restants: Array<{ elementId: string; label: string; refs: string[] }> = []
+              const problemes: Array<{ elementId: string; label: string; titre: string; detail: string }> = []
+              for (const compDef of SGS_COMPOSANTES) {
+                for (const elemDef of compDef.elements) {
+                  const questions = questionsByElement[elemDef.id] || (elemDef as any).questions || []
+                  const notes = elementNotes[elemDef.id]
+                  const v = veillerSGSQuestions(questions.map((q: any) => ({
+                    ref: q.ref, texte: q.texte, niveau: q.niveau,
+                    justification: q.justification || notes?.questions,
+                    observation: q.observation, preuves: q.preuves, statutIA: q.statutIA,
+                  })))
+                  if (v.restants.length > 0) {
+                    restants.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, refs: v.restants })
+                  }
+                  for (const a of v.alertes) {
+                    problemes.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, titre: a.titre, detail: a.detail })
+                  }
+                }
+              }
+              const nbRestants = restants.reduce((s, r) => s + r.refs.length, 0)
+              if (nbRestants === 0 && problemes.length === 0) return null
+              const toutDeplier = () => {
+                setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)))
+                setExpandedElements(prev => {
+                  const next = new Set(prev)
+                  for (const r of restants) next.add(r.elementId)
+                  return next
+                })
+              }
+              return (
+                <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={nbRestants > 0 && nbRestants <= 10}>
+                    <summary className="text-xs font-semibold cursor-pointer">
+                      ⚠ Questions restantes ({nbRestants}) — cliquer pour déplier
+                    </summary>
+                    <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
+                      {restants.map(r => (
+                        <p key={r.elementId} className="text-[11px] text-foreground px-1">
+                          <strong>{r.elementId}</strong> {r.label} — {r.refs.slice(0, 6).join(', ')}{r.refs.length > 6 ? ` (+${r.refs.length - 6})` : ''}
+                        </p>
+                      ))}
+                    </div>
+                    {nbRestants > 0 && (
+                      <button type="button" onClick={toutDeplier} className="btn btn-sm btn-secondary mt-1.5">
+                        Tout déplier
+                      </button>
+                    )}
+                  </details>
+                  <details className="rounded-lg border border-primary/20 bg-primary/5 p-2" open={problemes.length > 0 && problemes.length <= 5}>
+                    <summary className="text-xs font-semibold cursor-pointer">
+                      ✓ Points à revoir ({problemes.length})
+                    </summary>
+                    <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
+                      {problemes.slice(0, 20).map((p, i) => (
+                        <p key={i} className="text-[11px] text-foreground px-1">
+                          <strong>{p.titre}.</strong> [{p.elementId}] {p.detail.slice(0, 140)}
+                        </p>
+                      ))}
+                      {problemes.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground px-1">Rien à signaler — évaluation saine.</p>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )
+            })()}
+
             {/* Composantes */}
             {SGS_COMPOSANTES.map(compDef => {
               const isExpanded = expandedComposantes.has(compDef.id);
@@ -1596,7 +1669,6 @@ export function SGSEvaluationContent({
       });
     });
     onChange(payload);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onChange, questionsByElement, editedDirectives, editedGuideEtapes, iaGeneratedDirectives, iaGeneratedGuideEtapes, iaDataByElement]);
 
   const handleGenerateByIA = useCallback(async (composanteId: number, elementId: string, target: 'questions' | 'directives' | 'guide' = 'questions') => {

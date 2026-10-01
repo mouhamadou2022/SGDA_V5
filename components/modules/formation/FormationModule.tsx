@@ -1,50 +1,12 @@
 ﻿// components/modules/formation/FormationModule.tsx
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { FormShell } from '@/components/ui/FormShell';
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useDebounce } from '@/hooks/useDebounce';
-import {
-  GraduationCap,
-  Users,
-  Calendar,
-  CalendarDays,
-  Clock,
-  MapPin,
-  FileText,
-  Download,
-  Eye,
-  PenSquare,
-  Trash2,
-  Plus,
-  Search,
-  Filter,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  Star,
-  Award,
-  BarChart3,
-  TrendingUp,
-  User as UserIcon,
-  Briefcase,
-  BookOpen,
-  ChevronDown,
-  ChevronRight,
-  PlayCircle,
-  RotateCcw,
-  X,
-  Upload,
-  Mail,
-  Phone,
-  Activity,
-  Sparkles,
-  List,
-  Grid3x3,
-  PieChart,
-} from 'lucide-react';
+import { GraduationCap, Users, Calendar, Clock, MapPin, FileText, Download, Eye, PenSquare, Trash2, Plus, Search, Filter, CheckCircle2, AlertCircle, AlertTriangle, Star, Award, BarChart3, TrendingUp, User as UserIcon, Briefcase, BookOpen, ChevronDown, ChevronRight, PlayCircle, RotateCcw, Upload, Mail, Phone, Activity, Sparkles, List, Grid3x3, PieChart } from 'lucide-react'
 import { CompetenceMatrix } from './CompetenceMatrix';
 
 import { FormationSuggestions } from './FormationSuggestions';
@@ -83,7 +45,6 @@ const MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
   backgroundPosition: 'right 0.75rem center',
   backgroundRepeat: 'no-repeat'
 }

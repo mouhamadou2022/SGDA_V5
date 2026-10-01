@@ -19,7 +19,7 @@ import {
 
 import { useAppStore } from '@/lib/store';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { getNiveauFromScore, getLabelFromScore, getBadgeClassFromScore } from '@/lib/config';
+import { getLabelFromScore, getBadgeClassFromScore } from '@/lib/config'
 import { AlertCard } from './AlertCard';
 import { BarChart } from '@/components/ui/charts/BarChart';
 

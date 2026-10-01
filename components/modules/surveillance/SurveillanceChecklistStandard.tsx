@@ -6,7 +6,7 @@ import {
   Save, PenLine, Calendar, Users, MapPin,
   Target, Brain, Sparkles, Shield,
   Zap, Check, ChevronDown, Eye, X,
-  FileDown, FileSpreadsheet,
+  FileDown, FileSpreadsheet, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
@@ -14,6 +14,7 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable';
+import { veillerItemStandard } from '@/lib/ia/watchdogEvaluation';
 import { ConfidenceIndicator } from '@/components/modules/checklist/ChecklistFormContent';
 import {
   DomaineChecklist, ChecklistItem,
@@ -298,6 +299,11 @@ export function SurveillanceChecklistStandard({
     setDomaines(initialDomaines);
     // Générer la checklist via IA si aucune hiérarchie existante
     setIsGenerating(true);
+    // `timer` est déclaré plus haut (portée du useEffect), assigné UNE seule
+    // fois ici et lu par le cleanup : le correcteur automatique de prefer-const
+    // refuse la portée croisée, et un refactor serait plus risqué que le gain
+    // sur un workflow verrouillé.
+    // eslint-disable-next-line prefer-const
     timer = setTimeout(async () => {
       try {
         const store = useAppStore.getState();
@@ -410,6 +416,46 @@ export function SurveillanceChecklistStandard({
     });
     return { total, sa, ns, nv, na, progression, tauxConformiteReel, itemsSA };
   }, [domaines]);
+
+  // Second regard AERORISQ : points à revoir + restants NV (saut direct).
+  const vigilance = useMemo(() => {
+    const problemes: Array<{ id: string; ref: string; texte: string; titre: string; detail: string; niveau: string }> = [];
+    const restants: Array<{ id: string; ref: string; texte: string; domaine: string }> = [];
+    const texteDe = (item: ChecklistItem) =>
+      item.point_verification || (item as any).description || '';
+    const visiter = (items: ChecklistItem[] | undefined, domaine: string) => {
+      if (!items) return;
+      for (const item of items) {
+        const r = item.resultat || 'NV';
+        const ref = item.numero || item.reference_reglementaire || item.id.slice(0, 8);
+        if (!item.resultat || r === 'NV') {
+          restants.push({ id: item.id, ref, texte: texteDe(item).slice(0, 90), domaine });
+        } else {
+          for (const a of veillerItemStandard({
+            resultat: r,
+            observation: item.observation,
+            preuves: [],
+            fichiers: item.fichiers || [],
+            libelle: texteDe(item),
+          })) {
+            problemes.push({ id: item.id, ref, texte: texteDe(item).slice(0, 90), titre: a.titre, detail: a.detail, niveau: a.niveau });
+          }
+        }
+      }
+    };
+    domaines.forEach(d => {
+      visiter(d.items ?? [], d.nom);
+      (d.sousDomaines ?? []).forEach(sd => {
+        visiter(sd.items ?? [], sd.nom);
+        (sd.sousSousDomaines ?? []).forEach(ssd => visiter(ssd.items ?? [], ssd.nom));
+      });
+    });
+    return { problemes, restants };
+  }, [domaines]);
+
+  const allerAItem = (id: string) => {
+    document.getElementById(`std-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   useEffect(() => {
     const newSuggestions: { itemId: string; itemNumero: string; justification: string; confiance: number }[] = [];
@@ -863,6 +909,54 @@ export function SurveillanceChecklistStandard({
             </div>
           </div>
       </Card>
+
+      {/* Second regard AERORISQ : évalués / restants + points à revoir */}
+      {(vigilance.problemes.length > 0 || vigilance.restants.length > 0) && (
+        <Card className="overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={vigilance.restants.length > 0 && vigilance.restants.length <= 10}>
+              <summary className="text-xs font-semibold cursor-pointer">
+                ⚠ Restants à renseigner ({vigilance.restants.length}) — cliquer pour aller à l’item
+              </summary>
+              <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+                {vigilance.restants.slice(0, 50).map(r => (
+                  <button key={r.id} onClick={() => allerAItem(r.id)} title="Aller à l’item"
+                    className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
+                    <span className="font-mono font-medium flex-shrink-0">{r.ref}</span>
+                    <span className="text-muted-foreground truncate flex-1">{r.texte}</span>
+                    <span className="text-role-primary font-medium flex-shrink-0">{r.domaine} →</span>
+                  </button>
+                ))}
+                {vigilance.restants.length > 50 && (
+                  <p className="text-[11px] text-muted-foreground px-2">+{vigilance.restants.length - 50} autres…</p>
+                )}
+                {vigilance.restants.length === 0 && (
+                  <p className="text-xs text-muted-foreground px-2 py-1">Aucun — tout est renseigné.</p>
+                )}
+              </div>
+            </details>
+            <details className="rounded-lg border border-primary/20 bg-primary/5 p-2" open={vigilance.problemes.length > 0 && vigilance.problemes.length <= 5}>
+              <summary className="text-xs font-semibold cursor-pointer">
+                ✓ Points à revoir ({vigilance.problemes.length})
+              </summary>
+              <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+                {vigilance.problemes.slice(0, 20).map((p, i) => (
+                  <button key={`${p.id}-${i}`} onClick={() => allerAItem(p.id)} title="Aller à l’item"
+                    className="w-full flex items-start gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
+                    <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${p.niveau === 'danger' ? 'text-danger' : p.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
+                    <span><strong>{p.titre}.</strong> <span className="font-mono">{p.ref}</span> — {p.texte}</span>
+                  </button>
+                ))}
+                {vigilance.problemes.length === 0 && (
+                  <p className="text-xs text-muted-foreground px-2 py-1 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-success" /> Rien à signaler — saisie saine.
+                  </p>
+                )}
+              </div>
+            </details>
+          </div>
+        </Card>
+      )}
 
 
       {/* Checklist SGS-style table — rendu partagé */}

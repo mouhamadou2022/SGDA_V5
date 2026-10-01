@@ -5,22 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import SurveillanceRapport from '@/components/modules/surveillance/SurveillanceRapport';
 import { canEditSurveillanceContent } from '@/lib/config';
-import {
-  ArrowLeft,
-  FileText,
-  Wifi,
-  WifiOff,
-  FileDown,
-  Eye,
-  PenLine,
-  Sparkles,
-  Upload,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  X,
-  AlertTriangle,
-} from 'lucide-react';
+import { ArrowLeft, FileText, Wifi, WifiOff, FileDown, Eye, Sparkles, Loader2, AlertCircle, RefreshCw, AlertTriangle } from 'lucide-react'
 
 export default function RapportPage() {
   const params = useParams();

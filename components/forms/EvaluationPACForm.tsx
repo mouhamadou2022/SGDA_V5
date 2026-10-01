@@ -8,9 +8,9 @@ import {
   Star, AlertTriangle, CheckCircle2, XCircle, X, HelpCircle, User, Calendar,
   Clock, MinusCircle,
 } from 'lucide-react';
-import { AideMemoirePAC } from '@/components/modules/plans-actions/AideMemoirePAC';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
 import { ecartAgent, EvaluatePACResult } from '@/lib/ia/agents/ecartAgent';
+import { veillerEvaluationPAC } from '@/lib/ia/watchdogEvaluation';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { getCellColor, getRiskLevelFromCell, getOACIValue, getRiskLevelBgColor, isSGSApplicable } from '@/lib/risque';
 
@@ -522,6 +522,50 @@ export function EvaluationPACForm({ ecartId, onSuccess, onCancel, userRole = 'fo
               ))}
             </div>
           )}
+
+          {/* Second regard AERORISQ — watch-dog sur l'évaluation manuelle */}
+          {(() => {
+            if (!ecart || !Object.values(notes).some(v => v > 0)) return null
+            const alertes = veillerEvaluationPAC({
+              notes,
+              decision: (decision || '') as 'accepte' | 'reserve' | 'refuse' | '',
+              libelleEcart: ecart.libelle || '',
+              domaine: ecart.domaine || '',
+              niveauRisque: ecartNiveau,
+              delaiRegularisation: ecart.delai_regularisation || null,
+              actions: (ecart.pac?.actions || []).map((a: any) => ({
+                description: a.description, responsable: a.responsable, date_prevue: a.date_prevue,
+              })),
+              antecedents: (ecarts || [])
+                .filter((e: any) => e.id !== ecart.id && e.aerodrome_id === ecart.aerodrome_id && e.statut === 'cloture')
+                .map((e: any) => ({ libelle: e.libelle, domaine: e.domaine })),
+            })
+            if (alertes.length === 0) {
+              return (
+                <div className="mt-2 flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/30">
+                  <CheckCircle2 className="w-3 h-3 text-success mt-0.5 flex-shrink-0" />
+                  <span className="text-[11px] text-foreground">Second regard AERORISQ : votre évaluation tient la route (constat, délais, responsables, historique).</span>
+                </div>
+              )
+            }
+            return (
+              <div className="mt-2 space-y-1">
+                <p className="text-[10px] font-semibold uppercase text-muted-foreground">Second regard AERORISQ — points à revoir avant de valider</p>
+                {alertes.map((a, i) => (
+                  <div key={i} className={`flex items-start gap-1.5 p-2 rounded border ${
+                    a.niveau === 'danger' ? 'bg-danger/10 border-danger/30'
+                    : a.niveau === 'warning' ? 'bg-amber-50 border-amber-200'
+                    : 'bg-primary/5 border-primary/20'
+                  }`}>
+                    <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${
+                      a.niveau === 'danger' ? 'text-danger' : a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'
+                    }`} />
+                    <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Vue impact critères faibles */}
           {tousNotes && critereFaible.length > 0 && (

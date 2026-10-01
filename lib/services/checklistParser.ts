@@ -307,7 +307,7 @@ export async function parseChecklistWord(
     const domaine = sectionMap.get(raw.sectionNum)!
     const usedIds = usedIdsBySection.get(raw.sectionNum)!
     const idx = (domaine.items?.length ?? 0) + 1
-    let baseId = `${code}_${raw.numItem || raw.ref || idx}`
+    const baseId = `${code}_${raw.numItem || raw.ref || idx}`
     let itemId = baseId
     let suffix = 2
     while (usedIds.has(itemId)) {

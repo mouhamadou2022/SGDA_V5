@@ -1,60 +1,65 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import {
-  Flame,
-  AlertTriangle,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Activity,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Eye,
-  Shield,
-  Building2,
-  ChevronRight,
-  Globe,
-  Brain,
-} from 'lucide-react';
+import { Flame, AlertTriangle, AlertCircle, CheckCircle2, Clock, Activity, TrendingUp, TrendingDown, Eye, Shield, Building2, Globe, Brain } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
-import DecisionTab from '@/components/modules/profil-risque/DecisionTab';
 import {
   fallbackPilotage,
   expliquerPilotage,
   detailsPilotage,
+  explicationSiteAlerte,
+  explicationScoresMaturite,
   type ContextePilotage,
 } from '@/lib/ia/synthesesDgIA';
+import { getSgsMaturiteLabel } from '@/lib/utils';
 
 export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
-  const user = useAppStore(s => s.user);
+
   const aerodromes = useAppStore(s => s.aerodromes);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const ecarts = useAppStore(s => s.ecarts);
   const surveillances = useAppStore(s => s.surveillances);
   const evenements = useAppStore(s => s.evenements);
-  const recalculerProfilRisque = useAppStore(s => s.recalculerProfilRisque);
-  const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null);
+
   const [syntheseIA, setSyntheseIA] = useState<{ texte: string; fallbackIA: boolean } | null>(null);
 
   const data = useMemo(() => {
-    // Aérodromes en alerte : profil critique/élevé OU écarts critiques
-    // ouverts (même sans profil critique). Libellé clair du motif.
+    // Aérodromes en alerte : profil critique/élevé OU écarts critiques ou
+    // élevés ouverts OU PAC/preuves en retard OU événement critique récent.
+    // Chaque site porte son motif en clair + les chiffres pour décider.
     const enAlerte = aerodromes?.filter(a => {
       const p = profilsRisque?.[a.id];
-      const critiquesOuverts = ecarts?.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0;
-      return p?.niveau === 'critique' || p?.niveau === 'eleve' || critiquesOuverts > 0;
+      const ecartsSite = ecarts?.filter(e => e.aerodrome_id === a.id && e.statut !== 'cloture') || [];
+      const critiquesOuverts = ecartsSite.filter(e => e.niveau_risque === 'critique').length;
+      const elevesOuverts = ecartsSite.filter(e => e.niveau_risque === 'eleve').length;
+      const pacRetard = ecarts?.filter(e => e.aerodrome_id === a.id && e.statut === 'en_retard').length || 0;
+      const preuvesRetard = ecartsSite.filter(e => e.retard_inspecteur).length;
+      const eventCritique = (evenements || []).some(e =>
+        e.aerodrome_id === a.id && (e.gravite === 'critique' || e.gravite === 'eleve') &&
+        e.date && (Date.now() - new Date(e.date).getTime()) < 90 * 86400000);
+      return p?.niveau === 'critique' || p?.niveau === 'eleve' ||
+        critiquesOuverts > 0 || elevesOuverts > 0 ||
+        pacRetard > 0 || preuvesRetard > 0 || eventCritique;
     }).map(a => {
       const p = profilsRisque?.[a.id];
-      const ecritsCritiques = ecarts?.filter(e => e.aerodrome_id === a.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length || 0;
+      const ecartsSite = ecarts?.filter(e => e.aerodrome_id === a.id && e.statut !== 'cloture') || [];
+      const ecritsCritiques = ecartsSite.filter(e => e.niveau_risque === 'critique').length;
+      const ecritsEleves = ecartsSite.filter(e => e.niveau_risque === 'eleve').length;
       const pacRetard = ecarts?.filter(e => e.aerodrome_id === a.id && e.statut === 'en_retard').length || 0;
+      const preuvesRetard = ecartsSite.filter(e => e.retard_inspecteur).length;
+      const eventsCritiques = (evenements || []).filter(e =>
+        e.aerodrome_id === a.id && (e.gravite === 'critique' || e.gravite === 'eleve') &&
+        e.date && (Date.now() - new Date(e.date).getTime()) < 90 * 86400000).length;
       const motifs: string[] = [];
       if (p?.niveau === 'critique') motifs.push('profil critique');
       else if (p?.niveau === 'eleve') motifs.push('vigilance élevée');
       if (ecritsCritiques > 0) motifs.push(`${ecritsCritiques} écart(s) critique(s) ouvert(s)`);
+      if (ecritsEleves > 0) motifs.push(`${ecritsEleves} écart(s) élevé(s) ouvert(s)`);
+      if (pacRetard > 0) motifs.push(`${pacRetard} PAC en retard`);
+      if (preuvesRetard > 0) motifs.push(`${preuvesRetard} preuve(s) en retard de validation`);
+      if (eventsCritiques > 0) motifs.push(`${eventsCritiques} événement(s) grave(s) récent(s)`);
       return {
         id: a.id,
         nom: a.nom,
@@ -64,8 +69,15 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
         niveau: p?.niveau || 'sous surveillance',
         score: p?.score_global || 0,
         tendance: p?.tendance || 'stable',
+        c1: p?.c1,
+        statutSgs: a.statut_sgs,
+        prediction3m: p?.prediction_3m,
+        prediction6m: p?.prediction_6m,
         ecritsCritiques,
+        ecritsEleves,
         pacRetard,
+        preuvesRetard,
+        eventsCritiques,
         motif: motifs.join(' · ') || 'à suivre',
       };
     }).sort((a, b) => a.score - b.score) || [];
@@ -118,14 +130,22 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
       return (Date.now() - new Date(e.date).getTime()) < 90 * 86400000;
     })?.sort((a, b) => new Date(b.date || '-').getTime() - new Date(a.date || '-').getTime())?.slice(0, 10) || [];
 
-    // Derniers scores de surveillance
+    // Derniers scores de surveillance + maturité SGS du site.
     const derniersScores = surveillances
       ?.filter(s => s.score_global != null)
       ?.sort((a, b) => new Date(b.date_debut || '-').getTime() - new Date(a.date_debut || '-').getTime())
       ?.slice(0, 5)
       ?.map(s => {
         const aero = aerodromes?.find(a => a.id === s.aerodrome_id);
-        return { aerodrome: aero?.code_oaci || s.aerodrome_id, score: s.score_global!, date: s.date_debut };
+        const c1 = profilsRisque?.[s.aerodrome_id]?.c1;
+        return {
+          aerodrome: aero?.code_oaci || s.aerodrome_id,
+          score: s.score_global!,
+          date: s.date_debut,
+          maturite: !aero || aero.statut_sgs === 'non_applicable'
+            ? 'SGS non applicable'
+            : (c1 == null ? 'SGS non évalué' : getSgsMaturiteLabel(c1)),
+        };
       }) || [];
 
     return {
@@ -184,32 +204,6 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           )}
         </div>
       </div>
-
-      {/* Fiche site (drill-down depuis les alertes) */}
-      {selectedAerodromeId && (() => {
-        const aero = (aerodromes || []).find(a => a.id === selectedAerodromeId);
-        const profil = aero ? profilsRisque?.[aero.id] : null;
-        if (!aero || !profil) return null;
-        return (
-          <div className="space-y-4">
-            <button onClick={() => setSelectedAerodromeId(null)} className="btn btn-sm btn-secondary gap-1.5">
-              ← Retour au pilotage
-            </button>
-            <DecisionTab
-              profil={profil}
-              aerodromeCode={aero.code_oaci}
-              aerodromeName={aero.nom}
-              nbEcartsCritiques={(ecarts || []).filter(e => e.aerodrome_id === aero.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
-              userRole={user?.role || 'dg_anacim'}
-              onRecalculate={() => recalculerProfilRisque(aero.id)}
-              prochainesSurveillances={(surveillances || []).filter(s => s.aerodrome_id === aero.id)}
-              ecartsActifs={(ecarts || []).filter(e => e.aerodrome_id === aero.id)}
-              evenements={(evenements || []).filter(e => e.aerodrome_id === aero.id)}
-              sgsNonApplicable={aero.statut_sgs === 'non_applicable'}
-            />
-          </div>
-        );
-      })()}
 
       <div className="kpi-grid">
         <div className="kpi-card border-l-4 border-l-danger">
@@ -281,8 +275,10 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
         >
           {data?.enAlerte && data.enAlerte.length > 0 ? (
             <div className="space-y-2">
-              {data.enAlerte.map(a => (
-                <div key={a.id} onClick={() => setSelectedAerodromeId(a.id)} className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${a.niveau === 'critique' ? 'bg-danger/5 border-danger/20' : 'bg-warning/5 border-warning/20'}`} title="Voir la fiche détaillée">
+              {data.enAlerte.map(a => {
+                const explication = explicationSiteAlerte(a, a.c1 == null ? 'non évaluée' : getSgsMaturiteLabel(a.c1));
+                return (
+                <div key={a.id} className={`p-3 rounded-lg border ${a.niveau === 'critique' ? 'bg-danger/5 border-danger/20' : 'bg-warning/5 border-warning/20'}`}>
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-sm font-medium">{a.nom}</span>
@@ -299,13 +295,18 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
                     <Globe className="w-3 h-3" /> {a.region}
                     <Building2 className="w-3 h-3 ml-2" /> {a.exploitant || '—'}
                   </div>
-                  <p className="mt-1 text-xs text-foreground">Pourquoi ce site : {a.motif}.</p>
-                  <div className="mt-1 flex gap-2">
+                  <p className="mt-1 text-xs text-foreground">Pourquoi ce site : {explication.pourquoi}</p>
+                  <p className="mt-1 text-xs font-medium text-role-primary">{explication.action}</p>
+                  <div className="mt-1 flex gap-2 flex-wrap">
                     {a.ecritsCritiques > 0 && <span className="badge danger text-[10px]">{a.ecritsCritiques} critique(s)</span>}
+                    {a.ecritsEleves > 0 && <span className="badge warning text-[10px]">{a.ecritsEleves} élevé(s)</span>}
                     {a.pacRetard > 0 && <span className="badge warning text-[10px]">{a.pacRetard} PAC en retard (info)</span>}
+                    {a.preuvesRetard > 0 && <span className="badge warning text-[10px]">{a.preuvesRetard} preuve(s) en retard (info)</span>}
+                    {a.eventsCritiques > 0 && <span className="badge danger text-[10px]">{a.eventsCritiques} événement(s) grave(s)</span>}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="py-8 text-center text-muted-foreground text-sm">
@@ -386,12 +387,15 @@ export default function PilotageSecuriteModule({ user: _user }: { user: any }) {
           title="Derniers scores de surveillance"
           subtitle="5 dernières surveillances transmises"
         >
-          <p className="text-xs text-foreground mb-2">{details.scores}</p>
+          <p className="text-xs text-foreground mb-2">{explicationScoresMaturite(data?.derniersScores || [])}</p>
           {data?.derniersScores && data.derniersScores.length > 0 ? (
             <div className="space-y-1">
               {data.derniersScores.map((s, i) => (
                 <div key={i} className="flex items-center justify-between py-2 px-3 bg-muted/5 rounded-lg text-sm">
-                  <span className="text-xs font-medium">{s.aerodrome}</span>
+                  <div>
+                    <span className="text-xs font-medium">{s.aerodrome}</span>
+                    <span className="text-[10px] text-muted-foreground ml-2 block">SGS : {s.maturite}</span>
+                  </div>
                   <div className="flex items-center gap-2">
                     <div className="progress w-16">
                       <div className={`progress-bar ${s.score >= 80 ? 'bg-success' : s.score >= 60 ? 'bg-warning' : 'bg-danger'}`}

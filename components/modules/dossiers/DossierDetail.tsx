@@ -1,18 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import {
-  X,
-  FileText,
-  Download,
-  History,
-  Bell,
-  FolderOpen,
-  CheckCircle2,
-  Clock,
-  Send,
-  AlertTriangle,
-} from 'lucide-react';
+import { X, FileText, Download, Bell, FolderOpen, CheckCircle2, Clock, Send, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

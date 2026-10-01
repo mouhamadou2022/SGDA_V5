@@ -4,7 +4,6 @@
 // Intègre le ML agent pour les prédictions de type de surveillance
 
 import type { ProfilRisque, Ecart, SuggestionFeedback } from './store';
-import { RISK_LEVELS, getRiskLevel, computeVelocityMetrics } from './risque';
 import { normaliserScoreSgs } from './utils';
 import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes, getDomaineInfo } from './domaines';
 import { suggestionMLAgent, type SurveillanceType, type EnsemblePrediction } from '@/lib/ia/agents/suggestionMLAgent';

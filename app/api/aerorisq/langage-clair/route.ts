@@ -14,15 +14,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'JSON invalide' }, { status: 400 })
     }
 
-    const module = typeof body.module === 'string' ? body.module : ''
+    // NB : la variable ne doit PAS s'appeler `module` (réservée par Next/webpack).
+    const moduleName = typeof body.module === 'string' ? body.module : ''
     const texte = typeof body.texte === 'string' ? body.texte : ''
-    if (!module || !texte) {
+    if (!moduleName || !texte) {
       return NextResponse.json({ ok: false, error: 'module et texte requis' }, { status: 400 })
     }
 
     const texteHash = typeof body.texte_hash === 'string' && body.texte_hash
       ? body.texte_hash
-      : `${module}::${texte.length}`.replace(/[^a-zA-Z0-9]/g, '_')
+      : `${moduleName}::${texte.length}`.replace(/[^a-zA-Z0-9]/g, '_')
 
     const vote = body.vote === 'up' || body.vote === 'down' ? body.vote : null
     const fallbackIA = body.fallbackIA === true
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
 
     const row = {
-      module,
+      module: moduleName,
       texte_hash: texteHash,
       aerodrome_id: typeof body.aerodromeId === 'string' ? body.aerodromeId : null,
       contexte: body.contexte && typeof body.contexte === 'object' ? body.contexte : {},
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     const { data: existing } = await supabaseAdmin
       .from('ia_langage_clair')
       .select('id, vote')
-      .eq('module', module)
+      .eq('module', moduleName)
       .eq('texte_hash', texteHash)
       .limit(1)
 

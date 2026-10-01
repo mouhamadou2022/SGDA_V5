@@ -36,7 +36,6 @@ export function HealthIndexLangageClair({ profil, sgsNonApplicable = false }: Pr
       setIaEnCours(false)
     })
     return () => { actif = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profil, sgsNonApplicable])
 
   return (

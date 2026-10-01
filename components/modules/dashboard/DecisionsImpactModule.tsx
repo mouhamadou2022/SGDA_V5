@@ -1,30 +1,77 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import {
-  Target,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Activity,
-  AlertCircle,
-  PenLine,
-  Globe,
-  History,
-  Eye,
-  Shield,
-} from 'lucide-react';
+import { Target, TrendingUp, TrendingDown, Minus, CheckCircle2, Activity, PenLine, History } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';
 import {
   fallbackDecisions,
   expliquerDecisions,
+  resumeEvolution,
+  resumeEfficacite,
+  explicationTrajectoire,
+  ecartTypeScores,
+  calculerFourchette,
   type ContexteDecisions,
 } from '@/lib/ia/synthesesDgIA';
+import { getSgsMaturiteLabel } from '@/lib/utils';
+
+/** Courbe de trajectoire : historique (trait plein) + projections 3m/6m (pointillés) + fourchette optimiste/pessimiste (zone). */
+function CourbeTrajectoire({ serie, f3, f6 }: {
+  serie: number[]
+  f3: { centrale: number | null; optimiste: number | null; pessimiste: number | null }
+  f6: { centrale: number | null; optimiste: number | null; pessimiste: number | null }
+}) {
+  const W = 340, H = 140, L = 26, R = 8, T = 8, B = 18
+  const pts: (number | null)[] = [...serie, f3.centrale, f6.centrale]
+  const n = pts.length
+  const x = (i: number) => (n < 2 ? W / 2 : L + (i * (W - L - R)) / (n - 1))
+  const y = (v: number) => T + (1 - v / 100) * (H - T - B)
+  const k = serie.length - 1
+  const ligne = (indices: number[], v: (i: number) => number | null) =>
+    indices.filter(i => v(i) != null).map(i => `${x(i).toFixed(1)},${y(v(i)!).toFixed(1)}`).join(' ')
+  const histIdx = serie.map((_, i) => i)
+  const prevIdx = [k, k + 1, k + 2].filter(i => i < n)
+  const bande = f3.optimiste != null && f3.pessimiste != null && f6.optimiste != null && f6.pessimiste != null
+    ? `${x(k).toFixed(1)},${y(serie[k]).toFixed(1)} ` +
+      `${x(k + 1).toFixed(1)},${y(f3.optimiste).toFixed(1)} ${x(k + 2).toFixed(1)},${y(f6.optimiste).toFixed(1)} ` +
+      `${x(k + 2).toFixed(1)},${y(f6.pessimiste).toFixed(1)} ${x(k + 1).toFixed(1)},${y(f3.pessimiste).toFixed(1)}`
+    : null
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-32" role="img" aria-label="Courbe de trajectoire du score">
+      {[0, 50, 100].map(g => (
+        <g key={g}>
+          <line x1={L} x2={W - R} y1={y(g)} y2={y(g)} stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
+          <text x={2} y={y(g) + 3} fontSize="8" fill="currentColor" opacity="0.5">{g}</text>
+        </g>
+      ))}
+      {bande && <polygon points={bande} fill="var(--color-warning)" opacity="0.18" />}
+      {serie.length > 1 && (
+        <polyline points={ligne(histIdx, i => serie[i])} fill="none" stroke="var(--role-primary)" strokeWidth="2" />
+      )}
+      {serie.length === 1 && <circle cx={x(0)} cy={y(serie[0])} r="3" fill="var(--role-primary)" />}
+      <polyline
+        points={ligne(prevIdx, i => (i === k ? serie[k] : i === k + 1 ? f3.centrale : f6.centrale))}
+        fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeDasharray="5 3"
+      />
+      {histIdx.map(i => (
+        <circle key={`h${i}`} cx={x(i)} cy={y(serie[i])} r="2.5" fill="var(--role-primary)">
+          <title>{`Relevé : ${serie[i]}/100`}</title>
+        </circle>
+      ))}
+      {[k + 1, k + 2].map(i =>
+        i < n && pts[i] != null ? (
+          <circle key={`p${i}`} cx={x(i)} cy={y(pts[i]!)} r="2.5" fill="var(--color-warning)">
+            <title>{`Projection ${i === k + 1 ? '3 mois' : '6 mois'} : ${pts[i]}/100`}</title>
+          </circle>
+        ) : null,
+      )}
+      <text x={x(k + 1)} y={H - 5} fontSize="8" textAnchor="middle" fill="currentColor" opacity="0.6">3m</text>
+      <text x={x(k + 2)} y={H - 5} fontSize="8" textAnchor="middle" fill="currentColor" opacity="0.6">6m</text>
+    </svg>
+  )
+}
 
 export default function DecisionsImpactModule({ user: _user }: { user: any }) {
   const aerodromes = useAppStore(s => s.aerodromes);
@@ -32,6 +79,7 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
   const surveillances = useAppStore(s => s.surveillances);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const registreEntries = useAppStore(s => s.registreEntries);
+  const historiqueScores = useAppStore(s => s.historiqueScores);
   const certifications = useAppStore(s => s.certifications);
   const homologations = useAppStore(s => s.homologations);
   const setActiveModule = useAppStore(s => s.setActiveModule);
@@ -47,13 +95,32 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
       const dernier = scores?.[0];
       const evolution = premier && dernier ? dernier.score_global! - premier.score_global! : null;
 
+      const profil = profilsRisque?.[a.id];
+      const hist = [...(historiqueScores?.[a.id] || [])]
+        .sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime());
+      const c1Initial = hist.length > 0 ? hist[0].c1 ?? null : null;
+      const sgsNA = a.statut_sgs === 'non_applicable';
+      const scoreActuel = dernier?.score_global ?? profil?.score_global ?? null;
+      // Série pour la courbe : historique (5 derniers) + point actuel.
+      const serie = [...hist.slice(-5).map(h => Math.round(h.score))];
+      if (scoreActuel != null && serie[serie.length - 1] !== Math.round(scoreActuel)) {
+        serie.push(Math.round(scoreActuel));
+      }
+      const sigma = ecartTypeScores(serie);
       return {
         code: a.code_oaci,
         nom: a.nom,
         scoreInitial: premier?.score_global ?? null,
-        scoreActuel: dernier?.score_global ?? profilsRisque?.[a.id]?.score_global ?? null,
+        scoreActuel,
         evolution,
         nbSurveillances: scores?.length || 0,
+        maturite: sgsNA ? 'SGS non applicable' : (profil?.c1 != null ? getSgsMaturiteLabel(profil.c1) : null),
+        maturiteInitiale: sgsNA || c1Initial == null ? null : getSgsMaturiteLabel(c1Initial),
+        pred3m: profil?.prediction_3m ?? null,
+        pred6m: profil?.prediction_6m ?? null,
+        serie,
+        fourchette3m: calculerFourchette(profil?.prediction_3m ?? null, sigma),
+        fourchette6m: calculerFourchette(profil?.prediction_6m ?? null, sigma),
       };
     }) || [];
 
@@ -96,7 +163,7 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
       ecartsFermesParAero, totalFermesNational, totalEcartsNational,
       activiteRecente, signaturesAttente,
     };
-  }, [aerodromes, ecarts, surveillances, profilsRisque, registreEntries, certifications, homologations]);
+  }, [aerodromes, ecarts, surveillances, profilsRisque, registreEntries, certifications, homologations, historiqueScores]);
 
   // Synthèse DG : fallback immédiat, réécriture IA en arrière-plan.
   const topAmelioration = [...(data?.evolutionAerodromes || [])]
@@ -193,45 +260,59 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="space-y-6">
 
-        {/* Évolution des scores par aérodrome */}
+        {/* Évolution des scores par aérodrome — pleine largeur, courbes + prévisions */}
         <Card
           icon={<Activity className="h-5 w-5 text-role-primary" />}
           title="Évolution par aérodrome"
-          subtitle="Amélioration vs dégradation du score"
+          subtitle="Trajectoire du score, maturité SGS et projections à 3 et 6 mois"
           badge={<span className="badge neutral">{data?.evolutionAerodromes.length ?? 0} aérodromes</span>}
         >
+          <p className="text-xs text-foreground mb-2">{resumeEvolution(
+            data?.ameliorations ?? 0,
+            data?.degradations ?? 0,
+            topAmelioration?.code ?? null,
+            topDegradation?.code ?? null,
+          )}</p>
+          <p className="text-[11px] text-muted-foreground mb-3 flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-role-primary" /> Relevés passés</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 border-t-2 border-dashed border-warning" /> Projection centrale</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-warning/25 border border-warning/40" /> Fourchette optimiste / pessimiste (± volatilité passée)</span>
+          </p>
           {data?.evolutionAerodromes && data.evolutionAerodromes.length > 0 ? (
-            <div className="space-y-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {data.evolutionAerodromes
                 .filter(a => a.scoreInitial !== null || a.scoreActuel !== null)
-                .sort((a, b) => (a.evolution ?? 0) - (b.evolution ?? 0))
-                .slice(0, 15)
-                .map(a => (
-                  <div key={a.code} className="flex items-center gap-3 py-1.5 px-2 bg-muted/5 rounded text-sm">
-                    <span className="text-xs font-medium w-20 truncate">{a.code}</span>
-                    <div className="flex-1 flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{a.scoreInitial ?? '—'}</span>
-                      <div className="progress flex-1">
-                        <div className="progress-bar" style={{ width: `${a.scoreActuel ?? 50}%` }} />
-                      </div>
-                      <span className={`text-xs font-bold ${(a.scoreActuel ?? 0) >= 80 ? 'text-success' : (a.scoreActuel ?? 0) >= 60 ? 'text-warning' : 'text-danger'}`}>
-                        {a.scoreActuel ?? '—'}
-                      </span>
-                    </div>
-                    {a.evolution !== null && (
-                      <div className="flex items-center gap-1 w-16 justify-end">
-                        {a.evolution > 0 && <TrendingUp className="w-3 h-3 text-success" />}
-                        {a.evolution < 0 && <TrendingDown className="w-3 h-3 text-danger" />}
-                        {a.evolution === 0 && <Minus className="w-3 h-3 text-muted-foreground" />}
-                        <span className={`text-xs font-bold ${a.evolution > 0 ? 'text-success' : a.evolution < 0 ? 'text-danger' : ''}`}>
-                          {a.evolution > 0 ? '+' : ''}{a.evolution}
+                .sort((a, b) => Math.abs(b.evolution ?? 0) - Math.abs(a.evolution ?? 0))
+                .slice(0, 8)
+                .map(a => {
+                  const delta = a.evolution ?? 0;
+                  const classeTexte = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted-foreground';
+                  return (
+                    <div key={a.code} className={`rounded-xl border p-3 ${delta < 0 ? 'border-danger/25 bg-danger/5' : delta > 0 ? 'border-success/25 bg-success/5' : 'border-border bg-card'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span className="text-sm font-semibold">{a.code}</span>
+                          <span className="text-xs text-muted-foreground ml-2">{a.nom}</span>
+                          <span className="text-[10px] text-muted-foreground ml-2">SGS : {a.maturite ?? 'non évaluée'}</span>
+                        </div>
+                        <span className={`badge text-[11px] font-bold ${delta > 0 ? 'success' : delta < 0 ? 'danger' : 'neutral'}`}>
+                          {delta > 0 ? '+' : ''}{a.evolution ?? '—'}
                         </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <CourbeTrajectoire serie={a.serie} f3={a.fourchette3m} f6={a.fourchette6m} />
+                      <p className="mt-1 text-xs text-foreground flex items-start gap-1">
+                        {delta > 0
+                          ? <TrendingUp className="w-3.5 h-3.5 text-success flex-shrink-0 mt-0.5" />
+                          : delta < 0
+                            ? <TrendingDown className="w-3.5 h-3.5 text-danger flex-shrink-0 mt-0.5" />
+                            : <Minus className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />}
+                        <span className={classeTexte}>{explicationTrajectoire(a)}</span>
+                      </p>
+                    </div>
+                  );
+                })}
             </div>
           ) : (
             <div className="py-6 text-center text-muted-foreground text-sm">
@@ -241,31 +322,73 @@ export default function DecisionsImpactModule({ user: _user }: { user: any }) {
           )}
         </Card>
 
-        {/* Efficacité par aérodrome */}
+        {/* Efficacité des actions correctives — pleine largeur, l'essentiel pour décider */}
         <Card
-          icon={<CheckCircle2 className="h-5 w-5 text-success" />}
+          icon={<CheckCircle2 className="w-5 h-5 text-success" />}
           title="Efficacité des actions correctives"
-          subtitle="Taux de résolution des écarts par aérodrome"
+          subtitle="Où les actions portent leurs fruits, où les redresser"
         >
-          {data?.ecartsFermesParAero && data.ecartsFermesParAero.length > 0 ? (
-            <div className="space-y-1">
-              {data.ecartsFermesParAero
-                .filter(a => a.totaux > 0)
-                .sort((a, b) => b.efficacite - a.efficacite)
-                .slice(0, 15)
-                .map(a => (
-                  <div key={a.code} className="flex items-center gap-3 py-1.5 px-2 bg-muted/5 rounded text-sm">
-                    <span className="text-xs font-medium w-20 truncate">{a.code}</span>
-                    <div className="progress flex-1">
-                      <div className={`progress-bar ${a.efficacite >= 80 ? 'bg-success' : a.efficacite >= 50 ? 'bg-warning' : 'bg-danger'}`}
-                        style={{ width: `${a.efficacite}%` }} />
-                    </div>
-                    <span className="text-xs font-bold w-12 text-right">{a.efficacite}%</span>
-                    <span className="text-[10px] text-muted-foreground w-16 text-right">{a.fermes}/{a.totaux}</span>
+          <p className="text-xs text-foreground mb-2">{resumeEfficacite(
+            data && data.totalEcartsNational > 0 ? Math.round((data.totalFermesNational / data.totalEcartsNational) * 100) : 0,
+            data?.totalFermesNational ?? 0,
+            data?.totalEcartsNational ?? 0,
+          )}</p>
+          {data?.ecartsFermesParAero && data.ecartsFermesParAero.some(a => a.totaux > 0) ? (() => {
+            const avecEcarts = (data?.ecartsFermesParAero || []).filter(a => a.totaux > 0);
+            const critiques = avecEcarts.filter(a => a.efficacite < 50).sort((a, b) => a.efficacite - b.efficacite);
+            const exemplaires = avecEcarts.filter(a => a.efficacite >= 80).sort((a, b) => b.efficacite - a.efficacite).slice(0, 3);
+            const nbBons = avecEcarts.filter(a => a.efficacite >= 80).length;
+            const nbMoyens = avecEcarts.filter(a => a.efficacite >= 50 && a.efficacite < 80).length;
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                  <span className="badge success">{nbBons} site(s) efficace(s) ≥ 80 %</span>
+                  <span className="badge warning">{nbMoyens} à surveiller (50-79 %)</span>
+                  <span className="badge danger">{critiques.length} à redresser (&lt; 50 %)</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-danger/25 bg-danger/5 p-3">
+                    <p className="text-xs font-semibold text-danger mb-2">
+                      À redresser en priorité{critiques.length > 0 ? ` — ${critiques.length} site(s), ${critiques.reduce((s, a) => s + (a.totaux - a.fermes), 0)} écarts encore ouverts` : ''}
+                    </p>
+                    {critiques.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {critiques.slice(0, 6).map(a => (
+                          <div key={a.code} className="flex items-center gap-2 text-sm">
+                            <span className="text-xs font-medium w-16 truncate">{a.code}</span>
+                            <div className="progress flex-1">
+                              <div className="progress-bar bg-danger" style={{ width: `${a.efficacite}%` }} />
+                            </div>
+                            <span className="text-xs font-bold w-10 text-right text-danger">{a.efficacite}%</span>
+                            <span className="text-[10px] text-muted-foreground w-20 text-right">{a.totaux - a.fermes} ouvert(s)</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Aucun site sous le seuil critique — les plans d’actions sont suivis partout.</p>
+                    )}
                   </div>
-                ))}
-            </div>
-          ) : (
+                  <div className="rounded-xl border border-success/25 bg-success/5 p-3">
+                    <p className="text-xs font-semibold text-success mb-2">Sites exemplaires — à valoriser</p>
+                    {exemplaires.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {exemplaires.map(a => (
+                          <div key={a.code} className="flex items-center gap-2 text-sm">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0" />
+                            <span className="text-xs font-medium w-16 truncate">{a.code}</span>
+                            <span className="text-[11px] text-muted-foreground flex-1">{a.fermes}/{a.totaux} écarts soldés</span>
+                            <span className="text-xs font-bold text-success">{a.efficacite}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Aucun site au-dessus de 80 % pour le moment.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })() : (
             <div className="py-6 text-center text-muted-foreground text-sm">
               <CheckCircle2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
               <p>Aucun écart enregistré</p>

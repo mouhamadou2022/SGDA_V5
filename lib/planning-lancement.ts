@@ -7,9 +7,7 @@
 
 import { normalizePlanningType } from './planning';
 import { checklistMemory, type TypeInspection } from './checklistMemory';
-import type {
-  Planning, Surveillance, Aerodrome, Delegation, Utilisateur, DomaineChecklist, ChecklistItem,
-} from './store';
+import { Planning, Surveillance, Delegation, Utilisateur, DomaineChecklist, ChecklistItem } from './store'
 
 // Noeud de hiérarchie checklist (DomaineChecklist → SousDomaine →
 // SousSousDomaine) : tous les champs optionnels pour couvrir les trois

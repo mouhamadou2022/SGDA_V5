@@ -14,7 +14,7 @@ import { rechercherAutorite, formaterSourcesWeb } from '@/lib/ia/rag/rechercheWe
 import { getRiskLevelFromCell } from '@/lib/risque'
 import { getRecentCorrections } from '@/lib/riskIndex'
 import { libelleMemory } from '@/lib/ia/libelleMemory'
-import { suggestGraviteFromTexte, classifyEcartTexte } from '@/lib/risque/ecartClassifier'
+import { suggestGraviteFromTexte } from '@/lib/risque/ecartClassifier'
 
 export interface GenerateEcartRequest {
   itemsNSNV: Array<{

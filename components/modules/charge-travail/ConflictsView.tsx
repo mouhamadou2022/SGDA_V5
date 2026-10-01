@@ -8,9 +8,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
-import {
-  AlertTriangle, Calendar, User, Clock, CheckCircle2, ArrowRight, Users, AlertCircle, X,
-} from 'lucide-react';
+import { AlertTriangle, Calendar, User, Clock, CheckCircle2, ArrowRight, Users, X } from 'lucide-react'
 
 interface Conflit {
   id: string;

@@ -1,4 +1,4 @@
-import { smoothCPT, construireReseauDepuisBowTie, inferer, computeBayesianNetworkRisk, incrementAndRecalibrate, recomputeCPTFromObservations } from '../risque/bayesianNetwork'
+import { smoothCPT, construireReseauDepuisBowTie, inferer, computeBayesianNetworkRisk, incrementAndRecalibrate } from '../risque/bayesianNetwork'
 import type { BowTieModele } from '../risque/types'
 
 function makeBowTie(overrides: Partial<BowTieModele> = {}): BowTieModele {
@@ -117,7 +117,7 @@ describe('computeBayesianNetworkRisk', () => {
 describe('incrementAndRecalibrate + recomputeCPTFromObservations', () => {
   it('incrémente puis recalcule la CPT', () => {
     const bt = makeBowTie()
-    let reseau = construireReseauDepuisBowTie(bt)
+    const reseau = construireReseauDepuisBowTie(bt)
     const node = reseau.find(n => n.type === 'evenement_redoute')!
     const firstKey = Object.keys(node.cpt.table)[0]
     const oldProbs = node.cpt.table[firstKey]
@@ -139,7 +139,7 @@ describe('incrementAndRecalibrate + recomputeCPTFromObservations', () => {
 describe('apprentissage — convergence vers les données', () => {
   it('converge vers P(grave) ≈ 0.9 après 100 observations de l\'état grave', () => {
     const bt = makeBowTie()
-    let reseau = construireReseauDepuisBowTie(bt)
+    const reseau = construireReseauDepuisBowTie(bt)
     let node = reseau.find(n => n.type === 'consequence')!
     const parentKey = Object.keys(node.cpt.table)[0]
 

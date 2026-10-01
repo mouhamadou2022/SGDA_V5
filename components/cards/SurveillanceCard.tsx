@@ -3,12 +3,7 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  Eye, Edit3, FileText, CheckCircle, Clock, AlertCircle, Send, Calendar, Users,
-  MapPin, Plane, PenLine, Trash2, Target, Star, PlayCircle, AlertTriangle,
-  ClipboardList, FileSignature, ChevronRight, CheckCircle2, XCircle, MinusCircle,
-  CalendarCheck, Mail, Archive,
-} from 'lucide-react'
+import { Eye, Edit3, FileText, CheckCircle, Clock, AlertCircle, Send, Calendar, Users, MapPin, Plane, PenLine, Trash2, Target, Star, PlayCircle, AlertTriangle, ClipboardList, FileSignature, CheckCircle2, CalendarCheck, Mail, Archive } from 'lucide-react'
 import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
 import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/ChargerRedigerRapportModal'
 import { useAppStore } from '@/lib/store'

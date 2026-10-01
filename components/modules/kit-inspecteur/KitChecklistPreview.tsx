@@ -5,33 +5,9 @@
 
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FileText,
-  Brain,
-  Sparkles,
-  MapPin,
-  Target,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  MinusCircle,
-  AlertCircle,
-  Calendar,
-  ChevronDown,
-  ChevronRight,
-  X,
-  Info,
-  Send,
-  Bot,
-  User,
-  MessageSquare,
-  ArrowLeft,
-  Plus,
-  Save,
-  Trash2,
-  PlusCircle,
-} from 'lucide-react';
+import { FileText, Brain, Sparkles, MapPin, Target, AlertTriangle, CheckCircle2, XCircle, MinusCircle, AlertCircle, Calendar, ChevronDown, ChevronRight, X, Info, Send, Bot, User, ArrowLeft, Plus, Save, Trash2, PlusCircle } from 'lucide-react'
 import { aiClient } from '@/lib/ia/aiClient';
+import { Markdown } from '@/components/ui/markdown';
 import type { KitDocument } from '@/lib/store';
 import type { KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
 import { useAppStore } from '@/lib/store';
@@ -1026,7 +1002,7 @@ export default function KitChecklistPreview({
                     ? 'bg-role-primary text-white rounded-br-sm'
                     : 'bg-muted/50 text-foreground rounded-bl-sm'
                 }`}>
-                  {m.content}
+                  {m.role === 'user' ? m.content : <Markdown texte={m.content} />}
                 </div>
                 {m.role === 'user' && (
                   <div className="w-6 h-6 rounded-full bg-role-primary-soft flex items-center justify-center shrink-0 mt-0.5">
@@ -1402,7 +1378,7 @@ export default function KitChecklistPreview({
                         ? 'bg-role-primary text-white rounded-br-sm'
                         : 'bg-muted/50 text-foreground rounded-bl-sm'
                     }`}>
-                      {m.content}
+                      {m.role === 'user' ? m.content : <Markdown texte={m.content} />}
                     </div>
                     {m.role === 'user' && (
                       <div className="w-6 h-6 rounded-full bg-role-primary-soft flex items-center justify-center shrink-0 mt-0.5">

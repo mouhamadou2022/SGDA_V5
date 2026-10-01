@@ -4,15 +4,11 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useAppStore, Planning, Aerodrome, ProfilRisque } from '@/lib/store'
+import { useAppStore, Planning, ProfilRisque } from '@/lib/store'
 import { canManageRole } from '@/lib/config'
-import { DOMAINES_SURVEILLANCE, getDomaineLabel } from '@/lib/domaines'
+import { DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { normalizePlanningType, getPlanningTypeLabel } from '@/lib/planning'
-import {
-  Calendar, CheckCircle2, XCircle, X, TrendingUp, AlertTriangle,
-  Shield, Target, Zap, Edit2, Save, MapPin, Users, Clock, Brain,
-  FileText
-} from 'lucide-react'
+import { Calendar, CheckCircle2, XCircle, X, TrendingUp, AlertTriangle, Shield, Target, Edit2, Save, Users, Brain } from 'lucide-react'
 
 interface Props { onClose?: () => void; userRole?: string }
 

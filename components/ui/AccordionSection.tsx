@@ -1,7 +1,7 @@
 // components/ui/AccordionSection.tsx
 'use client'
 
-import { Children, cloneElement, isValidElement, useState, type ReactElement, type ReactNode } from 'react'
+import { Children, cloneElement, isValidElement, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 interface AccordionSectionProps {

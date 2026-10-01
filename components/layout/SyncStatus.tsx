@@ -5,7 +5,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, CloudSync, Clock } from 'lucide-react'
+import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 import { onNetworkChange, getPendingSyncCount } from '@/lib/offline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from '@/lib/store'

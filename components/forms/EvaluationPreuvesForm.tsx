@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { learningEnginePAC } from '@/lib/learningEnginePAC';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
+import { veillerEvaluationPreuves } from '@/lib/ia/watchdogEvaluation';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { getCellColor, getRiskLevelBgColor } from '@/lib/risque';
 import { evaluatePreuves, type OACICell } from '@/lib/risque/bowTieEngine';
@@ -153,6 +154,48 @@ export function EvaluationPreuvesForm({
     }
   };
 
+  // ── Calculs + effets AVANT tout retour anticipé ──────────────────────────
+  // react-hooks/rules-of-hooks : les hooks doivent être appelés dans le même
+  // ordre à chaque rendu. Ils étaient placés APRÈS le `if (!ecart) return`
+  // ci-dessous → React levait « Rendered more hooks than during the previous
+  // render » dès que l'écart devenait disponible (cas normal d'ouverture).
+  const scorePondere = Object.entries(notes).reduce((sum, [key, note]) => {
+    const critere = CRITERES_PREUVES.find(c => c.id === key);
+    return sum + (note || 0) * (critere?.ponderation || 0.2);
+  }, 0);
+  const scorePourcentage = Math.round((scorePondere / 4) * 100);
+  const tousNotes = Object.values(notes).every(v => v > 0);
+  const scoreEleve = scorePondere >= 3.2;
+  const scoreMoyen = scorePondere >= 2.0 && scorePondere < 3.2;
+
+  useEffect(() => {
+    if (!ecart) return;
+    if (userChangedDecision.current) return;
+    if (!tousNotes) {
+      setDecision('refuse');
+    } else if (scoreEleve) {
+      setDecision('valide');
+    } else if (scoreMoyen) {
+      setDecision('reserve');
+    } else {
+      setDecision('refuse');
+    }
+  }, [notes, tousNotes, scoreEleve, scoreMoyen, ecart]);
+
+  useEffect(() => {
+    if (!ecart) return;
+    if (userChangedResiduel.current) return;
+    const ciblePAC = ecart.evaluation_pac;
+    if (ciblePAC?.risque_residuel_cible_niveau && ciblePAC?.risque_residuel_cible_cellule) {
+      setResiduelChoisi({
+        niveau: ciblePAC.risque_residuel_cible_niveau,
+        cellule: ciblePAC.risque_residuel_cible_cellule,
+      });
+    } else {
+      setResiduelChoisi(suggererResiduel(ecart.niveau_risque || 'moyen', ecart.cellule_risque_oaci || '3C', scorePourcentage));
+    }
+  }, [scorePourcentage, ecart]);
+
   if (!ecart) {
     return (
       <div className="form-container text-center py-8" data-role={userRole}>
@@ -199,17 +242,8 @@ export function EvaluationPreuvesForm({
     }
   };
 
-  const scorePondere = Object.entries(notes).reduce((sum, [key, note]) => {
-    const critere = CRITERES_PREUVES.find(c => c.id === key);
-    return sum + (note || 0) * (critere?.ponderation || 0.2);
-  }, 0);
-
-  const scoreMax = 4;
-  const scorePourcentage = Math.round((scorePondere / scoreMax) * 100);
-
-  const tousNotes = Object.values(notes).every(v => v > 0);
-  const scoreEleve = scorePondere >= 3.2;
-  const scoreMoyen = scorePondere >= 2.0 && scorePondere < 3.2;
+  // (scorePondere / scorePourcentage / tousNotes / scoreEleve / scoreMoyen sont
+  //  calculés plus haut, AVANT le retour anticipé — cf. react-hooks/rules-of-hooks.)
   const peutAccepter = tousNotes && scoreEleve;
   const peutReserver = tousNotes && scoreMoyen;
 
@@ -274,32 +308,8 @@ export function EvaluationPreuvesForm({
   const cellulesDispo = CELLULES_PAR_NIVEAU[residuelChoisi.niveau] || [];
   const suggestionResiduelle = suggererResiduel(ecartNiveau, ecartCellule, scorePourcentage);
 
-  useEffect(() => {
-    if (userChangedDecision.current) return;
-    if (!tousNotes) {
-      setDecision('refuse');
-    } else if (scoreEleve) {
-      setDecision('valide');
-    } else if (scoreMoyen) {
-      setDecision('reserve');
-    } else {
-      setDecision('refuse');
-    }
-  }, [notes, tousNotes, scoreEleve, scoreMoyen]);
-
-  useEffect(() => {
-    if (userChangedResiduel.current) return;
-    const ciblePAC = ecart?.evaluation_pac;
-    if (ciblePAC?.risque_residuel_cible_niveau && ciblePAC?.risque_residuel_cible_cellule) {
-      setResiduelChoisi({
-        niveau: ciblePAC.risque_residuel_cible_niveau,
-        cellule: ciblePAC.risque_residuel_cible_cellule,
-      });
-    } else {
-      setResiduelChoisi(suggererResiduel(ecart.niveau_risque || 'moyen', ecart.cellule_risque_oaci || '3C', scorePourcentage));
-    }
-  }, [scorePourcentage, ecart.niveau_risque, ecart?.evaluation_pac?.risque_residuel_cible_niveau]);
-
+  // (les deux useEffect qui synchronisaient `decision` et `residuelChoisi` ont
+  //  été remontés AVANT le retour anticipé — cf. react-hooks/rules-of-hooks.)
   const addReserve = () => {
     if (newReserve.trim()) {
       setReserves([...reserves, newReserve.trim()]);
@@ -648,6 +658,42 @@ export function EvaluationPreuvesForm({
               ))}
             </div>
           )}
+
+          {/* Second regard AERORISQ — watch-dog sur l'évaluation manuelle des preuves */}
+          {(() => {
+            if (!ecart || !Object.values(notes).some(v => v > 0)) return null
+            const alertes = veillerEvaluationPreuves({
+              notes,
+              decision: (decision || '') as 'valide' | 'refuse' | 'reserve' | '',
+              nbPreuves: ecart?.preuves?.fichiers?.length || 0,
+              niveauRisque: ecart?.niveau_risque || 'moyen',
+            })
+            if (alertes.length === 0) {
+              return (
+                <div className="mt-2 flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/30">
+                  <CheckCircle2 className="w-3 h-3 text-success mt-0.5 flex-shrink-0" />
+                  <span className="text-[11px] text-foreground">Second regard AERORISQ : votre évaluation des preuves tient la route.</span>
+                </div>
+              )
+            }
+            return (
+              <div className="mt-2 space-y-1">
+                <p className="text-[10px] font-semibold uppercase text-muted-foreground">Second regard AERORISQ — points à revoir avant de valider</p>
+                {alertes.map((a, i) => (
+                  <div key={i} className={`flex items-start gap-1.5 p-2 rounded border ${
+                    a.niveau === 'danger' ? 'bg-danger/10 border-danger/30'
+                    : a.niveau === 'warning' ? 'bg-amber-50 border-amber-200'
+                    : 'bg-primary/5 border-primary/20'
+                  }`}>
+                    <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${
+                      a.niveau === 'danger' ? 'text-danger' : a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'
+                    }`} />
+                    <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Points d'attention critères faibles */}
           {tousNotes && critereFaible.length > 0 && (

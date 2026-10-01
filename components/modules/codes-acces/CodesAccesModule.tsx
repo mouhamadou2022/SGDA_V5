@@ -9,26 +9,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
-import {
-  Key,
-  Copy,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Calendar,
-  Building,
-  Clock,
-  Eye,
-  EyeOff,
-  Search,
-  Plus,
-  Download,
-  History,
-  Shield,
-  Trash2,
-  AlertTriangle,
-  Filter,
-} from 'lucide-react';
+import { Key, Copy, CheckCircle2, XCircle, AlertCircle, Calendar, Building, Clock, Eye, EyeOff, Search, Plus, Download, History, Trash2, AlertTriangle, Filter } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useAppStore, type CodeAcces } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
@@ -51,7 +32,6 @@ const STATUTS = [
   { id: 'expire', label: 'Expirés', color: 'warning', icon: AlertCircle },
   { id: 'revogue', label: 'Révoqués', color: 'danger', icon: XCircle },
 ];
-
 export default function CodesAccesModule({ userRole }: CodesAccesModuleProps) {
   const codesAcces = useAppStore(s => s.codesAcces)
   const aerodromes = useAppStore(s => s.aerodromes)

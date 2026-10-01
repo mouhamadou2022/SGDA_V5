@@ -1,19 +1,13 @@
 // components/modules/messagerie/MessagerieModule.tsx
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Message } from '@/lib/store'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
-import { Role } from '@/lib/config'
 import { formatDate } from '@/lib/utils'
-import type { Utilisateur } from '@/lib/store'
-import {
-  Mail, MessageSquare, Send, Inbox, FileText,
-  Paperclip, Download, Trash2, Archive, Star,
-  Search, Users, Building, Clock, Reply, Forward, Plus, Filter
-} from 'lucide-react'
+import { Mail, Send, Inbox, FileText, Paperclip, Download, Trash2, Archive, Star, Search, Users, Building, Clock, Reply, Plus, Filter } from 'lucide-react'
 import { ComposeMessage } from './ComposeMessage'
 import type { AuthUser } from '@/lib/auth'
 import { subscribeToMessages } from '@/lib/datastore'

@@ -1,10 +1,9 @@
 // lib/learningEngine.ts
 'use client';
 
-import { ProfilRisque } from './store';
 import { ResultatChecklist } from '@/types/surveillance';
-import { checklistMemory, ItemHistoryRecord, type TypeInspection } from './checklistMemory';
-import { riskEngine } from './riskEngine';
+import { checklistMemory, type TypeInspection } from './checklistMemory'
+import { checklistPredictor } from '@/lib/ia/models/randomForest';
 
 // Types
 export interface LearningFeedback {
@@ -144,7 +143,6 @@ export function recordLearningFeedback(
   // Réentraînement périodique du Random Forest (tous les 50 feedbacks)
   if (feedbacksStore.length % 50 === 0) {
     try {
-      const { checklistPredictor } = require('@/lib/ia/models/randomForest')
       if (checklistPredictor) {
         const samples = feedbacksStore.map(f => ({
           features: [f.confiance_avant, f.impact_confiance || 0],

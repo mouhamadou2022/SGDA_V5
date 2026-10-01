@@ -1,15 +1,7 @@
 // components/modules/homologation/HomoTimeline.tsx
 'use client'
 
-import {
-  ClipboardList,
-  MapPin,
-  Scale,
-  CheckCircle2,
-  Circle,
-  AlertCircle,
-  Lock,
-} from 'lucide-react'
+import { ClipboardList, MapPin, Scale, CheckCircle2, Circle, Lock } from 'lucide-react'
 import type { Homologation } from '@/lib/store'
 
 interface HomoTimelineProps {

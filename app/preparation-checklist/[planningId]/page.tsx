@@ -817,6 +817,8 @@ export default function PreparationChecklistPage() {
   const [iaPrefilledCount, setIaPrefilledCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  // Domaines de la portée sans template au kit ( checklist vide expliquée, pas silencieuse).
+  const [domainesManquants, setDomainesManquants] = useState<string[]>([]);
   const [iaBatchLoading, setIaBatchLoading] = useState(false);
   const [briefingOpen, setBriefingOpen] = useState(false);
   const [briefing, setBriefing] = useState<FicheBriefing | null | undefined>(() => planning?.briefing_fiche);
@@ -916,6 +918,7 @@ export default function PreparationChecklistPage() {
           const resolution = resoudreChecklist(planning.portee || [], filtresTemplatesParType(planning.type))
           const master = resolution
           if (master) {
+            setDomainesManquants(master.manquants);
             if (master.manquants.length > 0) {
               console.warn(
                 '[Preparation] Domaines sans template :',
@@ -938,6 +941,8 @@ export default function PreparationChecklistPage() {
             // PAS de génération IA ici (données réelles uniquement) : sans
             // template du kit couvrant la portée, la checklist reste vide et
             // l'import d'un template est requis (voir kit inspecteur).
+            const manquants = (planning.portee || []).filter(p => p.toUpperCase() !== 'SGS');
+            setDomainesManquants(manquants);
             console.error(
               '[Preparation] Aucun template du kit ne couvre la portée',
               planning.portee,
@@ -1039,6 +1044,43 @@ export default function PreparationChecklistPage() {
 
     load();
   }, [planning, aerodrome, profil, planningId, checklistType, ecarts, resoudreChecklist]);
+
+  // ── Re-résolution à l'arrivée des templates ─────────────────
+  // Le chargement initial peut tourner AVANT que le kit (async) n'arrive :
+  // sans cela, la checklist restait vide jusqu'au rechargement manuel.
+  // Gardes : ne jamais écraser une saisie (offline, hiérarchie sauvée, édits).
+  const clesTemplates = Object.keys(masterChecklists || {}).join(',');
+  useEffect(() => {
+    if (!planning) return;
+    if (!(checklistType === 'standard' || checklistType === 'mixte')) return;
+    if (dataRef.current.standardDomaines.length > 0) return;
+    if ((planning.checklist_hierarchy || []).length > 0) return;
+    let annule = false;
+    (async () => {
+      const offline = await dbGet(`preparation-${planningId}-standard`).catch(() => null);
+      if (annule || offline?.domaines) return;
+      const typeSurv: import('@/lib/checklistMemory').TypeInspection =
+        planning.type === 'inopine' ? 'inopine'
+        : planning.type === 'maintien' ? 'maintien'
+        : planning.type === 'certification' ? 'certification'
+        : planning.type === 'homologation' ? 'homologation'
+        : planning.type === 'suivi_ecarts' ? 'suivi_ecarts'
+        : planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac'
+        : 'periodique';
+      const resolution = resoudreChecklist(planning.portee || [], filtresTemplatesParType(planning.type));
+      if (annule || !resolution) return;
+      setDomainesManquants(resolution.manquants);
+      const snapshot = JSON.parse(JSON.stringify(resolution.checklist));
+      const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
+      const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
+        entite_id: planning.aerodrome_id, type_entite: aerodrome?.type_entite ?? 'aerodrome',
+        type_surveillance: typeSurv, portee: planning.portee || [], profil_risque: profil,
+      });
+      if (!annule) setStandardDomaines(normalizeDomaines(excludeSGSDomaines(enriched as unknown as DomaineChecklist[], planning.portee || [])));
+    })().catch(() => {});
+    return () => { annule = true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clesTemplates, planningId]);
 
   // ── Save helper ────────────────────────────────────────────
   const saveAll = useCallback(async (data: typeof dataRef.current) => {
@@ -1769,6 +1811,19 @@ export default function PreparationChecklistPage() {
         {/* ── Contenu par type ── */}
 
         {/* Standard (mode standard, ou onglet standard en mixte) */}
+        {activeContent === 'standard' && domainesManquants.length > 0 && standardDomaines.length === 0 && (
+          <div className="mb-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
+            <p className="text-sm font-semibold text-foreground">Checklist incomplète : aucun template au kit pour {domainesManquants.join(', ')}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Importez un template couvrant ces domaines dans le Kit Inspecteur, puis rechargez — la checklist se reconstruira automatiquement.
+            </p>
+          </div>
+        )}
+        {activeContent === 'standard' && standardDomaines.length > 0 && filteredDomaines.length === 0 && (
+          <div className="mb-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <p className="text-sm text-foreground">Tous les domaines sont assignés à d’autres inspecteurs — aucun ne vous est délégué sur cette mission.</p>
+          </div>
+        )}
         {activeContent === 'standard' && (
           <StandardContent
                     domaines={filteredDomaines}

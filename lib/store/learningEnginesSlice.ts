@@ -5,7 +5,7 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore, LearningFeedbackRecord, RecalibrationAlertRecord, ModelCalibrationRecord } from '../store'
 import type { ResultatChecklist } from '@/types/checklist'
-import { learningEngine, type LearningFeedback, type ModelCalibration, type RecalibrationAlert } from '../learningEngine'
+import { learningEngine } from '../learningEngine'
 
 export interface LearningEngineSlice {
   learningFeedbacks: LearningFeedbackRecord[];

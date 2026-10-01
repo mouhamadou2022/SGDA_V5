@@ -3,7 +3,7 @@
 import React, { useCallback } from 'react';
 import { ChecklistStandardTable, DomainePicker } from '@/components/modules/checklist/ChecklistStandardTable';
 import type { NouveauDomaineInfo } from '@/components/modules/checklist/ChecklistStandardTable';
-import type { DomaineChecklist, ChecklistItem, ResultatChecklist, ModeSaisie, SousDomaine, SousSousDomaine } from '@/types/checklist';
+import { DomaineChecklist, ChecklistItem, ResultatChecklist } from '@/types/checklist'
 
 export type { ResultatChecklist, ModeSaisie, ChecklistItem } from '@/types/checklist';
 export type { SousSousDomaine as EditorSousSousDomaine, SousDomaine as EditorSousDomaine } from '@/types/checklist';

@@ -4,38 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
-import {
-  Save,
-  FileText,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  PenLine,
-  Eye,
-  Calendar,
-  Users,
-  MapPin,
-  Edit3,
-  Check,
-  X,
-  ChevronDown,
-  Trash2,
-  Camera,
-  Info,
-  Sparkles,
-  Brain,
-  Wifi,
-  WifiOff,
-  ClipboardList,
-  Shield,
-  TrendingUp,
-  Sliders,
-  UserCheck,
-  Clock,
-  AlertTriangle,
-  Zap,
-  Upload,
-} from 'lucide-react';
+import { Save, FileText, CheckCircle, XCircle, AlertCircle, PenLine, Eye, Calendar, MapPin, Edit3, Check, X, ChevronDown, Trash2, Info, Brain, Wifi, WifiOff, ClipboardList, Shield, TrendingUp, AlertTriangle, Zap, Upload } from 'lucide-react'
 import { FileUploader } from '@/components/ui/FileUploader';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
@@ -45,6 +14,7 @@ import { EvaluationAction, computeEvaluationActionScore, EcartClosureStatus, com
 import { getCellColor } from '@/lib/risque';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
+import { veillerItemPACAction } from '@/lib/ia/watchdogEvaluation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -68,10 +38,10 @@ export interface ItemVerification {
   source_id: string;
   reference: string;
   description: string;
+  statut_origine: string;
   responsable: string;
   date_prevue: string;
   livrables?: string[];
-  statut_origine: string;
   exemption_id?: string;
   
   // Évaluation terrain
@@ -456,6 +426,31 @@ function ItemCard({
           )}
         </div>
       )}
+
+      {/* Second regard AERORISQ sur la saisie (état local + item) */}
+      {(() => {
+        if (readOnly) return null
+        const alertes = veillerItemPACAction({
+          resultat: selectedResultat,
+          observation,
+          preuves: item.preuves || [],
+          efficacite: item.efficacite_validee ?? efficaciteTemp ?? null,
+          datePrevue: item.date_prevue || null,
+          niveauEcart: item.ecart_niveau_risque,
+          risqueResiduel: risqueResiduel || null,
+        })
+        if (alertes.length === 0) return null
+        return (
+          <div className="px-3 py-1.5 space-y-1 bg-amber-50/50 border-b border-border">
+            {alertes.map((a, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'danger' ? 'text-danger' : 'text-amber-600'}`} />
+                <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {isExpanded && (
         <div className="bg-gray-50/70">
@@ -1677,6 +1672,31 @@ export function SurveillanceChecklistPAC({
         />
       )}
       
+      {/* Second regard AERORISQ : synthèse des points à revoir */}
+      {(() => {
+        if (!checklistData || readOnly) return null
+        const concernes = checklistData.items.filter(item => veillerItemPACAction({
+          resultat: item.resultat,
+          observation: item.observation,
+          preuves: item.preuves || [],
+          efficacite: item.efficacite_validee ?? null,
+          datePrevue: item.date_prevue || null,
+          niveauEcart: (item as any).ecart_niveau_risque,
+          risqueResiduel: item.risque_residuel || null,
+        }).length > 0)
+        if (concernes.length === 0) return null
+        return (
+          <div className="rounded-xl border border-warning/30 bg-warning/5 p-2.5 mb-4">
+            <p className="text-xs font-semibold">
+              Second regard AERORISQ : {concernes.length} item(s) à revoir —{' '}
+              {concernes.slice(0, 8).map(i => i.reference).join(', ')}
+              {concernes.length > 8 ? ` (+${concernes.length - 8})` : ''}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Détails sous chaque carte concernée.</p>
+          </div>
+        )
+      })()}
+
       {/* Liste des items groupés par domaine */}
       {(() => {
         const itemsParDomaine = grouperParDomaine(checklistData.items, 'SGS');

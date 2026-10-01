@@ -1,7 +1,7 @@
 // lib/chargeUtils.ts
 // Utilitaires pour le calcul de la charge de travail des inspecteurs
 
-import { Surveillance, Ecart, EvenementSecurite, Dossier, Formation } from './store';
+import { Surveillance, Ecart, EvenementSecurite, Dossier } from './store'
 
 export interface Tache {
   id: string;

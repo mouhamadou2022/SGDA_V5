@@ -2,38 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  LayoutDashboard,
-  Plane,
-  ShieldCheck,
-  Scale,
-  CalendarDays,
-  Eye,
-  ClipboardList,
-  BookOpen,
-  FolderOpen,
-  GraduationCap,
-  Briefcase,
-  AlertTriangle,
-  MessageSquare,
-  Activity,
-  PenLine,
-  Users,
-  FileSearch,
-  Key,
-  AlertCircle,
-  Archive,
-  FileText,
-  MessageCircle,
-  ListTodo,
-  Flame,
-  Mail,
-  BarChart3,
-  Brain,
-  ChevronLeft,
-  ChevronRight,
-  Target,
-} from 'lucide-react';
+import { LayoutDashboard, Plane, ShieldCheck, Scale, CalendarDays, Eye, BookOpen, FolderOpen, GraduationCap, Briefcase, AlertTriangle, MessageSquare, Activity, PenLine, Users, FileSearch, Key, AlertCircle, Archive, FileText, MessageCircle, ListTodo, Flame, Mail, Brain, ChevronLeft, ChevronRight, Target } from 'lucide-react'
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
 import {

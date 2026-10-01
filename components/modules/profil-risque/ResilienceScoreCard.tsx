@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
-import { Shield, TrendingUp, TrendingDown, Activity, Clock, Gauge } from 'lucide-react'
+import { Shield, Activity, Clock, Gauge } from 'lucide-react'
 import { computeVolatilityIndicators, getStabilityClass } from '@/lib/risque/volatility'
 
 interface Props {

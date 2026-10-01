@@ -1,5 +1,6 @@
-// lib/__tests__/hydratation.test.ts — Fusions local-prime (lib/hydratation.ts).
-// Le local (IndexedDB, hors-ligne) prime, Supabase complète.
+// lib/__tests__/hydratation.test.ts — Fusions (lib/hydratation.ts).
+// Le plus récent (updated_at) gagne ; sans dates des deux côtés, le local
+// (brouillons hors-ligne) est conservé.
 
 import {
   fusionnerParId,
@@ -9,13 +10,24 @@ import {
 } from '../hydratation'
 
 describe('fusionnerParId', () => {
-  test('local prime, distant complète sans doublons', () => {
+  test('sans dates : local conservé, distant complète sans doublons', () => {
     const locaux = [{ id: 'a', v: 1 }]
     const distants = [{ id: 'a', v: 2 }, { id: 'b', v: 2 }]
     expect(fusionnerParId(locaux, distants)).toEqual([
       { id: 'a', v: 1 }, { id: 'b', v: 2 },
     ])
     expect(fusionnerParId(undefined, undefined)).toEqual([])
+  })
+  test('le plus récent gagne (source unique inter-postes)', () => {
+    const locaux = [{ id: 'a', v: 1, updated_at: '2026-01-01T00:00:00Z' }]
+    const distants = [{ id: 'a', v: 2, updated_at: '2026-02-01T00:00:00Z' }]
+    expect(fusionnerParId(locaux, distants)).toEqual([
+      { id: 'a', v: 2, updated_at: '2026-02-01T00:00:00Z' },
+    ])
+    const inverses = fusionnerParId(distants, locaux)
+    expect(inverses).toEqual([
+      { id: 'a', v: 2, updated_at: '2026-02-01T00:00:00Z' },
+    ])
   })
 })
 

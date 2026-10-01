@@ -35,11 +35,19 @@ export interface Certification {
         inspecteur_fichiers?: { nom: string; url: string }[]
         date_accuse_reception?: string
         date_decision?: string
+        // Instruction assignée (Étape 1 unification workflow) : qui instruit.
+        // Lecture seule hors équipe (miroir canEditSurveillanceContent).
+        responsable_id?: string
+        equipe_ids?: string[]
+        chef_id?: string
+        assigne_le?: string
+        assigne_par?: string
       }
       phase2?: {
         date_reception: string
         numero_dossier: string
-        responsable_id: string
+        // Optionnel : renseigné à l'assignation (Étape 1), plus à la soumission.
+        responsable_id?: string
         documents: Record<string, string | boolean>
         completude: number
         rapport_evaluation_url?: string
@@ -53,6 +61,11 @@ export interface Certification {
         inspecteur_fichiers?: { nom: string; url: string }[]
         date_accuse_reception?: string
         date_decision?: string
+        // Instruction assignée (Étape 1 unification workflow).
+        equipe_ids?: string[]
+        chef_id?: string
+        assigne_le?: string
+        assigne_par?: string
       }
     phase3?: {
       planning_id?: string
@@ -139,6 +152,21 @@ export interface CertificationSlice {
    * Déclenché par l'événement 'certification:nettoyer-lien-planning'.
    */
   nettoyerLienPlanningCertification: (aerodrome_id: string, planning_id: string) => void
+  /**
+   * Assigne l'instruction d'une phase 1 ou 2 (Étape 1 unification workflow) :
+   * responsable + équipe + chef, tracés (assigne_le/par), notifiés.
+   * Écriture réservée à l'admin côté UI ; lecture seule hors équipe.
+   */
+  assignerInstructionCertification: (
+    certId: string,
+    phase: 1 | 2,
+    assignation: {
+      responsable_id?: string
+      equipe_ids?: string[]
+      chef_id?: string
+      externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>
+    },
+  ) => void
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -240,5 +268,50 @@ export const createCertificationsSlice: StateCreator<AppStore, [], [], Certifica
     if (!cert) return
     const phase3 = { ...(cert.phases_data as any).phase3, planning_id: '' }
     get().updateCertification(cert.id, { phases_data: { ...cert.phases_data, phase3 } } as any)
+  },
+
+  assignerInstructionCertification: (certId, phase, assignation) => {
+    const cert = get().certifications.find(c => c.id === certId)
+    if (!cert || (phase !== 1 && phase !== 2)) return
+    const auteur = get().user
+    const auteurNom = auteur ? `${auteur.prenom || ''} ${auteur.nom || ''}`.trim() || 'Admin' : 'Admin'
+    const now = new Date().toISOString()
+    // Équipe désignée UNE FOIS par dossier (clé partagée), avec miroirs
+    // par-phase pour compatibilité (canAdvance lit phase2.responsable_id).
+    const partagee = {
+      responsable_id: assignation.responsable_id,
+      equipe_ids: assignation.equipe_ids ?? [],
+      chef_id: assignation.chef_id,
+      externes: assignation.externes ?? [],
+      assigne_le: now,
+      assigne_par: auteurNom,
+    }
+    const miroir = (ancienne: unknown) => ({
+      ...(ancienne as Record<string, unknown> | undefined),
+      responsable_id: partagee.responsable_id,
+      equipe_ids: partagee.equipe_ids,
+      chef_id: partagee.chef_id,
+    })
+    const phasesData = {
+      ...cert.phases_data,
+      instruction: partagee,
+      phase1: miroir((cert.phases_data as any)?.phase1),
+      phase2: miroir((cert.phases_data as any)?.phase2),
+    }
+    get().updateCertification(cert.id, { phases_data: phasesData } as any)
+    // Notifier les désignés internes (responsable + équipe + chef, dédupliqués).
+    const aero = get().aerodromes.find(a => a.id === cert.aerodrome_id)
+    const dests = [...new Set([
+      partagee.responsable_id, ...(partagee.equipe_ids || []), partagee.chef_id,
+    ].filter(Boolean))] as string[]
+    for (const userId of dests) {
+      get().addNotification({
+        user_id: userId,
+        type: 'info',
+        title: `Instruction certification ${cert.reference}`,
+        message: `${aero?.code_oaci || ''} — équipe désignée par ${auteurNom}.`,
+        canal: 'in_app',
+      })
+    }
   },
 })

@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Save, Lock, CheckCircle2, FileText, Calendar, Users, AlertCircle, Clock } from 'lucide-react'
+import { Lock, CheckCircle2, FileText, Calendar, Users, AlertCircle, Clock } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import type { Homologation } from '@/lib/store'

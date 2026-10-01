@@ -1,11 +1,7 @@
 // components/cards/EvenementCard.tsx
 'use client'
 
-import {
-  AlertTriangle, AlertOctagon, AlertCircle, Flame, Info,
-  Calendar, MapPin, Clock, Eye, Users, Plane, FileText,
-  PenSquare, Trash2
-} from 'lucide-react'
+import { AlertOctagon, AlertCircle, Flame, Info, Calendar, MapPin, Eye, Users, Plane, FileText, PenSquare, Trash2 } from 'lucide-react'
 
 interface EvenementCardProps {
   evenement: any

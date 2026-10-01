@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     }
     const sinceIso = since ?? new Date(Date.now() - 24 * 86400000).toISOString()
 
-    let query = supabaseAdmin
+    const query = supabaseAdmin
       .from('ia_langage_clair')
       .select('module, texte_hash, aerodrome_id, contexte, texte, fallback_ia, vote, created_at')
       .gte('created_at', sinceIso)

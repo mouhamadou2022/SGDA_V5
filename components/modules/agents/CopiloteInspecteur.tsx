@@ -21,9 +21,16 @@ import {
   Sparkles,
   FileDown,
   Eraser,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { copiloteAgent } from '@/lib/ia/agents/copiloteAgent'
 import type { MessageCopilote, PieceJointeCopilote } from '@/lib/ia/agents/copiloteAgent'
+import { detecterFormatOffice, extractTextFromOffice } from '@/lib/services/officeExtractor'
+import { Markdown, markdownVersTexte } from '@/components/ui/markdown'
+import { executerPilote } from '@/lib/ia/pilote/bouclePilote'
 import { exporterRapportConversation } from '@/lib/services/rapportConversation'
 
 const SUGGESTIONS = [
@@ -34,6 +41,19 @@ const SUGGESTIONS = [
 ]
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
+
+/** État de lecture d'une pièce (repli pour les pièces sans statut explicite). */
+function statutPiece(p: PieceJointeCopilote): 'ok' | 'vision' | 'ocr' | 'echec' {
+  return p.statutLecture ?? (p.texte.trim().length > 50 ? 'ok' : 'echec')
+}
+
+function libelleLecture(p: PieceJointeCopilote): string {
+  const statut = statutPiece(p)
+  if (statut === 'ok') return 'texte lu'
+  if (statut === 'vision') return 'lu par l’IA locale'
+  if (statut === 'ocr') return 'scan récupéré par OCR'
+  return p.detailEchec || 'non exploitable'
+}
 
 export function CopiloteInspecteur() {
   const aerodromes = useAppStore(s => s.aerodromes)
@@ -49,6 +69,127 @@ export function CopiloteInspecteur() {
   const [contexte, setContexte] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'word' | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [secondesAttente, setSecondesAttente] = useState(0)
+  const jetonReponse = useRef(0)
+  // ── Mode pilote AERORISQ : l'IA agit via des outils (écritures confirmées).
+  const [modePilote, setModePilote] = useState(false)
+  const [tracePilote, setTracePilote] = useState<string[]>([])
+  const [confirmation, setConfirmation] = useState<{
+    outil: string
+    args: Record<string, unknown>
+    resoudre: (ok: boolean) => void
+  } | null>(null)
+  // ── Commandes vocales : dictée (STT) + lecture des réponses (TTS).
+  const [dictation, setDictation] = useState(false)
+  const [lectureActive, setLectureActive] = useState(false)
+  const recognitionRef = useRef<any>(null)
+  const voixSupportee = typeof window !== 'undefined' &&
+    ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)
+
+  // Meilleure voix française : neurale/naturelle d'abord (Edge : « Natural »,
+  // Chrome : « Google français »), voix robotiques en dernier recours.
+  // Note : getVoices() est souvent vide au premier appel → écoute voiceschanged.
+  const choisirVoixFr = (): SpeechSynthesisVoice | null => {
+    try {
+      const voix = window.speechSynthesis.getVoices().filter(v => v.lang?.toLowerCase().startsWith('fr'))
+      if (voix.length === 0) return null
+      const score = (v: SpeechSynthesisVoice) => {
+        const nom = (v.name || '').toLowerCase()
+        let s = 0
+        if (/natural|neural/.test(nom)) s += 3
+        if (/google français/.test(nom)) s += 2
+        if (/microsoft|google/.test(nom)) s += 1
+        if (v.localService) s += 1
+        return s
+      }
+      return [...voix].sort((a, b) => score(b) - score(a))[0]
+    } catch {
+      return null
+    }
+  }
+
+  useEffect(() => {
+    try {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices()
+        window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices()
+      }
+    } catch { /* silencieux */ }
+    return () => {
+      try {
+        window.speechSynthesis?.cancel()
+        if ('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged = null
+      } catch { /* silencieux */ }
+    }
+  }, [])
+
+  const lireTexte = (texte: string) => {
+    try {
+      if (!('speechSynthesis' in window)) return
+      window.speechSynthesis.cancel()
+      const propre = markdownVersTexte(texte).slice(0, 2000)
+      if (!propre.trim()) return
+      const voix = new SpeechSynthesisUtterance(propre)
+      voix.lang = 'fr-FR'
+      voix.rate = 1.02
+      const fr = choisirVoixFr()
+      if (fr) voix.voice = fr
+      window.speechSynthesis.speak(voix)
+    } catch { /* TTS indisponible : silencieux */ }
+  }
+
+  const basculerLecture = () => {
+    const prochaine = !lectureActive
+    setLectureActive(prochaine)
+    if (!prochaine) {
+      try { window.speechSynthesis?.cancel() } catch { /* silencieux */ }
+      return
+    }
+    const derniere = [...messages].reverse().find(m => m.role === 'assistant')
+    if (derniere) lireTexte(derniere.content)
+  }
+
+  const basculerDictee = () => {
+    if (!voixSupportee) {
+      setErreur('Commandes vocales non supportées par ce navigateur — utilisez Chrome ou Edge (micro autorisé).')
+      return
+    }
+    if (dictation) {
+      try { recognitionRef.current?.stop() } catch { /* silencieux */ }
+      setDictation(false)
+      return
+    }
+    try {
+      const Classe = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      const rec = new Classe()
+      rec.lang = 'fr-FR'
+      rec.continuous = false
+      rec.interimResults = false
+      rec.onresult = (event: any) => {
+        const texte = event.results?.[0]?.[0]?.transcript || ''
+        setDictation(false)
+        if (texte.trim()) {
+          setQuestion(texte.trim())
+          // Envoi automatique : « demande à l'IA » d'une phrase.
+          setTimeout(() => envoyer(texte.trim()), 50)
+        }
+      }
+      rec.onerror = () => setDictation(false)
+      rec.onend = () => setDictation(false)
+      recognitionRef.current = rec
+      rec.start()
+      setDictation(true)
+    } catch {
+      setDictation(false)
+    }
+  }
+
+  // Chronomètre d'attente pendant la réponse IA (rassure quand le modèle est lent).
+  useEffect(() => {
+    if (!repondreLoading) return
+    const id = setInterval(() => setSecondesAttente(s => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [repondreLoading])
   const finRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -65,18 +206,51 @@ export function CopiloteInspecteur() {
   const handleFichiers = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
     const all = Array.from(e.target.files)
+    const tropLourds = all.filter(f => f.size > MAX_FILE_SIZE)
+    if (tropLourds.length > 0) {
+      setErreur(`Fichier(s) trop lourd(s) (20 Mo max) : ${tropLourds.map(f => f.name).join(', ')}.`)
+    }
     const valides = all.filter(f => f.size <= MAX_FILE_SIZE)
     setFichiers(prev => [...prev, ...valides])
-    setErreur(null)
+    if (valides.length) setErreur(null)
     if (valides.length) {
       setExtracting(true)
       try {
         const extraites: PieceJointeCopilote[] = []
         for (const f of valides) {
+          // Documents Office (Word/Excel/PowerPoint) : lecture locale instantanée.
+          if (detecterFormatOffice(f.name)) {
+            try {
+              const office = await extractTextFromOffice(await f.arrayBuffer(), f.name)
+              extraites.push({
+                id: f.name, nom: f.name, texte: office.texte,
+                nbPages: office.nbUnites || undefined, uniteLecture: office.nbUnites ? office.unite : undefined,
+                type: f.type, statutLecture: office.texte.trim().length > 50 ? 'ok' : 'echec',
+                detailEchec: office.texte.trim().length > 50 ? undefined : 'Document Office vide — vérifiez son contenu.',
+              })
+            } catch (err) {
+              extraites.push({
+                id: f.name, nom: f.name, texte: '', type: f.type,
+                statutLecture: 'echec', detailEchec: (err as Error).message,
+              })
+            }
+            continue
+          }
+          // Ni PDF ni Office supporté (ex. vieux .doc/.xls/.ppt) : message clair.
+          const estPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf'
+          if (!estPdf) {
+            extraites.push({
+              id: f.name, nom: f.name, texte: '', type: f.type,
+              statutLecture: 'echec',
+              detailEchec: `Format non pris en charge : « ${f.name} ». Formats acceptés : PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx).`,
+            })
+            continue
+          }
+          // PDF : texte natif, sinon lecture par l'IA de vision.
           const url = URL.createObjectURL(f)
           try {
-            const { texte, nbPages } = await copiloteAgent.extraireTextePiece(url)
-            extraites.push({ id: f.name, nom: f.name, texte, nbPages, type: f.type })
+            const { texte, nbPages, statutLecture, detailEchec } = await copiloteAgent.extraireTextePiece(url, f.name)
+            extraites.push({ id: f.name, nom: f.name, texte, nbPages, uniteLecture: 'pages', type: f.type, statutLecture, detailEchec })
           } finally {
             URL.revokeObjectURL(url)
           }
@@ -96,29 +270,70 @@ export function CopiloteInspecteur() {
 
   // ── Dialogue ──────────────────────────────────────────────
 
-  const envoyer = async () => {
-    const q = question.trim()
+  const envoyer = async (questionForcee?: string) => {
+    const q = (questionForcee ?? question).trim()
     if (!q || repondreLoading) return
+    try { window.speechSynthesis?.cancel() } catch { /* silencieux */ }
     setRepondreLoading(true)
+    setSecondesAttente(0)
     setErreur(null)
     const userMsg: MessageCopilote = { role: 'user', content: q }
     const historique = [...messages, userMsg]
     setMessages(historique)
     setQuestion('')
+    // L'appel IA n'est pas annulable côté client : en cas d'abandon on ignore
+    // simplement la réponse à son arrivée (flag) au lieu de la perdre en erreur.
+    const jeton = ++jetonReponse.current
     try {
-      const reponse = await copiloteAgent.repondre({
-        question: q,
-        pieces,
-        historique: messages,
-        aerodromeNom: aerodromeNom || undefined,
-        instructions: contexte.trim() || undefined,
-      })
-      setMessages([...historique, { role: 'assistant', content: reponse }])
+      if (modePilote) {
+        // MODE PILOTE : AERORISQ agit via ses outils (confirmations humaines).
+        const textesPieces = pieces
+          .filter(p => p.texte.trim().length > 50)
+          .map(p => `── PIÈCE : ${p.nom} ──\n${p.texte.trim().substring(0, 4000)}`)
+          .join('\n\n')
+        const resultat = await executerPilote({
+          instruction: [textesPieces, `DEMANDE : ${q}`].filter(Boolean).join('\n\n'),
+          historique: messages,
+          contexte: { userId: user?.id },
+          onConfirmer: (outil, args) => new Promise<boolean>(resoudre => {
+            setConfirmation({ outil, args, resoudre })
+          }),
+          onTrace: (etape) => setTracePilote(prev => [...prev, etape]),
+        })
+        if (jetonReponse.current !== jeton) return
+        const resumeActions = resultat.actions.length > 0
+          ? `\n\n---\n**Actions du pilote :**\n${resultat.actions.map(a => `- ${a.outil} : ${a.statut}`).join('\n')}`
+          : ''
+        const contenuFinal = resultat.reponse + resumeActions
+        setMessages([...historique, { role: 'assistant', content: contenuFinal }])
+        if (lectureActive) lireTexte(contenuFinal)
+      } else {
+        const reponse = await copiloteAgent.repondre({
+          question: q,
+          pieces,
+          historique: messages,
+          aerodromeNom: aerodromeNom || undefined,
+          instructions: contexte.trim() || undefined,
+        })
+        if (jetonReponse.current !== jeton) return
+        setMessages([...historique, { role: 'assistant', content: reponse }])
+        if (lectureActive) lireTexte(reponse)
+      }
     } catch (err) {
+      if (jetonReponse.current !== jeton) return
       setMessages([...historique, { role: 'assistant', content: 'Erreur : ' + ((err as Error).message || 'réponse indisponible.') }])
     } finally {
-      setRepondreLoading(false)
+      if (jetonReponse.current === jeton) {
+        setRepondreLoading(false)
+        setConfirmation(null)
+      }
     }
+  }
+
+  const abandonnerReponse = () => {
+    jetonReponse.current++
+    setRepondreLoading(false)
+    setMessages(prev => [...prev, { role: 'assistant', content: 'Réponse interrompue à votre demande — reformulez ou réessayez.' }])
   }
 
   const resetAll = () => {
@@ -129,6 +344,8 @@ export function CopiloteInspecteur() {
     setContexte('')
     setAerodromeId('')
     setErreur(null)
+    setTracePilote([])
+    setConfirmation(null)
   }
 
   // ── Export ────────────────────────────────────────────────
@@ -182,6 +399,17 @@ export function CopiloteInspecteur() {
               className="mt-0.5 w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
             />
           </label>
+          <label className="flex items-center gap-2 ml-auto cursor-pointer" title="Le copilote conseille ; le mode action EXÉCUTE via des outils (profil de risque, écarts, propositions de surveillance). Chaque écriture demande votre approbation.">
+            <input
+              type="checkbox"
+              checked={modePilote}
+              onChange={(e) => setModePilote(e.target.checked)}
+              className="accent-warning w-4 h-4"
+            />
+            <span className={`text-xs font-medium flex items-center gap-1 rounded-full px-2.5 py-1 border ${modePilote ? 'bg-warning/10 border-warning/40 text-foreground' : 'border-border text-foreground/70'}`}>
+              <Sparkles className="w-3.5 h-3.5 text-warning" /> Mode action — l’IA exécute
+            </span>
+          </label>
           {messages.length > 0 && (
             <div className="flex items-center gap-2 ml-auto">
               <button onClick={resetAll} className="btn btn-secondary h-9 px-3 text-xs gap-1.5">
@@ -213,15 +441,15 @@ export function CopiloteInspecteur() {
               className="w-full flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-card p-6 text-center cursor-pointer hover:border-role-primary/40 transition-colors"
             >
               <Paperclip className="w-6 h-6 text-role-primary mb-2" />
-              <span className="text-xs font-medium text-foreground">Joindre des PDF</span>
-              <span className="text-[11px] text-muted-foreground mt-1">20 Mo max par pièce</span>
+              <span className="text-xs font-medium text-foreground">Joindre un document</span>
+              <span className="text-[11px] text-muted-foreground mt-1">PDF, Word, Excel, PowerPoint · 20 Mo max</span>
             </button>
-            <input ref={fileInputRef} type="file" multiple accept="application/pdf,.pdf" className="hidden" onChange={handleFichiers} />
+            <input ref={fileInputRef} type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,application/pdf" className="hidden" onChange={handleFichiers} />
             {(extracting || fichiers.length > 0) && (
               <div className="mt-3 space-y-1.5">
                 {extracting && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Extraction du texte…
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Lecture du document (texte direct, sinon l’IA locale lit les pages)…
                   </div>
                 )}
                 {pieces.map((p, i) => (
@@ -229,8 +457,8 @@ export function CopiloteInspecteur() {
                     <FileText className="w-4 h-4 text-role-primary shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="truncate text-foreground text-xs">{p.nom}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {p.nbPages ? `${p.nbPages} pages · ` : ''}{p.texte.trim().length > 50 ? 'texte lu' : 'non exploitable'}
+                      <div className={`text-[11px] ${statutPiece(p) === 'echec' ? 'text-danger' : 'text-muted-foreground'}`} title={p.detailEchec}>
+                        {p.nbPages ? `${p.nbPages} ${p.uniteLecture || 'pages'} · ` : ''}{libelleLecture(p)}
                       </div>
                     </div>
                     <button onClick={() => retirerPiece(i)} className="text-foreground/40 hover:text-danger" title="Retirer">
@@ -248,7 +476,12 @@ export function CopiloteInspecteur() {
 
         {/* Conversation */}
         <div className="lg:col-span-9">
-          <Card variant="role" title="Conversation" subtitle="Réponses fondées sur les pièces jointes (si présentes) et les référentiels OACI / IATA / ANACIM." icon={<Sparkles className="w-5 h-5 text-role-primary" />}>
+          <Card variant="role" title="Conversation" subtitle="Copilote = conseil. Mode action = l’IA exécute via ses outils (avec votre approbation). Réponses fondées sur les pièces jointes et les référentiels OACI / IATA / ANACIM." icon={<Sparkles className="w-5 h-5 text-role-primary" />}>
+            {modePilote && (
+              <p className="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-foreground">
+                ⚡ Mode action actif : AERORISQ consulte les données et propose des actions — chacune sera soumise à votre approbation.
+              </p>
+            )}
             <div className="space-y-3 max-h-[26rem] overflow-y-auto pr-1 mb-3">
               {messages.length === 0 && (
                 <div className="text-center py-10 text-foreground/50">
@@ -270,15 +503,50 @@ export function CopiloteInspecteur() {
               )}
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-role-primary text-white' : 'bg-muted text-foreground'}`}>
-                    {m.content}
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${m.role === 'user' ? 'bg-role-primary text-white whitespace-pre-wrap' : 'bg-muted text-foreground'}`}>
+                    {m.role === 'user' ? m.content : <Markdown texte={m.content} />}
                   </div>
                 </div>
               ))}
               {repondreLoading && (
                 <div className="flex justify-start">
                   <div className="bg-muted rounded-xl px-3 py-2 text-sm text-foreground/60 flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Réflexion en cours…
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Réflexion en cours… ({secondesAttente}s)
+                    <button onClick={abandonnerReponse} className="ml-1 underline hover:text-danger" title="Interrompre l'attente">
+                      Interrompre
+                    </button>
+                  </div>
+                </div>
+              )}
+              {tracePilote.length > 0 && (
+                <div className="rounded-lg border border-border bg-card px-3 py-2 text-[11px] text-muted-foreground">
+                  <p className="font-medium mb-0.5">Traces du pilote</p>
+                  {tracePilote.slice(-6).map((t, i) => <p key={i}>{t}</p>)}
+                </div>
+              )}
+              {confirmation && (
+                <div className="rounded-xl border-2 border-warning bg-warning/5 p-3">
+                  <p className="text-sm font-semibold text-foreground">✋ Le pilote demande votre approbation</p>
+                  <p className="text-xs text-foreground mt-1">
+                    Action : <span className="font-mono font-medium">{confirmation.outil}</span>
+                  </p>
+                  <pre className="mt-1 max-h-32 overflow-auto rounded bg-card p-2 text-[11px] text-foreground/80">
+                    {JSON.stringify(confirmation.args, null, 2)}
+                  </pre>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => { confirmation.resoudre(true); setConfirmation(null) }}
+                      className="btn btn-primary h-8 px-4 text-xs"
+                    >
+                      Approuver et exécuter
+                    </button>
+                    <button
+                      onClick={() => { confirmation.resoudre(false); setConfirmation(null) }}
+                      className="btn btn-secondary h-8 px-4 text-xs"
+                    >
+                      Refuser
+                    </button>
                   </div>
                 </div>
               )}
@@ -289,14 +557,33 @@ export function CopiloteInspecteur() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); envoyer() } }}
-                placeholder="Votre demande, votre question…"
+                placeholder="Votre demande, votre question… ou dictez-la au micro"
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
               />
-              <button onClick={envoyer} disabled={!canEnvoyer} className="btn btn-primary h-9 px-4 gap-1.5 text-sm">
+              <button
+                onClick={basculerDictee}
+                title={voixSupportee ? 'Dicter la demande (envoi automatique)' : 'Voix non supportée par ce navigateur'}
+                className={`btn h-9 px-3 gap-1.5 text-sm ${dictation ? 'btn-danger' : 'btn-secondary'}`}
+              >
+                {dictation ? <MicOff className="w-4 h-4 animate-pulse" /> : <Mic className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={basculerLecture}
+                title={lectureActive ? 'Couper la lecture vocale des réponses' : 'Lire les réponses à voix haute'}
+                className={`btn h-9 px-3 gap-1.5 text-sm ${lectureActive ? 'btn-primary' : 'btn-secondary'}`}
+              >
+                {lectureActive ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+              <button onClick={() => envoyer()} disabled={!canEnvoyer} className="btn btn-primary h-9 px-4 gap-1.5 text-sm">
                 {repondreLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Envoyer
               </button>
             </div>
+            {dictation && (
+              <p className="text-xs text-danger mt-1.5 flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 animate-pulse" /> Écoute en cours… parlez, la demande part automatiquement.
+              </p>
+            )}
           </Card>
         </div>
       </div>

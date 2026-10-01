@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Calendar, Plane, Timer, Radar, Wifi } from 'lucide-react';
+import { Clock, Calendar, Plane, Timer } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { SyncStatus } from './SyncStatus';
 

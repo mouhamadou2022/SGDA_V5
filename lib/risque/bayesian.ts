@@ -5,7 +5,6 @@
 
 import { PredictionBayesienne } from './types'
 export type { PredictionBayesienne } from './types'
-import { getDomainesIndividuelsCodes } from '../domaines'
 
 // Vraisemblances par défaut P(Signal|Faille)
 const LIKELIHOOD_PAR_DEFAUT: Record<string, number> = {

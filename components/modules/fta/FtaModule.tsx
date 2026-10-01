@@ -5,17 +5,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { Card } from '@/components/ui/card'
-import { Role, GRAVITE_EVENEMENT } from '@/lib/config'
-import {
-  calculerArbre,
-  marquerCausesDepuisEvenement,
-  getNiveauProbaArbre,
-  PROBA_ARBRE_COULEURS,
-  FACTEUR_LABELS,
-  type ArbreFTA,
-  type NoeudFTA,
-  type PorteFTA,
-} from '@/lib/risque/ftaEngine'
+import { Role } from '@/lib/config'
+import { calculerArbre, marquerCausesDepuisEvenement, getNiveauProbaArbre, PROBA_ARBRE_COULEURS, FACTEUR_LABELS, type NoeudFTA, type PorteFTA } from '@/lib/risque/ftaEngine'
 import {
   GitBranch, Plus, CheckCircle2, XCircle, MinusCircle,
   RefreshCw, Trash2, Search, Filter, AlertTriangle, ListTree, ChevronRight,

@@ -208,12 +208,15 @@ Génère un JSON avec cette structure exacte:
   "justification": "Pourquoi ces questions sont pertinentes pour cet élément..."
 }`
 
+    // maxTokens borné (8000) : la sortie est un élément unique (questions +
+    // directives + guide), pas un document entier — 32768 épuisait le quota
+    // Groq et étouffait l'inférence locale pour rien.
     const result = await aiClient.callJSON<SGSGenerationResult>(
       {
         systemPrompt,
         userMessage,
         temperature: 0.2,
-        maxTokens: 32768,
+        maxTokens: 8000,
         responseFormat: 'json_object',
       },
       {

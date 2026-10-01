@@ -14,7 +14,7 @@ import type { ResultatChecklist } from '@/types/checklist'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { checklistMemory, type TypeInspection } from '@/lib/checklistMemory'
 import { aiClient } from '@/lib/ia/aiClient'
-import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, GENERER_SGS_QUESTIONS_PROMPT, ANALYSER_DOCUMENT_DOSSIER_PROMPT, GENERER_CHECKLIST_TRAITEMENT_PROMPT, GENERER_FICHE_BRIEFING_PROMPT } from '@/lib/ia/prompts'
+import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, ANALYSER_DOCUMENT_DOSSIER_PROMPT, GENERER_CHECKLIST_TRAITEMENT_PROMPT, GENERER_FICHE_BRIEFING_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
@@ -2206,7 +2206,9 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
   ]
 }`,
             temperature: 0.15,
-            maxTokens: 32768,
+            // Borné (8192) : les items d'UN domaine tiennent largement —
+            // 32768 par domaine épuisait le quota Groq et tuait le local.
+            maxTokens: 8192,
             responseFormat: 'json_object',
           },
           { items: [] }

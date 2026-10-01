@@ -21,7 +21,13 @@ export interface Homologation {
   phases_data: {
     phase1?: {
       date_reception: string
-      responsable_id: string
+      // Optionnel : renseigné à l'assignation (Étape 1), plus à la soumission.
+      responsable_id?: string
+      // Instruction assignée (Étape 1 unification workflow).
+      equipe_ids?: string[]
+      chef_id?: string
+      assigne_le?: string
+      assigne_par?: string
       documents: Record<string, string | boolean>
       completude: number
       observations?: string
@@ -115,6 +121,19 @@ export interface HomologationSlice {
    * Déclenché par l'événement 'homologation:nettoyer-lien-planning'.
    */
   nettoyerLienPlanningHomologation: (aerodrome_id: string, planning_id: string) => void
+  /**
+   * Assigne l'instruction de la phase 1 (Étape 1 unification workflow) :
+   * responsable + équipe + chef, tracés (assigne_le/par), notifiés.
+   */
+  assignerInstructionHomologation: (
+    homoId: string,
+    assignation: {
+      responsable_id?: string
+      equipe_ids?: string[]
+      chef_id?: string
+      externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>
+    },
+  ) => void
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -141,6 +160,13 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
         ? { ...state.currentHomologation, ...data }
         : state.currentHomologation,
     }))
+    // Persistance best-effort (la tranche était locale seule : les assignations
+    // seraient perdues au rechargement). N'échoue jamais le flux local.
+    import('@/lib/datastore').then(({ updateHomologation }) => {
+      updateHomologation(id, data).then(res => {
+        if (res.error) console.error('[store] updateHomologation error:', res.error)
+      }).catch(() => {})
+    }).catch(() => {})
     if (data.statut_global && data.statut_global !== oldHomo?.statut_global && oldHomo?.aerodrome_id) {
       storeEvents.emit('risque:recalcul-demande', { aerodrome_id: oldHomo.aerodrome_id })
     }
@@ -194,5 +220,46 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
     if (!homo) return
     const phase2 = { ...(homo.phases_data as any).phase2, planning_id: '' }
     get().updateHomologation(homo.id, { phases_data: { ...homo.phases_data, phase2 } } as any)
+  },
+
+  assignerInstructionHomologation: (homoId, assignation) => {
+    const homo = get().homologations.find(h => h.id === homoId)
+    if (!homo) return
+    const auteur = get().user
+    const auteurNom = auteur ? `${auteur.prenom || ''} ${auteur.nom || ''}`.trim() || 'Admin' : 'Admin'
+    const now = new Date().toISOString()
+    // Équipe désignée UNE FOIS par dossier (clé partagée + miroir phase1).
+    const partagee = {
+      responsable_id: assignation.responsable_id,
+      equipe_ids: assignation.equipe_ids ?? [],
+      chef_id: assignation.chef_id,
+      externes: assignation.externes ?? [],
+      assigne_le: now,
+      assigne_par: auteurNom,
+    }
+    const phasesData = {
+      ...homo.phases_data,
+      instruction: partagee,
+      phase1: {
+        ...(homo.phases_data as any)?.phase1,
+        responsable_id: partagee.responsable_id,
+        equipe_ids: partagee.equipe_ids,
+        chef_id: partagee.chef_id,
+      },
+    }
+    get().updateHomologation(homo.id, { phases_data: phasesData } as any)
+    const aero = get().aerodromes.find(a => a.id === homo.aerodrome_id)
+    const dests = [...new Set([
+      partagee.responsable_id, ...(partagee.equipe_ids || []), partagee.chef_id,
+    ].filter(Boolean))] as string[]
+    for (const userId of dests) {
+      get().addNotification({
+        user_id: userId,
+        type: 'info',
+        title: `Instruction homologation ${homo.reference}`,
+        message: `${aero?.code_oaci || ''} — équipe désignée par ${auteurNom}.`,
+        canal: 'in_app',
+      })
+    }
   },
 })

@@ -2,13 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FileText, CheckCircle, XCircle, MinusCircle, AlertCircle,
-  PenLine, Trash2, Plus, Eye, Edit3, Check, X,
-  ChevronDown, ChevronRight, Copy, MoveUp, MoveDown,
-  Info, Brain, Sparkles, AlertTriangle, Type, Upload,
-  MessageSquare,
-} from 'lucide-react';
+import { FileText, CheckCircle, XCircle, MinusCircle, AlertCircle, PenLine, Trash2, Plus, Eye, Edit3, Check, X, ChevronDown, ChevronRight, Copy, Info, Brain, Sparkles, AlertTriangle, Type, Upload, MessageSquare } from 'lucide-react'
 import { FileUploader } from '@/components/ui/FileUploader';
 import SignaturePad from 'signature_pad';
 import { SimpleTooltip as Tooltip } from '@/components/ui/tooltip';
@@ -84,7 +78,10 @@ export function CompactStylusInput({ value, onChange, height = 80 }: {
   const sigPadRef = useRef<SignaturePad | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const valueRef = useRef(value);
-  valueRef.current = value;
+  // Écriture du ref DANS un effet (react-hooks/refs) : l'assigner pendant le
+  // rendu est un anti-pattern. La valeur initiale vient du useRef ci-dessus,
+  // donc les gestionnaires SignaturePad lisent toujours la bonne valeur.
+  useEffect(() => { valueRef.current = value; }, [value]);
 
   useEffect(() => {
     if (!canvasRef.current) return;

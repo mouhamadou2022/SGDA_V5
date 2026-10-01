@@ -1,26 +1,8 @@
 // components/modules/surveillance/DelegationZone.tsx
 'use client';
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import {
-  Users,
-  Target,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  X,
-  Plus,
-  Trash2,
-  Edit3,
-  Eye,
-  GripVertical,
-  UserCheck,
-  Clock,
-  Save,
-  RefreshCw,
-  BarChart3,
-  Bell,
-} from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react'
+import { Users, Target, CheckCircle2, AlertCircle, AlertTriangle, X, Trash2, GripVertical, UserCheck, Clock, Save, BarChart3, Bell } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore, type Utilisateur } from '@/lib/store';

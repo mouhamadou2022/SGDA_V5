@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react'
 import { Save, Lock, CheckCircle2, AlertCircle, Calendar, FileText, User, Award, Clock, Eye, Upload, Trash2 } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
-import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";

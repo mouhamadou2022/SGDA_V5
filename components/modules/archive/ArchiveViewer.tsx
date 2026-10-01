@@ -3,26 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  X,
-  Download,
-  Eye,
-  FileText,
-  Calendar,
-  User,
-  Users,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  Shield,
-  Scale,
-  MapPin,
-  FileSignature,
-  BookOpen,
-  Send,
-  RefreshCw,
-  ArchiveRestore,
-} from 'lucide-react';
+import { X, Download, Eye, FileText, Calendar, Users, CheckCircle2, Clock, AlertCircle, Shield, Scale, MapPin, FileSignature, ArchiveRestore } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 
 interface ArchiveViewerProps {

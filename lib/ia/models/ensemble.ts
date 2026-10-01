@@ -9,7 +9,6 @@ import { ScoreHistoryPoint } from '@/lib/store'
 import { bayesianDynamicModel } from './bayesianDynamic'
 import { lstmModel } from './lstm'
 import { riskClassifier } from './xgboost'
-import { checklistPredictor } from './randomForest'
 
 // ============================================================
 // TYPES

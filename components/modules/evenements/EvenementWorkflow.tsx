@@ -1,12 +1,13 @@
 // components/modules/evenements/EvenementWorkflow.tsx
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { Card } from '@/components/ui/card'
 import { X, CheckCircle2, AlertTriangle, FileText, User, Calendar, MapPin, Clock, ChevronDown, ChevronRight, AlertCircle, Sparkles, Loader2, Send, RotateCcw, MessageSquare } from 'lucide-react'
 import { getGraviteRisque, getGraviteRisqueLabel } from '@/lib/evenementUtils'
+import { verifierEquipeInstruction, peutEtreChefInstruction, type ExpertExterne } from '@/lib/instructionHabilitation'
 import { FtaEvenementPanel } from './FtaEvenementPanel'
 import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
 
@@ -41,10 +42,141 @@ const ETAPES = ['Réception', 'Analyse', 'Investigation / Impact', 'Écart', 'Ra
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = { backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.75rem center', backgroundRepeat: 'no-repeat' }
 
+/**
+ * Assignation de l'équipe d'instruction (admin, une fois par événement,
+ * modifiable) : responsable + chef (titulaire/principal exigé) + équipe +
+ * experts externes. Miroir d'AssignationInstruction (certification).
+ */
+function AssignationEquipeEvenement({ evenementId, focusClass, selectStyle }: {
+  evenementId: string
+  focusClass: string
+  selectStyle: Record<string, string>
+}) {
+  const utilisateurs = useAppStore((s) => s.utilisateurs)
+  const evenements = useAppStore((s) => s.evenements)
+  const assignerEquipe = useAppStore((s) => s.assignerEquipeEvenement)
+  const evt = evenements.find(e => e.id === evenementId)
+  const inspecteurs = utilisateurs.filter(u =>
+    ['inspector', 'chef_inspecteur', 'admin'].includes(u.role) && u.statut !== 'inactif')
+
+  const [responsable, setResponsable] = useState(evt?.inspecteur_id || '')
+  const [chef, setChef] = useState(evt?.chef_id || '')
+  const [equipe, setEquipe] = useState<string[]>(evt?.equipe_ids || [])
+  const [externes, setExternes] = useState<ExpertExterne[]>(evt?.externes || [])
+  const [nomExterne, setNomExterne] = useState('')
+  const [envoi, setEnvoi] = useState(false)
+
+  if (!evt) return null
+  const nomDe = (id?: string) => {
+    const u = inspecteurs.find(x => x.id === id)
+    return u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || (id || '—') : '—'
+  }
+  const toggleMembre = (id: string) =>
+    setEquipe(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  const membresSel = inspecteurs.filter(u => u.id === responsable || u.id === chef || equipe.includes(u.id))
+  const verif = verifierEquipeInstruction(membresSel, chef || undefined, externes.length)
+  const peutAssigner = verif.blocages.length === 0 &&
+    (responsable !== '' || chef !== '' || equipe.length > 0 || externes.length > 0)
+
+  const assigner = async () => {
+    if (!peutAssigner) return
+    setEnvoi(true)
+    try {
+      await assignerEquipe(evenementId, {
+        responsable_id: responsable || undefined,
+        equipe_ids: equipe,
+        chef_id: chef || undefined,
+        externes,
+      })
+    } finally {
+      setEnvoi(false)
+    }
+  }
+
+  return (
+    <Card variant="role" size="sm" className="space-y-2 bg-role-primary-soft">
+      <p className="font-semibold text-role-primary text-sm flex items-center gap-2">
+        <User className="w-4 h-4" />Équipe d’instruction
+        {(evt.inspecteur_id || (evt.equipe_ids || []).length > 0) && (
+          <span className="badge success text-[10px] ml-auto">Désignée</span>
+        )}
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground">Inspecteur responsable</span>
+          <select value={responsable} onChange={(e) => setResponsable(e.target.value)}
+            className={`w-full py-2 pl-3 pr-8 rounded-xl border-2 border-role-primary/40 bg-background text-foreground text-sm font-medium appearance-none ${focusClass}`} style={selectStyle}>
+            <option value="">Sélectionner…</option>
+            {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)} ({u.role})</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground">Chef d’équipe (titulaire/principal)</span>
+          <select value={chef} onChange={(e) => setChef(e.target.value)}
+            className={`w-full py-2 pl-3 pr-8 rounded-xl border-2 border-role-primary/40 bg-background text-foreground text-sm font-medium appearance-none ${focusClass}`} style={selectStyle}>
+            <option value="">Sélectionner…</option>
+            {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)} ({u.role})</option>)}
+          </select>
+        </label>
+      </div>
+      <div>
+        <span className="text-[11px] text-muted-foreground">Équipe + experts externes (nom, Entrée pour ajouter)</span>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {inspecteurs.map(u => (
+            <button key={u.id} type="button" onClick={() => toggleMembre(u.id)}
+              className={`px-2 py-1 rounded-full border text-[11px] ${equipe.includes(u.id) ? 'bg-role-primary text-white border-role-primary' : 'border-border text-foreground/70'}`}>
+              {nomDe(u.id)}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 flex gap-1.5">
+          <input value={nomExterne} onChange={(e) => setNomExterne(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || !nomExterne.trim()) return
+              e.preventDefault()
+              setExternes(prev => [...prev, { id: `ext-${Date.now().toString(36)}`, nom: nomExterne.trim() }])
+              setNomExterne('')
+            }}
+            placeholder="Expert externe — nom + Entrée"
+            className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground" />
+        </div>
+        {externes.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {externes.map(x => (
+              <span key={x.id} className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-warning/40 bg-warning/10 text-[11px]">
+                {x.nom}
+                <button type="button" onClick={() => setExternes(prev => prev.filter(e => e.id !== x.id))} className="hover:text-danger">✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      {verif.blocages.length > 0 && (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 p-2 text-[11px] text-foreground">
+          {verif.blocages.map((b, i) => <p key={i}>⛔ {b}</p>)}
+        </div>
+      )}
+      {verif.avertissements.length > 0 && (
+        <div className="rounded-lg border border-warning/30 bg-warning/5 p-2 text-[11px] text-foreground">
+          {verif.avertissements.map((b, i) => <p key={i}>⚠ {b}</p>)}
+        </div>
+      )}
+      <button className="btn btn-primary px-5" disabled={!peutAssigner || envoi} onClick={assigner}>
+        {envoi ? 'Assignation…' : 'Désigner l’équipe'}
+      </button>
+      {evt.assigne_le && (
+        <p className="text-[11px] text-muted-foreground">
+          En place depuis le {new Date(evt.assigne_le).toLocaleDateString('fr-FR')}
+          {evt.assigne_par ? ` (${evt.assigne_par})` : ''}
+        </p>
+      )}
+    </Card>
+  )
+}
+
 function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflowProps) {
   const evenements = useAppStore((s) => s.evenements)
   const updateEvenement = useAppStore((s) => s.updateEvenement)
-  const assignerInspecteur = useAppStore((s) => s.assignerInspecteur)
   const accepterAssignation = useAppStore((s) => s.accepterAssignation)
   const refuserAssignation = useAppStore((s) => s.refuserAssignation)
   const soumettreValidation = useAppStore((s) => s.soumettreValidation)
@@ -64,16 +196,21 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
   const evt = (evenements?.find((e) => e.id === evenementId) ?? FALLBACK_EVT) as EvenementSecurite
   const profilAerodrome = getProfilRisque(evt.aerodrome_id || '')
 
-  const listeInspecteurs = utilisateurs
-    .filter(u => ['inspector', 'admin'].includes(u.role) && u.statut !== 'inactif')
-    .map(u => ({ id: u.id, nom: `${u.prenom} ${u.nom}` }))
+
 
   const isAdmin = userRole === 'admin'
   const isInspector = userRole === 'inspector'
   const isOperator = !isAdmin && !isInspector
   const isMonEvenement = evt.inspecteur_id === user?.id
-  const peutEditer = (isInspector && isMonEvenement && evt.statut !== 'cloture' && evt.statut !== 'soumis_validation') ||
-                     (isAdmin && evt.statut === 'recu' && !evt.inspecteur_id)
+  const estChef = !!evt.chef_id && evt.chef_id === user?.id
+  // Équipe désignée = réservée à l'équipe (+ admin) ; sinon règles historiques.
+  const dansEquipe = !!user?.id && [evt.inspecteur_id, ...(evt.equipe_ids || []), evt.chef_id].includes(user.id)
+  const equipeDesignee = (evt.equipe_ids || []).length > 0 || !!evt.chef_id
+  const peutEditer = ((equipeDesignee
+    ? (isInspector && dansEquipe)
+    : (isInspector && isMonEvenement)) && evt.statut !== 'cloture' && evt.statut !== 'soumis_validation') ||
+                     (isAdmin && (evt.statut === 'recu' || evt.statut === 'refuse') && !evt.inspecteur_id)
+  const peutValider = isAdmin || (isInspector && estChef)
 
   const [etape, setEtape] = useState(0)
   const [inspecteurId, setInspecteurId] = useState(evt.inspecteur_id || '')
@@ -102,7 +239,9 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
 
   // Déterminer l'étape active selon le statut
   useEffect(() => {
-    if (isAdmin && (evt.statut === 'cloture' || evt.statut === 'soumis_validation')) {
+    if (isAdmin && evt.statut === 'refuse') {
+      setEtape(0)
+    } else if (isAdmin && (evt.statut === 'cloture' || evt.statut === 'soumis_validation')) {
       setEtape(5)
     } else if (isInspector && isMonEvenement) {
       if (evt.statut === 'recu' || evt.statut === 'assigne') setEtape(0)
@@ -129,17 +268,10 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
     useAppStore.getState().setEvenements([...useAppStore.getState().evenements])
   }, [])
 
-  const handleAssigner = useCallback(async () => {
-    if (!inspecteurId) return
-    await assignerInspecteur(evenementId, inspecteurId)
-    addNotification({
-      user_id: user?.id || '',
-      type: 'success',
-      title: 'Événement assigné',
-      message: `Assigné à ${listeInspecteurs.find(i => i.id === inspecteurId)?.nom || ''}`,
-      canal: 'in_app',
-    })
-  }, [inspecteurId, evenementId, assignerInspecteur, addNotification, user?.id, listeInspecteurs])
+  const nomInspecteur = (id?: string) => {
+    const u = utilisateurs.find(x => x.id === id)
+    return u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || id : (id || '—')
+  }
 
   const handleAccepter = useCallback(async () => {
     setIsLoading(true)
@@ -449,24 +581,26 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
               </Card>
             )}
 
-            {/* ADMIN : Assignation */}
-            {isAdmin && !evt.inspecteur_id && (
-              <Card variant="role" size="sm" className="space-y-3 bg-role-primary-soft">
-                <p className="font-semibold text-role-primary text-sm flex items-center gap-2"><User className="w-4 h-4" />Assigner un inspecteur</p>
-                <div className="flex gap-2">
-                  <select className={`w-full py-3 pl-4 pr-10 rounded-xl border-2 border-role-primary/40 bg-background text-foreground font-medium appearance-none ${focusClass}`} style={selectStyle} value={inspecteurId} onChange={(e) => setInspecteurId(e.target.value)}>
-                    <option value="">Sélectionner un inspecteur…</option>
-                    {listeInspecteurs.map((ins) => (<option key={ins.id} value={ins.id}>{ins.nom}</option>))}
-                  </select>
-                  <button className="btn btn-primary px-5" disabled={!inspecteurId} onClick={handleAssigner}>Assigner</button>
-                </div>
-              </Card>
+            {/* ADMIN : Assignation équipe (responsable + chef + équipe + externes) — modifiable */}
+            {isAdmin && evt.statut !== 'cloture' && (
+              <AssignationEquipeEvenement
+                evenementId={evenementId}
+                focusClass={focusClass}
+                selectStyle={selectStyle}
+              />
             )}
 
-            {/* ADMIN : Inspecteur déjà assigné */}
+            {/* ADMIN : Équipe déjà désignée (modifiable via le panneau ci-dessus) */}
             {isAdmin && evt.inspecteur_id && (
               <Card variant="level" levelColor="warning" size="sm" className="bg-warning-soft/20">
                 <p className="font-medium flex items-center gap-2"><User className="w-4 h-4 text-warning" />Assigné à <strong>{inspecteurNom?.prenom} {inspecteurNom?.nom}</strong></p>
+                {evt.chef_id && <p className="text-xs mt-1">Chef : <strong>{nomInspecteur(evt.chef_id)}</strong></p>}
+                {(evt.equipe_ids || []).length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Équipe : {(evt.equipe_ids || []).map(nomInspecteur).join(', ')}</p>
+                )}
+                {(evt.externes || []).length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Experts : {(evt.externes || []).map(x => x.nom).join(', ')}</p>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">Statut : {statutLabel(evt.statut)}</p>
                 {evt.date_assignation && <p className="text-xs text-muted-foreground">Le {new Date(evt.date_assignation).toLocaleString('fr-FR')}</p>}
               </Card>
@@ -866,8 +1000,8 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
               </div>
             )}
 
-            {/* ADMIN : Valider ou retourner */}
-            {isAdmin && (evt.statut === 'soumis_validation' || evt.statut === 'cloture') && (
+            {/* ADMIN ou CHEF : Valider ou retourner */}
+            {peutValider && (evt.statut === 'soumis_validation' || evt.statut === 'cloture') && (
               <div className="space-y-4">
                 <Card className="bg-success-soft/10" size="sm">
                   <p className="font-medium flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" />Événement soumis pour validation par l'inspecteur</p>
@@ -908,10 +1042,10 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
             )}
 
             {/* INSPECTEUR : Après soumission */}
-            {isInspector && isMonEvenement && evt.statut === 'soumis_validation' && (
+            {isInspector && isMonEvenement && evt.statut === 'soumis_validation' && !estChef && (
               <Card variant="level" levelColor="success" size="sm" className="bg-success/5">
                 <p className="font-medium flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" />Soumis pour validation</p>
-                <p className="text-xs text-muted-foreground mt-1">En attente de validation par l'administrateur.</p>
+                <p className="text-xs text-muted-foreground mt-1">En attente de validation par le chef d’équipe ou l’administrateur.</p>
               </Card>
             )}
 

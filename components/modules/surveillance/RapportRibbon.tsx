@@ -1,29 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Bold, Italic, Underline, Strikethrough,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  List, ListOrdered, Indent, Outdent,
-  Undo2, Redo2, RemoveFormatting,
-  Highlighter, Palette, Type,
-  Link2, Image as ImageIcon, Table as TableIcon,
-  Minus, CornerDownLeft,
-  Printer, Download, FileText, Save,
-  Sparkles, Brain, Mic, MicOff,
-  Search, SpellCheck, Replace,
-  Paintbrush, Columns, Move,
-  Clock, RefreshCw, Loader2,
-  Scissors, Copy, ClipboardPaste,
-  CaseSensitive, CaseUpper, CaseLower,
-  Square, Circle, Triangle, Star, Hexagon, Diamond, ArrowRight,
-  Hash, FileSignature, Stamp,
-  Eye, EyeOff, MessageSquare,
-  ZoomIn, ZoomOut, Maximize,
-  Settings, Grid3x3, Pencil, Eraser,
-  Frame, PaintBucket,
-  ChevronDown, ChevronUp,
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react'
+import { Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Indent, Outdent, Undo2, Redo2, RemoveFormatting, Highlighter, Palette, Type, Link2, Image as ImageIcon, Table as TableIcon, Minus, CornerDownLeft, Printer, Download, FileText, Save, Sparkles, Brain, Mic, MicOff, Search, SpellCheck, Replace, Columns, Move, Clock, RefreshCw, Loader2, Scissors, Copy, ClipboardPaste, CaseUpper, CaseLower, Square, Hash, FileSignature, Stamp, MessageSquare, ZoomIn, ZoomOut, Settings, Grid3x3, Pencil, Frame, PaintBucket } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════════════════
    Constants

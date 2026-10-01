@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
-import { getRiskLevel, suggestMissionType, computeFinalFrequency, isSGSApplicable } from '@/lib/risque';
+import { isSGSApplicable } from '@/lib/risque'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
 import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
@@ -474,6 +474,19 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
       const dateFin = data.date_fin
         ? new Date(data.date_fin).toLocaleDateString('fr-FR')
         : '—';
+      // ── Notifier l'équipe désignée (chef + inspecteurs) ──────
+      // Avant, seuls les exploitants étaient prévenus : l'équipe découvrait
+      // sa mission en ouvrant le planning. Source unique : equipe_ids/chef_id.
+      const equipeNotifIds = [...new Set([...(data.equipe_ids || []), data.chef_id].filter(Boolean))] as string[];
+      for (const uid of equipeNotifIds) {
+        addNotification({
+          user_id: uid,
+          type: 'info',
+          title: planning ? '🗓 Mission reprogrammée' : '🗓 Nouvelle mission programmée',
+          message: `Vous êtes désigné sur la surveillance ${typeLabel} à ${aeroTarget?.code_oaci ?? ''} du ${dateDebut} au ${dateFin}.`,
+          canal: 'in_app',
+        });
+      }
       utilisateurs
         .filter(u =>
           u.aerodrome_id === data.aerodrome_id &&
@@ -546,11 +559,12 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
      return watch(['aerodrome_id', 'type', 'date_debut', 'date_fin', 'portee', 'equipe_ids', 'chef_id', 'objectifs', 'priorite']) as unknown as Record<string, unknown>
    }, [watch]) // Note: watch is a stable reference from useForm
 
-   const progress = useMemo(() => {
-     return useFormProgress(allValues as Record<string, unknown>, [
-       'aerodrome_id', 'type', 'date_debut', 'date_fin', 'portee', 'equipe_ids', 'chef_id', 'objectifs', 'priorite',
-     ])
-   }, [allValues])
+   // `useFormProgress` est un utilitaire PUR (aucun hook React interne) : l'appeler
+   // directement dans le corps du composant (et non dans un callback useMemo)
+   // satisfait react-hooks/rules-of-hooks. Coût négligeable (un filter + un %).
+   const progress = useFormProgress(allValues as Record<string, unknown>, [
+     'aerodrome_id', 'type', 'date_debut', 'date_fin', 'portee', 'equipe_ids', 'chef_id', 'objectifs', 'priorite',
+   ])
 
    // ─── État du bouton Suggestion IA ──────────────────────────────────────────
    // 'loading'  → aérodrome choisi mais profil absent

@@ -8,24 +8,7 @@
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
-import {
-  LayoutDashboard,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Eye,
-  FileText,
-  Send,
-  TrendingUp,
-  TrendingDown,
-  Calendar,
-  User,
-  Shield,
-  Activity,
-  MessageSquare,
-  Flame,
-  Gauge,
-} from 'lucide-react';
+import { LayoutDashboard, AlertCircle, CheckCircle2, Clock, Eye, FileText, Send, TrendingUp, TrendingDown, Calendar, Shield, MessageSquare, Flame, Gauge } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { getDomaineLabel } from '@/lib/domaines';

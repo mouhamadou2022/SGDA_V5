@@ -1,35 +1,9 @@
 ﻿// components/cards/SurveillanceCard.tsx
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  Eye,
-  Edit3,
-  FileText,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Send,
-  Calendar,
-  Users,
-  MapPin,
-  PenLine,
-  Trash2,
-  Target,
-  Star,
-  PlayCircle,
-  AlertTriangle,
-  ClipboardList,
-  FileSignature,
-  ChevronRight,
-  CheckCircle2,
-  XCircle,
-  MinusCircle,
-  CalendarCheck,
-  Mail,
-  Archive,
-} from 'lucide-react'
+import { Eye, Edit3, FileText, CheckCircle, Clock, Send, Calendar, Users, MapPin, PenLine, Trash2, Target, Star, PlayCircle, ClipboardList, FileSignature, CheckCircle2, CalendarCheck, Mail, Archive } from 'lucide-react'
 import { Surveillance, SurveillanceStatut } from '@/types/surveillance'
 import { useAppStore } from '@/lib/store'
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam'

@@ -94,7 +94,7 @@ function KitPartage({ userRole }: KitPartageProps) {
     revoquerPartageKitDocument(doc.document_id, doc.aerodrome_id)
   }
 
-  const ShareDialog = () => {
+  const renderShareDialog = () => {
     if (!dialogOpen) return null
     return createPortal(
       <div className="modal-overlay" data-role={userRole} onClick={() => setDialogOpen(false)}>
@@ -219,7 +219,7 @@ function KitPartage({ userRole }: KitPartageProps) {
         })()}
       </section>
 
-      <ShareDialog />
+      {renderShareDialog()}
     </div>
   )
 }

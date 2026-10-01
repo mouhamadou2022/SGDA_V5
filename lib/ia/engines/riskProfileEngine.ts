@@ -1,4 +1,4 @@
-import type { ProfilRisque, Aerodrome, Ecart, Surveillance } from '@/lib/store'
+import { ProfilRisque, Aerodrome } from '@/lib/store'
 import { synthetiserModeles } from '@/lib/risque/modelSynthesis'
 import { thresholdController } from '@/lib/ia/thresholdController'
 

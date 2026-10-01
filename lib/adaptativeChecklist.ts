@@ -1,7 +1,7 @@
 // lib/adaptativeChecklist.ts
 'use client';
 
-import { ProfilRisque, Ecart, Surveillance, ChecklistItem } from './store';
+import { ProfilRisque, Surveillance } from './store'
 
 import type { ResultatChecklist } from '@/types/checklist'
 

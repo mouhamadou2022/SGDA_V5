@@ -11,7 +11,6 @@ import { TYPES_ENQUETE } from '@/lib/config';
 import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
 import { riskAgent } from '@/lib/ia/agents/riskAgent';
-import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent';
 
 type IaAnalysis = { message: string; priorite: string };
 

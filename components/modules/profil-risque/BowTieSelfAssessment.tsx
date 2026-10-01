@@ -8,7 +8,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Barriere, BowTieModele } from '@/lib/risque/types'
 import type { ProfilRisque } from '@/lib/store'
-import { Shield, AlertTriangle, CheckCircle2, Target, Zap, ArrowUp, Brain, X, Plus, FileText } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, X, Plus, FileText } from 'lucide-react'
 import { getRiskLevelVariant } from '@/lib/risque'
 
 function getScoreClr(s: number) {

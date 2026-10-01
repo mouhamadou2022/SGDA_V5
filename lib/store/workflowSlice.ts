@@ -281,6 +281,36 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
             if (progression < 100) {
               return { peut: false, raison: `${100 - progression}% des items non renseignés` }
             }
+            // Chaque décision NS doit être justifiée (observation ou stylet) :
+            // sans constat écrit, pas d'écart traçable derrière.
+            const surv = get().surveillances.find(s => s.id === surveillanceId)
+            const hierarchie = (surv?.checklist_hierarchy || []) as Array<{
+              items?: Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }>
+              sousDomaines?: Array<{
+                items?: Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }>
+                sousSousDomaines?: Array<{ items?: Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }> }>
+              }>
+            }>
+            let nsSansObs = 0
+            const compter = (items?: Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }>) => {
+              for (const i of items || []) {
+                if ((i.resultat || '').toUpperCase() === 'NS' && !(i.observation || '').trim() && !(i.observation_stylus_data || '').trim()) nsSansObs++
+              }
+            }
+            if (hierarchie.length > 0) {
+              for (const d of hierarchie) {
+                compter(d.items)
+                for (const sd of d.sousDomaines || []) {
+                  compter(sd.items)
+                  for (const ssd of sd.sousSousDomaines || []) compter(ssd.items)
+                }
+              }
+            } else {
+              compter((get().checklistItems?.[surveillanceId] || []) as Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }>)
+            }
+            if (nsSansObs > 0) {
+              return { peut: false, raison: `${nsSansObs} item(s) NS sans observation — justifiez chaque non-conformité avant de signer` }
+            }
             return { peut: true }
           }
           case 'checklist_signee': {

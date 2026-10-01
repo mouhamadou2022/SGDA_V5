@@ -5,11 +5,11 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { Activity, TrendingUp, TrendingDown, Minus, Shield, Brain, CheckCircle2, BarChart3, BookOpen, MapPin, ArrowLeft, AlertTriangle, Gauge } from 'lucide-react'
+import { Activity, TrendingUp, Shield, Brain, CheckCircle2, BarChart3, BookOpen, MapPin, ArrowLeft, AlertTriangle, Gauge } from 'lucide-react'
 import { useAppStore, useHistoricalScores, ProfilRisque } from '@/lib/store'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { getBadgeClassFromScore } from '@/lib/config'
-import { computeAllHealthIndices, getHealthLevel, getEvolutionArrow, getEvolutionColor } from '@/lib/ia/healthIndex'
+import { computeAllHealthIndices, getHealthLevel } from '@/lib/ia/healthIndex'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { Card } from '@/components/ui/card'

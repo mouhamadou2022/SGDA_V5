@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Eye, Loader2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Eye } from 'lucide-react'
 
 interface DocumentUploadProps {
   documents: Record<string, string | boolean>;

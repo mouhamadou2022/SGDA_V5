@@ -8,6 +8,7 @@
 
 import { downloadBlob } from '@/lib/pdfGenerator'
 import type { MessageCopilote } from '@/lib/ia/agents/copiloteAgent'
+import { markdownVersTexte } from '@/components/ui/markdown'
 
 export interface RapportConversationInput {
   titre: string
@@ -47,13 +48,15 @@ async function buildRapportConversationPDF(data: RapportConversationInput): Prom
   pdf.addPage()
 
   // ── Échange ───────────────────────────────────────────────
+  // Le Markdown IA (**gras**, $maths$…) est converti en texte brut lisible.
   for (const m of data.messages) {
+    const texte = m.role === 'user' ? m.content : markdownVersTexte(m.content)
     if (m.role === 'user') {
       pdf.subHeading('INSPECTEUR — QUESTION')
-      pdf.paragraph(m.content, 10)
+      pdf.paragraph(texte, 10)
     } else {
       pdf.subHeading('COPILOTE IA — RÉPONSE', { color: [0x0f, 0x62, 0x38] })
-      pdf.paragraph(m.content, 10)
+      pdf.paragraph(texte, 10)
     }
     pdf.setY(pdf.y + 3)
   }
@@ -154,7 +157,8 @@ async function buildRapportConversationDOCX(data: RapportConversationInput): Pro
       spacing: { before: 240, after: 60 },
       children: [new TextRun({ text: label, bold: true, size: 21, color })],
     }))
-    const blocks = String(m.content).split(/\r?\n+/).map((s) => s.trim()).filter(Boolean)
+    const source = m.role === 'user' ? m.content : markdownVersTexte(m.content)
+    const blocks = String(source).split(/\r?\n+/).map((s) => s.trim()).filter(Boolean)
     for (const block of blocks.length > 0 ? blocks : ['']) {
       content.push(new Paragraph({
         alignment: AlignmentType.JUSTIFIED,

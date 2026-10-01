@@ -26,7 +26,6 @@ import {
   Shield,
   Upload,
 } from 'lucide-react';
-import { FileUploader } from '@/components/ui/FileUploader';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
@@ -34,6 +33,7 @@ import { DomaineCode } from '@/lib/domaines';
 import type { PAOELevel, EvaluationSGS } from '@/types/checklist';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
+import { veillerItemSuivi } from '@/lib/ia/watchdogEvaluation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -329,6 +329,29 @@ export function EcartEvaluationCard({
       <div className="px-3 py-1.5 text-[13px] text-foreground border-b border-blue-100">
         {item.libelle}
       </div>
+
+      {/* Second regard AERORISQ sur la saisie */}
+      {(() => {
+        const alertes = veillerItemSuivi({
+          conclusion: item.conclusion,
+          commentaire: item.commentaire,
+          preuves: item.preuves,
+          statut_mesure: item.statut_mesure,
+          risque_initial: item.risque_initial,
+          risque_residuel: item.risque_residuel,
+        })
+        if (alertes.length === 0 || readOnly) return null
+        return (
+          <div className="px-3 py-1.5 space-y-1 bg-amber-50/50 border-b border-blue-100">
+            {alertes.map((a, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'danger' ? 'text-danger' : 'text-amber-600'}`} />
+                <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Row 1: Mesure de réduction des risques */}
       <div className="bg-gray-50/70 px-3 py-1.5 border-b border-blue-100">
@@ -864,6 +887,29 @@ export function SurveillanceChecklistSuiviEcarts({
           </div>
         </div>
       </Card>
+
+      {/* Second regard AERORISQ : synthèse des points à revoir */}
+      {(() => {
+        const avecProblemes = evaluations.filter(item => veillerItemSuivi({
+          conclusion: item.conclusion,
+          commentaire: item.commentaire,
+          preuves: item.preuves,
+          statut_mesure: item.statut_mesure,
+          risque_initial: item.risque_initial,
+          risque_residuel: item.risque_residuel,
+        }).length > 0)
+        if (avecProblemes.length === 0) return null
+        return (
+          <div className="rounded-xl border border-warning/30 bg-warning/5 p-2.5">
+            <p className="text-xs font-semibold">
+              Second regard AERORISQ : {avecProblemes.length} item(s) à revoir —{' '}
+              {avecProblemes.slice(0, 8).map(i => i.reference).join(', ')}
+              {avecProblemes.length > 8 ? ` (+${avecProblemes.length - 8})` : ''}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Détails sous chaque carte concernée.</p>
+          </div>
+        )
+      })()}
 
       {/* Suggestions */}
       <SuggestionsBanner

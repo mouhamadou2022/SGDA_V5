@@ -2,10 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Users, UserPlus, Trash2, CheckCircle2, Download, Printer,
-  Signature, Brain, Loader2, X,
-} from 'lucide-react';
+import { Users, UserPlus, Trash2, CheckCircle2, Download, Printer, Signature, Brain, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { createPortal } from 'react-dom';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';

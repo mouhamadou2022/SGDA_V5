@@ -7,7 +7,6 @@ import {
   Users, Star, AlertCircle,
 } from 'lucide-react';
 import { DataTable } from '@/components/ui/DataTable'
-import type { Column } from '@/components/ui/DataTable'
 import { useAppStore } from '@/lib/store';
 import { formationUtils } from '@/lib/formationUtils';
 import { useFormProgress } from '@/hooks/useFormProgress';

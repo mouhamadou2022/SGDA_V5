@@ -5,19 +5,8 @@
 
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import {
-  LayoutDashboard, Plane, ShieldCheck, CalendarDays, ClipboardList,
-  BarChart3, FileSignature, AlertTriangle, MessageSquare, Users,
-  Search, Settings, BookOpen, Wrench, FileText, ChevronRight, Hash,
-  Command, Sparkles, Rocket, Target, Zap, Globe, Mic,
-  PenLine, CheckSquare, ListTodo, Quote, Info, AlertCircle,
-  Download, Upload, Save, Printer, Eye, Sun, Moon, Maximize2,
-  Minimize2, History, RotateCcw, RotateCw, FolderTree, HelpCircle,
-  Loader2, TrendingDown, Minus, Shield, Scale,
-  GraduationCap, Archive, Eye as EyeIcon, AlertOctagon, MapPin,
-  Calendar, User, CheckCircle, XCircle, Clock, FileCheck,
-} from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { LayoutDashboard, Plane, ShieldCheck, CalendarDays, ClipboardList, BarChart3, FileSignature, AlertTriangle, Users, Search, Settings, Wrench, FileText, ChevronRight, Command, Sparkles, Rocket, AlertCircle, Download, Save, Printer, Moon, Maximize2, History, Loader2, Scale, GraduationCap, AlertOctagon } from 'lucide-react'
 import {
   CommandDialog,
   CommandEmpty,

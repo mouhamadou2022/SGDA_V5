@@ -219,6 +219,27 @@ le store via `...createXSlice(set, get, api)` — même instance, même état,
 même persistance. Chaque tranche : types + interface + créateur + tests-contrat
 (`lib/__tests__/storeSlices*.test.ts`, `*Slice.test.ts`).
 
+## Ligne de base ESLint (2026-09-30) — `npm run lint` = 0 erreur
+
+État de départ : ~2 200 erreurs (dont **2 032 = 92 %** issues de 2 règles
+stylistiques rétroactives : `no-explicit-any` ~1 571, `no-unescaped-entities`
+~461 — apostrophes du texte français). Les **176 restants** étaient de vrais
+problèmes de correction (ordre des hooks, composants définis pendant le rendu,
+écriture de ref pendant le rendu, `require()` en ESM…) : **tous corrigés**.
+
+Politique retenue, conforme à la règle « ne jamais casser un workflow validé » :
+
+| Catégorie | Statut | Raison |
+|---|---|---|
+| `sgda/module-boundaries`, `sgda/data-layer` | **error** | frontières du monolithe modulaire — jamais négociables |
+| `react-hooks/rules-of-hooks`, `refs`, `static-components` | **error** | bugs réels (ordre des hooks, remontages) |
+| `no-require-imports`, `no-empty-object-type`, `prefer-const`, `react/display-name`, `@next/next/*` | **error** | correction mécanique |
+| `no-explicit-any`, `no-unescaped-entities`, `react-hooks/{purity,set-state-in-effect,preserve-manual-memoization,immutability}` | **warn** | dette rétroactive sur code validé — visible, à résorber module par module hors stabilisation |
+
+`public/**` est ignoré (assets + worker PDF.js minifié) et `scripts/**/*.js`
+exempté de `no-require-imports` (CommonJS légitime). Détail complet des
+correctifs : `docs/CHANGELOG.md`.
+
 ## Processus
 
 1. Nouvelle dépendance ? → entrée dans `sgda-boundaries.mjs` + **revue architecte**.

@@ -14,7 +14,6 @@ import {
   BarChart3,
   PieChart,
 } from 'lucide-react';
-import { useAppStore } from '@/lib/store';
 import type { ResultatChecklist } from '@/types/checklist'
 
 export interface ChecklistItemStats {

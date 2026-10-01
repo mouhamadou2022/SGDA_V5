@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { TowerControl, Sparkles, ArrowRight, Globe, Radar, ShieldCheck, BarChart3, Bot, Brain, Loader2, Lightbulb, Target, Eye } from 'lucide-react'
+import { TowerControl, Sparkles, ArrowRight, Globe, Radar, ShieldCheck, BarChart3, Bot, Brain, Lightbulb, Target, Eye } from 'lucide-react'
 import { useAerorisqText } from '@/lib/ia/client/aerorisqText'
 
 interface Props {

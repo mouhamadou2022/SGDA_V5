@@ -8,7 +8,6 @@
 'use client'
 
 import { useAppStore, Surveillance, ChecklistItem, Ecart, Aerodrome, ProfilRisque } from '@/lib/store'
-import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { REPORT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 import { generateEquipeTableHtml, generateEcartsTableHtml, generateResultsSimpleHtml } from '@/lib/rapportHtml'

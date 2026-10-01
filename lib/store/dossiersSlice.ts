@@ -378,13 +378,17 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
   },
 
   updateDossier: async (id, data) => {
-    const result = await datastore.updateDossier(id, data)
-    if (result.error) {
-      console.error('[store] Erreur mise à jour dossier Supabase:', result.error)
-    }
+    // Source unique : le local ne reflète que ce qui est persisté (sinon
+    // « terminé ici, en cours ailleurs »). Rollback si Supabase refuse.
+    const snapshot = get().dossiers
     set((state) => ({
       dossiers: state.dossiers.map(d => d.id === id ? { ...d, ...data, updated_at: new Date().toISOString() } : d)
     }))
+    const result = await datastore.updateDossier(id, data)
+    if (result.error) {
+      console.error('[store] Erreur mise à jour dossier Supabase, rollback:', result.error)
+      set({ dossiers: snapshot })
+    }
   },
 
   deleteDossier: async (id) => {
@@ -482,6 +486,14 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
         console.error('[store] Erreur persistance assignment Supabase:', result.error)
       }
     }
+    // Alignement unification : notifier l'assigné (comme les autres processus).
+    storeEvents.emit('notification:envoyer', {
+      user_id: assignment.inspecteur_id,
+      type: 'info',
+      title: `Dossier assigné — ${updatedDossier?.reference || ''}`,
+      message: `« ${updatedDossier?.titre || ''} » vous est attribué. Accusez réception puis traitez.`,
+      canal: 'in_app',
+    })
   },
 
   updateAssignment: async (dossierId, assignmentId, data) => {

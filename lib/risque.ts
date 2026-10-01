@@ -13,7 +13,7 @@
 // - C4 UNIFIÉ (logarithmique + linéaire)
 // ============================================================
 
-import type { Aerodrome, Planning, ProfilRisque, Ecart } from './store';
+import { Aerodrome, ProfilRisque, Ecart } from './store'
 
 // Imports depuis les sous-modules pour éviter les duplications et la dépendance circulaire
 import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor, getOACIValue, getRiskLevelVariant, getRiskLevelBgColor, getRiskLevelClass, getRiskLevelColor, getRiskLevelBgVariant, getRiskLevelBorderVariant } from './risque/matrix'
@@ -1738,7 +1738,6 @@ function computeOptimalMissionType(
   }
 }
 
-import { DOMAINES_SURVEILLANCE, getDomainesIndividuelsCodes, DomaineCode } from './domaines'
 
 function getDomainesPrioritairesOptimises(
   profilRisque: ProfilRisque,

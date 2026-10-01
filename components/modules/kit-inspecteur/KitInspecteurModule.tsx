@@ -57,11 +57,10 @@ import { useAppStore, type KitDocument, type TypeDocumentOACI, type FormatDocume
 import { SOUS_TYPE_HELISTATION_SUFFIX } from '@/lib/types/helistation';
 import { uploadFile } from '@/lib/datastore';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { kitUtils } from '@/lib/kitUtils';
 import { canManageRole } from '@/lib/config';
 import { formatDate } from '@/lib/utils';
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent';
-import { generateKitChecklist, type KitDocAnalysis } from '@/lib/ia/agents/kitDocAgent';
+import { generateKitChecklist } from '@/lib/ia/agents/kitDocAgent'
 import { getDomainesIndividuelsCodes } from '@/lib/domaines';
 import { parseChecklistWord } from '@/lib/services/checklistParser';
 import type { TemplateDiff } from '@/lib/services/checklistTemplateService';
@@ -1428,7 +1427,8 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             const TYPE_CONFIG = [
               { id: 'sgs', label: 'SGS — Système de Gestion de la Sécurité', icon: Brain },
               { id: 'certification', label: 'Certification', icon: FileText },
-              { id: 'surveillance', label: 'Surveillance continue', icon: ClipboardList },
+              { id: 'surveillance_certifie', label: 'Surveillance continue', icon: ClipboardList },
+              { id: 'surveillance_homologue', label: 'Surveillance continue', icon: ClipboardList },
               { id: 'homologation', label: 'Homologation', icon: FileText },
               { id: 'validation', label: 'Validation de site', icon: Target },
               { id: 'helistation', label: 'Hélistation', icon: FileText },
@@ -1472,7 +1472,7 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
             const allChecklists = { ...masterChecklists }
             if (showArchived) Object.assign(allChecklists, archivedMasterChecklists)
 
-            const grouped: Record<string, { key: string; domaines: string[]; itemsCount: number; archived?: boolean; version?: string; updatedAt?: string; updatedByName?: string; versionsCount?: number }[]> = {}
+            const grouped: Record<string, { key: string; domaines: string[]; itemsCount: number; archived?: boolean; version?: string; updatedAt?: string; updatedByName?: string; versionsCount?: number; regime?: string }[]> = {}
             for (const [key, raw] of Object.entries(allChecklists)) {
               const domaines = Array.isArray(raw) ? raw : []
               if (!domaines.length) continue
@@ -1497,7 +1497,17 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                 updatedAt: latest?.updated_at,
                 updatedByName: (latest?.metadonnees as any)?.updated_by_name || '',
                 versionsCount: supa.length,
+                regime: (latest as any)?.regime,
               })
+            }
+
+            // Surveillance continue : deux accordéons par régime (certifié / homologué).
+            // Les templates « tous régimes » (ou sans régime) apparaissent dans les deux.
+            if (grouped.surveillance) {
+              const tous = grouped.surveillance;
+              (grouped as Record<string, typeof tous>).surveillance_certifie = tous.filter(e => (e.regime || 'tous') !== 'homologue');
+              (grouped as Record<string, typeof tous>).surveillance_homologue = tous.filter(e => (e.regime || 'tous') !== 'certifie');
+              delete grouped.surveillance;
             }
 
             const totalVisible = Object.values(grouped).reduce((acc, entries) => acc + entries.length, 0)
@@ -1518,7 +1528,14 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                       key={ct.id}
                       icon={<ct.icon className="w-4 h-4 !text-white" />}
                       title={ct.label}
-                      badges={<span className="badge outline">{entries.length} template{entries.length > 1 ? 's' : ''}</span>}
+                      badges={<>
+                        {(ct.id === 'surveillance_certifie' || ct.id === 'surveillance_homologue') && (
+                          <span className={`badge text-[10px] font-bold ${ct.id === 'surveillance_certifie' ? 'success' : 'primary'}`}>
+                            {ct.id === 'surveillance_certifie' ? 'Aérodrome certifié' : 'Aérodrome homologué'}
+                          </span>
+                        )}
+                        <span className="badge outline">{entries.length} template{entries.length > 1 ? 's' : ''}</span>
+                      </>}
                       defaultOpen={true}
                     >
                       {[...new Set(entries.flatMap(e => e.domaines))].sort().map(dom => {
@@ -1539,6 +1556,11 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                 <span className="text-xs text-muted-foreground">— {e.itemsCount} item{e.itemsCount > 1 ? 's' : ''}</span>
                                 {e.version && <span className="text-[10px] px-1.5 py-0.5 rounded bg-role-primary-soft/40 text-role-primary font-medium">v{e.version}</span>}
                                 {isArchived && <span className="badge neutral text-[10px]">Archivé</span>}
+                                {e.key.startsWith('QSC_') && (
+                                  <span className={`badge text-[10px] font-bold ${e.regime === 'certifie' ? 'success' : e.regime === 'homologue' ? 'primary' : 'neutral'}`}>
+                                    {e.regime === 'certifie' ? 'Aérodrome certifié' : e.regime === 'homologue' ? 'Aérodrome homologué' : 'Tous régimes'}
+                                  </span>
+                                )}
                                 {(e.versionsCount || 0) > 1 && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium">{e.versionsCount} versions</span>
                                 )}
@@ -1563,9 +1585,6 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
                                       <div key={t.id} className="flex items-center gap-2 text-[10px] text-muted-foreground">
                                         <span className="font-mono">v{t.version || '—'}</span>
                                         <span className={`px-1 rounded ${t.actif ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>{t.actif ? 'actif' : t.etat}</span>
-                                        {t.etat && t.etat !== 'publie' && (
-                                          <span className="px-1 rounded bg-warning/15 text-warning" title="Invisible des inspecteurs non-créateurs (RLS)">{t.etat}</span>
-                                        )}
                                         {t.etat && t.etat !== 'publie' && (
                                           <span className="px-1 rounded bg-warning/15 text-warning" title="Invisible des inspecteurs non-créateurs (RLS)">{t.etat}</span>
                                         )}

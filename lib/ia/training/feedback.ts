@@ -5,7 +5,6 @@
 
 'use client'
 
-import { useAppStore } from '@/lib/store'
 
 // ============================================================
 // TYPES

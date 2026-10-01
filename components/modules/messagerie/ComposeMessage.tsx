@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore } from '@/lib/store'
 import { messagerieUtils } from '@/lib/messagerieUtils'
-import { Paperclip, X, FileText, Send, AlertCircle, Mail, MessageSquare, Users } from 'lucide-react'
+import { Paperclip, X, FileText, Send, Mail, MessageSquare, Users } from 'lucide-react'
 
 interface ComposeMessageProps {
   open: boolean

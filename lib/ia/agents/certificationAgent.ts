@@ -13,7 +13,6 @@
 'use client'
 
 import { useAppStore, Certification, Homologation, Aerodrome, ProfilRisque, Utilisateur } from '@/lib/store'
-import { riskAgent } from './riskAgent'
 import { aiClient } from '@/lib/ia/aiClient'
 import { CERT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 import { construireContexteReglementaire, recupererExtraitsReglementaires, type ExtraitCite } from '@/lib/ia/rag/reglementaireRagClient'

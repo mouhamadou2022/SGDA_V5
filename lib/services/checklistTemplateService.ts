@@ -19,6 +19,8 @@ export interface TemplateImportMeta {
   description?: string
   // false = garder l'existant (ne rien écrire) ; true = archiver l'actif et insérer la nouvelle version
   archivePrevious?: boolean
+  /** Verrou optimiste : updated_at connu au chargement — refuse d'écraser si changé depuis. */
+  attenduUpdatedAt?: string
 }
 
 /** `checklist_templates.created_by/updated_by` référencent `auth.users(id)`.
@@ -37,7 +39,7 @@ async function getAuthUserId(fallback?: string): Promise<string | undefined> {
  * Sans publication, la RLS cache le template aux inspecteurs non-créateurs.
  */
 export async function publierTemplateSupabase(
-  template: Pick<ChecklistTemplate, 'id' | 'metadonnees'>,
+  template: Pick<ChecklistTemplate, 'id' | 'metadonnees' | 'updated_at'>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const { updateChecklistTemplate } = await import('@/lib/datastore')
@@ -51,7 +53,7 @@ export async function publierTemplateSupabase(
       etat: 'publie',
       updated_by: auteurId,
       metadonnees: meta,
-    })
+    }, template.updated_at)
     if (result.error) return { ok: false, error: result.error }
     return { ok: true }
   } catch (err) {
@@ -80,6 +82,7 @@ export async function saveTemplateToSupabase(
       type,
       code,
       nom,
+      attenduUpdatedAt: meta?.attenduUpdatedAt,
       version: version || meta?.version || '',
       portee,
       type_entite_cible: meta?.type_entite_cible || (type === 'VALIDATION_SITE' ? 'tous' : 'aerodrome'),

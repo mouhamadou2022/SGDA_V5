@@ -10,10 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  WidthType, AlignmentType, ShadingType, BorderStyle, HeadingLevel,
-} from 'docx';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, ShadingType, BorderStyle } from 'docx'
 
 const TEMPLATES_DIR = path.resolve(__dirname, '..', 'public', 'templates');
 

@@ -2,9 +2,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Save, Lock, CheckCircle2, AlertCircle, Calendar, FileText, Globe, Send, Mail, Phone, Check, X, AlertTriangle, Award } from 'lucide-react'
+import { Lock, CheckCircle2, AlertCircle, Calendar, FileText, Globe, Send, Check, X, Award } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
-import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import type { Certification } from '@/lib/store'
 

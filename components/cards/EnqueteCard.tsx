@@ -1,11 +1,7 @@
 // components/cards/EnqueteCard.tsx
 'use client'
 
-import { 
-  ClipboardList, Calendar, Eye, MessageSquare, Download, 
-  Send, Edit3, Trash2, Pause, Play, Shield, AlertTriangle,
-  TrendingUp, Target, Star
-} from 'lucide-react'
+import { ClipboardList, Calendar, Eye, MessageSquare, Download, Send, Edit3, Trash2, Pause, Play, Shield } from 'lucide-react'
 
 interface EnqueteCardProps {
   enquete: {

@@ -5,18 +5,11 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy, Component, type ReactNode } from 'react'
-import {
-  Plane, LogIn, User, Lock, Eye, EyeOff, AlertCircle,
-  ShieldCheck, TrendingUp, Cloud, Wind,
-  MapPin, Activity, ArrowRight, ChevronLeft, ChevronRight,
-  Sparkles, Thermometer, Droplets, Gauge, Sun,
-  Radar, Compass, Navigation, Wifi,
-  Key, HelpCircle, Phone, CheckCircle2, XCircle, RefreshCw
-} from 'lucide-react'
+import { Plane, LogIn, User, Lock, Eye, EyeOff, AlertCircle, ShieldCheck, TrendingUp, Cloud, Wind, MapPin, Activity, ArrowRight, ChevronLeft, ChevronRight, Sparkles, Thermometer, Droplets, Gauge, Sun, Radar, Compass, Wifi, Key, HelpCircle, Phone, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { loadInitialData, sanitizeEcart } from '@/lib/datastore'
 import { fusionnerParId, fusionnerUtilisateurs, fusionnerInspecteurs, rehydraterChecklists } from '@/lib/hydratation'
-import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances, subscribeToNotifications, subscribeToMessages, subscribeToEvenements } from '@/lib/subscriptions'
+import { subscribeToEcarts, subscribeToCertifications, subscribeToSurveillances, subscribeToNotifications, subscribeToMessages, subscribeToEvenements, subscribeToTable } from '@/lib/subscriptions'
 import { authService, AuthUser, detectLoginType, buildIdentifiant } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { PERMISSIONS } from '@/lib/config'
@@ -1265,6 +1258,41 @@ export default function Page() {
       }
     })
     return () => { channel.unsubscribe() }
+  }, [user])
+
+  // Realtime générique (délégations, plannings, homologations, exemptions,
+  // enquêtes) : sans lui, le changement d'un autre poste n'apparaît qu'au
+  // rechargement (« terminé ici, en cours ailleurs »).
+  useEffect(() => {
+    if (!user) return
+    const tables: Array<{ table: string; cle: 'delegations' | 'plannings' | 'homologations' | 'exemptions' | 'enquetes' }> = [
+      { table: 'delegations', cle: 'delegations' },
+      { table: 'plannings', cle: 'plannings' },
+      { table: 'homologations', cle: 'homologations' },
+      { table: 'exemptions', cle: 'exemptions' },
+      { table: 'enquetes', cle: 'enquetes' },
+    ]
+    const channels = tables.map(({ table, cle }) =>
+      subscribeToTable(table, (payload: any) => {
+        const { eventType, new:row, old } = payload
+        if (eventType === 'UPDATE' && row) {
+          useAppStore.setState((state: any) => ({
+            [cle]: (state[cle] || []).map((r: any) => r.id === row.id ? { ...r, ...row } : r),
+          }))
+        } else if (eventType === 'INSERT' && row) {
+          useAppStore.setState((state: any) => {
+            const liste = state[cle] || []
+            if (liste.some((r: any) => r.id === row.id)) return state
+            return { [cle]: [row, ...liste] }
+          })
+        } else if (eventType === 'DELETE' && old) {
+          useAppStore.setState((state: any) => ({
+            [cle]: (state[cle] || []).filter((r: any) => r.id !== old.id),
+          }))
+        }
+      }),
+    )
+    return () => { channels.forEach(c => c.unsubscribe()) }
   }, [user])
 
   useEffect(() => {

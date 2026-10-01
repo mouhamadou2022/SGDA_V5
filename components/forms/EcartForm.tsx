@@ -1,12 +1,8 @@
 // components/forms/EcartForm.tsx
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef, memo } from 'react'
-import {
-  AlertTriangle, FileText, Calendar, User, Tag,
-  Save, AlertCircle, Flame, AlertOctagon, Info, DollarSign, X,
-  Sparkles, TrendingUp, TrendingDown, Target
-} from 'lucide-react'
+import React, { useState, useEffect, useRef, memo } from 'react'
+import { AlertTriangle, FileText, Calendar, User, Tag, Save, AlertCircle, Flame, AlertOctagon, Info, DollarSign, X, Sparkles, Target } from 'lucide-react'
 import { useAppStore, Ecart } from '@/lib/store'
 import type { PredictionResult } from '@/lib/checklistMemory'
 import type { RiskIndex } from '@/lib/riskIndex'

@@ -3,7 +3,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { WifiOff, RefreshCw, Wifi, CloudOff, AlertCircle, X } from 'lucide-react'
+import { WifiOff, RefreshCw, Wifi, CloudOff, X } from 'lucide-react'
 import { onNetworkChange, getPendingSyncCount, flushSyncQueue } from '@/lib/offline'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/lib/store'

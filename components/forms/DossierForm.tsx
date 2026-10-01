@@ -1,10 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useCallback, memo } from 'react'
-import {
-  FolderOpen, FileText, Upload, X, Calendar,
-  User, AlertCircle, Save, Clock, AlertTriangle, Trash2, CheckCircle2,
-} from 'lucide-react'
+import React, { useState, useEffect, useMemo, memo } from 'react'
+import { FileText, Upload, X, Calendar, User, AlertCircle, Save, Clock, AlertTriangle, Trash2 } from 'lucide-react'
 import { useAppStore, type Aerodrome, type Utilisateur, type DossierAssignment } from '@/lib/store'
 import { dossierUtils } from '@/lib/dossierUtils'
 import { uploadDossierFile } from '@/lib/dossierFileUpload'

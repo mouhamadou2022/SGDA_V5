@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Calendar, momentLocalizer, Views } from 'react-big-calendar';
+import { Calendar, momentLocalizer } from 'react-big-calendar'
 import moment from 'moment';
 import 'moment/locale/fr';
 import 'react-big-calendar/lib/css/react-big-calendar.css';

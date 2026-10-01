@@ -3,7 +3,7 @@
 
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
-import { AlertTriangle, CheckCircle2, Lightbulb, Calendar, User, FileText, Sparkles, TrendingUp } from 'lucide-react'
+import { CheckCircle2, Lightbulb, Calendar, User, Sparkles, TrendingUp } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
 const PLANNING_PERIODE = ['T1 2026', 'T2 2026', 'T3 2026', 'T4 2026', 'T1 2027']

@@ -1,8 +1,7 @@
 // components/cards/UserCard.tsx
 'use client'
 
-import { User, Plane, Eye, PenSquare, Power, Clock, Trash2 } from 'lucide-react'
-import { ROLES } from '@/lib/config'
+import { Plane, Eye, PenSquare, Power, Clock, Trash2 } from 'lucide-react'
 
 interface UserCardProps {
   utilisateur: {

@@ -5,7 +5,6 @@ import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { ThumbsUp, AlertTriangle, ThumbsDown, CheckCircle2, Brain } from 'lucide-react'
 import { isCorrectionNeeded, computeModelPerformance } from '@/lib/risque/calibration'
-import type { MatricePerformance } from '@/lib/risque/types'
 import type { FeedbackInspecteur } from '@/lib/risque/types'
 
 interface FeedbackSectionProps {

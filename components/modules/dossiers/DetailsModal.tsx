@@ -7,6 +7,7 @@ import { FormShell } from '@/components/ui/FormShell'
 import { useAppStore, type Dossier, type DossierAnalyseResult } from '@/lib/store'
 import { uploadPreuveFile, uploadDossierFile } from '@/lib/dossierFileUpload'
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent'
+import { infoStatutAssignment } from '@/lib/dossiersStatuts'
 
 const CATEGORIES_DOSSIERS = [
   { id: 'reglementaire', label: 'Réglementaire' },
@@ -390,8 +391,8 @@ const AssignmentCard = memo(function AssignmentCard({
           </div>
           <span className="font-medium text-sm">{a.inspecteur_nom}</span>
         </div>
-        <span className={`${a.statut === 'termine' || a.statut === 'valide' ? 'badge success' : a.statut === 'accuse' || a.statut === 'en_cours' ? 'badge primary' : 'badge neutral'} text-xs`}>
-          {a.statut.replace(/_/g, ' ')}
+        <span className={`${infoStatutAssignment(a.statut).className} text-xs`}>
+          {infoStatutAssignment(a.statut).label}
         </span>
       </div>
 

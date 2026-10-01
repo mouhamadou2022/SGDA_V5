@@ -1,7 +1,7 @@
 // lib/riskIndex.ts
 'use client';
 
-import { ProfilRisque, Ecart } from './store';
+import { ProfilRisque } from './store'
 import { getRiskLevelFromCell } from './risque';
 import { iaStorage } from '@/lib/persistence/iaStorage';
 

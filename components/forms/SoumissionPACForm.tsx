@@ -4,10 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
-import {
-  Plus, Trash2, Upload, FileText, X, Send, AlertCircle, Calendar, User, CheckCircle2, Building2, CalendarDays,
-  HelpCircle,
-} from 'lucide-react';
+import { Plus, Upload, X, Send, AlertCircle, Calendar, User, Building2, CalendarDays, HelpCircle } from 'lucide-react'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent"
 const labelClass = "text-xs font-semibold uppercase tracking-wide text-role-primary"

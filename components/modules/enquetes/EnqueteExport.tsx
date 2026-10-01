@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { DataTable } from '@/components/ui/DataTable'
-import { Download, FileText, FileJson, Filter, X } from 'lucide-react'
+import { Download, FileText, FileJson, Filter } from 'lucide-react'
 
 interface EnqueteExportProps {
   enqueteId: string

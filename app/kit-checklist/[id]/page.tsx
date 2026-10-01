@@ -11,11 +11,7 @@ import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent'
 import type { DomaineChecklist } from '@/types/checklist'
 import { SGS_COMPOSANTES_STRUCTURE } from '@/types/checklist'
 
-import {
-  ArrowLeft, Save, CheckCircle2, RefreshCw, Search, FileText,
-  Info, AlertTriangle, CheckCircle, XCircle, MinusCircle, AlertCircle,
-  Brain, Sparkles, Loader2, FileDown, FileSpreadsheet, Shield, Undo2, Redo2,
-} from 'lucide-react'
+import { ArrowLeft, Save, CheckCircle2, RefreshCw, Search, FileText, AlertTriangle, XCircle, Brain, Sparkles, Loader2, FileDown, FileSpreadsheet, Shield, Undo2, Redo2 } from 'lucide-react'
 
 const VALID_TEMPLATE_TYPES = ['IT', 'SOP', 'QSC', 'SGS', 'VALIDATION_SITE'] as const
 
@@ -37,7 +33,7 @@ function normalizeChecklistIds(domaines: DomaineChecklist[]): DomaineChecklist[]
       if (!id) {
         id = `item-${Math.random().toString(36).slice(2, 8)}`
       } else if (used.has(id)) {
-        let base = id
+        const base = id
         let n = 2
         while (used.has(`${base}_${n}`)) n++
         id = `${base}_${n}`

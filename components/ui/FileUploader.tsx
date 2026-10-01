@@ -2,8 +2,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { Upload, X, FileText, CheckCircle2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Upload, X, FileText } from 'lucide-react'
 
 interface FileUploaderProps {
   onUpload: (file: { nom: string; url: string }) => void;

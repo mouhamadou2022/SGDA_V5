@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Card } from '@/components/ui/card'
 import { Enquete, QuestionEnquete } from '@/lib/store'
-import { Plus, Trash2, ArrowUp, ArrowDown, Eye, Save, Send, Star, Shield, Target, TrendingUp, X, AlertCircle, Calendar, ClipboardList } from 'lucide-react'
+import { Plus, Trash2, ArrowUp, ArrowDown, Eye, Save, Send, Star, Shield, Target, TrendingUp, X, Calendar, ClipboardList } from 'lucide-react'
 
 type QuestionType = 'choix_unique' | 'likert_5' | 'texte_libre' | 'oui_non' | 'note_10'
 
@@ -134,7 +134,9 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
   const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 
   // Modal de confirmation de publication
-  const PublishConfirmModal = () => {
+  // (fonction de rendu, et non composant défini pendant le rendu :
+  //  react-hooks/static-components — aucun hook interne ici.)
+  const renderPublishConfirmModal = () => {
     if (!showPublishConfirm) return null
     return createPortal(
       <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPublishConfirm(false)}>
@@ -459,7 +461,7 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
         </div>
       </div>
 
-      <PublishConfirmModal />
+      {renderPublishConfirmModal()}
     </div>
   )
 }

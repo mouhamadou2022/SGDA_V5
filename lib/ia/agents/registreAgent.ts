@@ -3,7 +3,7 @@
 
 'use client'
 
-import { useAppStore, RegistreEntry, RegulationAnalysis, FormationSuggestion, KitDocument } from '@/lib/store'
+import { useAppStore, RegistreEntry, FormationSuggestion } from '@/lib/store'
 import { aiClient } from '@/lib/ia/aiClient'
 import { REGISTRE_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 

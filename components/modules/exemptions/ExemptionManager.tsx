@@ -3,34 +3,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Shield,
-  X,
-  Plus,
-  Trash2,
-  Edit3,
-  Eye,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  FileText,
-  Calendar,
-  User,
-  Download,
-  Save,
-  TrendingUp,
-  Sliders,
-  AlertTriangle,
-  RefreshCw,
-  Upload,
-  Send,
-  XCircle,
-  Loader2,
-  Search,
-  Lightbulb,
-  List,
-} from 'lucide-react';
+import { Shield, X, Plus, Trash2, Edit3, Eye, CheckCircle2, AlertCircle, Clock, FileText, Save, TrendingUp, AlertTriangle, RefreshCw, Upload, XCircle, Loader2, Search, List, UserCheck } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
+import { canManageRole } from '@/lib/config';
+import { verifierEquipeInstruction, type ExpertExterne } from '@/lib/instructionHabilitation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {
@@ -89,6 +65,137 @@ interface Exemption {
   domaines_concerne?: string[];
   created_at: string;
   updated_at: string;
+  // Équipe d'instruction (miroir du store).
+  responsable_id?: string;
+  equipe_ids?: string[];
+  chef_id?: string;
+  externes?: ExpertExterne[];
+  assigne_le?: string;
+  assigne_par?: string;
+  valide_par?: string;
+  transmis_exploitant_le?: string;
+  avis_final?: 'favorable' | 'a_reviser' | 'defavorable';
+  workflow_statut?: string;
+  inspecteur_commentaires?: string;
+  inspecteur_fichiers?: { nom: string; url: string }[];
+  date_decision?: string;
+}
+
+/**
+ * Panneau d'assignation de l'équipe d'instruction d'une exemption (admin) :
+ * responsable + chef (titulaire/principal exigé) + équipe + experts externes.
+ */
+function AssignationEquipeExemption(props: {
+  exemptionId: string
+  current: {
+    responsable_id?: string; equipe_ids?: string[]; chef_id?: string
+    externes?: ExpertExterne[]; assigne_le?: string; assigne_par?: string
+  }
+  responsables: string
+  setResponsable: (v: string) => void
+  chef: string
+  setChef: (v: string) => void
+  equipe: string[]
+  setEquipe: (v: string[]) => void
+  externes: ExpertExterne[]
+  setExternes: (v: ExpertExterne[]) => void
+  nomExterne: string
+  setNomExterne: (v: string) => void
+  utilisateurs: Array<{ id: string; prenom?: string; nom?: string; role: string; type_inspecteur?: string; specialites?: string[] }>
+}) {
+  const assignerEquipeExemption = useAppStore(s => s.assignerEquipeExemption);
+  const {
+    exemptionId, current, responsables, setResponsable, chef, setChef,
+    equipe, setEquipe, externes, setExternes, nomExterne, setNomExterne, utilisateurs,
+  } = props;
+  const inspecteurs = (utilisateurs || []).filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role));
+  const nomDe = (id?: string) => {
+    const u = inspecteurs.find(x => x.id === id);
+    return u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || (id || '—') : '—';
+  };
+  const membresSel = inspecteurs.filter(u => u.id === responsables || u.id === chef || equipe.includes(u.id));
+  const verif = verifierEquipeInstruction(membresSel as never[], chef || undefined, externes.length);
+  const assignee = !!(current.responsable_id || (current.equipe_ids || []).length > 0 || current.chef_id);
+  const peutAssigner = verif.blocages.length === 0 &&
+    (responsables !== '' || chef !== '' || equipe.length > 0 || externes.length > 0);
+
+  return (
+    <div className="p-2.5 rounded-lg border border-border bg-card space-y-2">
+      <p className="text-[11px] font-semibold uppercase text-muted-foreground flex items-center gap-1.5">
+        <UserCheck className="w-3.5 h-3.5" /> Équipe d’instruction
+        {assignee
+          ? <span className="badge success text-[10px] ml-auto">Désignée</span>
+          : <span className="badge warning text-[10px] ml-auto">À désigner</span>}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground">Responsable</span>
+          <select value={responsables} onChange={e => setResponsable(e.target.value)}
+            className="mt-0.5 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground">
+            <option value="">—</option>
+            {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[11px] text-muted-foreground">Chef (titulaire/principal)</span>
+          <select value={chef} onChange={e => setChef(e.target.value)}
+            className="mt-0.5 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground">
+            <option value="">—</option>
+            {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {inspecteurs.map(u => (
+          <button key={u.id} type="button"
+            onClick={() => setEquipe(equipe.includes(u.id) ? equipe.filter(x => x !== u.id) : [...equipe, u.id])}
+            className={`px-2 py-1 rounded-full border text-[11px] ${equipe.includes(u.id) ? 'bg-role-primary text-white border-role-primary' : 'border-border text-foreground/70'}`}>
+            {nomDe(u.id)}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input value={nomExterne} onChange={e => setNomExterne(e.target.value)}
+          onKeyDown={e => {
+            if (e.key !== 'Enter' || !nomExterne.trim()) return;
+            e.preventDefault();
+            setExternes([...externes, { id: `ext-${Date.now().toString(36)}`, nom: nomExterne.trim() }]);
+            setNomExterne('');
+          }}
+          placeholder="Expert externe — nom + Entrée"
+          className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground" />
+      </div>
+      {externes.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {externes.map(x => (
+            <span key={x.id} className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-warning/40 bg-warning/10 text-[11px]">
+              {x.nom}
+              <button type="button" onClick={() => setExternes(externes.filter(e => e.id !== x.id))} className="hover:text-danger">✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {verif.blocages.length > 0 && (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 p-1.5 text-[11px] text-foreground">
+          {verif.blocages.map((b, i) => <p key={i}>⛔ {b}</p>)}
+        </div>
+      )}
+      {verif.avertissements.length > 0 && (
+        <div className="rounded-lg border border-warning/30 bg-warning/5 p-1.5 text-[11px] text-foreground">
+          {verif.avertissements.map((b, i) => <p key={i}>⚠ {b}</p>)}
+        </div>
+      )}
+      <button type="button" disabled={!peutAssigner}
+        onClick={() => assignerEquipeExemption(exemptionId, {
+          responsable_id: responsables || undefined,
+          equipe_ids: equipe, chef_id: chef || undefined, externes,
+        })}
+        title={verif.blocages[0] || 'Désigner ou modifier l’équipe'}
+        className="btn btn-sm btn-primary gap-1 disabled:opacity-50">
+        <UserCheck className="w-3.5 h-3.5" /> {assignee ? 'Modifier l’équipe' : 'Désigner l’équipe'}
+      </button>
+    </div>
+  );
 }
 
 export function ExemptionManager({ open, onOpenChange, parentId, parentType, parentReference, aerodromeId, userRole }: ExemptionManagerProps) {
@@ -223,6 +330,9 @@ export function ExemptionManager({ open, onOpenChange, parentId, parentType, par
 
     const newExemption: Exemption = {
       id: editingExemption?.id || `ex_${Date.now()}`,
+      // Création directe admin = décision admin tracée (pas un contournement anonyme).
+      valide_par: user?.id,
+      date_decision: new Date().toISOString(),
       reference: formData.reference || `EX-${new Date().getFullYear()}-${exemptions.length + 1}`,
       parent_id: parentId,
       parent_type: parentType,
@@ -339,6 +449,56 @@ export function ExemptionManager({ open, onOpenChange, parentId, parentType, par
   const [instructComment, setInstructComment] = useState('');
   const [instructFiles, setInstructFiles] = useState<{ nom: string; url: string }[]>([]);
   const [isDeciding, setIsDeciding] = useState(false);
+  // Assignation équipe (admin) — réinitialisée à chaque expansion.
+  const [assignResponsable, setAssignResponsable] = useState('');
+  const [assignChef, setAssignChef] = useState('');
+  const [assignEquipe, setAssignEquipe] = useState<string[]>([]);
+  const [assignExternes, setAssignExternes] = useState<ExpertExterne[]>([]);
+  const [nomExterne, setNomExterne] = useState('');
+  const utilisateurs = useAppStore(s => s.utilisateurs);
+  const assignerEquipeExemption = useAppStore(s => s.assignerEquipeExemption);
+  const deciderExemption = useAppStore(s => s.deciderExemption);
+  const estAdmin = canManageRole(userRole);
+
+  const ouvrirInstruction = (ex: any) => {
+    setExpandedExemption(ex.id);
+    setInstructComment(ex.inspecteur_commentaires || '');
+    setInstructFiles(ex.inspecteur_fichiers || []);
+    setAssignResponsable(ex.responsable_id || '');
+    setAssignChef(ex.chef_id || '');
+    setAssignEquipe(ex.equipe_ids || []);
+    setAssignExternes(ex.externes || []);
+  };
+
+  /** Équipe assignée ? Sinon dossier ouvert à l'instruction. */
+  const equipeDesignee = (ex: any) =>
+    !!(ex.responsable_id || (ex.equipe_ids || []).length > 0 || ex.chef_id);
+  const dansEquipe = (ex: any) =>
+    estAdmin || !equipeDesignee(ex) ||
+    [ex.responsable_id, ...(ex.equipe_ids || []), ex.chef_id].includes(user?.id);
+  const peutDecider = (ex: any) =>
+    estAdmin || (ex.chef_id && ex.chef_id === user?.id);
+
+  /** Décision centralisée : store (persisté + retransmis) + miroir local. */
+  const decider = (ex: any, avis: 'favorable' | 'a_reviser' | 'defavorable') => {
+    setIsDeciding(true);
+    const now = new Date().toISOString();
+    deciderExemption(ex.id, avis, { commentaires: instructComment, fichiers: instructFiles });
+    setExemptions(prev => prev.map(e => e.id === ex.id ? {
+      ...e,
+      avis_final: avis,
+      inspecteur_commentaires: instructComment,
+      inspecteur_fichiers: instructFiles,
+      workflow_statut: avis,
+      statut: avis === 'favorable' ? 'active' : avis === 'defavorable' ? 'cloturee' : e.statut,
+      decision: avis === 'favorable' ? 'acceptee' : avis === 'defavorable' ? 'refusee' : (e as any).decision,
+      date_decision: now,
+      valide_par: user?.id,
+      transmis_exploitant_le: now,
+    } as any : e));
+    setExpandedExemption(null);
+    setIsDeciding(false);
+  };
 
   const getMesureStatutBadge = (statut: string) => {
     switch (statut) {
@@ -682,11 +842,39 @@ export function ExemptionManager({ open, onOpenChange, parentId, parentType, par
                             <div className="space-y-3 p-4 bg-role-primary-soft/10 rounded-xl border border-role-primary/20">
                               <p className="text-xs text-muted-foreground">Instruction du dossier d'exemption</p>
 
+                              {/* Assignation équipe (admin) — une fois par dossier, modifiable */}
+                              {estAdmin && (
+                                <AssignationEquipeExemption
+                                  exemptionId={ex.id}
+                                  current={{
+                                    responsable_id: ex.responsable_id,
+                                    equipe_ids: ex.equipe_ids,
+                                    chef_id: ex.chef_id,
+                                    externes: ex.externes,
+                                    assigne_le: ex.assigne_le,
+                                    assigne_par: ex.assigne_par,
+                                  }}
+                                  responsables={assignResponsable}
+                                  setResponsable={setAssignResponsable}
+                                  chef={assignChef}
+                                  setChef={setAssignChef}
+                                  equipe={assignEquipe}
+                                  setEquipe={setAssignEquipe}
+                                  externes={assignExternes}
+                                  setExternes={setAssignExternes}
+                                  nomExterne={nomExterne}
+                                  setNomExterne={setNomExterne}
+                                  utilisateurs={utilisateurs}
+                                />
+                              )}
+                              {!dansEquipe(ex) && (
+                                <div className="p-2 rounded-lg border border-warning/40 bg-warning/10 text-[11px] text-foreground">
+                                  Dossier assigné à un autre inspecteur — lecture seule.
+                                </div>
+                              )}
                               {expandedExemption !== ex.id ? (
                                 <button type="button" onClick={() => {
-                                  setExpandedExemption(ex.id);
-                                  setInstructComment((ex as any).inspecteur_commentaires || '');
-                                  setInstructFiles((ex as any).inspecteur_fichiers || []);
+                                  ouvrirInstruction(ex);
                                   updateExemption(ex.id, { ...ex, workflow_statut: 'en_cours' } as any);
                                   setExemptions(prev => prev.map(e => e.id === ex.id ? { ...e, workflow_statut: 'en_cours' as any } : e));
                                 }} className="btn btn-secondary gap-2 text-xs">
@@ -728,81 +916,25 @@ export function ExemptionManager({ open, onOpenChange, parentId, parentType, par
                                       </button>
                                     </div>
                                   </div>
+                                  {!peutDecider(ex) && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Décision réservée au chef d’équipe ou à l’administrateur.
+                                    </p>
+                                  )}
                                   <div className="flex flex-wrap gap-2 pt-2">
-                                    <button type="button" disabled={isDeciding} onClick={() => {
-                                      setIsDeciding(true);
-                                      const now = new Date().toISOString();
-                                      updateExemption(ex.id, {
-                                        ...ex,
-                                        avis_final: 'favorable',
-                                        inspecteur_commentaires: instructComment,
-                                        inspecteur_fichiers: instructFiles,
-                                        workflow_statut: 'favorable' as any,
-                                        statut: 'active',
-                                        decision: 'acceptee',
-                                        date_decision: now,
-                                      } as any);
-                                      setExemptions(prev => prev.map(e => e.id === ex.id ? { ...e, avis_final: 'favorable' as any, inspecteur_commentaires: instructComment, inspecteur_fichiers: instructFiles, workflow_statut: 'favorable' as any, statut: 'active' as any, decision: 'acceptee' as any, date_decision: now } : e));
-                                      addNotification({
-                                        user_id: '',
-                                        type: 'success',
-                                        title: 'Exemption acceptée',
-                                        message: `L'exemption ${ex.reference} a été acceptée. Des mesures d'atténuation s'appliquent.`,
-                                        canal: 'in_app',
-                                      });
-                                      setExpandedExemption(null);
-                                      setIsDeciding(false);
-                                    }} className="btn btn-success gap-2 text-xs">
+                                    <button type="button" disabled={isDeciding || !peutDecider(ex)}
+                                      title={peutDecider(ex) ? undefined : 'Décision réservée au chef d’équipe ou à l’administrateur'}
+                                      onClick={() => decider(ex, 'favorable')} className="btn btn-success gap-2 text-xs disabled:opacity-50">
                                       {isDeciding ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}Favorable
                                     </button>
-                                    <button type="button" disabled={isDeciding} onClick={() => {
-                                      setIsDeciding(true);
-                                      const now = new Date().toISOString();
-                                      updateExemption(ex.id, {
-                                        ...ex,
-                                        avis_final: 'a_reviser',
-                                        inspecteur_commentaires: instructComment,
-                                        inspecteur_fichiers: instructFiles,
-                                        workflow_statut: 'a_reviser' as any,
-                                        date_decision: now,
-                                      } as any);
-                                      setExemptions(prev => prev.map(e => e.id === ex.id ? { ...e, avis_final: 'a_reviser' as any, inspecteur_commentaires: instructComment, inspecteur_fichiers: instructFiles, workflow_statut: 'a_reviser' as any, date_decision: now } : e));
-                                      addNotification({
-                                        user_id: '',
-                                        type: 'warning',
-                                        title: 'Exemption à réviser',
-                                        message: `L'exemption ${ex.reference} nécessite des compléments. L'exploitant est notifié.`,
-                                        canal: 'in_app',
-                                      });
-                                      setExpandedExemption(null);
-                                      setIsDeciding(false);
-                                    }} className="btn btn-warning gap-2 text-xs">
+                                    <button type="button" disabled={isDeciding || !peutDecider(ex)}
+                                      title={peutDecider(ex) ? undefined : 'Décision réservée au chef d’équipe ou à l’administrateur'}
+                                      onClick={() => decider(ex, 'a_reviser')} className="btn btn-warning gap-2 text-xs disabled:opacity-50">
                                       {isDeciding ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertCircle className="w-3.5 h-3.5" />}À réviser
                                     </button>
-                                    <button type="button" disabled={isDeciding} onClick={() => {
-                                      setIsDeciding(true);
-                                      const now = new Date().toISOString();
-                                      updateExemption(ex.id, {
-                                        ...ex,
-                                        avis_final: 'defavorable',
-                                        inspecteur_commentaires: instructComment,
-                                        inspecteur_fichiers: instructFiles,
-                                        workflow_statut: 'defavorable' as any,
-                                        statut: 'cloturee',
-                                        decision: 'refusee',
-                                        date_decision: now,
-                                      } as any);
-                                      setExemptions(prev => prev.map(e => e.id === ex.id ? { ...e, avis_final: 'defavorable' as any, inspecteur_commentaires: instructComment, inspecteur_fichiers: instructFiles, workflow_statut: 'defavorable' as any, statut: 'cloturee' as any, decision: 'refusee' as any, date_decision: now } : e));
-                                      addNotification({
-                                        user_id: '',
-                                        type: 'danger',
-                                        title: 'Exemption refusée',
-                                        message: `L'exemption ${ex.reference} a été refusée.`,
-                                        canal: 'in_app',
-                                      });
-                                      setExpandedExemption(null);
-                                      setIsDeciding(false);
-                                    }} className="btn btn-danger gap-2 text-xs">
+                                    <button type="button" disabled={isDeciding || !peutDecider(ex)}
+                                      title={peutDecider(ex) ? undefined : 'Décision réservée au chef d’équipe ou à l’administrateur'}
+                                      onClick={() => decider(ex, 'defavorable')} className="btn btn-danger gap-2 text-xs disabled:opacity-50">
                                       {isDeciding ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}Défavorable
                                     </button>
                                   </div>

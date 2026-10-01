@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { Bell, X, CheckCheck, ExternalLink } from 'lucide-react'
+import { Bell, CheckCheck, ExternalLink } from 'lucide-react'
 import { useAppStore, type Notification } from '@/lib/store'
 import { Badge } from '@/components/ui/badge'
 

@@ -196,6 +196,20 @@ export async function GET(request: Request) {
           .from('profils_risque')
           .upsert(profil, { onConflict: 'aerodrome_id' })
 
+        // 6b. Apprentissage : enregistrer les prédictions 3m/6m pour
+        // vérification future (cron evaluer-predictions). Best-effort :
+        // un échec ici ne bloque jamais le recalcul.
+        try {
+          await supabaseAdmin.from('prediction_suivi').insert({
+            aerodrome_id: aerodromeId,
+            predicted_at: now,
+            pred_3m: profil.prediction_3m,
+            pred_6m: profil.prediction_6m,
+          })
+        } catch {
+          console.warn(`[recalculate-risk] prediction_suivi insert ignoré pour ${aerodromeId}`)
+        }
+
         // 7. Alimenter score_history pour l'apprentissage (dédup : on ne pollue
         //    pas l'historique si le score n'a pas changé depuis le dernier point)
         let shStatus = ''

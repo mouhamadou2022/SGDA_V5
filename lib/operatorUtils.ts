@@ -1,7 +1,7 @@
 // lib/operatorUtils.ts
 // Utilitaires spécifiques au portail exploitant
 
-import { Ecart, Surveillance } from './store';
+import { Ecart } from './store'
 
 export const operatorUtils = {
   /**

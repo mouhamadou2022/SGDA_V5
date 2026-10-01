@@ -9,49 +9,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup, AccordionSubGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
-import {
-  Archive,
-  Search,
-  Grid3x3,
-  List,
-  Plus,
-  Eye,
-  Trash2,
-  Download,
-  Shield,
-  Scale,
-  AlertTriangle,
-  Clock,
-  MapPin,
-  Globe,
-  Brain,
-  Loader2,
-  Send,
-  Sparkles,
-  GraduationCap,
-  AlertCircle,
-  Calendar,
-  User,
-  FileText,
-  History,
-  Link2,
-  PenSquare,
-  CheckCircle,
-  XCircle,
-  FileCheck,
-  LayoutDashboard,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  ClipboardList,
-  FileSignature,
-  Building2,
-  Phone,
-  Mail,
-  UserCheck,
-  Printer,
-  Filter,
-} from 'lucide-react';
+import { Archive, Search, Grid3x3, List, Plus, Eye, Trash2, Download, Shield, Scale, AlertTriangle, Clock, MapPin, Brain, Loader2, Send, Sparkles, GraduationCap, AlertCircle, Calendar, User, FileText, History, PenSquare, CheckCircle, XCircle, FileCheck, LayoutDashboard, TrendingUp, ClipboardList, Mail, Printer, Filter } from 'lucide-react'
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
 import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { canManageRole } from '@/lib/config';

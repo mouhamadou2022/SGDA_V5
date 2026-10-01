@@ -35,7 +35,6 @@ import {
 import { useAppStore, type AuditLog } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { auditUtils } from '@/lib/auditUtils';
-import { formatDate } from '@/lib/utils';
 import { BarChart } from '@/components/ui/charts/BarChart';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";

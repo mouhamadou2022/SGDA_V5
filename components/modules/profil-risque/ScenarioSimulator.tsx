@@ -3,18 +3,13 @@
 
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  FlaskConical, RotateCcw, Save, Trash2, ChevronDown, ChevronUp,
-  Sparkles, TrendingUp, TrendingDown, Target, Zap, Shield, Brain,
-  Lightbulb, ArrowRight, CheckCircle2, AlertCircle, X, Minus
-} from 'lucide-react'
+import { FlaskConical, RotateCcw, Save, Trash2, ChevronDown, ChevronUp, Sparkles, TrendingUp, TrendingDown, Brain, Lightbulb, ArrowRight, X, Minus } from 'lucide-react'
 import { useAppStore, ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { calculateGlobalScore } from '@/lib/risque'
 import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController'
-
 interface Props { profil: ProfilRisque; aerodromeName: string; userRole: string }
 
 interface CritereSimule { key: 'c1' | 'c2' | 'c3' | 'c4' | 'c5'; label: string; poids: number; description: string }

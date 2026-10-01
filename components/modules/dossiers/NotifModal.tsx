@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Send, Bell, Mail, Smartphone, AlertCircle, FolderOpen, CheckCircle2 } from 'lucide-react'
+import { Send, Bell, Mail, Smartphone, FolderOpen, CheckCircle2 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { FormShell } from '@/components/ui/FormShell'
 

@@ -74,7 +74,7 @@ export async function GET(request: Request) {
             .order('computed_at', { ascending: true })
             .limit(1)
 
-          let scoreBefore = profilBefore?.[0]?.score_global ?? null
+          const scoreBefore = profilBefore?.[0]?.score_global ?? null
           let scoreAfter6m = profilAfter?.[0]?.score_global ?? null
           const scoreAfter3m = profilAfter3m?.[0]?.score_global ?? null
           let tendanceAfter = profilAfter?.[0]?.tendance ?? null
@@ -128,7 +128,7 @@ export async function GET(request: Request) {
       .not('effectiveness', 'is', null)
 
     let weightAdjustments: Array<{ dim: string; delta: number; raison: string; appliedAt: string }> = []
-    let poidsAvant = weightController.getCurrentWeights()
+    const poidsAvant = weightController.getCurrentWeights()
     if (allDecisions && allDecisions.length >= 5) {
       const outcomes = allDecisions.map(d => ({
         decision_id: d.id,

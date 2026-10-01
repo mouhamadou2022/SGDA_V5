@@ -35,6 +35,24 @@ function EntiteIcon({ typeEntite }: { typeEntite?: string }) {
   return <Plane className="h-4 w-4 text-role-primary flex-shrink-0" />
 }
 
+// Hoisté hors de PlanningCard (react-hooks/static-components) : défini dans le
+// corps du composant, il était recréé à chaque rendu. Aucune dépendance externe.
+function TypeIcon({ type }: { type: string }) {
+  const icons: Record<string, React.ElementType> = {
+    programmee: Calendar,
+    inopinee: AlertCircle,
+    speciale: Star,
+    suivi_ecarts: ClipboardList,
+    mise_oeuvre_pac: CheckCircle2,
+    certification: Shield,
+    homologation: Scale,
+    audit_complet: LayoutGrid,
+    urgence: AlertTriangle,
+  }
+  const Icon = icons[type] || Calendar
+  return <Icon className="h-4 w-4 text-role-primary" />
+}
+
 interface PlanningCardProps {
   planning: Planning
   aerodrome?: Aerodrome
@@ -103,21 +121,6 @@ export function PlanningCard({
     `${prenom.charAt(0)}${nom.charAt(0)}`.toUpperCase()
   
   const chef = getChefEquipe()
-  const TypeIcon = ({ type }: { type: string }) => {
-    const icons: Record<string, React.ElementType> = {
-      programmee: Calendar,
-      inopinee: AlertCircle,
-      speciale: Star,
-      suivi_ecarts: ClipboardList,
-      mise_oeuvre_pac: CheckCircle2,
-      certification: Shield,
-      homologation: Scale,
-      audit_complet: LayoutGrid,
-      urgence: AlertTriangle,
-    }
-    const Icon = icons[type] || Calendar
-    return <Icon className="h-4 w-4 text-role-primary" />
-  }
   
   const statusBadge = (statut: string): { cls: string; icon: React.ElementType; label: string } => {
     const variants: Record<string, { cls: string; icon: React.ElementType; label: string }> = {

@@ -22,7 +22,7 @@ import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { safeParseJSON } from '@/lib/safeParseJSON';
 import { sgsScoreVersNiveau, sgsNiveauVersScore, normaliserScoreSgs } from '@/lib/utils';
 import { engineFeedback } from '@/lib/ia/engines/engineFeedback';
-import type { HelistationData, TypeInstallation, MoyenCom } from '@/lib/types/helistation';
+import { TypeInstallation, MoyenCom } from '@/lib/types/helistation'
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
 
 // ── Import dynamique de la carte ────────────────────────────────────────────
@@ -542,13 +542,14 @@ function BooleanToggle({ label, icon: Icon, value, onChange, description }: {
 }
 
 // ── SmartCoordinateInput ─────────────────────────────────────────────────────
-const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesChange, error }: {
+const SmartCoordinateInput = React.memo(function SmartCoordinateInput({ latitude, longitude, onCoordinatesChange, error }: {
   latitude: number; longitude: number; onCoordinatesChange: (lat: number, lon: number) => void; error?: string;
-}) => {
+}) {
   const [inputValue,  setInputValue]  = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [coordsError, setCoordsError] = useState('');
   const [showHelper,  setShowHelper]  = useState(false);
   const [mode,        setMode]        = useState<'coords'|'search'>('coords');
 
@@ -559,7 +560,7 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
 
   const confirmCoords = useCallback((raw: string) => {
     const r = coordinateUtils.detectAndConvert(raw);
-    if (r) { onCoordinatesChange(r.latitude, r.longitude); setInputValue(coordinateUtils.toDMS(r.latitude, r.longitude)); }
+    if (r) { onCoordinatesChange(r.latitude, r.longitude); setInputValue(coordinateUtils.toDMS(r.latitude, r.longitude)); setCoordsError(''); }
   }, [onCoordinatesChange]);
 
   const handleSearch = async () => {
@@ -609,16 +610,26 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
         </>
       ) : (
         <div className="space-y-4">
-          <div className="relative">
-            <Globe className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-4 h-4 text-role-primary" />
-            <input type="text" value={inputValue} onChange={e=>setInputValue(e.target.value)}
-              onBlur={e=>confirmCoords(e.target.value)} onKeyDown={e=>e.key==='Enter'&&confirmCoords(e.currentTarget.value)}
-              placeholder="14.7168, -17.4675 ou 14°43'0.5 N 17°28'3.5 W"
-              className={`form-input w-full pl-10 pr-12 py-3 text-sm font-mono ${focusClass} ${error?'border-danger':'border-border'}`} />
-            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 action-button p-1.5" onClick={()=>setShowHelper(!showHelper)}>
-              <HelpCircle className="w-4 h-4 text-muted-foreground" />
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-4 h-4 text-role-primary" />
+              <input type="text" value={inputValue} onChange={e=>setInputValue(e.target.value)}
+                onBlur={e=>confirmCoords(e.target.value)} onKeyDown={e=>e.key==='Enter'&&confirmCoords(e.currentTarget.value)}
+                placeholder="14.7168, -17.4675 ou 14°43'0.5 N 17°28'3.5 W"
+                className={`form-input w-full pl-10 pr-12 py-3 text-sm font-mono ${focusClass} ${error?'border-danger':'border-border'}`} />
+              <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 action-button p-1.5" onClick={()=>setShowHelper(!showHelper)}>
+                <HelpCircle className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <button type="button" onClick={()=>{
+              const r = coordinateUtils.detectAndConvert(inputValue);
+              if (r) { onCoordinatesChange(r.latitude, r.longitude); setInputValue(coordinateUtils.toDMS(r.latitude, r.longitude)); }
+              else { setCoordsError('Coordonnées non reconnues. Vérifiez le format (décimal ou DMS).'); }
+            }} className="btn btn-primary gap-2 px-5">
+              <Compass className="w-4 h-4" />Localiser
             </button>
           </div>
+          {coordsError && <p className="text-xs text-danger flex items-center gap-1"><AlertCircle className="w-3 h-3" />{coordsError}</p>}
           {!isNaN(latitude)&&!isNaN(longitude)&&(
             <div className="p-3 bg-role-primary-soft/30 rounded-lg space-y-1 text-[11px] font-mono text-muted-foreground">
               <div className="flex gap-2"><Compass className="w-3.5 h-3.5 text-role-primary"/>{coordinateUtils.toDMS(latitude, longitude)}</div>
@@ -639,7 +650,7 @@ const SmartCoordinateInput = React.memo(({ latitude, longitude, onCoordinatesCha
       )}
     </div>
   );
-});
+})
 
 // ── StepIndicator ────────────────────────────────────────────────────────────
 function StepIndicator({ currentStep, completedSteps, typeEntite, onStepClick }: {

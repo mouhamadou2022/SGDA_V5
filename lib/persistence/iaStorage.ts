@@ -95,7 +95,7 @@ async function set<T>(storeName: IaStoreName, key: string, value: T): Promise<vo
   try {
     const db = await openDB()
     return await new Promise((resolve, reject) => {
-      let settled = false
+      const settled = false
       const close = () => { if (!settled) db.close() }
       const tx = db.transaction(storeName, 'readwrite')
       const store = tx.objectStore(storeName)

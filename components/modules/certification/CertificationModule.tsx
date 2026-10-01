@@ -48,6 +48,9 @@ import { LettreTransmissionUpload } from '@/components/ui/LettreTransmissionUplo
 import { CertExpiryAlert } from './CertExpiryAlert';
 import { ExemptionManager } from '../exemptions/ExemptionManager';
 import { PhaseDocsModal } from './PhaseDocsModal';
+import { AssignationInstruction, peutInstruire } from './AssignationInstruction';
+import { lireInstruction } from '@/lib/instructionHabilitation';
+import { doitProposer, notifierChefProposition, notifierProposant, retransmettreDecision } from '@/lib/instructionValidation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 const selectStyle = {
@@ -309,6 +312,7 @@ function PhaseModal({
   const addSurveillance = useAppStore(s => s.addSurveillance);
   const addNotification = useAppStore(s => s.addNotification);
   const utilisateurs = useAppStore(s => s.utilisateurs);
+  const utilisateurCourant = useAppStore(s => s.user);
   const surveillances = useAppStore(s => s.surveillances);
   const ecarts = useAppStore(s => s.ecarts);
   const exemptions = useAppStore(s => s.exemptions);
@@ -326,6 +330,7 @@ function PhaseModal({
     phaseData.inspecteur_fichiers || []
   );
   const [isDeciding, setIsDeciding] = useState(false);
+  const [commentaireRetour, setCommentaireRetour] = useState('');
   const today = new Date().toISOString().split('T')[0];
   const dateError = phaseData.date_fin && phaseData.date_debut && phaseData.date_fin <= phaseData.date_debut
     ? 'La date de fin doit être postérieure à la date de début'
@@ -344,6 +349,29 @@ function PhaseModal({
 
   const isLocked = phase > (certification?.phase_active || 1);
   const isCompleted = phase < (certification?.phase_active || 1);
+  // Étape 2 : équipe désignée UNE FOIS par dossier (clé partagée, repli étape 1).
+  // Hors équipe = lecture seule (admin toujours admis).
+  const assignationPhase = (phase === 1 || phase === 2)
+    ? lireInstruction(certification?.phases_data as Record<string, never> | undefined)
+    : {}
+  const droitInstruire = (phase === 1 || phase === 2)
+    ? peutInstruire(assignationPhase, utilisateurCourant?.id, userRole)
+    : true;
+  // Fichiers/documents : phases 1-2 = admin seul ; phases 4-5 = chef ou admin ;
+  // phase 3 = règles surveillance (inchangées). Les autres = lecture seule.
+  const estAdminLocal = userRole === 'admin';
+  const estChefDossier = !!assignationPhase.chef_id && utilisateurCourant?.id === assignationPhase.chef_id;
+  const peutChargerFichiers = phase === 1 || phase === 2
+    ? estAdminLocal
+    : phase === 4 || phase === 5
+      ? (estAdminLocal || estChefDossier)
+      : true;
+  // Étape 3 : le chef (ou l'admin) valide les avis proposés.
+  const propositionEnAttente = (phaseData as Record<string, unknown>).proposition_avis as string | undefined;
+  const estChefValidateur = (phase === 1 || phase === 2) &&
+    !!propositionEnAttente &&
+    (!!assignationPhase.chef_id || userRole === 'admin') &&
+    (utilisateurCourant?.id === assignationPhase.chef_id || userRole === 'admin');
 
   const canAdvance = useMemo(() => {
     if (phase === 1) return !!phaseData.date_reception && !!phaseData.coordonnees?.nom && !!phaseData.coordonnees?.email
@@ -390,15 +418,55 @@ function PhaseModal({
     }
   };
 
+  // Étape 3 : membre (chef désigné, non chef) → PROPOSITION au chef ;
+  // chef/admin/équipe sans chef → décision directe + retransmission exploitant.
   const handleDecision = async (decision: 'favorable' | 'a_reviser' | 'defavorable') => {
     setIsDeciding(true);
     try {
       const now = new Date().toISOString();
+      const auteurNom = utilisateurCourant
+        ? `${utilisateurCourant.prenom || ''} ${utilisateurCourant.nom || ''}`.trim() || 'Inspecteur'
+        : 'Inspecteur';
+      if (doitProposer(assignationPhase.chef_id, utilisateurCourant?.id, userRole)) {
+        const updatedData = {
+          ...phaseData,
+          statut: 'en_cours' as const,
+          proposition_avis: decision,
+          propose_par: utilisateurCourant?.id,
+          propose_le: now,
+          inspecteur_fichiers: inspecteurFichiers,
+        };
+        await onSave(updatedData, false);
+        notifierChefProposition(
+          assignationPhase.chef_id!, certification?.reference || '',
+          aerodrome?.code_oaci || '', phase, decision, auteurNom,
+        );
+        addNotification({
+          user_id: utilisateurCourant?.id || '', type: 'info',
+          title: 'Avis soumis au chef',
+          message: `Votre avis « ${decision} » attend validation du chef d’équipe.`,
+          canal: 'in_app',
+        });
+        onOpenChange(false);
+        return;
+      }
       const updatedData = {
         ...phaseData,
         statut: decision,
         inspecteur_fichiers: inspecteurFichiers,
         date_decision: now,
+        proposition_avis: undefined,
+        propose_par: undefined,
+        propose_le: undefined,
+        valide_par: utilisateurCourant?.id,
+        valide_le: now,
+        transmis_exploitant_le: retransmettreDecision({
+          aerodrome_id: certification?.aerodrome_id || '',
+          reference: certification?.reference || '',
+          type: 'certification',
+          phase,
+          decision,
+        }),
       };
       const shouldAdvance = phase === 2 && decision === 'favorable';
       await onSave(updatedData, shouldAdvance);
@@ -410,7 +478,62 @@ function PhaseModal({
     }
   };
 
+  // Étape 3 : le chef valide l'avis proposé (ou le retourne).
+  const handleValidationChef = async (valide: boolean, commentaire?: string) => {
+    setIsDeciding(true);
+    try {
+      const now = new Date().toISOString();
+      const proposition = (phaseData as Record<string, unknown>).proposition_avis as 'favorable' | 'a_reviser' | 'defavorable' | undefined;
+      if (!proposition) return;
+      const proposePar = (phaseData as Record<string, unknown>).propose_par as string | undefined;
+      if (valide) {
+        const updatedData = {
+          ...phaseData,
+          statut: proposition,
+          inspecteur_fichiers: inspecteurFichiers,
+          date_decision: now,
+          valide_par: utilisateurCourant?.id,
+          valide_le: now,
+          transmis_exploitant_le: retransmettreDecision({
+            aerodrome_id: certification?.aerodrome_id || '',
+            reference: certification?.reference || '',
+            type: 'certification',
+            phase,
+            decision: proposition,
+          }),
+        };
+        const shouldAdvance = phase === 2 && proposition === 'favorable';
+        await onSave(updatedData, shouldAdvance);
+        notifierProposant(proposePar, certification?.reference || '', true);
+      } else {
+        await onSave({
+          ...phaseData,
+          statut: 'en_cours' as const,
+          proposition_avis: undefined,
+          propose_par: undefined,
+          propose_le: undefined,
+        }, false);
+        notifierProposant(proposePar, certification?.reference || '', false, commentaire);
+      }
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Erreur validation chef certification:', error)
+    } finally {
+      setIsDeciding(false);
+    }
+  };
+
   const handleInspectorFileUpload = async () => {
+    // Défense en profondeur : seuls les rôles autorisés chargent (boutons déjà masqués).
+    if (!peutChargerFichiers) {
+      addNotification({
+        user_id: utilisateurCourant?.id || '', type: 'warning',
+        title: 'Action réservée',
+        message: 'Seul l’administrateur (phases 1-2) ou le chef d’équipe (phases 4-5) peut charger des fichiers.',
+        canal: 'in_app',
+      });
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf,.doc,.docx,.png,.jpg,.jpeg';
@@ -607,8 +730,32 @@ function PhaseModal({
               )}
             </div>
 
+            {/* Étape 1 : assignation de l'instruction (admin) / lecture seule hors équipe */}
+            {certification && (
+              <AssignationInstruction
+                type="certification"
+                dossierId={certification.id}
+                phase={1}
+                current={assignationPhase}
+                userRole={userRole}
+                currentUserId={utilisateurCourant?.id}
+              />
+            )}
+            {!droitInstruire && !isLocked && !isCompleted && (
+              <div className="p-3 rounded-xl border border-warning/40 bg-warning/10 text-xs text-foreground">
+                Instruction assignée à un autre inspecteur — vous êtes en lecture seule sur cette phase.
+              </div>
+            )}
+
+            {/* Étape 3 : avis en attente de validation du chef */}
+            {propositionEnAttente && !estChefValidateur && (phase1Status === 'en_cours' || phase1Status === 'accuse') && (
+              <div className="p-3 rounded-xl border border-primary/30 bg-primary/5 text-xs text-foreground">
+                Avis « {propositionEnAttente} » transmis au chef — en attente de validation.
+              </div>
+            )}
+
             {/* Phase 1 workflow */}
-            {phase1Status === 'en_attente' && !isLocked && !isCompleted && (
+            {phase1Status === 'en_attente' && !isLocked && !isCompleted && droitInstruire && (
               <div className="p-4 bg-role-primary-soft/5 border border-role-primary/20 rounded-xl text-center">
                 <p className="text-sm text-foreground mb-4">Demande en attente de traitement — accuser réception pour débuter l'instruction</p>
                 <button type="button" onClick={handleAccuseReception} className="btn btn-primary gap-2">
@@ -617,7 +764,7 @@ function PhaseModal({
               </div>
             )}
 
-            {(phase1Status === 'accuse' || phase1Status === 'en_cours') && !isLocked && !isCompleted && (
+            {(phase1Status === 'accuse' || phase1Status === 'en_cours') && !isLocked && !isCompleted && droitInstruire && (
               <div className="space-y-5 border-t border-border pt-4">
                 <h4 className="text-sm font-semibold text-foreground">Instruction de la demande</h4>
 
@@ -646,6 +793,29 @@ function PhaseModal({
                   </button>
                 </div>
 
+                {/* Étape 3 : validation chef d'un avis proposé */}
+                {estChefValidateur && (
+                  <div className="p-3 rounded-xl border-2 border-warning bg-warning/5 space-y-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      ✋ Avis proposé : « {propositionEnAttente} » — validation du chef requise
+                    </p>
+                    <input
+                      value={commentaireRetour}
+                      onChange={e => setCommentaireRetour(e.target.value)}
+                      placeholder="Motif du retour (si refus de l’avis)…"
+                      className="form-input w-full text-xs"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => handleValidationChef(true)} disabled={isDeciding} className="btn btn-sm btn-success gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Valider et retransmettre
+                      </button>
+                      <button type="button" onClick={() => handleValidationChef(false, commentaireRetour)} disabled={isDeciding} className="btn btn-sm btn-secondary gap-1.5">
+                        Retourner pour reprise
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Fichiers d'évaluation — optionnel */}
                 <details className="text-xs text-muted-foreground">
                   <summary className="cursor-pointer hover:text-foreground select-none">Ajouter des fichiers d'évaluation (optionnel)</summary>
@@ -659,14 +829,20 @@ function PhaseModal({
                         <div className="flex items-center gap-1">
                           <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir"><Eye className="w-4 h-4" /></a>
                           <a href={f.url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger"><Download className="w-4 h-4" /></a>
-                          <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
+                          {peutChargerFichiers && (
+                            <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
+                          )}
                         </div>
                       </div>
                     ))}
-                    <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-4 border-dashed">
-                      <Upload className="w-5 h-5" />
-                      <span>Ajouter un fichier</span>
-                    </button>
+                    {peutChargerFichiers ? (
+                      <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-4 border-dashed">
+                        <Upload className="w-5 h-5" />
+                        <span>Ajouter un fichier</span>
+                      </button>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Chargement réservé à l’administrateur — lecture seule.</p>
+                    )}
                   </div>
                 </details>
               </div>
@@ -818,13 +994,13 @@ function PhaseModal({
                       <div className="flex items-center gap-1 shrink-0">
                         <a href={f.url} target="_blank" rel="noopener noreferrer" className="action-button" title="Voir"><Eye className="w-4 h-4" /></a>
                         <a href={f.url} download target="_blank" rel="noopener noreferrer" className="action-button" title="Télécharger"><Download className="w-4 h-4" /></a>
-                        {!isLocked && !isCompleted && (
+                        {!isLocked && !isCompleted && peutChargerFichiers && (
                           <button type="button" className="action-button hover:text-danger" onClick={() => removeInspectorFile(i)}><Trash2 className="w-4 h-4" /></button>
                         )}
                       </div>
                     </div>
                   ))}
-                  {!isLocked && !isCompleted && (
+                  {!isLocked && !isCompleted && peutChargerFichiers && (
                     <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary w-full gap-2 py-2 border-dashed text-xs">
                       <Upload className="w-4 h-4" />
                       <span>Ajouter un fichier</span>
@@ -834,7 +1010,31 @@ function PhaseModal({
               </div>
             )}
 
-            {phase2Status === 'en_attente' && !isLocked && !isCompleted && (
+            {/* Étape 1 : assignation de l'instruction (admin) / lecture seule hors équipe */}
+            {certification && (
+              <AssignationInstruction
+                type="certification"
+                dossierId={certification.id}
+                phase={2}
+                current={assignationPhase}
+                userRole={userRole}
+                currentUserId={utilisateurCourant?.id}
+              />
+            )}
+            {!droitInstruire && !isLocked && !isCompleted && (
+              <div className="p-3 rounded-xl border border-warning/40 bg-warning/10 text-xs text-foreground">
+                Instruction assignée à un autre inspecteur — vous êtes en lecture seule sur cette phase.
+              </div>
+            )}
+
+            {/* Étape 3 : avis en attente de validation du chef */}
+            {propositionEnAttente && !estChefValidateur && (phase2Status === 'en_cours' || phase2Status === 'accuse') && (
+              <div className="p-3 rounded-xl border border-primary/30 bg-primary/5 text-xs text-foreground">
+                Avis « {propositionEnAttente} » transmis au chef — en attente de validation.
+              </div>
+            )}
+
+            {phase2Status === 'en_attente' && !isLocked && !isCompleted && droitInstruire && (
               <div className="text-center py-4">
                 <button type="button" onClick={handleAccuseReception} className="btn btn-primary gap-2">
                   <CheckCircle2 className="w-4 h-4" />Accuser réception
@@ -842,7 +1042,7 @@ function PhaseModal({
               </div>
             )}
 
-            {(phase2Status === 'accuse' || phase2Status === 'en_cours') && !isLocked && !isCompleted && (
+            {(phase2Status === 'accuse' || phase2Status === 'en_cours') && !isLocked && !isCompleted && droitInstruire && (
               <div className="space-y-5 border-t border-border pt-4">
                 <h4 className="text-sm font-semibold text-foreground">Instruction de la demande formelle</h4>
 
@@ -869,7 +1069,30 @@ function PhaseModal({
                   </button>
                 </div>
 
-                {!isLocked && !isCompleted && (
+                {/* Étape 3 : validation chef d'un avis proposé */}
+                {estChefValidateur && (
+                  <div className="p-3 rounded-xl border-2 border-warning bg-warning/5 space-y-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      ✋ Avis proposé : « {propositionEnAttente} » — validation du chef requise
+                    </p>
+                    <input
+                      value={commentaireRetour}
+                      onChange={e => setCommentaireRetour(e.target.value)}
+                      placeholder="Motif du retour (si refus de l’avis)…"
+                      className="form-input w-full text-xs"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => handleValidationChef(true)} disabled={isDeciding} className="btn btn-sm btn-success gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Valider et retransmettre
+                      </button>
+                      <button type="button" onClick={() => handleValidationChef(false, commentaireRetour)} disabled={isDeciding} className="btn btn-sm btn-secondary gap-1.5">
+                        Retourner pour reprise
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!isLocked && !isCompleted && peutChargerFichiers && (
                   <div className="mt-4">
                     <button type="button" onClick={handleInspectorFileUpload} className="btn btn-secondary gap-2 text-xs">
                       <Upload className="w-4 h-4" />Ajouter un fichier d'évaluation
@@ -1171,6 +1394,11 @@ function PhaseModal({
       case 4:
         return (
           <div className="space-y-5 animate-fade-up">
+            {!peutChargerFichiers && (
+              <div className="p-3 rounded-xl border border-warning/40 bg-warning/10 text-xs text-foreground">
+                Délivrance réservée au chef d’équipe ou à l’administrateur — lecture seule.
+              </div>
+            )}
             <div className="p-5 bg-gradient-to-br from-success/5 to-transparent border border-success/20 rounded-2xl">
               <div className="flex items-center gap-3 mb-4">
                 <div className="kpi-icon !w-10 !h-10 bg-success/20">
@@ -1186,21 +1414,21 @@ function PhaseModal({
             <div className="grid grid-cols-3 gap-4">
               <div className="form-field">
                 <label className="filter-label"><FileText className="h-3.5 w-3.5 mr-1 inline" />N° certificat *</label>
-                <input className={`form-input ${focusClass}`} value={phaseData.numero_certificat || ''} onChange={(e) => setPhaseData({ ...phaseData, numero_certificat: e.target.value })} disabled={isLocked || isCompleted} placeholder="ANACIM/CERT/AAAA/NNN" />
+                <input className={`form-input ${focusClass}`} value={phaseData.numero_certificat || ''} onChange={(e) => setPhaseData({ ...phaseData, numero_certificat: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} placeholder="ANACIM/CERT/AAAA/NNN" />
               </div>
               <div className="form-field">
                 <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date délivrance *</label>
-                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_delivrance || ''} onChange={(e) => setPhaseData({ ...phaseData, date_delivrance: e.target.value })} disabled={isLocked || isCompleted} />
+                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_delivrance || ''} onChange={(e) => setPhaseData({ ...phaseData, date_delivrance: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} />
               </div>
               <div className="form-field">
                 <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date expiration *</label>
-                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_expiration || ''} onChange={(e) => setPhaseData({ ...phaseData, date_expiration: e.target.value })} disabled={isLocked || isCompleted} />
+                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_expiration || ''} onChange={(e) => setPhaseData({ ...phaseData, date_expiration: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} />
               </div>
             </div>
 
             <div className="p-4 bg-card border border-border rounded-xl">
               <label className="filter-label"><Upload className="h-3.5 w-3.5 mr-1 inline" />Certificat (PDF)</label>
-              <input type="text" className={`form-input ${focusClass}`} placeholder="URL du certificat signé" value={phaseData.certificat_url || ''} onChange={(e) => setPhaseData({ ...phaseData, certificat_url: e.target.value })} disabled={isLocked || isCompleted} />
+              <input type="text" className={`form-input ${focusClass}`} placeholder="URL du certificat signé" value={phaseData.certificat_url || ''} onChange={(e) => setPhaseData({ ...phaseData, certificat_url: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} />
             </div>
 
             {!canAdvance && (
@@ -1215,6 +1443,11 @@ function PhaseModal({
       case 5:
         return (
           <div className="space-y-5 animate-fade-up">
+            {!peutChargerFichiers && (
+              <div className="p-3 rounded-xl border border-warning/40 bg-warning/10 text-xs text-foreground">
+                Publication réservée au chef d’équipe ou à l’administrateur — lecture seule.
+              </div>
+            )}
             <div className="p-5 bg-gradient-to-br from-role-primary-soft/10 to-transparent border border-role-primary/20 rounded-2xl">
               <div className="flex items-center gap-3 mb-4">
                 <div className="kpi-icon !w-10 !h-10 bg-role-primary-soft">
@@ -1229,7 +1462,7 @@ function PhaseModal({
             <div className="p-4 bg-card border border-border rounded-xl">
               <div className="form-field">
                 <label className="filter-label"><Globe className="h-3.5 w-3.5 mr-1 inline" />Statut officiel *</label>
-                <select className={`form-select ${focusClass}`} style={selectStyle} value={phaseData.statut_officiel || ''} onChange={(e) => setPhaseData({ ...phaseData, statut_officiel: e.target.value as any })} disabled={isLocked || isCompleted}>
+                <select className={`form-select ${focusClass}`} style={selectStyle} value={phaseData.statut_officiel || ''} onChange={(e) => setPhaseData({ ...phaseData, statut_officiel: e.target.value as any })} disabled={isLocked || isCompleted || !peutChargerFichiers}>
                   <option value="">Sélectionner</option>
                   <option value="certifie">Certifié</option>
                   <option value="certifie_restrictions">Certifié avec restrictions</option>
@@ -1240,11 +1473,11 @@ function PhaseModal({
             <div className="grid grid-cols-2 gap-4">
               <div className="form-field">
                 <label className="filter-label"><Calendar className="h-3.5 w-3.5 mr-1 inline" />Date publication AIP *</label>
-                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_publication_aip || ''} onChange={(e) => setPhaseData({ ...phaseData, date_publication_aip: e.target.value })} disabled={isLocked || isCompleted} />
+                <input type="date" className={`form-input ${focusClass}`} value={phaseData.date_publication_aip || ''} onChange={(e) => setPhaseData({ ...phaseData, date_publication_aip: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} />
               </div>
               <div className="form-field">
                 <label className="filter-label"><FileText className="h-3.5 w-3.5 mr-1 inline" />Référence AIP</label>
-                <input className={`form-input ${focusClass}`} value={phaseData.reference_aip || ''} onChange={(e) => setPhaseData({ ...phaseData, reference_aip: e.target.value })} disabled={isLocked || isCompleted} placeholder="AIP/AAAA/NNN" />
+                <input className={`form-input ${focusClass}`} value={phaseData.reference_aip || ''} onChange={(e) => setPhaseData({ ...phaseData, reference_aip: e.target.value })} disabled={isLocked || isCompleted || !peutChargerFichiers} placeholder="AIP/AAAA/NNN" />
               </div>
             </div>
           </div>

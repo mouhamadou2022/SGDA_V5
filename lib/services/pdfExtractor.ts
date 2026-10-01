@@ -1,106 +1,103 @@
 import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
 // Helper : détecte si le texte extrait est probablement un scan (trop court ou peu de contenu)
-function estProbablementScan(texte: string): boolean {
+function estProbablementScan(texte: string, nbPages: number): boolean {
   const lignes = texte.split('\n').filter(l => l.trim().length > 0)
-  // Si moins de 3 lignes non vides sur une page moyenne, c'est probablement un scan
-  const ratio = lignes.length / Math.max(1, 1)
-  return ratio < 5
+  // Moins de 5 lignes non vides par page en moyenne → probablement un scan
+  return lignes.length / Math.max(1, nbPages) < 5
 }
 
-// OCR via Tesseract.js sur une page PDF rendue en canvas
-async function ocrPageAvecTesseract(
-  pagePdf: any,
-  pageNumber: number
-): Promise<string> {
-  // Render the page as a canvas
-  const canvas = await pagePdf.getCanvas({
-    viewport: { width: 595, height: 842 }, // A4 par défaut en points
-  })
-
-  // Convertir le canvas en data URI que Tesseract peut traiter
+// Rendu d'une page PDF en image PNG (dataURL) — l'IA locale LIT l'image
+// (modèle de vision), au lieu d'un OCR navigateur lent et de qualité médiocre.
+async function rendrePagePng(pagePdf: any, echelle = 1.5): Promise<string> {
+  const viewport = pagePdf.getViewport({ scale: echelle })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.floor(viewport.width)
+  canvas.height = Math.floor(viewport.height)
   const context = canvas.getContext('2d')
-  const dataUrl = canvas.toDataURL('image/jpeg', 1.0)
-
-  // Tesseract.js : initialisation et OCR
-  const { createWorker } = await import('tesseract.js')
-  const worker = createWorker('fra') as any
-
-  // Charger la langue et démarrer reconnaissance
-  await worker.load()
-  await worker.setParameters({ tessedit_ocr_engine_mode: 1 })
-
-  // Lancer reconnaissance et attendre le résultat via promesse
-  const result: any = await new Promise((resolve, reject) => {
-    worker.recognize(dataUrl, (err: any, result: any) => {
-      if (err) reject(err)
-      else resolve(result)
-    })
-  })
-
-  // Nettoyage
-  worker.terminate()
-
-  // Extraire le texte du résultat - accès sécurisé
-  const texte: string = (result && result.data && result.data.text
-    ? result.data.text
-    : '') || ''
-
-  return texte.trim()
+  if (!context) throw new Error('Canvas 2D indisponible pour le rendu.')
+  await pagePdf.render({ canvasContext: context, viewport }).promise
+  return canvas.toDataURL('image/png')
 }
 
 // ────────────────────────────────────────────────────────────
-// Extraction principale : pdfjs-dist d'abord, puis OCR fallback
+// Texte natif pdfjs (rapide) + rendu PNG (lecture par l'IA de vision)
 // ────────────────────────────────────────────────────────────
-export async function extractTextFromPDF(blobUrl: string): Promise<{
-  texte_complet: string
-  chapitres: { titre: string; contenu: string; debut: number }[]
-  nb_pages: number
-}> {
+/** Charge un PDF (worker local, repli CDN) — partagé par texte et rendu. */
+async function chargerPdf(blobUrl: string): Promise<{ pdf: any }> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)
   try {
     const response = await fetch(blobUrl, { signal: controller.signal })
+    if (!response.ok) throw new Error(`Document inaccessible (HTTP ${response.status}).`)
     const arrayBuffer = await response.arrayBuffer()
     const pdfjs = await import('pdfjs-dist')
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+    // Worker servi en local (public/pdf.worker.min.mjs) : pas de dépendance
+    // réseau/CDN — l'extraction échouait silencieusement quand le CDN était
+    // injoignable. Repli CDN uniquement si le fichier local est absent.
+    try {
+      const local = await fetch('/pdf.worker.min.mjs', { method: 'HEAD' })
+      pdfjs.GlobalWorkerOptions.workerSrc = local.ok
+        ? '/pdf.worker.min.mjs'
+        : `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+    } catch {
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+    }
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
-
-    // D'abord essayer l'extraction texte classique
-    const pagesTexte: string[] = []
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i)
-      const content = await page.getTextContent()
-      const textePage = content.items.map((item: any) => item.str).join(' ')
-      pagesTexte.push(textePage)
-    }
-
-    const texteClassique = pagesTexte.join('\n')
-
-    // Si le texte extrait semble être un scan (peu de contenu), utiliser l'OCR
-    const besoinOCR = estProbablementScan(texteClassique) || pdf.numPages > 50 // OCR pour les très gros docs
-
-    let texteFinal: string
-    if (besoinOCR) {
-      // OCR page par page via Tesseract
-      const pagesOCR: string[] = []
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i)
-        const texteOcr = await ocrPageAvecTesseract(page, i)
-        pagesOCR.push(texteOcr)
-      }
-      texteFinal = pagesOCR.join('\n')
-      console.log(`[pdfExtractor] OCR appliqué sur ${pdf.numPages} pages (scan détecté)`)
-    } else {
-      texteFinal = texteClassique
-      console.log(`[pdfExtractor] Texte extrait directement (pas de scan détecté)`)
-    }
-
-    const chapitres = decouperChapitres(texteFinal)
-    return { texte_complet: texteFinal, chapitres, nb_pages: pdf.numPages }
+    return { pdf }
   } finally {
     clearTimeout(timeout)
   }
+}
+
+/**
+ * Rend les premières pages en images PNG pour lecture par l'IA de vision.
+ * Rapide (quelques secondes) : c'est le remplacement de l'OCR navigateur.
+ */
+export async function rendrePagesPng(blobUrl: string, maxPages = 5): Promise<{
+  images: string[]
+  nb_pages: number
+}> {
+  const { pdf } = await chargerPdf(blobUrl)
+  const nb = Math.min(pdf.numPages, Math.max(1, maxPages))
+  const images: string[] = []
+  for (let i = 1; i <= nb; i++) {
+    const page = await pdf.getPage(i)
+    images.push(await rendrePagePng(page))
+  }
+  return { images, nb_pages: pdf.numPages }
+}
+
+export async function extractTextFromPDF(blobUrl: string): Promise<{
+  texte_complet: string
+  chapitres: { titre: string; contenu: string; debut: number }[]
+  nb_pages: number
+  /** Vrai si le document semblait scanné (peu de texte natif). */
+  scan_detecte: boolean
+  /** Toujours faux : l'OCR navigateur est remplacé par la vision IA (lire-document). */
+  ocr_applique: boolean
+}> {
+  const { pdf } = await chargerPdf(blobUrl)
+
+  // Extraction du texte natif (rapide : quelques secondes même sur gros PDF)
+  const pagesTexte: string[] = []
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const content = await page.getTextContent()
+    const textePage = content.items.map((item: any) => item.str).join(' ')
+    pagesTexte.push(textePage)
+  }
+
+  const texteClassique = pagesTexte.join('\n')
+
+  // Scan détecté (peu de texte natif) : PAS d'OCR navigateur ici — c'est
+  // l'agent appelant qui fait lire les pages par l'IA de vision
+  // (rendrePagesPng + /api/ia/lire-document), bien plus rapide et fiable.
+  const scanDetecte = estProbablementScan(texteClassique, pdf.numPages)
+  if (scanDetecte) console.log('[pdfExtractor] Scan probable — lecture par IA de vision requise')
+
+  const chapitres = decouperChapitres(texteClassique)
+  return { texte_complet: texteClassique, chapitres, nb_pages: pdf.numPages, scan_detecte: scanDetecte, ocr_applique: false }
 }
 
 const ROMAIN_MAP: Record<string, string> = {

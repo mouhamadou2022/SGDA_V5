@@ -3,7 +3,7 @@
 
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Download, FileSpreadsheet, FileJson, Calendar, Users, Filter } from 'lucide-react'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 

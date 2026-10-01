@@ -3,20 +3,16 @@
 
 import { useState } from 'react'
 import { Brain } from 'lucide-react';
-import {
-  AlertTriangle, AlertOctagon, AlertCircle, Flame, Info,
-  Calendar, Clock, Eye, FileText, CheckCircle2, PenSquare,
-  Users, Send, History, Download, ChevronDown,
-  Bell,
-} from 'lucide-react'
+import { AlertTriangle, AlertOctagon, AlertCircle, Flame, Info, Calendar, Clock, Eye, FileText, CheckCircle2, PenSquare, Send, History, Download, ChevronDown, Bell } from 'lucide-react'
 import { plansActionsUtils } from '@/lib/plansActionsUtils'
 import type { DomaineCode } from '@/lib/domaines'
 import { getDomaineLabel, getDomaineInfo, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getCellColor } from '@/lib/risque'
+import type { Ecart, Aerodrome } from '@/lib/store'
 
 interface EcartCardProps {
-  ecart: any
-  aerodrome?: any
+  ecart: Ecart & { progression?: number }
+  aerodrome?: Aerodrome
   onViewDetails: () => void
   onEvaluate?: () => void
   onSubmitPAC?: () => void

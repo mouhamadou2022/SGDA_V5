@@ -2,14 +2,13 @@
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef, memo } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Save, X, Calendar, Users, FileText, AlertCircle, TrendingUp, TrendingDown, Shield, Zap, Target } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 import { SURVEILLANCE_TYPES, SURVEILLANCE_DOMAINS } from '@/lib/config'
-import { getRiskLevel, suggestMissionType } from '@/lib/risque'
 import { useFormProgress } from '@/hooks/useFormProgress'
 import { FormProgressContext } from '@/components/ui/FormShell'
 
@@ -347,11 +346,12 @@ export const SurveillanceForm = memo(function SurveillanceForm({
      return watch(['aerodrome_id', 'type', 'portee', 'equipe_ids', 'chef_id', 'objectifs']) as unknown as Record<string, unknown>
    }, [watch]) // Note: watch is a stable reference from useForm
 
-   const progress = useMemo(() => {
-     return useFormProgress(allValues as Record<string, unknown>, [
-       'aerodrome_id', 'type', 'portee', 'equipe_ids', 'chef_id', 'objectifs',
-     ])
-   }, [allValues])
+   // `useFormProgress` est un utilitaire PUR (aucun hook React interne) : l'appeler
+   // directement dans le corps du composant (et non dans un callback useMemo)
+   // satisfait react-hooks/rules-of-hooks. Coût négligeable (un filter + un %).
+   const progress = useFormProgress(allValues as Record<string, unknown>, [
+     'aerodrome_id', 'type', 'portee', 'equipe_ids', 'chef_id', 'objectifs',
+   ])
 
    const onProgressRef = useRef(onProgressChange)
    onProgressRef.current = onProgressChange

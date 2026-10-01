@@ -2,7 +2,7 @@
 // Airport Health Index — indicateur synthétique de santé d'un aérodrome
 // Combinaison pondérée des 5 dimensions C1-C5 + signaux avancés
 
-import type { ProfilRisque, ProactiveAlertStored } from '@/lib/store'
+import { ProfilRisque } from '@/lib/store'
 
 export interface DimensionScore {
   label: string

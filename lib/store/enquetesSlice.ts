@@ -31,6 +31,13 @@ export interface Enquete {
   created_by: string
   created_at: string
   updated_at: string
+  /** Équipe pilote (chef pilote) — même principe que les autres processus. */
+  responsable_id?: string
+  equipe_ids?: string[]
+  chef_id?: string
+  assigne_le?: string
+  assigne_par?: string
+  cloture_par?: string
 }
 
 export interface ReponseEnquete {
@@ -69,6 +76,18 @@ export interface EnqueteSlice {
   updateEnquete: (id: string, data: Partial<Enquete>) => void
   deleteEnquete: (id: string) => void
   soumettreReponse: (reponse: Omit<ReponseEnquete, 'id' | 'submitted_at'>) => void
+  /**
+   * Assigne l'équipe pilote (une fois, modifiable) : responsable + équipe +
+   * chef, tracés et notifiés. Réservé à l'admin côté UI.
+   */
+  assignerEquipeEnquete: (
+    enqueteId: string,
+    assignation: { responsable_id?: string; equipe_ids?: string[]; chef_id?: string },
+  ) => void
+  /**
+   * Clôture l'enquête (chef pilote ou admin) : statut terminee + traçabilité.
+   */
+  cloturerEnquete: (enqueteId: string) => void
   getStatistiquesEnquete: (enqueteId: string) => StatistiquesEnquete
   calculerImpactC1: (reponses: ReponseEnquete[]) => number
 }
@@ -121,6 +140,39 @@ export const createEnquetesSlice: StateCreator<AppStore, [], [], EnqueteSlice> =
         if (r.error) console.error('[enquetes] Sync suppression échouée:', r.error)
       }).catch(() => {})
     }).catch(() => {})
+  },
+
+  assignerEquipeEnquete: (enqueteId, assignation) => {
+    const enq = get().enquetes.find(e => e.id === enqueteId)
+    if (!enq) return
+    const auteur = get().user
+    const auteurNom = auteur ? `${auteur.prenom || ''} ${auteur.nom || ''}`.trim() || 'Admin' : 'Admin'
+    const now = new Date().toISOString()
+    get().updateEnquete(enqueteId, {
+      responsable_id: assignation.responsable_id,
+      equipe_ids: assignation.equipe_ids ?? [],
+      chef_id: assignation.chef_id,
+      assigne_le: now,
+      assigne_par: auteurNom,
+    })
+    const dests = [...new Set([
+      assignation.responsable_id, ...(assignation.equipe_ids || []), assignation.chef_id,
+    ].filter(Boolean))] as string[]
+    for (const userId of dests) {
+      get().addNotification({
+        user_id: userId,
+        type: 'info',
+        title: `Enquête ${enq.reference} — équipe désignée`,
+        message: `Vous pilotez l’enquête « ${enq.titre} » (désignée par ${auteurNom}).`,
+        canal: 'in_app',
+      })
+    }
+  },
+
+  cloturerEnquete: (enqueteId) => {
+    const enq = get().enquetes.find(e => e.id === enqueteId)
+    if (!enq || enq.statut === 'terminee') return
+    get().updateEnquete(enqueteId, { statut: 'terminee', cloture_par: get().user?.id })
   },
 
   soumettreReponse: (reponse) => {

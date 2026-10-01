@@ -493,7 +493,10 @@ function StylusCanvas({ value, onChange, height = 80 }: {
   const sigPadRef = useRef<SignaturePad | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const valueRef = useRef(value);
-  valueRef.current = value;
+  // Écriture du ref DANS un effet (react-hooks/refs) : l'assigner pendant le
+  // rendu est un anti-pattern. La valeur initiale vient du useRef ci-dessus,
+  // donc les gestionnaires SignaturePad lisent toujours la bonne valeur.
+  useEffect(() => { valueRef.current = value; }, [value]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -740,7 +743,9 @@ function ItemRow({ item, onUpdate, onDelete, onAdd, onSplitDomaine, domaines, re
 
   return (
     <>
-      <tr className={`border-b border-blue-100 hover:bg-blue-50/20 transition-colors group ${isProposed ? 'ai-proposed-row' : ''}`}>
+      <tr
+        id={`std-item-${item.id}`}
+        className={`border-b border-blue-100 hover:bg-blue-50/20 transition-colors group scroll-mt-32 ${isProposed ? 'ai-proposed-row' : ''}`}>
 
         {/* ── Réf (structureLocked) ── */}
         <td className="p-1.5 border-r border-blue-100 bg-white w-14 min-w-[3.5rem] max-w-[3.5rem] align-top">

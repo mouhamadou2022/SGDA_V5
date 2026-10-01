@@ -2203,6 +2203,13 @@ DO $$ BEGIN
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS services_alertes jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS statut         varchar(30) DEFAULT 'ouvert';
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS inspecteur_id  uuid;
+  -- Étape événements : équipe d'instruction désignée une fois (chef pilote).
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS equipe_ids    jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS chef_id        uuid;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS externes       jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS assigne_le     timestamptz;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS assigne_par    text;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS valide_par     uuid;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS date_assignation timestamptz;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS date_cloture   timestamptz;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS ecart_ids      jsonb DEFAULT '[]'::jsonb;
@@ -2572,6 +2579,15 @@ DO $$ BEGIN
   ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS inspecteur_fichiers      jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_accuse_reception    timestamptz;
   ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS date_decision            timestamptz;
+  -- Équipe d'instruction désignée une fois (chef pilote + externes).
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS responsable_id          uuid;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS equipe_ids              jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS chef_id                 uuid;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS externes                jsonb DEFAULT '[]'::jsonb;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS assigne_le              timestamptz;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS assigne_par             text;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS valide_par              uuid;
+  ALTER TABLE exemptions ADD COLUMN IF NOT EXISTS transmis_exploitant_le  timestamptz;
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
@@ -3578,6 +3594,27 @@ CREATE TABLE IF NOT EXISTS ml_samples (
 CREATE INDEX IF NOT EXISTS idx_ml_samples_aero    ON ml_samples (aerodrome_id);
 CREATE INDEX IF NOT EXISTS idx_ml_samples_created ON ml_samples (created_at);
 
+-- ------------------------------------------------------------
+-- 24.H — TABLE prediction_suivi — prédictions 3m/6m à vérifier
+-- Chaque recalcul (cron recalculate-risk) enregistre ses prédictions ;
+-- le cron evaluer-predictions compare au score réel (score_history) une fois
+-- l'horizon atteint et publie MAE/biais dans ia_thresholds (pred_mae_3m,
+-- pred_biais_3m, pred_mae_6m, pred_biais_6m). Mesure d'abord, correction ensuite.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS prediction_suivi (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  aerodrome_id    uuid REFERENCES aerodromes(id) ON DELETE CASCADE,
+  predicted_at    timestamptz NOT NULL DEFAULT now(),
+  pred_3m         numeric NOT NULL,
+  pred_6m         numeric NOT NULL,
+  verifie_3m      boolean NOT NULL DEFAULT false,
+  verifie_6m      boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prediction_suivi_aero ON prediction_suivi (aerodrome_id);
+CREATE INDEX IF NOT EXISTS idx_prediction_suivi_date ON prediction_suivi (predicted_at);
+
 -- ============================================================
 -- FIN SECTION 24 — BOUCLE D'APPRENTISSAGE AERORISQ
 -- ============================================================
@@ -3686,6 +3723,13 @@ ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS questions JSONB DEFAULT '[]'::json
 ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;
 ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS statut TEXT DEFAULT 'brouillon';
 ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS created_by UUID;
+-- Équipe pilote (chef pilote + membres) — même principe que les autres processus.
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS responsable_id UUID;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS equipe_ids JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS chef_id UUID;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS assigne_le TIMESTAMPTZ;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS assigne_par TEXT;
+ALTER TABLE enquetes ADD COLUMN IF NOT EXISTS cloture_par UUID;
 ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE reponses_enquetes ADD COLUMN IF NOT EXISTS enquete_id UUID;

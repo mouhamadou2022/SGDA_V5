@@ -92,7 +92,8 @@ export function coxRegression(
     for (let i = 0; i < events.length; i++) {
       if (!events[i].event) continue
       const xi = events[i].covariates || []
-      let riskSum = 0, weightedRiskSum = new Array(nCovariates).fill(0)
+      let riskSum = 0
+      const weightedRiskSum = new Array(nCovariates).fill(0)
 
       for (let j = 0; j < events.length; j++) {
         if (events[j].time >= events[i].time) {

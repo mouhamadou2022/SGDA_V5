@@ -64,3 +64,18 @@ export function subscribeToEvenements(
     .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'evenements_securite' }, callback)
     .subscribe()
 }
+
+/**
+ * Souscription générique (délégations, plannings, homologations, exemptions,
+ * enquêtes…) : évite de dupliquer un helper par table. Même contrat que les
+ * helpers dédiés (INSERT/UPDATE/DELETE).
+ */
+export function subscribeToTable(
+  table: string,
+  callback: (payload: { eventType: string; new: any; old: any }) => void,
+) {
+  return supabase
+    .channel(`${table}_changes`)
+    .on('postgres_changes' as any, { event: '*', schema: 'public', table }, callback)
+    .subscribe()
+}

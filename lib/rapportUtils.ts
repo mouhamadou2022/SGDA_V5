@@ -1,7 +1,7 @@
 // lib/rapportUtils.ts
 'use client';
 
-import { ProfilRisque, Ecart, Surveillance, ChecklistItem } from './store';
+import { ProfilRisque, Ecart, ChecklistItem } from './store'
 import { pctBayes } from './risque/bayesian';
 
 // Types

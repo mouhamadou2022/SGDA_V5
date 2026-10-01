@@ -4,8 +4,8 @@
  */
 
 import { trainRandomForest, predictRandomForest, profilToFeatures, RandomForestModel, TrainingSample, scoreToLabel } from '../risque/randomForest'
-import { createRiskGraph, RiskGraph, calculateRiskPropagation, recommendActionsFromGraph } from '../risque/graphNetwork'
-import type { ProfilRisque, Ecart, Aerodrome } from '../store'
+import { createRiskGraph, RiskGraph, calculateRiskPropagation, recommendActionsFromGraph, calculateCentrality } from '../risque/graphNetwork'
+import { ProfilRisque } from '../store'
 import { DOMAINES_SURVEILLANCE } from '../domaines'
 import { idbStorage } from '../persistence/idbStorage'
 import { modelActive } from '../ia/benchmark/modelActive'
@@ -377,7 +377,6 @@ class AdvancedModelsManager {
     this.riskGraph = graph
 
     // Calculer centralité
-    const { calculateCentrality } = require('../risque/graphNetwork')
     const centrality = calculateCentrality(graph)
     
     const topCentralNodes = [...centrality.entries()]
@@ -406,8 +405,6 @@ class AdvancedModelsManager {
   getRiskPropagation(aerodromeId: string) {
     if (!this.riskGraph) return null
 
-    const { calculateRiskPropagation, recommendActionsFromGraph } = require('../risque/graphNetwork')
-    
     const propagation = calculateRiskPropagation(this.riskGraph, `aero_${aerodromeId}`)
     const recommendations = recommendActionsFromGraph(this.riskGraph, aerodromeId)
 

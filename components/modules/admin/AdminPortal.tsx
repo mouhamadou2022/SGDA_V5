@@ -98,7 +98,9 @@ Chaque message doit être une phrase percutante sur les capacités AERORISQ. Ré
     { label: 'CONFORMITÉ', value: '87%', icon: TrendingUp, trend: '+3%' },
   ]
 
-  const Card = ({ dep }: { dep: 'DNSA' | 'DNA' }) => {
+  // Fonction de rendu et non composant défini pendant le rendu
+  // (react-hooks/static-components) — aucun hook interne ici.
+  const renderCard = (dep: 'DNSA' | 'DNA') => {
     const data = content[dep]
     const isActive = activeDepartement === dep
     const IconComponent = dep === 'DNSA' ? Plane : TowerControl
@@ -276,8 +278,8 @@ Chaque message doit être une phrase percutante sur les capacités AERORISQ. Ré
 
               {/* Cartes DNSA / DNA */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card dep="DNSA" />
-                <Card dep="DNA" />
+                {renderCard('DNSA')}
+                {renderCard('DNA')}
               </div>
 
               {/* Stats */}

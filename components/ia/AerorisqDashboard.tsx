@@ -1,10 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import {
-  Brain, CheckCircle2, XCircle, Clock, AlertTriangle, Target, BarChart3,
-  ThumbsUp, ThumbsDown, Minus, Eye, FileText, Download,
-} from 'lucide-react'
+import { Brain, CheckCircle2, XCircle, AlertTriangle, Target, BarChart3, ThumbsUp, ThumbsDown, Minus, Eye, FileText, Download } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { decisionTracker, type DecisionRecord, type EffectivenessRating } from '@/lib/ia/decisionTracker'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine'

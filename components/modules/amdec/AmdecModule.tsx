@@ -8,21 +8,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { Card } from '@/components/ui/card'
 import { Role, NIVEAUX_RISQUE_ECART } from '@/lib/config'
 import type { NiveauGravite } from '@/lib/risque/types'
-import {
-  CATALOGUE_AMDEC,
-  calculeIPR,
-  getIPRNiveau,
-  getSystemesParDomaine,
-  getMalusC3Details,
-  IPR_LABELS,
-  IPR_COULEURS,
-  STATUT_LABELS,
-  GRAVITE_LABEL,
-  PROBABILITE_LABEL,
-  DETECTION_LABEL,
-  type AmdecAnalyse,
-  type StatutAmdec,
-} from '@/lib/risque/amdecEngine'
+import { calculeIPR, getIPRNiveau, getMalusC3Details, IPR_LABELS, IPR_COULEURS, STATUT_LABELS, GRAVITE_LABEL, PROBABILITE_LABEL, DETECTION_LABEL, type AmdecAnalyse, type StatutAmdec } from '@/lib/risque/amdecEngine'
 import {
   Settings2, ShieldAlert, Gauge, Plus, FileWarning,
   CheckCircle2, Pencil, Trash2, X, Activity, Wrench,

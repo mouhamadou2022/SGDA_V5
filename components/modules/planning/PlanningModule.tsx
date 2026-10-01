@@ -14,7 +14,7 @@ import { useState, useMemo, useEffect, useCallback, startTransition } from 'reac
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Planning, Aerodrome, Surveillance, Ecart, Exemption, MesureAtténuation, IaSuggestion } from '@/lib/store';
+import { useAppStore, Planning, Aerodrome, Ecart, Exemption, MesureAtténuation, IaSuggestion } from '@/lib/store'
 import {
   CalendarDays,
   Calendar,

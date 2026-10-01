@@ -1,33 +1,14 @@
 ﻿// components/modules/enquetes/EnquetesModule.tsx
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react'
 import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore, type Enquete } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { TYPES_ENQUETE, TYPES_QUESTION, canManageRole } from '@/lib/config';
-import {
-  ClipboardList,
-  BarChart3,
-  TrendingUp,
-  Users,
-  Calendar,
-  Clock,
-  CheckCircle2,
-  Plus,
-  Eye,
-  PenSquare,
-  Trash2,
-  Send,
-  Search,
-  Filter,
-  X,
-  Star,
-  MessageSquare,
-  Edit3,
-  FileQuestion,
-} from 'lucide-react';
+import { TYPES_ENQUETE, canManageRole } from '@/lib/config'
+import { ClipboardList, BarChart3, TrendingUp, Users, Calendar, CheckCircle2, Plus, PenSquare, Send, Search, Filter, X, Star, MessageSquare, FileQuestion, UserCheck } from 'lucide-react'
+import { verifierEquipeInstruction } from '@/lib/instructionHabilitation'
 import { Card } from '@/components/ui/card';
 import { EnqueteForm } from '@/components/forms/EnqueteForm';
 import { EnqueteBuilder } from './EnqueteBuilder';
@@ -46,6 +27,70 @@ const selectStyle = {
   backgroundRepeat: 'no-repeat',
 };
 
+/**
+ * Équipe pilote d'une enquête (admin, une fois, modifiable) : responsable +
+ * chef (titulaire/principal exigé) + habilitations vérifiées.
+ */
+function AssignationEquipeEnquete({ enquete, utilisateurs, estAdmin, onAssign }: {
+  enquete: { id: string; responsable_id?: string; chef_id?: string; assigne_le?: string; assigne_par?: string }
+  utilisateurs: Array<{ id: string; prenom?: string; nom?: string; role: string; type_inspecteur?: string; specialites?: string[] }>
+  estAdmin: boolean
+  onAssign: (a: { responsable_id?: string; chef_id?: string }) => void
+}) {
+  const inspecteurs = (utilisateurs || []).filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role))
+  const [responsable, setResponsable] = useState(enquete.responsable_id || '')
+  const [chef, setChef] = useState(enquete.chef_id || '')
+  const nomDe = (id?: string) => {
+    const u = inspecteurs.find(x => x.id === id)
+    return u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || (id || '—') : '—'
+  }
+  if (!estAdmin) {
+    if (!enquete.responsable_id && !enquete.chef_id) return null
+    return (
+      <p className="text-xs text-muted-foreground mt-2">
+        Pilotée par {nomDe(enquete.responsable_id)}
+        {enquete.chef_id ? <> · chef : {nomDe(enquete.chef_id)}</> : null}.
+      </p>
+    )
+  }
+  const membres = inspecteurs.filter(u => u.id === responsable || u.id === chef)
+  const verif = verifierEquipeInstruction(membres as never[], chef || undefined, 0)
+  const peutAssigner = verif.blocages.length === 0 && (responsable !== '' || chef !== '')
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-card p-2.5 space-y-2">
+      <p className="text-[11px] font-semibold uppercase text-muted-foreground flex items-center gap-1.5">
+        <UserCheck className="w-3.5 h-3.5" /> Équipe pilote
+        {(enquete.responsable_id || enquete.chef_id) && <span className="badge success text-[10px] ml-auto">Désignée</span>}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <select value={responsable} onChange={e => setResponsable(e.target.value)}
+          className="rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground">
+          <option value="">Responsable…</option>
+          {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)}</option>)}
+        </select>
+        <select value={chef} onChange={e => setChef(e.target.value)}
+          className="rounded-lg border border-border bg-card px-2 py-1.5 text-xs text-foreground">
+          <option value="">Chef…</option>
+          {inspecteurs.map(u => <option key={u.id} value={u.id}>{nomDe(u.id)}</option>)}
+        </select>
+        <button type="button" disabled={!peutAssigner} onClick={() => onAssign({
+          responsable_id: responsable || undefined, chef_id: chef || undefined,
+        })}
+          title={verif.blocages[0] || 'Désigner l’équipe'}
+          className="btn btn-sm btn-primary gap-1 disabled:opacity-50">
+          <UserCheck className="w-3.5 h-3.5" /> Désigner
+        </button>
+      </div>
+      {verif.blocages.length > 0 && (
+        <div className="text-[11px] text-foreground">{verif.blocages.map((b, i) => <p key={i}>⛔ {b}</p>)}</div>
+      )}
+      {verif.avertissements.length > 0 && (
+        <div className="text-[11px] text-foreground">{verif.avertissements.map((b, i) => <p key={i}>⚠ {b}</p>)}</div>
+      )}
+    </div>
+  )
+}
+
 export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
   const enquetes = useAppStore((s) => s.enquetes);
   const reponsesEnquetes = useAppStore((s) => s.reponsesEnquetes);
@@ -53,6 +98,9 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
   const addEnquete = useAppStore((s) => s.addEnquete);
   const updateEnquete = useAppStore((s) => s.updateEnquete);
   const soumettreReponse = useAppStore((s) => s.soumettreReponse);
+  const utilisateurs = useAppStore((s) => s.utilisateurs);
+  const assignerEquipeEnquete = useAppStore((s) => s.assignerEquipeEnquete);
+  const cloturerEnquete = useAppStore((s) => s.cloturerEnquete);
   const recalculerProfilRisque = useAppStore((s) => s.recalculerProfilRisque);
   const getStatistiquesEnquete = useAppStore((s) => s.getStatistiquesEnquete);
   const addNotification = useAppStore((s) => s.addNotification);
@@ -625,6 +673,13 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
                     </div>
                     <h3 className="heading-4 mb-1">{enquete.titre}</h3>
                     <p className="text-small text-muted-foreground mb-3">{enquete.description}</p>
+                    {/* Équipe pilote (chef pilote) — désignée une fois par l'admin */}
+                    <AssignationEquipeEnquete
+                      enquete={enquete}
+                      utilisateurs={utilisateurs}
+                      estAdmin={canManageRole(userRole)}
+                      onAssign={(a) => assignerEquipeEnquete(enquete.id, a)}
+                    />
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
@@ -699,6 +754,21 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
                       <button className="btn btn-secondary btn-sm gap-1" onClick={() => handleOpenStats(enquete)}>
                         <BarChart3 className="w-4 h-4" />
                         Résultats
+                      </button>
+                    )}
+                    {/* Clôture : chef pilote ou admin, enquête active */}
+                    {estActive && (canManageRole(userRole) || enquete.chef_id === user?.id) && (
+                      <button
+                        className="btn btn-sm gap-1 border border-success/40 text-success hover:bg-success/10"
+                        title="Clôturer l’enquête (chef pilote ou admin)"
+                        onClick={() => {
+                          if (confirm(`Clôturer l’enquête « ${enquete.titre} » ? Les réponses ne seront plus acceptées.`)) {
+                            cloturerEnquete(enquete.id)
+                          }
+                        }}
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Clôturer
                       </button>
                     )}
                   </div>

@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useRef, useEffect, useState } from 'react'
-import { useAppStore } from '@/lib/store'
 
 // ============================================================
 // LRU Cache générique

@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, User, Flame, AlertCircle, CheckCircle2, PlayCircle, Eye } from 'lucide-react';
+import { Calendar, User, Flame, CheckCircle2, Eye } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { chargeUtils, Tache } from '@/lib/chargeUtils';
 

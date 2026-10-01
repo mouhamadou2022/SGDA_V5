@@ -6,7 +6,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { ProfilRisque, Ecart, Surveillance, EvenementSecurite } from '@/lib/store'
 import { useAppStore } from '@/lib/store'
-import { generateBowTieModels, generateAIBowTieDomain, DOMAINES_BT } from '@/lib/risque/bowTieEngine'
+import { generateBowTieModels, generateAIBowTieDomain } from '@/lib/risque/bowTieEngine'
 import type { BowTieModele, Barriere } from '@/lib/risque/types'
 import type { AIBowTieResult } from '@/lib/risque/bowTieEngine'
 import { computeBarrierEfficacite, computeBarrierEfficaciteAvecApprentissage, getConfianceLabel, getConfianceDot } from '@/lib/risque/bayesianNetwork'

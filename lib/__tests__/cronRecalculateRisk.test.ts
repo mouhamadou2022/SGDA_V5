@@ -2,6 +2,7 @@
 // Tests E2E pour le cron de recalcul des profils de risque + A/B testing
 
 import { calculateC1, calculateC3, calculateGlobalScore } from '../risque'
+import * as ab from '../ab_testing'
 
 describe('calculateC1 (Maturité SGS)', () => {
   test('maturité 5 → 100', () => {
@@ -57,7 +58,6 @@ describe('A/B Testing utility', () => {
   })
 
   test('recordABTest enregistre et getABStats retourne les stats', () => {
-    const ab = require('../ab_testing')
     ab.recordABTest({
       aerodrome_id: 'a1', code_oaci: 'GOBD',
       features: [80, 70, 75, 80, 90, 80, 2, 1, 85],
@@ -70,12 +70,10 @@ describe('A/B Testing utility', () => {
   })
 
   test('getABStats retourne null si aucun test', () => {
-    const ab = require('../ab_testing')
     expect(ab.getABStats()).toBeNull()
   })
 
   test('clearABHistory vide tout', () => {
-    const ab = require('../ab_testing')
     ab.recordABTest({
       aerodrome_id: 'a1', code_oaci: 'GOBD',
       features: [80, 70, 75, 80, 90, 80, 2, 1, 85],
@@ -87,7 +85,6 @@ describe('A/B Testing utility', () => {
   })
 
   test('bestProvider = neural_net si MAE NN < MAE formules', () => {
-    const ab = require('../ab_testing')
     // Scores : NN=72, formules=84. Si actual=75, NN gagne
     const r = ab.recordABTest({
       aerodrome_id: 'a1', code_oaci: 'GOBD',
@@ -101,7 +98,6 @@ describe('A/B Testing utility', () => {
   })
 
   test('limite à 500 enregistrements', () => {
-    const ab = require('../ab_testing')
     for (let i = 0; i < 600; i++) {
       ab.recordABTest({
         aerodrome_id: `a${i}`, code_oaci: `TEST${i}`,

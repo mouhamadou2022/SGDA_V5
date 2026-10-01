@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload, FileText, Copy, CheckCircle2, Loader2, Scan, FileUp } from 'lucide-react'
+import { FileText, Copy, CheckCircle2, Loader2, Scan, FileUp } from 'lucide-react'
 
 const TEXTE_SIMULE = `RAPPORT D'INSPECTION AERODROME — ANACIM
 Date: 25/04/2026

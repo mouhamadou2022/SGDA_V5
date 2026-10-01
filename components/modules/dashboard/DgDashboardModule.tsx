@@ -1,23 +1,7 @@
 'use client';
 
 import React, { useMemo, useEffect, useState } from 'react';
-import {
-  Gauge,
-  Flame,
-  Clock,
-  AlertCircle,
-  CheckCircle2,
-  Eye,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Activity,
-  Globe,
-  Shield,
-  AlertTriangle,
-  Brain,
-  Target,
-} from 'lucide-react';
+import { Gauge, Flame, Clock, CheckCircle2, Eye, TrendingUp, TrendingDown, Minus, Activity, Globe, Shield, AlertTriangle, Brain } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { Card } from '@/components/ui/card';

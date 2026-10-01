@@ -3,14 +3,9 @@
 import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import { getCellColor, getRiskLevelBgColor, getRiskLevelClass } from '@/lib/risque';
+import { getCellColor, getRiskLevelBgColor } from '@/lib/risque'
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
-import {
-  ArrowLeft, AlertTriangle, CheckCircle2, XCircle, MinusCircle, FileText, Eye,
-  MapPin, Calendar, Users, Target, Clock, Shield, ChevronRight, Sparkles,
-  AlertCircle, Merge, Archive, Trash2, ArrowUp, ArrowDown, CheckCircle, X,
-  HelpCircle, FileSignature, ClipboardList, BookOpen,
-} from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, FileText, Eye, MapPin, Target, Shield, Sparkles, Merge, Archive, ArrowUp, ArrowDown, X, FileSignature, ClipboardList } from 'lucide-react'
 import { registreUtils } from '@/lib/registreUtils';
 
 interface SourceConfig {

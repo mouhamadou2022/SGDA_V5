@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useAppStore, ProfilRisque, ScoreHistoryPoint, Ecart, Aerodrome, KitDocument, KitChecklistItemGenere } from '@/lib/store'
+import { useAppStore, ProfilRisque, ScoreHistoryPoint, Ecart, Aerodrome, KitChecklistItemGenere } from '@/lib/store'
 import {
   computeVelocityMetrics,
   computeHawkesContagion,
@@ -21,7 +21,7 @@ import { RISK_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT } from '@/lib/ia/pro
 import { kitAerorisqBridge } from '@/lib/ia/bridge/kitAerorisqBridge'
 import { modelOrchestrator } from '@/lib/ia/engines/modelOrchestrator'
 import { decouperChapitres, filtrerChapitresParMapping, filtrerChapitresParDomaine } from '@/lib/services/pdfExtractor'
-import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
+import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
 export interface RiskAnalysisRequest {
   aerodromeId: string

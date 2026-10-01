@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Clock, RefreshCw, Calendar, Bell, X, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Clock, RefreshCw, Calendar, Bell, X } from 'lucide-react'
 import type { Certification } from '@/lib/store'
 
 interface CertExpiryAlertProps {

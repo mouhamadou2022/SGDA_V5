@@ -9,26 +9,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import {
-  FolderOpen,
-  FileText,
-  Download,
-  Eye,
-  PenSquare,
-  Trash2,
-  Plus,
-  Search,
-  User,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  Upload,
-  ChevronDown,
-  ChevronRight,
-  Calendar,
-  Filter,
-} from 'lucide-react';
+import { FolderOpen, FileText, Eye, PenSquare, Trash2, Plus, Search, User, Clock, CheckCircle2, AlertCircle, AlertTriangle, Filter } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useAppStore, type Dossier } from '@/lib/store';

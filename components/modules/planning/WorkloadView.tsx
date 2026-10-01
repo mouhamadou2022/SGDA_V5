@@ -2,7 +2,7 @@
 // VERSION CORRIGÉE AVEC DONNÉES RÉELLES ET IA
 'use client';
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react'
 import { AlertTriangle, Users, BarChart3 } from 'lucide-react';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Card } from '@/components/ui/card';

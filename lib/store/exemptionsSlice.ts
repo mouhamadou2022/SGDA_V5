@@ -59,6 +59,15 @@ export interface Exemption {
   // Workflow instructeur (exploitant → ANACIM)
   workflow_statut?: 'en_attente' | 'accuse' | 'en_cours';
   avis_final?: 'favorable' | 'a_reviser' | 'defavorable';
+  // Équipe d'instruction désignée une fois (chef pilote + externes).
+  responsable_id?: string;
+  equipe_ids?: string[];
+  chef_id?: string;
+  externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>;
+  assigne_le?: string;
+  assigne_par?: string;
+  valide_par?: string;
+  transmis_exploitant_le?: string;
   inspecteur_commentaires?: string;
   inspecteur_fichiers?: { nom: string; url: string }[];
   date_accuse_reception?: string;
@@ -86,6 +95,29 @@ export interface ExemptionSlice {
   getMesuresByExemption: (exemptionId: string) => MesureAtténuation[];
   updateMesureAtténuation: (exemptionId: string, mesureId: string, data: Partial<MesureAtténuation>) => void;
   ajouterMesureAtténuation: (exemptionId: string, mesure: Omit<MesureAtténuation, 'id'>) => void;
+  /**
+   * Assigne l'équipe d'instruction (une fois, modifiable) : responsable +
+   * équipe + chef (+ experts externes), tracés et notifiés. Réservé à
+   * l'admin côté UI.
+   */
+  assignerEquipeExemption: (
+    exemptionId: string,
+    assignation: {
+      responsable_id?: string
+      equipe_ids?: string[]
+      chef_id?: string
+      externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>
+    },
+  ) => void;
+  /**
+   * Décision finale (chef ou admin) : avis + statuts + valide_par +
+   * retransmission exploitant (notif + email best-effort).
+   */
+  deciderExemption: (
+    exemptionId: string,
+    avis: 'favorable' | 'a_reviser' | 'defavorable',
+    details?: { commentaires?: string; fichiers?: { nom: string; url: string }[] },
+  ) => void;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -182,4 +214,92 @@ export const createExemptionsSlice: StateCreator<AppStore, [], [], ExemptionSlic
         : e
     )
   })),
+
+  assignerEquipeExemption: (exemptionId, assignation) => {
+    const ex = get().exemptions.find(e => e.id === exemptionId)
+    if (!ex) return
+    const auteur = get().user
+    const auteurNom = auteur ? `${auteur.prenom || ''} ${auteur.nom || ''}`.trim() || 'Admin' : 'Admin'
+    const now = new Date().toISOString()
+    get().updateExemption(exemptionId, {
+      responsable_id: assignation.responsable_id,
+      equipe_ids: assignation.equipe_ids ?? [],
+      chef_id: assignation.chef_id,
+      externes: assignation.externes ?? [],
+      assigne_le: now,
+      assigne_par: auteurNom,
+    } as Partial<Exemption>)
+    const dests = [...new Set([
+      assignation.responsable_id, ...(assignation.equipe_ids || []), assignation.chef_id,
+    ].filter(Boolean))] as string[]
+    for (const userId of dests) {
+      get().addNotification({
+        user_id: userId,
+        type: 'info',
+        title: `Instruction exemption ${ex.reference}`,
+        message: 'Vous faites partie de l’équipe d’instruction.',
+        canal: 'in_app',
+      })
+    }
+  },
+
+  deciderExemption: (exemptionId, avis, details) => {
+    const ex = get().exemptions.find(e => e.id === exemptionId)
+    if (!ex) return
+    const now = new Date().toISOString()
+    const validePar = get().user?.id
+    const patch = construireDecisionExemption(avis, details, now, validePar)
+    get().updateExemption(exemptionId, patch as Partial<Exemption>)
+    // Retransmission : exploitants rattachés au site (notif + email best-effort).
+    const aero = get().aerodromes.find(a => a.id === ex.aerodrome_id)
+    const ops = get().utilisateurs.filter(u =>
+      u.aerodrome_id === ex.aerodrome_id &&
+      ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role ?? ''),
+    )
+    const titre = `Exemption ${avis === 'favorable' ? 'acceptée' : avis === 'a_reviser' ? 'à réviser' : 'refusée'} — ${ex.reference}`
+    const message = `${aero?.code_oaci || ''} : ${details?.commentaires || 'voir les commentaires d’instruction dans votre portail.'}`
+    for (const op of ops) {
+      get().addNotification({ user_id: op.id, type: avis === 'defavorable' ? 'danger' : avis === 'a_reviser' ? 'warning' : 'success', title: titre, message, canal: 'in_app' })
+      const emailTo = op.notification_email || op.email
+      if (emailTo && op.notifications_email !== false) {
+        fetch('/api/notifications/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: emailTo,
+            subject: `SGDA - ${titre}`,
+            message: `Bonjour ${op.prenom || 'Exploitant'},\n\n${message}\n\nCordialement,\nANACIM - SGDA`,
+          }),
+        }).catch(() => {})
+      }
+    }
+  },
 });
+
+/**
+ * Construit le patch de décision (pur, testé) : mêmes règles que l'UI
+ * historique (favorable→active/acceptee, a_reviser→sans statut, defavorable→
+ * cloturee/refusee) + traçabilité valide_par + retransmission.
+ */
+export function construireDecisionExemption(
+  avis: 'favorable' | 'a_reviser' | 'defavorable',
+  details: { commentaires?: string; fichiers?: { nom: string; url: string }[] } | undefined,
+  now: string,
+  validePar: string | undefined,
+): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    avis_final: avis,
+    inspecteur_commentaires: details?.commentaires,
+    inspecteur_fichiers: details?.fichiers || [],
+    date_decision: now,
+    valide_par: validePar,
+    transmis_exploitant_le: now,
+  }
+  if (avis === 'favorable') {
+    return { ...base, workflow_statut: 'favorable', statut: 'active', decision: 'acceptee' }
+  }
+  if (avis === 'a_reviser') {
+    return { ...base, workflow_statut: 'a_reviser' }
+  }
+  return { ...base, workflow_statut: 'defavorable', statut: 'cloturee', decision: 'refusee' }
+}

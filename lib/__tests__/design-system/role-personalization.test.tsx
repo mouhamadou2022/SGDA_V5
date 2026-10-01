@@ -4,6 +4,10 @@
 // __tests__/design-system/role-personalization.test.tsx
 import '@testing-library/jest-dom';
 import { render } from '@testing-library/react';
+// Importés statiquement : `jest.mock(...)` étant hissé au-dessus des imports par
+// jest, les versions mockées ci-dessous sont bien celles reçues ici.
+import { AppShell } from '@/components/layout/AppShell';
+import { AppHeader } from '@/components/layout/AppHeader';
 
 // Mock window.matchMedia (jsdom doesn't implement it)
 Object.defineProperty(window, 'matchMedia', {
@@ -43,15 +47,13 @@ jest.mock('@/components/layout/AppHeader', () => {
 
 describe('Personnalisation par rôle', () => {
   test('data-role est correctement appliqué sur le body', () => {
-    const { AppShell } = require('@/components/layout/AppShell');
-    const mockUser = { role: 'admin', prenom: 'Test', nom: 'User', id: '1', email: 'test@test.com' };
+    const mockUser = { role: 'admin' as const, prenom: 'Test', nom: 'User', id: '1', email: 'test@test.com' };
     render(<AppShell user={mockUser} onLogout={() => {}}><div /></AppShell>);
     
     expect(document.body.getAttribute('data-role')).toBe('admin');
   });
 
   test('Badge de rôle affiche le bon label', () => {
-    const { AppHeader } = require('@/components/layout/AppHeader');
     const roles = [
       { role: 'admin', expected: 'ADMINISTRATEUR' },
       { role: 'inspector', expected: 'INSPECTEUR' },
@@ -60,7 +62,7 @@ describe('Personnalisation par rôle', () => {
     ];
 
     roles.forEach(({ role, expected }) => {
-      const { getByText } = render(<AppHeader user={{ role, prenom: 'Test', nom: 'User' }} onLogout={() => {}} />);
+      const { getByText } = render(<AppHeader user={{ role: role as 'admin' | 'inspector' | 'dg_anacim' | 'dg_operator', prenom: 'Test', nom: 'User', id: '1', email: 'test@test.com' }} onLogout={() => {}} />);
       expect(getByText(expected)).toBeInTheDocument();
     });
   });

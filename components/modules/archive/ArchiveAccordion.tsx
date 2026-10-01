@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Search, Eye, Download, Calendar, MapPin, Filter } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, Eye, Download, Calendar, Filter } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useAppStore, type Certification, type Homologation } from '@/lib/store';
 import ArchiveViewer from './ArchiveViewer';

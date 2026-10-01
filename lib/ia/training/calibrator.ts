@@ -5,12 +5,10 @@
 
 'use client'
 
-import { useAppStore, ScoreHistoryPoint, Ecart, ChecklistItem } from '@/lib/store'
+import { useAppStore } from '@/lib/store'
 import { bayesianDynamicModel } from '../models/bayesianDynamic'
 import { lstmModel } from '../models/lstm'
-import { riskClassifier, pacEvaluator } from '../models/xgboost'
-import { checklistPredictor, anomalyDetector } from '../models/randomForest'
-import { ensembleModel } from '../models/ensemble'
+import { riskClassifier } from '../models/xgboost'
 
 // ============================================================
 // TYPES

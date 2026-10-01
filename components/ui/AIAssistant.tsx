@@ -2,8 +2,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Brain, X, Send, Loader2, Minimize2, Maximize2, Trash2, RefreshCw, Mic, MicOff } from 'lucide-react';
+import { Brain, X, Send, Loader2, Minimize2, Maximize2, Trash2, RefreshCw, Mic, MicOff, Zap } from 'lucide-react';
 import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
+import { Markdown } from '@/components/ui/markdown';
+import { executerPilote } from '@/lib/ia/pilote/bouclePilote';
 import { useAppStore } from '@/lib/store';
 
 interface Message {
@@ -23,7 +25,16 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
   const [conversation, setConversation] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
+  // Mode action AERORISQ : l'IA exécute via ses outils (écritures confirmées).
+  const [modePilote, setModePilote] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    outil: string
+    args: Record<string, unknown>
+    resoudre: (ok: boolean) => void
+  } | null>(null);
   const user = useAppStore(s => s.user);
+  // Réservé aux rôles IA internes — jamais aux exploitants.
+  const peutPiloter = ['admin', 'inspector', 'dg_anacim'].includes(user?.role || '');
   const addNotification = useAppStore(s => s.addNotification);
   const currentAerodrome = useAppStore(s => s.currentAerodrome);
   const activeModule = useAppStore(s => s.activeModule);
@@ -153,20 +164,40 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
     setMessage('');
     setIsLoading(true);
     try {
-      const result = await assistantAgent.chat({
-        message: userMessage.content,
-        contexte: {
-          module: activeModule || 'global',
-          ...(currentAerodrome?.id ? { aerodromeId: currentAerodrome.id } : {}),
-        },
-        userRole: user?.role || 'inspector',
-      });
-      setConversation(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.message,
-        timestamp: new Date(),
-      }]);
+      if (modePilote && peutPiloter) {
+        const resultat = await executerPilote({
+          instruction: userMessage.content,
+          historique: conversation.map(m => ({ role: m.role, content: m.content })),
+          contexte: { userId: user?.id },
+          onConfirmer: (outil, args) => new Promise<boolean>(resoudre => {
+            setConfirmation({ outil, args, resoudre });
+          }),
+        });
+        const resumeActions = resultat.actions.length > 0
+          ? `\n\n---\n**Actions :** ${resultat.actions.map(a => `${a.outil} (${a.statut})`).join(', ')}`
+          : '';
+        setConversation(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: resultat.reponse + resumeActions,
+          timestamp: new Date(),
+        }]);
+      } else {
+        const result = await assistantAgent.chat({
+          message: userMessage.content,
+          contexte: {
+            module: activeModule || 'global',
+            ...(currentAerodrome?.id ? { aerodromeId: currentAerodrome.id } : {}),
+          },
+          userRole: user?.role || 'inspector',
+        });
+        setConversation(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: result.message,
+          timestamp: new Date(),
+        }]);
+      }
     } catch {
       setConversation(prev => [...prev, {
         id: (Date.now() + 1).toString(),
@@ -176,6 +207,7 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
       }]);
     } finally {
       setIsLoading(false);
+      setConfirmation(null);
     }
   };
 
@@ -264,6 +296,21 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
 
       {!isMinimized && (
         <>
+          {peutPiloter && (
+          <div className="px-4 pt-2">
+            <label className="flex items-center gap-1.5 cursor-pointer w-fit" title="Le mode conseil répond ; le mode action EXÉCUTE via des outils (chaque écriture demande votre approbation).">
+              <input
+                type="checkbox"
+                checked={modePilote}
+                onChange={(e) => setModePilote(e.target.checked)}
+                className="accent-warning w-3.5 h-3.5"
+              />
+              <span className="text-[11px] font-medium text-foreground/80 flex items-center gap-1">
+                <Zap className="w-3 h-3 text-warning" /> Mode action — l’IA exécute
+              </span>
+            </label>
+          </div>
+          )}
           <div className="p-4 min-h-[300px] max-h-[400px] overflow-y-auto space-y-3">
             {conversation.length === 0 ? (
               <div className="text-center text-muted-foreground">
@@ -275,7 +322,9 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
               conversation.map(msg => (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] p-3 rounded-lg ${msg.role === 'user' ? 'bg-role-primary text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
-                    <p className="text-sm">{msg.content}</p>
+                    {msg.role === 'user'
+                      ? <p className="text-sm">{msg.content}</p>
+                      : <Markdown texte={msg.content} className="text-sm" />}
                     <p className="text-[9px] opacity-50 mt-1">{msg.timestamp.toLocaleTimeString()}</p>
                   </div>
                 </div>
@@ -285,6 +334,28 @@ export function AIAssistant({ hideTrigger = false }: { hideTrigger?: boolean } =
               <div className="flex justify-start">
                 <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg">
                   <Loader2 className="w-4 h-4 animate-spin" />
+                </div>
+              </div>
+            )}
+            {confirmation && (
+              <div className="rounded-xl border-2 border-warning bg-warning/5 p-2.5">
+                <p className="text-xs font-semibold text-foreground">✋ Approbation requise : <span className="font-mono">{confirmation.outil}</span></p>
+                <pre className="mt-1 max-h-24 overflow-auto rounded bg-card p-1.5 text-[10px] text-foreground/80">
+                  {JSON.stringify(confirmation.args, null, 2)}
+                </pre>
+                <div className="mt-1.5 flex gap-1.5">
+                  <button
+                    onClick={() => { confirmation.resoudre(true); setConfirmation(null); }}
+                    className="btn btn-primary h-7 px-3 text-[11px]"
+                  >
+                    Approuver
+                  </button>
+                  <button
+                    onClick={() => { confirmation.resoudre(false); setConfirmation(null); }}
+                    className="btn btn-secondary h-7 px-3 text-[11px]"
+                  >
+                    Refuser
+                  </button>
                 </div>
               </div>
             )}

@@ -271,7 +271,7 @@ export class DecisionTracker {
 
     const storeKey = `cpts_bt-${domaine}`
 
-    let savedData = await iaStorage.get<Record<string, { observations: Record<string, number[]> }>>('bayes_cpts', storeKey) ?? {}
+    const savedData = await iaStorage.get<Record<string, { observations: Record<string, number[]> }>>('bayes_cpts', storeKey) ?? {}
 
     const orgNodeIds = [
       `charge_travail_bt-${domaine}`,

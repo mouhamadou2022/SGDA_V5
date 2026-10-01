@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import type { WorkerMessage, WorkerResponse, WorkerMessageType } from '../lib/workers/riskWorker'
 
 interface UseRiskWorkerResult<T = any> {

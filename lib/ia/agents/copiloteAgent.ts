@@ -9,7 +9,8 @@
 'use client'
 
 import { aiClient } from '@/lib/ia/aiClient'
-import { extractTextFromPDF } from '@/lib/services/pdfExtractor'
+import { extractTextFromPDF, rendrePagesPng } from '@/lib/services/pdfExtractor'
+import { MAX_PAGES_VISION } from '@/lib/ia/lectureDocument'
 import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 import { REPONDRE_COPILOTE_PROMPT } from '@/lib/ia/prompts'
 
@@ -23,7 +24,13 @@ export interface PieceJointeCopilote {
   nom: string
   texte: string
   nbPages?: number
+  /** Unité du compteur : pages (PDF), feuilles (Excel), diapositives (PowerPoint). */
+  uniteLecture?: 'pages' | 'feuilles' | 'diapositives'
   type?: string
+  /** État de lecture : 'ok' (texte natif), 'vision' (scan lu par l'IA locale), 'ocr' (legacy), 'echec'. */
+  statutLecture?: 'ok' | 'vision' | 'ocr' | 'echec'
+  /** Raison de l'échec de lecture, affichée à l'inspecteur. */
+  detailEchec?: string
 }
 
 /** Message du dialogue (tour de parole). */
@@ -36,14 +43,102 @@ export interface MessageCopilote {
 // AGENT
 // ============================================================
 
+/**
+ * Budget global du contexte documentaire (caractères) : plusieurs grosses
+ * pièces + RAG + historique dépassaient la fenêtre des petits modèles et
+ * étouffaient l'inférence locale (timeout). On tronque proprement en le
+ * signalant, au lieu d'échouer chez tous les providers.
+ */
+export const BUDGET_PIECES_CHARS = 24000
+
+export function plafonnerTextePieces(
+  pieces: PieceJointeCopilote[],
+  budget: number = BUDGET_PIECES_CHARS,
+): { texte: string; tronque: boolean } {
+  const blocs: string[] = []
+  let reste = budget
+  let tronque = false
+  for (const p of pieces) {
+    const entete = `── PIÈCE : ${p.nom}${p.nbPages ? ` (${p.nbPages} pages)` : ''} ──\n`
+    const corps = p.texte.trim() || '(texte indisponible — document scanné)'
+    if (entete.length + corps.length <= reste) {
+      blocs.push(entete + corps)
+      reste -= entete.length + corps.length
+    } else if (reste > entete.length + 200) {
+      const pris = reste - entete.length
+      blocs.push(entete + corps.substring(0, pris) + `\n[… suite de « ${p.nom} » tronquée pour tenir dans le budget de lecture …]`)
+      reste = 0
+      tronque = true
+    } else {
+      tronque = true
+    }
+    if (reste <= 0) {
+      if (pieces.indexOf(p) < pieces.length - 1) tronque = true
+      break
+    }
+  }
+  return { texte: blocs.join('\n\n'), tronque }
+}
+
 class CopiloteAgent {
-  /** Extrait le texte d'une pièce PDF (URL d'objet) — réutilisable depuis l'UI. */
-  async extraireTextePiece(url: string): Promise<{ texte: string; nbPages: number }> {
+  /**
+   * Lit une pièce PDF : texte natif d'abord (quelques secondes) ; si le
+   * document est scanné, l'IA locale de vision LIT les pages rendues en
+   * images (plus de minutes d'OCR navigateur).
+   */
+  async extraireTextePiece(url: string, nomFichier = 'document'): Promise<{
+    texte: string
+    nbPages: number
+    statutLecture: 'ok' | 'vision' | 'ocr' | 'echec'
+    detailEchec?: string
+  }> {
     try {
       const result = await extractTextFromPDF(url)
-      return { texte: result.texte_complet || '', nbPages: result.nb_pages || 0 }
-    } catch {
-      return { texte: '', nbPages: 0 }
+      const texte = result.texte_complet || ''
+      if (texte.trim().length > 50) {
+        return { texte, nbPages: result.nb_pages || 0, statutLecture: 'ok' }
+      }
+      // Scan (ou PDF sans texte) : lecture par l'IA de vision.
+      try {
+        const { images, nb_pages } = await rendrePagesPng(url, MAX_PAGES_VISION)
+        const res = await fetch('/api/ia/lire-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nom: nomFichier, images }),
+          signal: AbortSignal.timeout(280000),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && typeof data.texte === 'string' && data.texte.trim().length > 50) {
+          const suffixe = nb_pages > images.length
+            ? `\n\n[Note : seules les ${images.length} premières pages sur ${nb_pages} ont été lues par l'IA.]`
+            : ''
+          return {
+            texte: data.texte.trim() + suffixe,
+            nbPages: nb_pages || 0,
+            statutLecture: 'vision',
+          }
+        }
+        return {
+          texte: '',
+          nbPages: nb_pages || 0,
+          statutLecture: 'echec',
+          detailEchec: data?.aide || data?.error || 'Document scanné illisible — joignez une version texte du PDF.',
+        }
+      } catch (errVision) {
+        return {
+          texte: '',
+          nbPages: result.nb_pages || 0,
+          statutLecture: 'echec',
+          detailEchec: `Lecture du scan impossible (${(errVision as Error)?.message || 'IA de vision injoignable'}) — vérifiez qu'Ollama est démarré.`,
+        }
+      }
+    } catch (err) {
+      return {
+        texte: '',
+        nbPages: 0,
+        statutLecture: 'echec',
+        detailEchec: `Lecture impossible (${(err as Error)?.message || 'erreur inconnue'}) — réessayez ou changez de fichier.`,
+      }
     }
   }
 
@@ -58,9 +153,7 @@ class CopiloteAgent {
   }): Promise<string> {
     const pieces = params.pieces || []
 
-    const piecesContexte = pieces
-      .map(p => `── PIÈCE : ${p.nom}${p.nbPages ? ` (${p.nbPages} pages)` : ''} ──\n${p.texte.trim().substring(0, 16000) || '(texte indisponible — document scanné)'}`)
-      .join('\n\n')
+    const { texte: piecesContexte, tronque } = plafonnerTextePieces(pieces)
 
     const contexteReg = construireContexteReglementaire({
       requete: `${params.question} ${params.instructions || ''}`,
@@ -72,7 +165,7 @@ class CopiloteAgent {
     const userMessage = [
       params.aerodromeNom ? `Aérodrome concerné : ${params.aerodromeNom}` : '',
       params.instructions ? `Contexte donné par l'inspecteur : ${params.instructions}` : '',
-      pieces.length ? `PIÈCES JOINTES (documents déposés par l'inspecteur) :\n${piecesContexte}` : '(aucune pièce jointe)',
+      pieces.length ? `PIÈCES JOINTES (documents déposés par l'inspecteur) :\n${piecesContexte}${tronque ? '\n[Note : contexte documentaire plafonné pour tenir dans la fenêtre du modèle — posez des questions ciblées pour explorer la suite.]' : ''}` : '(aucune pièce jointe)',
       contexteReg ? `RÉFÉRENTIEL OACI / IATA / ANACIM pertinent :\n${contexteReg}` : '',
       `DEMANDE DE L'INSPECTEUR :\n${params.question}`,
     ].filter(s => s.trim()).join('\n\n')

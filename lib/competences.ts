@@ -102,7 +102,7 @@ export function computeCompetenceScore(
   }
 }
 
-function buildHabilitations(user: Utilisateur): HabilitationItem[] {
+export function buildHabilitations(user: Utilisateur): HabilitationItem[] {
   const habilitations: HabilitationItem[] = []
   const certifs = (user as { certifications?: { domaine: string; type: string; date_obtention: string; date_expiration: string }[] }).certifications ?? []
 

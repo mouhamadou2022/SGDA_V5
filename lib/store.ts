@@ -4,24 +4,16 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { AuthUser, buildIdentifiant, PosteANACIM } from './auth'
-import { notifyDeletionCascade, notifyAerodromeDeleted } from './notifications'
-import { toast } from './toast'
 import { risqueUtils } from './risque'
-import { plansActionsUtils } from './plansActionsUtils'
-import { NIVEAUX_RISQUE_ECART } from './config'
-import { riskEngine, DecisionChecklist, DomainDegradation, EcartUrgent } from './riskEngine';
+import { DecisionChecklist } from './riskEngine'
 import { ItemHistoryRecord } from './checklistMemory';
-import type { TypeSurveillanceContinue, TypeChecklist } from './domaines';
-import { supabase } from './supabase'
-import * as datastore from './datastore'
 import { learningEngine, LearningFeedback, ModelCalibration, RecalibrationAlert } from './learningEngine';
-import { learningEnginePAC, PACLearningFeedback, PreuveLearningFeedback } from './learningEnginePAC';
+import { PACLearningFeedback, PreuveLearningFeedback } from './learningEnginePAC'
 import { createAdvancedModelsSlice, AdvancedModelsSlice } from './store/advancedModelsSlice';
 import { createExemptionsSlice, ExemptionSlice } from './store/exemptionsSlice';
 // Types canoniques du slice exemptions (source unique : lib/store/exemptionsSlice.ts).
 export type { Exemption, MesureAtténuation, ExemptionSlice } from './store/exemptionsSlice';
-import { createNotificationsSlice, type Notification, type NotificationSlice } from './store/notificationsSlice';
+import { createNotificationsSlice, type NotificationSlice } from './store/notificationsSlice'
 export type { Notification, NotificationSlice } from './store/notificationsSlice';
 import { createDelegationsSlice, DelegationSlice } from './store/delegationsSlice';
 export type { Delegation, DelegationSlice } from './store/delegationsSlice';
@@ -37,56 +29,55 @@ import { createSgsMemorySlice, SgsMemorySlice } from './store/sgsMemorySlice';
 export type { SgsMemorySlice } from './store/sgsMemorySlice';
 import { createSuggestionFeedbacksSlice, SuggestionFeedbackSlice } from './store/suggestionFeedbacksSlice';
 export type { SuggestionFeedback, SuggestionFeedbackSlice } from './store/suggestionFeedbacksSlice';
-import { createChecklistSlice, type ChecklistSlice, type ChecklistItem, type DomaineChecklist, type SousDomaine, type SousSousDomaine } from './store/checklistSlice';
+import { createChecklistSlice, type ChecklistSlice, type DomaineChecklist } from './store/checklistSlice'
 export type { ChecklistSlice, ChecklistItem, DomaineChecklist, SousDomaine, SousSousDomaine } from './store/checklistSlice';
 export { flattenHierarchyItems } from './store/checklistSlice';
-import { createEcartsRedactionSlice, type EcartsRedactionSlice, type EcartRedaction } from './store/ecartsRedactionSlice';
+import { createEcartsRedactionSlice, type EcartsRedactionSlice } from './store/ecartsRedactionSlice'
 export type { EcartsRedactionSlice, EcartRedaction } from './store/ecartsRedactionSlice';
-import { createCertificationsSlice, type CertificationSlice, type Certification, type CertificationPhaseData } from './store/certificationsSlice';
+import { createCertificationsSlice, type CertificationSlice } from './store/certificationsSlice'
 export type { CertificationSlice, Certification, CertificationPhaseData } from './store/certificationsSlice';
-import { createHomologationsSlice, type HomologationSlice, type Homologation, type HomologationPhaseData } from './store/homologationsSlice';
+import { createHomologationsSlice, type HomologationSlice } from './store/homologationsSlice'
 export type { HomologationSlice, Homologation, HomologationPhaseData } from './store/homologationsSlice';
 import { createUISlice, type UISlice } from './store/uiSlice';
 export type { UISlice } from './store/uiSlice';
-import { createApiKeysSlice, type ApiKeySlice, type ApiKey } from './store/apiKeysSlice';
+import { createApiKeysSlice, type ApiKeySlice } from './store/apiKeysSlice'
 export type { ApiKeySlice, ApiKey } from './store/apiKeysSlice';
-import { createCodesAccesSlice, type CodeAccesSlice, type CodeAcces } from './store/codesAccesSlice';
+import { createCodesAccesSlice, type CodeAccesSlice } from './store/codesAccesSlice'
 export type { CodeAccesSlice, CodeAcces } from './store/codesAccesSlice';
-import { createAuditSlice, type AuditSlice, type AuditLog } from './store/auditSlice';
+import { createAuditSlice, type AuditSlice } from './store/auditSlice'
 export type { AuditSlice, AuditLog } from './store/auditSlice';
-import { createRegistresSlice, type RegistreSlice, type RegistreEntry, type CertificationMetadata, type HomologationMetadata } from './store/registresSlice';
+import { createRegistresSlice, type RegistreSlice } from './store/registresSlice'
 export type { RegistreSlice, RegistreEntry, CertificationMetadata, HomologationMetadata } from './store/registresSlice';
-import { createRegistreIASlice, type RegistreIASlice, type RegulationAnalysis, type FormationSuggestion } from './store/registreIASlice';
+import { createRegistreIASlice, type RegistreIASlice } from './store/registreIASlice'
 export type { RegistreIASlice, RegulationAnalysis, FormationSuggestion } from './store/registreIASlice';
 import { createMasterChecklistsSlice, type MasterChecklistSlice } from './store/masterChecklistsSlice';
 export type { MasterChecklistSlice } from './store/masterChecklistsSlice';
-import { createEnquetesSlice, type EnqueteSlice, type Enquete, type ReponseEnquete, type StatistiquesEnquete, type QuestionEnquete } from './store/enquetesSlice';
+import { createEnquetesSlice, type EnqueteSlice } from './store/enquetesSlice'
 export type { EnqueteSlice, Enquete, ReponseEnquete, StatistiquesEnquete, QuestionEnquete } from './store/enquetesSlice';
-import { createMessagerieSlice, type MessagerieSlice, type Message, type Conversation } from './store/messagerieSlice';
+import { createMessagerieSlice, type MessagerieSlice } from './store/messagerieSlice'
 export type { MessagerieSlice, Message, Conversation } from './store/messagerieSlice';
 import { createAuthSlice, type AuthSlice } from './store/authSlice';
 export type { AuthSlice } from './store/authSlice';
-import { createUtilisateursSlice, type UtilisateurSlice, type Utilisateur } from './store/utilisateursSlice';
+import { createUtilisateursSlice, type UtilisateurSlice } from './store/utilisateursSlice'
 export type { UtilisateurSlice, Utilisateur } from './store/utilisateursSlice';
-import { createAerodromesSlice, type AerodromeSlice, type Aerodrome, type PhaseCertification } from './store/aerodromesSlice';
+import { createAerodromesSlice, type AerodromeSlice } from './store/aerodromesSlice'
 export type { AerodromeSlice, Aerodrome, PhaseCertification } from './store/aerodromesSlice';
 export { startDossiersSync, stopDossiersSync } from './store/dossiersSlice';
-import { createDossiersSlice, type DossierSlice, type Dossier, type DossierExtension, type DossierFeedback, type DossierCollaborateur, type DossierAssignment, type DossierChecklistItem, type DossierAnalyseCritere, type DossierAnalyseResult, type DossierFormulaire } from './store/dossiersSlice';
+import { createDossiersSlice, type DossierSlice } from './store/dossiersSlice'
 export type { DossierSlice, Dossier, DossierExtension, DossierFeedback, DossierCollaborateur, DossierAssignment, DossierChecklistItem, DossierAnalyseCritere, DossierAnalyseResult, DossierFormulaire } from './store/dossiersSlice';
-import { createFormationsSlice, type FormationSlice, type Formation, type Competence, type CompetenceDeclarative, type Inspecteur, declarativeNiveauVersNombre, declarativesVersCompetences } from './store/formationsSlice';
+import { createFormationsSlice, type FormationSlice, type Inspecteur } from './store/formationsSlice'
 export type { FormationSlice, Formation, Competence, CompetenceDeclarative, Inspecteur } from './store/formationsSlice';
 export { declarativeNiveauVersNombre, declarativesVersCompetences } from './store/formationsSlice';
-import { createKitDocumentsSlice, type KitSlice, type KitDocument } from './store/kitDocumentsSlice';
+import { createKitDocumentsSlice, type KitSlice } from './store/kitDocumentsSlice'
 export type { KitSlice, KitDocument } from './store/kitDocumentsSlice';
-import type { TypeDocumentOACI, FormatDocument, KitDocExtrait, KitChecklistItemGenere } from './store/kitTypes';
 export type { TypeDocumentOACI, FormatDocument, KitDocExtrait, KitChecklistItemGenere } from './store/kitTypes';
-import { createEvenementsSlice, type EvenementSlice, type EvenementSecurite } from './store/evenementsSlice';
+import { createEvenementsSlice, type EvenementSlice } from './store/evenementsSlice'
 export type { EvenementSlice, EvenementSecurite } from './store/evenementsSlice';
 import { createAmdecSlice, type AmdecSlice } from './store/amdecSlice';
 export type { AmdecSlice } from './store/amdecSlice';
 import { createFtaSlice, type FtaSlice } from './store/ftaSlice';
 export type { FtaSlice } from './store/ftaSlice';
-import { createProfilsSlice, type ProfilRisqueSlice, type ProfilRisque, type VelocityMetricsStored, type SystemStressStored, type ProactiveAlertStored, assainirProfilRisque } from './store/profilsSlice';
+import { createProfilsSlice, type ProfilRisqueSlice } from './store/profilsSlice'
 export type { ProfilRisqueSlice, ProfilRisque, VelocityMetricsStored, SystemStressStored, ProactiveAlertStored } from './store/profilsSlice';
 export { assainirProfilRisque } from './store/profilsSlice';
 import { createWorkflowSlice, type WorkflowSlice } from './store/workflowSlice';
@@ -99,29 +90,17 @@ import { createLearningEnginesSlice, type LearningEngineSlice } from './store/le
 export type { LearningEngineSlice } from './store/learningEnginesSlice';
 import { createPacLearningSlice, type PACLearningEngineSlice } from './store/pacLearningSlice';
 export type { PACLearningEngineSlice } from './store/pacLearningSlice';
-import { createRiskAnalyticsSlice, type RiskAnalyticsSlice, type PredictionHistoryRecord, type ActionOutcomeRecord, type ChangePointRecord, type VelocitySnapshotRecord, type StressHistoryRecord, type ProactiveAlertRecord, type ModelPerformanceRecord } from './store/riskAnalyticsSlice';
+import { createRiskAnalyticsSlice, type RiskAnalyticsSlice } from './store/riskAnalyticsSlice'
 export type { RiskAnalyticsSlice, PredictionHistoryRecord, ActionOutcomeRecord, ChangePointRecord, VelocitySnapshotRecord, StressHistoryRecord, ProactiveAlertRecord, ModelPerformanceRecord } from './store/riskAnalyticsSlice';
-import { createPlanningsSlice, type PlanningSlice, type Planning, type FicheBriefing } from './store/planningsSlice';
+import { createPlanningsSlice, type PlanningSlice } from './store/planningsSlice'
 export type { PlanningSlice, Planning, FicheBriefing } from './store/planningsSlice';
 import { createEcartsSlice, type EcartSlice } from './store/ecartsSlice';
-import type { Ecart, SoumissionPAC, EvaluationPAC, SoumissionPreuves, ValidationPreuves, HistoriqueEcart, StatistiquesPAC } from './store/ecartsTypes';
+import { Ecart } from './store/ecartsTypes'
 export type { EcartSlice } from './store/ecartsSlice';
 export type { Ecart, SoumissionPAC, EvaluationPAC, SoumissionPreuves, ValidationPreuves, HistoriqueEcart, StatistiquesPAC } from './store/ecartsTypes';
-import { createSurveillancesSlice, type SurveillanceSlice, type Surveillance } from './store/surveillancesSlice';
+import { createSurveillancesSlice, type SurveillanceSlice } from './store/surveillancesSlice'
 export type { SurveillanceSlice, Surveillance } from './store/surveillancesSlice';
 import { syncLearningFromStore, syncPACFromStore, startScheduledLearningRecalibration } from './learningPersistence';
-import { codeAccesUtils } from './codeAccesUtils';
-import { registreUtils } from './registreUtils';
-import { genererPlanning } from './services/planningGenerator';
-import { isPlanningTerminal, normalizePlanningType, type PlanningStatut, type PlanningType } from './planning';
-import type { ResultatChecklist } from '@/types/checklist';
-import type { HelistationData } from './types/helistation'
-import { mapTypeInstallationToSousType } from './types/helistation'
-import type { SuggestionDetaillee } from './checklistMemory';
-import type { NiveauRisque, ScoreHistoryPoint } from './risque/types';
-import type { AmdecAnalyse } from './risque/amdecEngine';
-import type { ArbreFTA, NoeudFTA } from './risque/ftaEngine';
-import { dedupeHierarchyItems } from './checklistNormalize';
 // Ré-exporter ScoreHistoryPoint depuis risque/types.ts (type canonique unique)
 // pour les modules qui importent depuis '@/lib/store' sans changer leurs imports.
 export type { ScoreHistoryPoint } from './risque/types';
@@ -141,7 +120,6 @@ export type PACLearningFeedbackRecord = PACLearningFeedback;
 export type PreuveLearningFeedbackRecord = PreuveLearningFeedback;
 
 export type { SuggestionDetaillee as ChecklistSuggestion } from './checklistMemory';
-import { evaluatePAC, computeInitialCell } from './risque/bowTieEngine';
 
 // ============================================================
 // Assainissement des valeurs numériques NaN / hors bornes

@@ -5,11 +5,7 @@
 
 import { createStore } from 'zustand/vanilla'
 import type { StateCreator } from 'zustand'
-import {
-  createEnquetesSlice,
-  type Enquete,
-  type EnqueteSlice,
-} from '../store/enquetesSlice'
+import { createEnquetesSlice, type EnqueteSlice } from '../store/enquetesSlice'
 
 function makeStore() {
   return createStore<EnqueteSlice>()(

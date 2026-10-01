@@ -4,7 +4,6 @@
 'use client'
 
 import { useAppStore, Planning, IaSuggestion } from '@/lib/store'
-import { riskEngine } from '@/lib/riskEngine'
 import { normaliserScoreSgs } from '@/lib/utils'
 
 let subscribed = false

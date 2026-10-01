@@ -43,3 +43,6 @@ next-env.d.ts
 # Environment variables
 .env.local
 .env*.local
+
+# Modelfile AERORISQ g�n�r� (contient des exemples valid�s potentiellement sensibles)
+Modelfile.aerorisq

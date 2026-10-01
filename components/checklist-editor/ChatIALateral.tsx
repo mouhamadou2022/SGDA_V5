@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Bot, User, Send, X, Brain, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { aiClient } from '@/lib/ia/aiClient'
+import { Markdown } from '@/components/ui/markdown'
 
 const CHAT_SYSTEM_PROMPT = (contexte: string) => `Tu es un assistant expert en réglementation aéronautique (OACI, Annexe 14, Doc 9137, Doc 9981, Doc 9157, Doc 9859, Doc 9261, circulaires ANACIM).
 
@@ -216,7 +217,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: Cha
                 ? 'bg-blue-600 text-white rounded-br-sm'
                 : 'bg-blue-50 text-blue-800 rounded-bl-sm'
             }`}>
-              {m.content}
+              {m.role === 'user' ? m.content : <Markdown texte={m.content} />}
             </div>
             {m.role === 'user' && (
               <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">

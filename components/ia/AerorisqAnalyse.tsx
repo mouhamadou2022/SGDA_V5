@@ -4,7 +4,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Brain, Shield, AlertTriangle, UserCheck, Target, ChevronDown, ChevronRight, Loader2, FileText, Bell, Zap } from 'lucide-react'
+import { Brain, Shield, AlertTriangle, Target, ChevronDown, ChevronRight, FileText, Bell, Zap } from 'lucide-react'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine'
 import { useAppStore } from '@/lib/store'
 import { decisionEngine } from '@/lib/ia/decisionEngine'

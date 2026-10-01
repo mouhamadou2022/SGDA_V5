@@ -44,9 +44,55 @@ export class ChecklistFeedbackEngine {
     return this.initialized
   }
 
-  // Crée un échantillon (features du profil avant inspection → niveau réel
-  // constaté) : alimente la Random Forest locale + persistance centrale Supabase.
-  private async enregistrerEchantillonML(
+    /**
+     * Qualité rédactionnelle d'une surveillance : part d'items justifiés
+     * (observation/stylet), preuves jointes, NS tous justifiés ou non.
+     * L'IA s'entraîne sur la FORME autant que sur le fond.
+     */
+    private qualiteRedactionnelle(surveillanceId: string): {
+      items: number
+      justifies: number
+      preuves: number
+      ns_tous_justifies: boolean
+    } {
+      const store = useAppStore.getState()
+      const surv = store.surveillances.find(s => s.id === surveillanceId)
+      const hierarchie = (surv?.checklist_hierarchy || []) as Array<{
+        items?: Array<{ observation?: string; observation_stylus_data?: string; fichiers?: Array<unknown>; preuves?: Array<unknown>; resultat?: string }>
+        sousDomaines?: Array<{
+          items?: Array<{ observation?: string; observation_stylus_data?: string; fichiers?: Array<unknown>; preuves?: Array<unknown>; resultat?: string }>
+          sousSousDomaines?: Array<{ items?: Array<{ observation?: string; observation_stylus_data?: string; fichiers?: Array<unknown>; preuves?: Array<unknown>; resultat?: string }> }>
+        }>
+      }>
+      const plats: Array<{ observation?: string; observation_stylus_data?: string; fichiers?: Array<unknown>; preuves?: Array<unknown>; resultat?: string }> = []
+      const ramasser = (items?: typeof plats) => { for (const i of items || []) plats.push(i) }
+      if (hierarchie.length > 0) {
+        for (const d of hierarchie) {
+          ramasser(d.items)
+          for (const sd of d.sousDomaines || []) {
+            ramasser(sd.items)
+            for (const ssd of sd.sousSousDomaines || []) ramasser(ssd.items)
+          }
+        }
+      } else {
+        const map = (store.checklistItems as Record<string, Array<typeof plats[number]> | undefined> | undefined)?.[surveillanceId]
+        ramasser(map)
+      }
+      const justifie = (i: (typeof plats)[number]) => !!(i.observation || '').trim() || !!(i.observation_stylus_data || '').trim()
+      const justifies = plats.filter(justifie).length
+      const preuves = plats.reduce((s, i) => s + (i.fichiers || []).length + (i.preuves || []).length, 0)
+      const ns = plats.filter(i => (i.resultat || '').toUpperCase() === 'NS')
+      return {
+        items: plats.length,
+        justifies,
+        preuves,
+        ns_tous_justifies: ns.length === 0 || ns.every(justifie),
+      }
+    }
+
+    // Crée un échantillon (features du profil avant inspection → niveau réel
+    // constaté) : alimente la Random Forest locale + persistance centrale Supabase.
+    private async enregistrerEchantillonML(
     aerodromeId: string,
     surveillanceId: string,
     profil: ProfilRisque | undefined,
@@ -79,6 +125,12 @@ export class ChecklistFeedbackEngine {
       console.warn('[ChecklistFeedback] Erreur addTrainingSample:', err)
     }
 
+    // Qualité rédactionnelle : l'IA apprend aussi COMMENT bien évaluer —
+    // items justifiés (observation/stylet), preuves jointes, décisions NS
+    // toutes justifiées ou non. Matière première pour : adapter les
+    // checklists, évaluer PAC/preuves, rédiger des écarts.
+    const qualiteRedaction = this.qualiteRedactionnelle(surveillanceId)
+
     // 2) Persistance centrale (Supabase ml_samples) — best-effort, pour l'entraînement serveur futur
     try {
       await fetch('/api/ia/ml-samples', {
@@ -97,6 +149,7 @@ export class ChecklistFeedbackEngine {
             score_formule: profil.score_global,
             niveau_formule: profil.niveau,
             domaines: domaines.map((d) => ({ domaine: d.domaine, taux: d.tauxConformite, niveau: d.niveau })),
+            qualite_redactionnelle: qualiteRedaction,
           },
         }),
       }).catch(() => { /* réseau indisponible — l'échantillon reste en local */ })

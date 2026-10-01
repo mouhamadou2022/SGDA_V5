@@ -1,6 +1,8 @@
-// lib/hydratation.ts — Fusions local-prime au chargement initial.
-// Extraites de app/page.tsx (comportement identique) : le local (IndexedDB,
-// créé hors-ligne) prime, Supabase complète. Testé :
+// lib/hydratation.ts — Fusions au chargement initial.
+// Le PLUS RÉCENT gagne (updated_at) : l'ancien « local-prime » masquait les
+// modifications d'un autre poste/utilisateur (« terminé ici, en cours
+// ailleurs »). Sans updated_at des deux côtés, le local est conservé
+// (brouillons hors-ligne jamais synchronisés). Testé :
 // lib/__tests__/hydratation.test.ts.
 
 import { dedupeHierarchyItems } from './checklistNormalize';
@@ -9,14 +11,33 @@ import type {
   Surveillance, ChecklistItem, DomaineChecklist, Utilisateur, Inspecteur,
 } from './store';
 
-/** Fusion local-prime par id (dossiers, registre, exemptions, délégations, enquêtes, réponses). */
+function dateDe(e: unknown): number {
+  const t = (e as Record<string, unknown>)?.updated_at
+  const n = typeof t === 'string' || typeof t === 'number' ? new Date(t).getTime() : NaN
+  return Number.isFinite(n) ? n : NaN
+}
+
+/** Fusion par id : le plus récent (updated_at) gagne, sinon local conservé. */
 export function fusionnerParId<T extends { id: string }>(
   locaux: T[] | undefined,
   distants: T[] | undefined,
 ): T[] {
-  const existants = locaux || []
-  const ids = new Set(existants.map(e => e.id))
-  return [...existants, ...(distants || []).filter(e => !ids.has(e.id))]
+  const parId = new Map<string, T>()
+  for (const l of locaux || []) parId.set(l.id, l)
+  for (const d of distants || []) {
+    const actuel = parId.get(d.id)
+    if (!actuel) {
+      parId.set(d.id, d)
+      continue
+    }
+    const tLocal = dateDe(actuel)
+    const tDistant = dateDe(d)
+    // Les deux datés : le plus récent gagne. Sinon : local conservé.
+    if (Number.isFinite(tLocal) && Number.isFinite(tDistant) && tDistant > tLocal) {
+      parId.set(d.id, d)
+    }
+  }
+  return [...parId.values()]
 }
 
 /** Fusion utilisateurs : déduplique par id + email. */

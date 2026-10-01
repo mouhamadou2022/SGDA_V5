@@ -4,11 +4,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import {
-  ClipboardList, AlertTriangle, CheckCircle2,
-  Send, Clock, ChevronRight, Shield,
-  FileSignature, Loader2, Info,
-} from 'lucide-react';
+import { CheckCircle2, Send, ChevronRight, Shield, FileSignature, Loader2, Info } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useAppStore, Delegation } from '@/lib/store';
 import { getDomaineLabel } from '@/lib/domaines';

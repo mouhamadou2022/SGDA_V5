@@ -6,7 +6,7 @@
 
 'use client'
 
-import { Aerodrome, ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
+import { Aerodrome, ProfilRisque } from '@/lib/store'
 
 // ============================================================
 // TYPES

@@ -3,7 +3,7 @@
 // 0 style inline, 0 fetch direct
 
 import { Scenario } from './types'
-import { computeTrend, linearRegression } from './trends'
+import { linearRegression } from './trends'
 import { computeStandardDeviation } from './volatility'
 
 /**

@@ -35,6 +35,7 @@ import { recordRiskIndexFeedback, getRiskLevelFromCellIdx } from '@/lib/riskInde
 import { getRiskLevelFromCell, getCellColor, getRiskLevelVariant } from '@/lib/risque';
 import { classifyEcartTexte, suggestGraviteFromTexte } from '@/lib/risque/ecartClassifier';
 import { generateEcartReference, computeNextEcartCounter, getTypeAbbr } from '@/lib/surveillanceUtils';
+import { ressemblance } from '@/lib/ia/watchdogEvaluation';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 // Styles + helpers : voir ./ecartsRedactionUtils.ts (importés ci-dessous).
@@ -43,8 +44,7 @@ export type { EcartRedaction, QuestionNSNV } from './EcartsRedactionTypes';
 import { NotesInspecteurPopover } from './NotesInspecteurPopover';
 import { EcartCard } from './EcartCard';
 import { IaSuggestionBanner } from './IaSuggestionBanner';
-import { IaAssistant } from './IaAssistant';
-import { focusClass, selectStyle, NIVEAUX, isValidOACI, decouperLibelleEnEcarts, getProgressBarColorDynamic } from './ecartsRedactionUtils';
+import { focusClass, NIVEAUX, isValidOACI, decouperLibelleEnEcarts } from './ecartsRedactionUtils'
 
 interface SurveillanceEcartsRedactionProps {
   surveillanceId: string;
@@ -108,7 +108,10 @@ export default function SurveillanceEcartsRedaction({
   const [formEcart, setFormEcart] = useState<Partial<EcartRedaction>>({ niveau: 'moyen' });
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] =
+useState<Record<string, string>>({});
+  // Garde anti-doublon : libellé confirmé après avertissement.
+  const [alerteDoublon, setAlerteDoublon] = useState<{ refs: string[]; confirmePour: string } | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [selectedEcartDetails, setSelectedEcartDetails] = useState<EcartRedaction | null>(null);
   const [expandedDomaines, setExpandedDomaines] = useState<string[]>([]);
@@ -791,6 +794,20 @@ export default function SurveillanceEcartsRedaction({
       return;
     }
 
+    // Garde anti-doublon (création uniquement) : même famille déjà rédigée ?
+    if (!editingId && formEcart.libelle) {
+      const suspects = ecarts.filter(e =>
+        ressemblance(e.libelle || '', formEcart.libelle || '') >= 0.6)
+      if (suspects.length > 0 && alerteDoublon?.confirmePour !== formEcart.libelle) {
+        setAlerteDoublon({
+          refs: suspects.map(e => e.reference || e.id.slice(0, 8)),
+          confirmePour: '',
+        })
+        return
+      }
+    }
+    setAlerteDoublon(null)
+
     const now = new Date().toISOString();
     // Déduire le domaine depuis les items sélectionnés (premier domaine trouvé)
     const domaineItems = selectedItems
@@ -1425,6 +1442,35 @@ export default function SurveillanceEcartsRedaction({
               )}
             </div>
 
+            {alerteDoublon && alerteDoublon.refs.length > 0 && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-2.5">
+                <p className="text-xs font-semibold text-foreground">
+                  ⚠ Doublon probable : ressemble à {alerteDoublon.refs.join(', ')}.
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Vérifiez qu'il ne s'agit pas du même constat rédigé deux fois.
+                </p>
+                <div className="mt-1.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAlerteDoublon({ refs: [], confirmePour: formEcart.libelle || '' })
+                      handleAjouterEcart()
+                    }}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    C'est volontaire — ajouter quand même
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAlerteDoublon(null)}
+                    className="btn btn-sm btn-ghost"
+                  >
+                    Revoir le libellé
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1444,6 +1490,7 @@ export default function SurveillanceEcartsRedaction({
                     setSelectedItems([]);
                     setErrors({});
                     setIaSuggestion(null);
+                    setAlerteDoublon(null);
                   }}
                   className="btn btn-secondary"
                 >

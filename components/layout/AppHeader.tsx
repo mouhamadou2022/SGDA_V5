@@ -5,7 +5,6 @@ import React, { useState } from 'react';
 import { LogOut, User, Settings, Shield, Sun, Moon, Monitor, Brain, Sparkles, Plane, TowerControl } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AuthUser } from '@/lib/auth';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
 import { CommandPaletteTrigger } from './CommandPalette';

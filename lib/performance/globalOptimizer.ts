@@ -1,8 +1,7 @@
 // lib/performance/globalOptimizer.ts
 'use client';
 
-import React, { useEffect, useRef, createContext, useContext, ReactNode, useState, useCallback, useTransition, useMemo } from 'react';
-import { useStore } from 'zustand';
+import React, { useEffect, useRef, createContext, useContext, ReactNode, useState, useTransition, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore, type AppStore } from '@/lib/store';
 

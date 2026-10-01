@@ -9,7 +9,7 @@ import { analyserSousZones } from '@/lib/ia/subDomainAnalyzer'
 import { thresholdController } from '@/lib/ia/thresholdController'
 import { engineFeedback } from './engineFeedback'
 import { modelOrchestrator, type ModelSelection } from './modelOrchestrator'
-import { getRegulatoryRefByDim, formatRegulatoryRef, type RegulatoryRef } from '@/lib/ia/regulatoryRefs'
+import { getRegulatoryRefByDim, type RegulatoryRef } from '@/lib/ia/regulatoryRefs'
 
 export interface Recommendation {
   type: 'prioritaire' | 'preventif' | 'correctif' | 'strategique'

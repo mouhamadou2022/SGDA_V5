@@ -21,7 +21,7 @@ function extractDomaineCode(d: any): string {
 import { SurveillanceStepper } from '@/components/modules/surveillance/SurveillanceStepper';
 import { ChefDashboard } from '@/components/modules/surveillance/ChefDashboard';
 import { InspecteurDelegationPanel } from '@/components/modules/surveillance/InspecteurDelegationPanel';
-import { DelegationZone, type InspecteurDisponible, type DomaineDisponible } from '@/components/modules/surveillance/DelegationZone';
+import { DelegationZone, type InspecteurDisponible } from '@/components/modules/surveillance/DelegationZone'
 import {
   ArrowLeft, MapPin, Calendar, Users, Eye, AlertTriangle,
   FileText, ClipboardList, ChevronRight, Shield, Mail, X, Send, Wrench, CheckCircle2, Download

@@ -1,5 +1,4 @@
 // __tests__/design-system/role-colors.test.tsx
-import { render } from '@testing-library/react';
 import { ROLE_COLORS } from '@/lib/config';
 
 describe('Couleurs par rôle', () => {

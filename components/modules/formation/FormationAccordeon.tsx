@@ -3,21 +3,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Card } from '@/components/ui/card'
-import {
-  GraduationCap,
-  Calendar,
-  Clock,
-  MapPin,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  Star,
-  Plus,
-  Download,
-  Eye,
-  Building2,
-  X,
-} from 'lucide-react';
+import { GraduationCap, Calendar, Clock, MapPin, CheckCircle2, AlertCircle, AlertTriangle, Star, Plus, Download, Eye, Building2 } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 

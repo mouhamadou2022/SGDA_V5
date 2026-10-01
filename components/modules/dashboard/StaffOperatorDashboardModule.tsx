@@ -43,24 +43,21 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
     return profilsRisque[aerodrome.id];
   }, [aerodrome, profilsRisque]);
 
-  if (!aerodrome) {
-    return (
-      <div className="card">
-        <div className="card-content py-12 text-center">
-          <AlertCircle className="h-12 w-12 text-muted mx-auto mb-4" />
-          <p className="text-body text-muted-foreground">Aucun aérodrome associé à votre compte</p>
-        </div>
-      </div>
-    );
-  }
+  // IMPORTANT (react-hooks/rules-of-hooks) : TOUS les hooks doivent être appelés
+  // avant le retour anticipé `if (!aerodrome)` ci-dessous, sinon React lève
+  // « Rendered more hooks than during the previous render » dès que l'aérodrome
+  // devient disponible (chargement asynchrone du store).
+  const aerodromeId = aerodrome?.id
 
   const surveillancesPlanifiees = useMemo(() => {
-    return surveillances.filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'planifiee')
-  }, [surveillances, aerodrome])
+    if (!aerodromeId) return []
+    return surveillances.filter(s => s.aerodrome_id === aerodromeId && s.statut === 'planifiee')
+  }, [surveillances, aerodromeId])
 
   const surveillancesTransmises = useMemo(() => {
-    return surveillances.filter(s => s.aerodrome_id === aerodrome.id && s.statut === 'transmise')
-  }, [surveillances, aerodrome])
+    if (!aerodromeId) return []
+    return surveillances.filter(s => s.aerodrome_id === aerodromeId && s.statut === 'transmise')
+  }, [surveillances, aerodromeId])
 
   const [currentPage1, setCurrentPage1] = useState(1)
   const [currentPage2, setCurrentPage2] = useState(1)
@@ -75,6 +72,17 @@ export default function StaffOperatorDashboardModule({ user: userProp, userRole:
   }, [surveillancesTransmises, currentPage2])
   useEffect(() => setCurrentPage1(1), [surveillancesPlanifiees])
   useEffect(() => setCurrentPage2(1), [surveillancesTransmises])
+
+  if (!aerodrome) {
+    return (
+      <div className="card">
+        <div className="card-content py-12 text-center">
+          <AlertCircle className="h-12 w-12 text-muted mx-auto mb-4" />
+          <p className="text-body text-muted-foreground">Aucun aérodrome associé à votre compte</p>
+        </div>
+      </div>
+    );
+  }
 
   const colonnesPlanifiees: Column<any>[] = [
     { key: 'date', header: 'Date', render: (item) => <span>{new Date(item.date_debut).toLocaleDateString('fr-FR')}</span> },

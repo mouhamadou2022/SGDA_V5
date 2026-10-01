@@ -27,14 +27,13 @@ const HF_URL = 'https://api-inference.huggingface.co/v1/chat/completions'
 const OLLAMA_URL = 'http://localhost:11434/v1/chat/completions'
 const AERORISQ_URL = process.env.AERORISQ_API_URL // IA maison — serveur d'inférence propre
 
-// Modèles Groq VALIDÉS sur le compte actuel (liste /models vérifiée) :
-// les anciens « llama-3.3-70b-versatile » / « llama-3.1-8b-instant » renvoient 404.
-// IMPORTANT : on choisit des modèles NON-« reasoning » par défaut (groq/compound-mini,
-// groq/compound). Les modèles de raisonnement (openai/gpt-oss-*, qwen3@400 tokens)
-// consomment tout le budget max_tokens en \u003cthink\u003e et renvoient un content VIDE
-// (bug rencontré : response.content="" avec reasoning_tokens=398).
-const GROQ_PRIMARY = 'groq/compound-mini'
-const GROQ_FALLBACK_MODEL = 'groq/compound'
+// Modèles Groq VÉRIFIÉS EN DIRECT sur le compte actuel (GET /models + appel
+// réel le 2026-09-30) : Groq a retiré llama-3.3-70b-versatile, llama-3.1-8b-instant
+// ET groq/compound-mini + groq/compound (404 model_not_found).
+// qwen/qwen3.8-27b (id exact renvoyé par l'API) répond sans reasoning parasite ;
+// openai/gpt-oss-20b répond aussi (reasoning court, contenu présent) en repli.
+const GROQ_PRIMARY = 'qwen/qwen3.8-27b'
+const GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b'
 const OPENROUTER_PRIMARY = 'qwen/qwen-2.5-72b-instruct'
 const OPENROUTER_FALLBACK = 'deepseek/deepseek-chat'
 const GOOGLE_PRIMARY = 'gemini-2.5-flash'
@@ -58,7 +57,7 @@ const OLLAMA_KEEP_ALIVE = '30m'
 // via IA_ENABLE_<SERVICE>=true dans l'environnement. Sans drapeau, il ne sera
 // JAMAIS appelé → zéro latence ajoutée par les API mortes / payantes.
 // Par défaut seuls AERORISQ et Groq sont actifs pendant la phase de test.
-function isProviderEnabled(service: string): boolean {
+export function isProviderEnabled(service: string): boolean {
   const flag = process.env[`IA_ENABLE_${service.toUpperCase()}`]
   if (flag !== undefined) return flag.trim().toLowerCase() === 'true'
   // Valeurs par défaut : AERORISQ et Groq actifs, le reste inactif.
@@ -135,7 +134,7 @@ const keysCache = new Map<string, { data: KeyEntry[]; expiresAt: number }>()
 const KEYS_CACHE_TTL = 5 * 60 * 1000
 
 // Charge les clés depuis Supabase (service role) avec fallback .env
-async function getServiceKeys(service: string): Promise<KeyEntry[]> {
+export async function getServiceKeys(service: string): Promise<KeyEntry[]> {
   const cached = keysCache.get(service)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
@@ -182,7 +181,7 @@ function estimateInputTokens(messages: Array<{ role: string; content: string }>)
 
 function getProviderMaxInput(providerName: string): number {
   if (providerName.startsWith('aerorisq')) return 60000
-  if (providerName.startsWith('groq_fallback')) return 4000
+  if (providerName.startsWith('groq_fallback')) return 60000
   if (providerName.startsWith('groq')) return 60000
   if (providerName.startsWith('cloudflare')) return 20000
   if (providerName.startsWith('mistral')) return 30000
@@ -375,9 +374,32 @@ export async function callWithFallback(request: LLMRequest): Promise<LLMResult> 
         providerTimeoutMs = Math.max(1000, Math.min(60000, remaining))
       }
       const providerTimeout = setTimeout(() => controller.abort(), providerTimeoutMs)
-      const res = await provider.call(provider.key, provider.model, request, controller.signal)
+      const appeler = () => provider.call(provider.key, provider.model, request, controller.signal)
+      let res = await appeler()
       clearTimeout(providerTimeout)
-      if (res.status === 429) { errors.push(`${provider.name}: quota dépassé (429)`); continue }
+      // Quota (429) : respecter Retry-After UNE fois au lieu d'abandonner —
+      // les rafales (génération SGS multi-éléments) se résorbent en secondes.
+      if (res.status === 429) {
+        const retryApres = Number(res.headers?.get?.('retry-after')) || 0
+        const rejouable = Number.isFinite(retryApres) && retryApres > 0 && retryApres <= 60
+        if (!rejouable) {
+          errors.push(`${provider.name}: quota dépassé (429)`)
+          continue
+        }
+        await new Promise(r => setTimeout(r, retryApres * 1000))
+        const controller2 = new AbortController()
+        const timeout2 = setTimeout(() => controller2.abort(), providerTimeoutMs)
+        try {
+          res = await provider.call(provider.key, provider.model, request, controller2.signal)
+        } finally {
+          clearTimeout(timeout2)
+        }
+        if (res.status === 429) {
+          errors.push(`${provider.name}: quota dépassé (429, retry épuisé)`)
+          continue
+        }
+        // Sinon : retombée ci-dessous (traitement normal de la réponse rejouée).
+      }
       if (!res.ok) { const t = await res.text(); errors.push(`${provider.name}: ${res.status} ${t.slice(0, 200)}`); continue }
       const data = await res.json()
       const content = data.choices?.[0]?.message?.content ?? ''

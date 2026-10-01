@@ -3,22 +3,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  Users,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  ChevronDown,
-  Wifi,
-  WifiOff,
-  UserCheck,
-  FileText,
-  RefreshCw,
-  Shield,
-  ClipboardCheck,
-  FileCheck2,
-  Send,
-} from 'lucide-react';
+import { Users, CheckCircle2, AlertTriangle, ChevronDown, Wifi, WifiOff, UserCheck, FileText, RefreshCw, Shield, ClipboardCheck, FileCheck2, Send } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useAppStore, Delegation } from '@/lib/store';
 
@@ -48,14 +33,14 @@ const STATUT_ORDER: Record<string, number> = {
 
 // ─── Mini-timeline par délégation ─────────────────────────────────────────────
 
-function MiniTimeline({ statut }: { statut: string }) {
-  const order    = STATUT_ORDER[statut] ?? 0;
-  const isBloque = statut === 'bloque';
-
-  const Step = ({ threshold, label }: { threshold: number; label: string }) => {
-    const done   = !isBloque && order >= threshold;
-    const active = !isBloque && order === threshold - 1;
-    return (
+// Sous-composants HOISTÉS hors du rendu (react-hooks/static-components) :
+// définis dans le corps de MiniTimeline, ils étaient recréés à chaque rendu,
+// ce qui provoquait un remontage complet des puces à chaque mise à jour.
+// Rendu strictement identique, mais un seul type de composant stable.
+function TimelineStep({ threshold, order, isBloque, label }: { threshold: number; order: number; isBloque: boolean; label: string }) {
+  const done   = !isBloque && order >= threshold;
+  const active = !isBloque && order === threshold - 1;
+  return (
       <div className="flex flex-col items-center">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center border-2 text-[9px] font-bold transition-all ${
           done    ? 'bg-success border-success text-white'
@@ -68,21 +53,25 @@ function MiniTimeline({ statut }: { statut: string }) {
         <span className="text-[8px] text-muted-foreground mt-0.5 whitespace-nowrap">{label}</span>
       </div>
     );
-  };
+}
 
-  const Connector = ({ reached }: { reached: boolean }) => (
-    <div className={`h-0.5 w-4 mb-3.5 flex-shrink-0 rounded-full ${reached ? 'bg-success' : 'bg-border'}`} />
-  );
+function TimelineConnector({ reached }: { reached: boolean }) {
+  return <div className={`h-0.5 w-4 mb-3.5 flex-shrink-0 rounded-full ${reached ? 'bg-success' : 'bg-border'}`} />;
+}
+
+function MiniTimeline({ statut }: { statut: string }) {
+  const order    = STATUT_ORDER[statut] ?? 0;
+  const isBloque = statut === 'bloque';
 
   return (
     <div className="flex items-center gap-0.5">
-      <Step threshold={0} label="Assigné"  />
-      <Connector reached={!isBloque && order >= 2} />
-      <Step threshold={2} label="Checklist" />
-      <Connector reached={!isBloque && order >= 4} />
-      <Step threshold={4} label="Écarts"   />
-      <Connector reached={!isBloque && order >= 5} />
-      <Step threshold={5} label="Transmis" />
+      <TimelineStep threshold={0} order={order} isBloque={isBloque} label="Assigné"  />
+      <TimelineConnector reached={!isBloque && order >= 2} />
+      <TimelineStep threshold={2} order={order} isBloque={isBloque} label="Checklist" />
+      <TimelineConnector reached={!isBloque && order >= 4} />
+      <TimelineStep threshold={4} order={order} isBloque={isBloque} label="Écarts"   />
+      <TimelineConnector reached={!isBloque && order >= 5} />
+      <TimelineStep threshold={5} order={order} isBloque={isBloque} label="Transmis" />
     </div>
   );
 }

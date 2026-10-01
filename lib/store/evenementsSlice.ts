@@ -41,6 +41,13 @@ export interface EvenementSecurite {
   services_alertes: string[]
   statut: 'recu' | 'assigne' | 'accepte' | 'refuse' | 'attente_operateur' | 'en_cours' | 'analyse' | 'ecart_cree' | 'rapport_redige' | 'soumis_validation' | 'retourne' | 'cloture'
   inspecteur_id?: string
+  /** Équipe d'instruction désignée une fois (chef pilote). Externes sans compte. */
+  equipe_ids?: string[]
+  chef_id?: string
+  externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>
+  assigne_le?: string
+  assigne_par?: string
+  valide_par?: string
   date_assignation?: string
   date_acceptation?: string
   motif_refus?: string
@@ -79,6 +86,20 @@ export interface EvenementSlice {
   updateEvenement: (id: string, data: Partial<EvenementSecurite>) => Promise<void>
   deleteEvenement: (id: string) => void
   assignerInspecteur: (evenementId: string, inspecteurId: string) => void
+  /**
+   * Assigne l'équipe d'instruction (une fois par événement, modifiable) :
+   * responsable + équipe + chef (+ experts externes), tracés et notifiés.
+   * Réservé à l'admin côté UI.
+   */
+  assignerEquipeEvenement: (
+    evenementId: string,
+    assignation: {
+      responsable_id?: string
+      equipe_ids?: string[]
+      chef_id?: string
+      externes?: Array<{ id: string; nom: string; specialite?: string; organisme?: string }>
+    },
+  ) => void
   accepterAssignation: (evenementId: string) => void
   refuserAssignation: (evenementId: string, motif: string) => void
   soumettreValidation: (evenementId: string) => void
@@ -196,6 +217,40 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
     })
   },
 
+  assignerEquipeEvenement: async (evenementId, assignation) => {
+    const evt = get().evenements.find(e => e.id === evenementId)
+    if (!evt) return
+    const auteur = get().user
+    const auteurNom = auteur ? `${auteur.prenom || ''} ${auteur.nom || ''}`.trim() || 'Admin' : 'Admin'
+    const now = new Date().toISOString()
+    const patch = {
+      inspecteur_id: assignation.responsable_id ?? evt.inspecteur_id,
+      equipe_ids: assignation.equipe_ids ?? [],
+      chef_id: assignation.chef_id,
+      externes: assignation.externes ?? [],
+      assigne_le: now,
+      assigne_par: auteurNom,
+      statut: (evt.statut === 'recu' ? 'assigne' : evt.statut) as EvenementSecurite['statut'],
+    }
+    set((state) => ({
+      evenements: state.evenements.map(e => e.id === evenementId ? { ...e, ...patch } : e),
+    }))
+    await datastore.updateEvenement(evenementId, patch).catch(() => {})
+    const dests = [...new Set([
+      patch.inspecteur_id, ...(patch.equipe_ids || []), patch.chef_id,
+    ].filter(Boolean))] as string[]
+    for (const userId of dests) {
+      storeEvents.emit('notification:envoyer', {
+        user_id: userId,
+        type: 'info',
+        title: `Événement ${evt.reference} — équipe désignée`,
+        message: `Vous faites partie de l'équipe d'instruction (désignée par ${auteurNom}).`,
+        canal: 'in_app',
+        link: '/?module=evenements',
+      })
+    }
+  },
+
   creerEcartLie: async (evenementId, ecartData) => {
     const now = new Date().toISOString()
     const ecartId = crypto.randomUUID()
@@ -225,12 +280,18 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
     const savedEcart = (result.data || newEcart) as Ecart
     // Intégration via événement (tranche écarts propriétaire, idempotente).
     storeEvents.emit('ecart:integrer-externe', savedEcart)
+    const nouveauxEcartsIds = (() => {
+      const evt = get().evenements.find(e => e.id === evenementId)
+      return [...(evt?.ecart_ids || []), savedEcart.id]
+    })()
     set((state) => ({
       evenements: state.evenements.map(e => e.id === evenementId
-        ? { ...e, statut: 'ecart_cree' as const, ecart_ids: [...(e.ecart_ids || []), savedEcart.id] }
+        ? { ...e, statut: 'ecart_cree' as const, ecart_ids: nouveauxEcartsIds }
         : e
       )
     }))
+    // SOURCE UNIQUE : persister le statut (sinon perdu au rechargement).
+    await datastore.updateEvenement(evenementId, { statut: 'ecart_cree', ecart_ids: nouveauxEcartsIds }).catch(() => {})
 
     // Notifier le focal_operator de l'aérodrome
     const aerodrome = get().aerodromes.find(a => a.id === savedEcart.aerodrome_id)
@@ -303,7 +364,9 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
     set((state) => ({
       evenements: state.evenements.map(e => e.id === evenementId ? { ...e, inspecteur_id: undefined, statut: 'refuse' as const, motif_refus: motif, date_assignation: undefined } : e)
     }))
-    await datastore.updateEvenement(evenementId, { inspecteur_id: '', statut: 'recu', motif_refus: motif }).catch(() => {})
+    // SOURCE UNIQUE : on persiste le VRAI statut ('refuse', pas 'recu') —
+    // sinon rechargement/autre utilisateur affichait « reçu ».
+    await datastore.updateEvenement(evenementId, { inspecteur_id: null as unknown as string, statut: 'refuse', motif_refus: motif }).catch(() => {})
     const evt = get().evenements.find(e => e.id === evenementId)
     // Notifier l'admin
     const admins = get().utilisateurs.filter(u => u.role === 'admin')
@@ -342,10 +405,11 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
   validerCloture: async (evenementId) => {
     const now = new Date().toISOString()
     const evt = get().evenements.find(e => e.id === evenementId)
+    const validePar = get().user?.id
     set((state) => ({
-      evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'cloture' as const, date_cloture: now, validation_admin: 'valide' } : e)
+      evenements: state.evenements.map(e => e.id === evenementId ? { ...e, statut: 'cloture' as const, date_cloture: now, validation_admin: 'valide', valide_par: validePar } : e)
     }))
-    await datastore.updateEvenement(evenementId, { statut: 'cloture', date_cloture: now, validation_admin: 'valide' }).catch(() => {})
+    await datastore.updateEvenement(evenementId, { statut: 'cloture', date_cloture: now, validation_admin: 'valide', valide_par: validePar }).catch(() => {})
     // Notifier l'inspecteur
     if (evt?.inspecteur_id) {
       storeEvents.emit('notification:envoyer', {

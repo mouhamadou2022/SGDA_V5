@@ -92,7 +92,7 @@ function scoreBowTie(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 6
+  const totalSignaux = 6
 
   if (profil) {
     score += 40
@@ -134,7 +134,7 @@ function scoreFTA(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 6
+  const totalSignaux = 6
 
   if (evenement) {
     score += 50
@@ -178,7 +178,7 @@ function scoreAMDEC(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 6
+  const totalSignaux = 6
 
   if (amdecAnalyses.length > 0) {
     score += 40
@@ -222,7 +222,7 @@ function scoreHMM(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 4
+  const totalSignaux = 4
 
   if (hmm) {
     score += 55
@@ -254,7 +254,7 @@ function scoreSurvie(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 3
+  const totalSignaux = 3
 
   if (survie) {
     score += 55
@@ -286,7 +286,7 @@ function scoreEVT(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 4
+  const totalSignaux = 4
 
   if (evt) {
     score += 55
@@ -319,7 +319,7 @@ function scoreCopulas(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 4
+  const totalSignaux = 4
 
   if (copula) {
     score += 55
@@ -352,7 +352,7 @@ function scoreThompson(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 3
+  const totalSignaux = 3
 
   if (ts) {
     score += 55
@@ -380,7 +380,7 @@ function scoreBayes(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 3
+  const totalSignaux = 3
 
   if (profil?.bayesian_posterior != null) {
     score += 55
@@ -408,7 +408,7 @@ function scoreRandomForest(input: ModeleAnalyseInput): ScoreModele {
   const raisons: string[] = []
   let score = 20
   let signaux = 0
-  let totalSignaux = 4
+  const totalSignaux = 4
 
   if (rf) {
     score += 55

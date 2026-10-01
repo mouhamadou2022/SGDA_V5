@@ -1,11 +1,7 @@
 // components/cards/RegistreCard.tsx
 'use client'
 
-import {
-  BookOpen, Calendar, User, Eye, Download,
-  FileText, AlertTriangle, AlertCircle, CheckCircle2,
-  GraduationCap, Shield, Scale, Plane, PenSquare, Trash2
-} from 'lucide-react'
+import { BookOpen, Calendar, User, Eye, Download, AlertTriangle, AlertCircle, GraduationCap, Shield, Scale, Plane, PenSquare, Trash2 } from 'lucide-react'
 
 interface RegistreCardProps {
   entry: any

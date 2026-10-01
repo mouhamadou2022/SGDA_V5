@@ -8,10 +8,10 @@
 
 'use client'
 
-import { useAppStore, ChecklistItem, ProfilRisque, DomaineChecklist, SousDomaine, SousSousDomaine } from '@/lib/store'
+import { useAppStore, ChecklistItem, ProfilRisque, DomaineChecklist } from '@/lib/store'
 import type { DomaineChecklistOffline } from '@/lib/offline'
 import { checklistMemory, getSuggestionsDetaillees, detectRecurrentPatterns, type TypeInspection } from '@/lib/checklistMemory'
-import { idbGet, idbPut, IDB_STORES, isOnline, prepareSurveillanceForOffline, getChecklistHierarchyOffline } from '@/lib/offline'
+import { prepareSurveillanceForOffline, getChecklistHierarchyOffline } from '@/lib/offline'
 import { aiClient } from '@/lib/ia/aiClient'
 import { CHECKLIST_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 

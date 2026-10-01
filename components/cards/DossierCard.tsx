@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { dossierUtils } from '@/lib/dossierUtils'
 import { canManageRole } from '@/lib/config'
+import { infoStatutDossier } from '@/lib/dossiersStatuts'
 
 interface DossierCardProps {
   dossier: any
@@ -59,14 +60,10 @@ export function DossierCard({
     return { label: `${jours}j`, className: 'badge success', icon: CheckCircle2 }
   }
 
+  // Source unique des statuts (lib/dossiersStatuts.ts).
   const getStatutBadge = (statut: string): { cls: string; label: string } => {
-    const variants: Record<string, { cls: string; label: string }> = {
-      'en_cours':  { cls: 'badge primary', label: 'En cours' },
-      'en_attente':{ cls: 'badge warning', label: 'En attente' },
-      'termine':   { cls: 'badge success', label: 'Terminé' },
-      'archive':   { cls: 'badge neutral', label: 'Archivé' },
-    }
-    return variants[statut] || { cls: 'badge neutral', label: statut }
+    const info = infoStatutDossier(statut)
+    return { cls: info.className, label: info.label }
   }
 
   const getBorderColor = (statut: string, joursRestants?: number) => {

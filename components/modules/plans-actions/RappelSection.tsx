@@ -4,30 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
-import {
-  Bell,
-  BellRing,
-  Clock,
-  Calendar,
-  Send,
-  X,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  History,
-  Mail,
-  Phone,
-  MessageSquare,
-  FileText,
-  Trash2,
-  Eye,
-  Download,
-  Users,
-  UserCheck,
-  Settings,
-  Sparkles,
-  Loader2,
-} from 'lucide-react';
+import { Bell, BellRing, Clock, Send, X, AlertTriangle, History, Mail, Phone, MessageSquare, FileText, Trash2, Download, Users, UserCheck, Settings, Sparkles, Loader2 } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { rappelEngine, RappelProgramme, RappelManuel, CanalRappel } from '@/lib/rappelEngine';

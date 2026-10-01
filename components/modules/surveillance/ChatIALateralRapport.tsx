@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Bot, User, Send, X, Brain, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { aiClient } from '@/lib/ia/aiClient'
+import { Markdown } from '@/components/ui/markdown'
 
 type RapportSections = {
   resume: string; introduction: string; methodologie: string; equipe: string;
@@ -211,7 +212,7 @@ export function ChatIALateralRapport({ sections, rapportType, onSectionsUpdate, 
                 ? 'bg-blue-600 text-white rounded-br-sm'
                 : 'bg-blue-50 text-blue-800 rounded-bl-sm'
             }`}>
-              {m.content}
+              {m.role === 'user' ? m.content : <Markdown texte={m.content} />}
             </div>
             {m.role === 'user' && (
               <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">

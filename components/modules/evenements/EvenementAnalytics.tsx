@@ -4,13 +4,9 @@
 
 'use client'
 
-import React, { useMemo, useState, useEffect, useCallback } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
-import {
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
-  BarChart3, PieChart, Activity, Target, Calendar, Zap, Shield,
-  Loader2, Sparkles
-} from 'lucide-react'
+import { TrendingUp, AlertTriangle, CheckCircle2, PieChart, Activity, Target, Zap, Shield, Loader2, Sparkles } from 'lucide-react'
 import { BarChart } from '@/components/ui/charts/BarChart'
 import { PieChart as PieChartComponent } from '@/components/ui/charts/PieChart'
 import { computeSaisonStats } from '@/lib/risque/predictions'

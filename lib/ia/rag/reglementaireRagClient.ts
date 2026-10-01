@@ -5,11 +5,7 @@
 // client ; les routes serveur doivent utiliser reglementaireRag + Supabase).
 
 import { useAppStore } from '@/lib/store'
-import {
-  recupererExtraitsAvecDocs,
-  construireContexteAvecDocs,
-  formaterContexteReglementaire,
-} from '@/lib/ia/rag/reglementaireRag'
+import { recupererExtraitsAvecDocs, construireContexteAvecDocs } from '@/lib/ia/rag/reglementaireRag'
 
 export { formaterContexteReglementaire } from '@/lib/ia/rag/reglementaireRag'
 export type { TypeEntiteRag, ExtraitCite, RecuperationParams } from '@/lib/ia/rag/reglementaireRag'

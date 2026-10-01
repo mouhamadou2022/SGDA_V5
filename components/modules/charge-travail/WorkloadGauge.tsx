@@ -8,7 +8,7 @@
 
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
-import { AlertTriangle, CheckCircle2, TrendingUp, Clock, Calendar, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Calendar, Users } from 'lucide-react'
 
 interface WorkloadGaugeProps {
   inspecteurId: string;

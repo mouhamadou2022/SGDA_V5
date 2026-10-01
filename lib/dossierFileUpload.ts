@@ -1,7 +1,7 @@
 'use client';
 
 import { supabase } from './supabase';
-import { uploadFile, deleteFile } from './datastore';
+import { uploadFile } from './datastore'
 
 const BUCKET = 'documents';
 
