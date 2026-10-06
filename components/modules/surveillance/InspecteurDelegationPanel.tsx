@@ -4,7 +4,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CheckCircle2, Send, ChevronRight, Shield, FileSignature, Loader2, Info } from 'lucide-react'
+import { CheckCircle2, Send, ChevronRight, Shield, FileSignature, Loader2, Info, Siren } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 import { useAppStore, Delegation } from '@/lib/store';
 import { getDomaineLabel } from '@/lib/domaines';
@@ -105,6 +105,31 @@ function DelegationTaskCard({
   const user             = useAppStore(s => s.user);
   const router           = useRouter();
   const [isTransmitting, setIsTransmitting] = useState(false);
+  const [signale, setSignale] = useState(false);
+
+  // R4 — le délégué signale au chef un problème critique de son domaine.
+  // Alerte exigeante : le chef doit accuser réception (escalade sinon).
+  const handleSignaler = () => {
+    const st = useAppStore.getState();
+    const chauds = st.ecarts.filter(e =>
+      e.surveillance_id === surveillanceId &&
+      e.domaine === delegation.domaine &&
+      e.statut !== 'cloture' &&
+      (e.niveau_risque === 'critique' || e.niveau_risque === 'eleve'));
+    const niveau = chauds.some(e => e.niveau_risque === 'critique') ? 'critique' : 'eleve';
+    const signataire = `${user?.prenom || ''} ${user?.nom || ''}`.trim() || 'Délégué';
+    addNotification({
+      user_id: delegation.chef_id,
+      type: niveau === 'critique' ? 'danger' : 'warning',
+      title: `Signalement ${niveau} — ${delegation.domaine}`,
+      message: `${signataire} signale ${chauds.length} écart(s) ${niveau}(s) sur le domaine ${delegation.domaine} — mesures à prendre (accusé de réception requis).`,
+      link: `/surveillance/${surveillanceId}/ecarts`,
+      canal: 'in_app',
+      exige_accuse: true,
+      data: { niveau, domaine: delegation.domaine, surveillance_id: surveillanceId, delegation_id: delegation.id },
+    });
+    setSignale(true);
+  };
 
   const next = getNextAction(delegation);
   const isSGS = delegation.domaine === 'SGS';
@@ -209,6 +234,17 @@ function DelegationTaskCard({
           )}
           {isTransmitting ? 'Envoi...' : next.label}
         </button>
+        {!isTransmis && (
+          <button
+            onClick={handleSignaler}
+            disabled={signale}
+            className="btn btn-sm btn-ghost gap-1 text-[11px] flex-shrink-0"
+            title="Signaler un problème critique au chef (accusé de réception requis)"
+          >
+            <Siren className="w-3.5 h-3.5" />
+            {signale ? 'Signalé ✓' : 'Signaler au chef'}
+          </button>
+        )}
       </div>
 
       {isSGS && currentOrder < 2 && (

@@ -13,10 +13,11 @@
 // - C4 UNIFIÉ (logarithmique + linéaire)
 // ============================================================
 
-import { Aerodrome, ProfilRisque, Ecart } from './store'
+import type { Aerodrome, ProfilRisque, Ecart } from './store'
 
 // Imports depuis les sous-modules pour éviter les duplications et la dépendance circulaire
 import { computeProbabilityLevel, computeGravityLevel, getMatrixCell, getRiskLevelFromCell, getRiskLevelFromCell5, getCellColor, getOACIValue, getRiskLevelVariant, getRiskLevelBgColor, getRiskLevelClass, getRiskLevelColor, getRiskLevelBgVariant, getRiskLevelBorderVariant } from './risque/matrix'
+import { DEFAULT_WEIGHTS } from './ia/weightController'
 import { computeBaseFrequency, computeMultipliers, computeFinalFrequency as computeFinalFrequencyObj, suggestMissionType, applyMultipliers } from './risque/frequency'
 import { computeIncidentPredictions as _computeIncidentPredictions } from './risque/predictions'
 import { detectAllTriggers, computeTriggersImpact } from './risque/triggers'
@@ -244,8 +245,8 @@ export interface ChangePoint {
 
 export const RISK_LEVELS = {
   FAIBLE: { min: 80, max: 100, label: 'Faible', color: 'success', frequency: 1 },
-  MOYEN: { min: 60, max: 79, label: 'Moyen', color: 'primary', frequency: 2 },
-  ELEVE: { min: 30, max: 59, label: 'Élevé', color: 'warning', frequency: 4 },
+  MOYEN: { min: 60, max: 79, label: 'Moyen', color: 'moyen', frequency: 2 },
+  ELEVE: { min: 30, max: 59, label: 'Élevé', color: 'eleve', frequency: 4 },
   CRITIQUE: { min: 0, max: 29, label: 'Critique', color: 'danger', frequency: 12 },
 } as const;
 
@@ -355,6 +356,10 @@ export function calculateC1(
  * Calcule le score C2 (Efficacité du traitement des PAC)
  * @returns 100 = tous les écarts traités à temps (parfait), 0 = tous en retard (critique)
  */
+/**
+ * @deprecated Chemin legacy — préférer `calculateC2FromEcarts` + `computeProfilScore`
+ * (convergence store/cron). Conservé pour compatibilité (tests).
+ */
 export function calculateC2(ecartsClotures: Array<{ created_at: string; cloture_le: string; delai_regularisation: string }>): number {
   if (ecartsClotures.length === 0) return 100; // Pas d'écarts = parfait par défaut
   let totalRatio = 0;
@@ -388,6 +393,10 @@ export function calculateC3(surveillances: Array<{ score: number; date: string }
   return Math.round(total / poidsTotal);
 }
 
+/**
+ * @deprecated Chemin legacy — préférer `calculateC4FromEcarts` + `computeProfilScore`
+ * (convergence store/cron). Conservé pour compatibilité (tests).
+ */
 export function calculateC4(ecartsActifs: Array<{ niveau: string }>, seuilMax: number = 50): number {
   if (ecartsActifs.length === 0) return 100;
   let charge = 0;
@@ -456,7 +465,8 @@ export function calculateGlobalScore(
   weights?: Record<string, number>,
   excludeC1?: boolean
 ): number {
-  const w = weights ?? { c1: 20, c2: 25, c3: 20, c4: 20, c5: 15 }
+  // Poids par défaut centralisés (ne jamais hardcoder ici — cf. AGENTS.md).
+  const w = weights ?? DEFAULT_WEIGHTS
   if (excludeC1) {
     const total = (w.c2 ?? 25) + (w.c3 ?? 20) + (w.c4 ?? 20) + (w.c5 ?? 15)
     return Math.round(
@@ -466,12 +476,16 @@ export function calculateGlobalScore(
       (criteria.c5 ?? 50) * (w.c5 ?? 15) / total
     )
   }
+  // Division par la SOMME des poids (pas 100 fixe) : des poids appris non
+  // re-normalisés (somme 99/101 après Math.round) ne doivent jamais gonfler
+  // ni écraser le score — comme la branche excludeC1 le fait déjà.
+  const total = ((w.c1 ?? 20) + (w.c2 ?? 25) + (w.c3 ?? 20) + (w.c4 ?? 20) + (w.c5 ?? 15)) || 100
   return Math.round(
-    criteria.c1 * (w.c1 ?? 20) / 100 +
-    criteria.c2 * (w.c2 ?? 25) / 100 +
-    criteria.c3 * (w.c3 ?? 20) / 100 +
-    criteria.c4 * (w.c4 ?? 20) / 100 +
-    criteria.c5 * (w.c5 ?? 15) / 100
+    criteria.c1 * (w.c1 ?? 20) / total +
+    criteria.c2 * (w.c2 ?? 25) / total +
+    criteria.c3 * (w.c3 ?? 20) / total +
+    criteria.c4 * (w.c4 ?? 20) / total +
+    criteria.c5 * (w.c5 ?? 15) / total
   );
 }
 
@@ -1593,6 +1607,11 @@ export function calculateC4FromEcarts(ecarts: Ecart[], aerodromeId?: string): nu
   return Math.max(0, 100 - Math.min(100, (scorePenalite / 50) * 100));
 }
 
+/**
+ * @deprecated Chemin legacy (recalcule sans `weights` ni `excludeC1`) —
+ * préférer `computeProfilScore` (convergence store/cron). Conservé pour
+ * compatibilité (tests) — ne pas utiliser dans du nouveau code.
+ */
 export function mettreAJourProfilRisque(
   profilExistant: ProfilRisque | null,
   ecarts: Ecart[],

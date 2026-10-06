@@ -218,6 +218,8 @@ Génère un JSON avec cette structure exacte:
         temperature: 0.2,
         maxTokens: 8000,
         responseFormat: 'json_object',
+        // Tâche dure (génération structurée PAOE) : réflexion rentable.
+        think: true,
       },
       {
         questions: [

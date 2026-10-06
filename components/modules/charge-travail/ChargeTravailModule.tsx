@@ -179,7 +179,9 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
         if (!t.titre.toLowerCase().includes(term) && !t.description.toLowerCase().includes(term)) return false;
       }
       const d = new Date(t.date_echeance);
-      if (d < now || d > cutoff) return false;
+      // Échéances passées INCLUSES : ce sont les tâches en souffrance (sinon
+      // la section « En retard » et son KPI restaient structurellement vides).
+      if (d > cutoff) return false;
       return true;
     });
   }, [toutesTaches, userId, filtersMC, searchMC, periodeMC]);
@@ -212,7 +214,8 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
     fin.setDate(fin.getDate() + periode);
     return toutesTaches.filter(t => {
       const d = new Date(t.date_echeance);
-      if (d < debut || d > fin) return false;
+      // Idem Ma Charge : le passé = en souffrance, jamais exclu.
+      if (d > fin) return false;
       if (filtersEq.inspecteur !== 'tous' && t.lien_id !== filtersEq.inspecteur) return false;
       if (filtersEq.type      !== 'tous' && t.type     !== filtersEq.type)      return false;
       if (filtersEq.priorite  !== 'tous' && t.priorite !== filtersEq.priorite)  return false;

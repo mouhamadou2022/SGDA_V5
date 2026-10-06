@@ -2,10 +2,11 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { AlertTriangle, FileText, Calendar, Clock, MapPin, Plane, Users, Save, X, Upload, AlertCircle, Flame, AlertOctagon, Info, Sparkles, Wand2, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, FileText, Calendar, Clock, MapPin, Plane, Users, Save, X, Upload, AlertCircle, Flame, Sparkles, Wand2, CheckCircle2 } from 'lucide-react'
 import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { TYPES_EVENEMENT } from '@/lib/config'
 import { evenementUtils } from '@/lib/evenementUtils'
+import { veillerEvenement } from '@/lib/ia/watchdogEvaluation'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import type { RiskAnalysisResult } from '@/lib/ia/agents/riskAgent'
 import { useFormProgress } from '@/hooks/useFormProgress'
@@ -19,13 +20,6 @@ const selectStyle = {
 }
 const monoBadge = "inline-flex items-center px-2 py-0.5 rounded-md bg-role-primary-soft text-role-primary text-xs font-mono font-semibold"
 const labelClass = "filter-label text-role-primary text-xs font-semibold uppercase tracking-wide"
-
-const GRAVITE_BADGES: Record<string, string> = {
-  critique: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-danger animate-pulse',
-  eleve:    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
-  moyen:    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-warning',
-  faible:   'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white bg-slate-400',
-}
 
 const GRAVITE_WEIGHTS = {
   critique: { valeur: 5, delaiNotification: 24, niveau: 'critique' },
@@ -165,16 +159,6 @@ export function EvenementForm({
     return Object.keys(newErrors).length === 0
   }
 
-  const getGraviteIcon = () => {
-    switch (gravite) {
-      case 'critique': return <Flame className="w-5 h-5 text-danger" />
-      case 'eleve':    return <AlertOctagon className="w-5 h-5 text-warning" />
-      case 'moyen':    return <AlertCircle className="w-5 h-5 text-warning" />
-      default:         return <Info className="w-5 h-5 text-role-primary" />
-    }
-  }
-
-  const getGraviteBadgeCls = (): string => GRAVITE_BADGES[gravite] || GRAVITE_BADGES.faible
 
   const toggleService = (service: string) => {
     setFormData(prev => ({
@@ -716,6 +700,37 @@ export function EvenementForm({
             <span>Événement critique - Notification requise dans les 24h</span>
           </div>
         )}
+
+        {/* Second regard AERORISQ : gravité, services, doublon (non bloquant) */}
+        {(() => {
+          if (mode !== 'declaration') return null;
+          const alertes = veillerEvenement({
+            type: formData.type,
+            gravite,
+            description: formData.description,
+            actions_immediates: formData.actions_immediates,
+            services_alertes: formData.services_alertes,
+            blesses_mortels: formData.blesses_mortels,
+            blesses_graves: formData.blesses_graves,
+            dommages_desc: formData.dommages_desc,
+            date: formData.date,
+            recents: (evenements || [])
+              .filter(e => e.aerodrome_id === aerodromeId && e.id !== evenementId)
+              .map(e => ({ type: e.type, description: e.description, date: e.date })),
+          });
+          if (alertes.length === 0) return null;
+          return (
+            <div className="rounded-xl border border-warning/30 bg-warning/5 p-2.5 space-y-1 mt-4">
+              <p className="text-xs font-semibold">Second regard AERORISQ — avant déclaration :</p>
+              {alertes.map((a, i) => (
+                <div key={i} className="flex items-start gap-1.5">
+                  <AlertCircle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'danger' ? 'text-danger' : a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
+                  <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Boutons d'action */}
         <div className="form-actions">

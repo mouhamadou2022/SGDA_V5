@@ -442,7 +442,7 @@ Résumé: ${request.resume ?? 'Non fourni'}`,
     chapitres_modifies = aiImpact.chapitres ?? []
 
     const formations_suggerees = await this.generateFormationSuggestions(request, impact, documentType)
-    const inspecteurs_concernes = await this.identifyAffectedInspectors(documentType, impact)
+    const inspecteurs_concernes = await this.identifyAffectedInspectors(documentType, impact, request.documentId)
     const DELAIS_CONFORMITE: Record<string, number> = { majeur: 30, modere: 60, mineur: 90, aucun: 90 }
     const delai_mise_conformite = DELAIS_CONFORMITE[impact as string] ?? 90
 
@@ -541,15 +541,35 @@ Résumé: ${request.resume ?? 'Non fourni'}`,
     return mapping[documentType] || 'Général'
   }
 
-  private async identifyAffectedInspectors(documentType: string, impact: string): Promise<string[]> {
+  private async identifyAffectedInspectors(documentType: string, impact: string, documentId?: string): Promise<string[]> {
     const store = useAppStore.getState()
     const inspecteurs = store.utilisateurs?.filter(u => u.role === 'inspector') || []
-    
+
+    if (inspecteurs.length === 0) return []
     if (impact === 'majeur') {
       return inspecteurs.map(i => i.id)
     }
-    
-    return inspecteurs.slice(0, 2).map(i => i.id)
+
+    // Ciblage par données des autres modules (compétences, historique
+    // formations, domaines du document) au lieu des N premiers de la liste.
+    const { ciblerInspecteurs } = await import('@/lib/ia/ciblageInspecteurs')
+    const kitDoc = documentId
+      ? (store.kitDocuments || []).find(d => d.id === documentId)
+      : undefined
+    const res = ciblerInspecteurs({
+      inspecteurs: inspecteurs.map(u => ({ id: u.id, competencesDeclaratives: u.competences })),
+      competences: store.competences || [],
+      formations: store.formations || [],
+      domainesDoc: kitDoc?.domaines || [],
+      impact,
+    })
+    const top = Object.entries(res.scores)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([id, score]) => `${id.slice(0, 8)}:${score}`)
+      .join(', ')
+    console.log(`[registreAgent] ciblage formation (${kitDoc?.nom || documentType}) : ${res.ids.length} inspecteurs — ${top}`)
+    return res.ids
   }
 
   // ============================================================

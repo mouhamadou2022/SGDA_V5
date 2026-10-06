@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { getCellColor, getRiskLevelBgColor } from '@/lib/risque'
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
+import { calculerDelaisEcart } from '@/lib/flux';
 import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, FileText, Eye, MapPin, Target, Shield, Sparkles, Merge, Archive, ArrowUp, ArrowDown, X, FileSignature, ClipboardList } from 'lucide-react'
 import { registreUtils } from '@/lib/registreUtils';
 
@@ -324,8 +325,7 @@ export default function SurveillanceReconciliation({ surveillanceId, onBack }: R
           libelle: item.description || `Non-conformité détectée : ${item.description}`,
           niveau_risque: item.resultat === 'NS' ? 'critique' : 'moyen',
           statut: 'pac_attendu',
-          delai_pac: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-          delai_regularisation: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString(),
+          ...calculerDelaisEcart(item.resultat === 'NS' ? 'critique' : 'moyen'),
           inspecteur_ref_id: user?.id || '',
           fusion_depuis_id: fusionDepuisId || undefined,
           created_at: now,

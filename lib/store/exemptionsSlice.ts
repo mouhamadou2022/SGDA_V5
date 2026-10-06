@@ -8,6 +8,15 @@
 
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
+import { storeEvents } from './eventBus'
+
+/**
+ * Clés d'exemption impactant le C3 (via calculateC3WithExemptions).
+ * Le recalcul lui-même écrit `dernier_recalcul_risque` /
+ * `dernier_score_c3_ajuste` via updateExemption : ces clés seules ne
+ * doivent JAMAIS redéclencher (garde anti-boucle).
+ */
+const CLES_RISQUE_EXEMPTION = ['statut', 'avis_final', 'mesures', 'domaines_concerne', 'date_fin_prevue']
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -137,6 +146,9 @@ export const createExemptionsSlice: StateCreator<AppStore, [], [], ExemptionSlic
       updated_at: new Date().toISOString(),
     } as Exemption
     set((state) => ({ exemptions: [...state.exemptions, nouvelle] }))
+    if ((nouvelle as Exemption).aerodrome_id) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: (nouvelle as Exemption).aerodrome_id as string })
+    }
     // Sync serveur best-effort (Phase 3) : le local reste la source de
     // vérité immédiate — un échec réseau ne bloque jamais l'UI.
     import('../datastore').then(({ createExemption }) => {
@@ -147,9 +159,14 @@ export const createExemptionsSlice: StateCreator<AppStore, [], [], ExemptionSlic
   },
 
   updateExemption: (id, data) => {
+    const avant = get().exemptions.find(e => e.id === id)
     set((state) => ({
       exemptions: state.exemptions.map(e => e.id === id ? { ...e, ...data, updated_at: new Date().toISOString() } : e)
     }))
+    // Dynamisme C3 — sauf écritures de traçabilité du recalcul lui-même.
+    if (avant?.aerodrome_id && Object.keys(data || {}).some(k => CLES_RISQUE_EXEMPTION.includes(k))) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: avant.aerodrome_id })
+    }
     import('../datastore').then(({ updateExemption }) => {
       updateExemption(id, data).then(r => {
         if (r.error) console.error('[exemptions] Sync mise à jour échouée:', r.error)
@@ -158,9 +175,13 @@ export const createExemptionsSlice: StateCreator<AppStore, [], [], ExemptionSlic
   },
 
   deleteExemption: (id) => {
+    const avant = get().exemptions.find(e => e.id === id)
     set((state) => ({
       exemptions: state.exemptions.filter(e => e.id !== id)
     }))
+    if (avant?.aerodrome_id) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: avant.aerodrome_id })
+    }
     import('../datastore').then(({ deleteExemption }) => {
       deleteExemption(id).then(r => {
         if (r.error) console.error('[exemptions] Sync suppression échouée:', r.error)
@@ -191,29 +212,42 @@ export const createExemptionsSlice: StateCreator<AppStore, [], [], ExemptionSlic
     return exemption?.mesures || [];
   },
 
-  updateMesureAtténuation: (exemptionId, mesureId, data) => set((state) => ({
-    exemptions: state.exemptions.map(e =>
-      e.id === exemptionId
-        ? {
-            ...e,
-            mesures: e.mesures.map(m => m.id === mesureId ? { ...m, ...data } : m),
-            updated_at: new Date().toISOString()
-          }
-        : e
-    )
-  })),
+  updateMesureAtténuation: (exemptionId, mesureId, data) => {
+    const avant = get().exemptions.find(e => e.id === exemptionId)
+    set((state) => ({
+      exemptions: state.exemptions.map(e =>
+        e.id === exemptionId
+          ? {
+              ...e,
+              mesures: e.mesures.map(m => m.id === mesureId ? { ...m, ...data } : m),
+              updated_at: new Date().toISOString()
+            }
+          : e
+      )
+    }))
+    // Efficacité des mesures → C3 : recalcul via bus.
+    if (avant?.aerodrome_id) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: avant.aerodrome_id })
+    }
+  },
 
-  ajouterMesureAtténuation: (exemptionId, mesure) => set((state) => ({
-    exemptions: state.exemptions.map(e =>
-      e.id === exemptionId
-        ? {
-            ...e,
-            mesures: [...e.mesures, { ...mesure, id: crypto.randomUUID() }],
-            updated_at: new Date().toISOString()
-          }
-        : e
-    )
-  })),
+  ajouterMesureAtténuation: (exemptionId, mesure) => {
+    const avant = get().exemptions.find(e => e.id === exemptionId)
+    set((state) => ({
+      exemptions: state.exemptions.map(e =>
+        e.id === exemptionId
+          ? {
+              ...e,
+              mesures: [...e.mesures, { ...mesure, id: crypto.randomUUID() }],
+              updated_at: new Date().toISOString()
+            }
+          : e
+      )
+    }))
+    if (avant?.aerodrome_id) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: avant.aerodrome_id })
+    }
+  },
 
   assignerEquipeExemption: (exemptionId, assignation) => {
     const ex = get().exemptions.find(e => e.id === exemptionId)

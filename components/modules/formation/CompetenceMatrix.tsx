@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, normaliserDomaineCompetence, normaliserNiveauCompetence } from '@/lib/store'
 import { DataTable } from '@/components/ui/DataTable'
 
 const selectStyle = {
@@ -35,8 +35,11 @@ export function CompetenceMatrix({ userRole }: Props) {
     inspecteurs.filter(i => !i.deleted_at).forEach(ins => {
       map[ins.id] = {}
       ;(ins.competences || []).forEach(c => {
-        domainesSet.add(c.domaine)
-        map[ins.id][c.domaine] = typeof c.niveau === 'number' ? c.niveau : parseInt(c.niveau as any) || 1
+        const domaine = normaliserDomaineCompetence(c.domaine)
+        if (!domaine) return
+        domainesSet.add(domaine)
+        const niveau = normaliserNiveauCompetence(c.niveau)
+        map[ins.id][domaine] = Math.max(map[ins.id][domaine] || 0, niveau)
       })
     })
     return { domaines: Array.from(domainesSet).sort(), niveauxParInsp: map }

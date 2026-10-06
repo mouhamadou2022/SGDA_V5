@@ -27,6 +27,25 @@ import { getSgsMaturiteLabel } from '@/lib/utils'
 const SELECTION_KEY = 'sgda_benchmark_selection'
 const OUTCOME_KEY = 'sgda_benchmark_outcome'
 
+/**
+ * Gardes statistiques (M2) : en dessous de ces seuils, le « meilleur modèle »
+ * est un tirage au sort — le benchmark peut s'afficher mais ne doit PAS
+ * piloter la sélection automatique.
+ */
+export const MIN_BENCHMARK_SAMPLES = 10
+export const MIN_AUTO_SELECT_SAMPLES = 50
+export const MIN_TEST_SIZE_FOR_AUTO_SELECT = 10
+
+/** Vrai si le dataset/test sont suffisants pour une sélection auto fiable. */
+export function isSelectionReliable(datasetSize: number, testSize: number): boolean {
+  return datasetSize >= MIN_AUTO_SELECT_SAMPLES && testSize >= MIN_TEST_SIZE_FOR_AUTO_SELECT
+}
+
+/** Message d'avertissement affiché quand la sélection auto est bloquée. */
+export function selectionBlockedMessage(datasetSize: number, testSize: number): string {
+  return `Sélection automatique bloquée : ${datasetSize} échantillons (min ${MIN_AUTO_SELECT_SAMPLES}) / test ${testSize} (min ${MIN_TEST_SIZE_FOR_AUTO_SELECT}). Métriques affichées à titre indicatif — restez sur le modèle par défaut.`
+}
+
 /** Instancie les 5 modèles avec les hyperparamètres fournis (défauts sinon). */
 export function creerModelesBenchmark(config?: BenchmarkConfig): ModeleBenchmark[] {
   const c = config ? validerBenchmarkConfig(config) : (lireBenchmarkConfig() ?? DEFAULT_BENCHMARK_CONFIG)
@@ -196,6 +215,12 @@ export async function runBenchmark(
     bestModelId: ranked[0]?.modelId ?? null,
     executedAt: new Date().toISOString(),
     datasetSize: samples.length,
+    trainSize: train.length,
+    testSize: test.length,
+    // La décision finale (blocage auto-sélection) est prise par le store,
+    // qui connaît le modèle actif courant. Par défaut : sélection autorisée.
+    autoSelected: true,
+    selectionBlockedReason: null,
   }
   persistOutcome(outcome)
   return outcome
@@ -235,6 +260,17 @@ export function lireDernierOutcome(): BenchmarkOutcome | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = localStorage.getItem(OUTCOME_KEY)
-    return raw ? (JSON.parse(raw) as BenchmarkOutcome) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<BenchmarkOutcome>
+    // Rétro-compat : outcomes persistés avant la garde statistique (M2)
+    const testSize = parsed.testSize ?? Math.round((parsed.datasetSize ?? 0) * 0.25)
+    const trainSize = parsed.trainSize ?? ((parsed.datasetSize ?? 0) - testSize)
+    return {
+      ...(parsed as BenchmarkOutcome),
+      trainSize,
+      testSize,
+      autoSelected: parsed.autoSelected ?? true,
+      selectionBlockedReason: parsed.selectionBlockedReason ?? null,
+    }
   } catch { return null }
 }

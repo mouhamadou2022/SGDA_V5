@@ -5,7 +5,7 @@ import { advancedModels } from './models'
 import type { ModelTrainingConfig, ModelPerformanceMetrics, RandomForestModelStored, RiskGraphStored, TrainingHistoryEntry, TrainingStats } from './models'
 import type { AppStore, ProfilRisque } from '../store'
 import type { PropagationResult, recommendActionsFromGraph } from '../risque/graphNetwork'
-import { runBenchmark, persisterSelection, lireSelection, toBenchmarkSamples, MODELE_LABELS } from '../ia/benchmark'
+import { runBenchmark, persisterSelection, lireSelection, toBenchmarkSamples, MODELE_LABELS, isSelectionReliable, selectionBlockedMessage } from '../ia/benchmark'
 import {
   DEFAULT_BENCHMARK_CONFIG,
   lireBenchmarkConfig,
@@ -52,7 +52,10 @@ export interface AdvancedModelsSlice {
   // Actions - Random Forest
   trainRandomForestModel: (nTrees?: number, maxDepth?: number) => void
   predictRisk: (profil: ProfilRisque) => { prediction: string; confidence: number } | null
-  addTrainingSample: (profil: ProfilRisque, actualLevel?: 'critique' | 'eleve' | 'moyen' | 'faible') => void
+  addTrainingSample: (profil: ProfilRisque, actualLevel?: 'critique' | 'eleve' | 'moyen' | 'faible', surveillanceId?: string) => void
+  /** Hydrate le cache local IDB depuis ml_samples central (dédup surveillance_id). */
+  hydrateMlSamplesFromCentral: () => Promise<number>
+  isHydratingMlSamples: boolean
 
   // Actions - Graph Network
   updateRiskGraph: (params: {
@@ -127,6 +130,29 @@ export const createAdvancedModelsSlice = (
   activeModelName: lireSelection() ? MODELE_LABELS[lireSelection()!] : null,
   activeModelTrainedAt: null,
   benchmarkConfig: lireBenchmarkConfig() ?? DEFAULT_BENCHMARK_CONFIG,
+  isHydratingMlSamples: false,
+
+  hydrateMlSamplesFromCentral: async () => {
+    // Best-effort, jamais bloquant : un poste sans réseau garde son cache local.
+    if (typeof window === 'undefined') return 0
+    if (get().isHydratingMlSamples) return 0
+    set({ isHydratingMlSamples: true })
+    try {
+      const res = await fetch('/api/ia/ml-samples?select=samples&limit=1000')
+      if (!res.ok) return 0
+      const data = await res.json()
+      const samples = Array.isArray(data?.samples) ? data.samples : []
+      const added = await advancedModels.hydrateFromCentral(samples)
+      if (added > 0) {
+        set({ rfSamplesCount: advancedModels.getSamplesCount() })
+      }
+      return added
+    } catch {
+      return 0
+    } finally {
+      set({ isHydratingMlSamples: false })
+    }
+  },
 
   runBenchmarkModels: async () => {
     const samples = advancedModels.getSamples()
@@ -134,9 +160,22 @@ export const createAdvancedModelsSlice = (
     const config = get().benchmarkConfig
     set({ isBenchmarking: true })
     try {
-      const outcome = await runBenchmark(toBenchmarkSamples(samples), { config })
+      const rawOutcome = await runBenchmark(toBenchmarkSamples(samples), { config })
+      // Garde statistique (M2) : test microscopique → pas de sélection auto.
+      // Le benchmark s'affiche (transparence) mais ne pilote pas les prédictions.
+      if (!isSelectionReliable(rawOutcome.datasetSize, rawOutcome.testSize)) {
+        const outcome: BenchmarkOutcome = {
+          ...rawOutcome,
+          autoSelected: false,
+          selectionBlockedReason: selectionBlockedMessage(rawOutcome.datasetSize, rawOutcome.testSize),
+        }
+        set({ benchmarkOutcome: outcome, isBenchmarking: false })
+        return outcome
+      }
+      const outcome: BenchmarkOutcome = { ...rawOutcome, autoSelected: true, selectionBlockedReason: null }
       set({ benchmarkOutcome: outcome, isBenchmarking: false })
       // Sélection automatique du meilleur modèle + entraînement sur tout le dataset
+      // (métriques affichées restent celles du holdout — cf. outcome.testSize).
       if (outcome.bestModelId) {
         await advancedModels.trainActiveModel(outcome.bestModelId, config)
         persisterSelection(outcome.bestModelId)
@@ -211,8 +250,8 @@ export const createAdvancedModelsSlice = (
     return advancedModels.predict(profil)
   },
 
-  addTrainingSample: (profil, actualLevel) => {
-    advancedModels.addTrainingSample(profil, actualLevel)
+  addTrainingSample: (profil, actualLevel, surveillanceId) => {
+    advancedModels.addTrainingSample(profil, actualLevel, surveillanceId)
     set({ rfSamplesCount: advancedModels.getSamplesCount() })
   },
 

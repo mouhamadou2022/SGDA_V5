@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
+import { veillerSoumissionPAC } from '@/lib/ia/watchdogEvaluation';
 import { Plus, Upload, X, Send, AlertCircle, Calendar, User, Building2, CalendarDays, HelpCircle } from 'lucide-react'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent"
@@ -369,6 +370,29 @@ export function SoumissionPACForm({
             </div>
           )}
         </div>
+
+        {/* Second regard AERORISQ : plan hors-sujet / famélique / vague (non bloquant) */}
+        {(() => {
+          if (!ecart) return null;
+          const alertes = veillerSoumissionPAC({
+            libelleEcart: ecart.libelle || '',
+            domaine: (ecart as { domaine?: string }).domaine,
+            niveauRisque: ecart.niveau_risque || '',
+            actions: lignes.map(l => ({ description: l.action, responsable: l.responsable, date_prevue: l.date_fin })),
+          });
+          if (alertes.length === 0) return null;
+          return (
+            <div className="rounded-xl border border-warning/30 bg-warning/5 p-2.5 space-y-1">
+              <p className="text-xs font-semibold">Second regard AERORISQ — avant envoi :</p>
+              {alertes.map((a, i) => (
+                <div key={i} className="flex items-start gap-1.5">
+                  <AlertCircle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
+                  <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* ALERTE */}
         {progression < 100 && lignes.some(l => l.action.trim() || l.responsable.trim() || l.date_debut || l.date_fin) && (

@@ -1098,6 +1098,9 @@ CREATE TABLE IF NOT EXISTS registre_entries (
 CREATE INDEX IF NOT EXISTS idx_reg_entries_type ON registre_entries(type);
 CREATE INDEX IF NOT EXISTS idx_reg_entries_aerodrome ON registre_entries(aerodrome_id);
 CREATE INDEX IF NOT EXISTS idx_reg_entries_date ON registre_entries(date_entree DESC);
+-- 2026-10-06 — Références uniques (registre réglementaire) : l'ancien compteur
+-- length+1 dupliquait après suppression/accès concurrents. Table vide vérifiée.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reg_entries_reference_unique ON registre_entries(reference);
 
 -- Migrations idempotentes : colonnes ajoutées APRÈS la création de la table
 -- (sinon CREATE TABLE IF NOT EXISTS ne les applique pas aux bases existantes)
@@ -1468,6 +1471,19 @@ CREATE POLICY "documents_delete" ON storage.objects
   FOR DELETE USING (
     bucket_id = 'documents'
     AND auth.role() = 'authenticated'
+  );
+
+-- 2026-10-05 — Upload Kit sans session Supabase : l'app travaille le plus
+-- souvent en anon (pas de session Auth ouverte) → l'INSERT échouait en
+-- « row-level security policy » et les docs étaient sauvés SANS fichier
+-- (illisibles pour l'IA, avec un faux « Document ajouté »).
+-- Le bucket 'documents' est déjà public en lecture et la clé anon est déjà
+-- dans le client : on autorise l'INSERT anonyme sur ce seul bucket.
+-- (UPDATE/DELETE restent réservés aux authentifiés.)
+DROP POLICY IF EXISTS "documents_insert_anon" ON storage.objects;
+CREATE POLICY "documents_insert_anon" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'documents'
   );
 
 -- ╔══════════════════════════════════════════════════════════╗
@@ -2203,6 +2219,12 @@ DO $$ BEGIN
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS services_alertes jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS statut         varchar(30) DEFAULT 'ouvert';
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS inspecteur_id  uuid;
+  -- 2026-10-05 — CHECK gravite aligné sur le code (4 niveaux :
+  -- critique/eleve/moyen/faible, cf. normaliserGravite — l'OACI 5 niveaux
+  -- ORANGE/JAUNE/GRIS/BLEU est déjà purgé partout côté code). L'ancien CHECK
+  -- rejetait 100 % des déclarations (table restée vide). Idempotent.
+  -- (Bloc DO dédié plus bas : certains éditeurs coupent mal les ALTER multiples.)
+  PERFORM 1;
   -- Étape événements : équipe d'instruction désignée une fois (chef pilote).
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS equipe_ids    jsonb DEFAULT '[]'::jsonb;
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS chef_id        uuid;
@@ -2219,6 +2241,25 @@ DO $$ BEGIN
   ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS created_by     uuid;
 END $$;
 
+-- 13.L2 CHECK gravite evenements_securite — bloc DO dédié (un seul ordre) :
+-- certains éditeurs coupent mal les ALTER multiples envoyés séparément.
+DO $$ BEGIN
+  ALTER TABLE evenements_securite DROP CONSTRAINT IF EXISTS evenements_securite_gravite_check;
+  ALTER TABLE evenements_securite ADD CONSTRAINT evenements_securite_gravite_check
+    CHECK (gravite IN ('critique', 'eleve', 'moyen', 'faible'));
+END $$;
+
+-- 13.L3 Indice OACI déclaré par l'exploitant (ex. 2A) : la gravité en est
+-- dérivée via la matrice, l'inspecteur valide/infirme dans son workflow.
+-- Justification obligatoire si indice renseigné (qualité de la déclaration).
+-- Risque résiduel après actions immédiates : strictement < initial.
+DO $$ BEGIN
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS cellule_oaci varchar(5);
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS cellule_justification text;
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS cellule_residuelle varchar(5);
+  ALTER TABLE evenements_securite ADD COLUMN IF NOT EXISTS cellule_residuelle_justification text;
+END $$;
+
 -- 13.M NOTIFICATIONS — colonnes manquantes
 DO $$ BEGIN
   ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type                 varchar(30);
@@ -2229,6 +2270,8 @@ DO $$ BEGIN
   ALTER TABLE notifications ADD COLUMN IF NOT EXISTS sent_at              timestamptz DEFAULT now();
   ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at              timestamptz;
   ALTER TABLE notifications ADD COLUMN IF NOT EXISTS data                 jsonb;
+  ALTER TABLE notifications ADD COLUMN IF NOT EXISTS exige_accuse        boolean DEFAULT false;
+  ALTER TABLE notifications ADD COLUMN IF NOT EXISTS accuse_reception    jsonb;
 END $$;
 
 -- 13.N CHECKLIST_ITEMS — colonnes manquantes
@@ -2919,8 +2962,31 @@ CREATE INDEX IF NOT EXISTS idx_ia_langage_clair_module  ON ia_langage_clair (mod
 CREATE INDEX IF NOT EXISTS idx_ia_langage_clair_created ON ia_langage_clair (created_at);
 CREATE INDEX IF NOT EXISTS idx_ia_training_logs_type    ON ia_training_logs (type, run_at);
 
--- NB : RLS non activé sur les tables ia_* (accès exclusif via service role,
--- identique à la migration d'origine 2026-08-04).
+-- 2026-10-06 — RLS sur les tables ia_*/ml_samples : sans RLS, la clé anon
+-- (publique, dans le client) permettait LECTURE + ÉCRITURE + SUPPRESSION —
+-- soit un empoisonnement du dataset d'entraînement (textes injectés dans les
+-- futurs few-shot/Modelfile) et un effacement silencieux. Correctif :
+-- RLS activée + SELECT public seul (le dashboard lit en anon) ; AUCUNE
+-- politique d'écriture → seules les routes/crons service role écrivent
+-- (service role contourne RLS). Toutes les écritures existantes passent déjà
+-- par service role : zéro changement de code requis.
+-- (Confidentialité : lecture toujours publique comme avant ; pour la restreindre
+-- aux authentifiés, il faudra basculer les lectures dashboard côté serveur.)
+DO $$ BEGIN
+  ALTER TABLE ia_langage_clair ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE ia_training_dataset ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE ia_training_logs ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE ml_samples ENABLE ROW LEVEL SECURITY;
+END $$;
+
+DROP POLICY IF EXISTS "ia_lecture_publique" ON ia_langage_clair;
+CREATE POLICY "ia_lecture_publique" ON ia_langage_clair FOR SELECT USING (true);
+DROP POLICY IF EXISTS "ia_lecture_publique" ON ia_training_dataset;
+CREATE POLICY "ia_lecture_publique" ON ia_training_dataset FOR SELECT USING (true);
+DROP POLICY IF EXISTS "ia_lecture_publique" ON ia_training_logs;
+CREATE POLICY "ia_lecture_publique" ON ia_training_logs FOR SELECT USING (true);
+DROP POLICY IF EXISTS "ia_lecture_publique" ON ml_samples;
+CREATE POLICY "ia_lecture_publique" ON ml_samples FOR SELECT USING (true);
 
 -- ============================================================
 -- SECTION 22 — INSPECTEUR VIRTUEL : SUIVI ML (2026-08-04)

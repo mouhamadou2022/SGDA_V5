@@ -6,7 +6,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { LayoutDashboard, Plane, ShieldCheck, CalendarDays, ClipboardList, BarChart3, FileSignature, AlertTriangle, Users, Search, Settings, Wrench, FileText, ChevronRight, Command, Sparkles, Rocket, AlertCircle, Download, Save, Printer, Moon, Maximize2, History, Loader2, Scale, GraduationCap, AlertOctagon } from 'lucide-react'
+import { LayoutDashboard, Plane, ShieldCheck, CalendarDays, ClipboardList, BarChart3, FileSignature, AlertTriangle, Users, Search, Settings, Wrench, FileText, ChevronRight, Command, Sparkles, Rocket, AlertCircle, Download, Save, Printer, Moon, Maximize2, History, Loader2, Scale, GraduationCap, AlertOctagon, MessageSquare, Brain, Cpu } from 'lucide-react'
 import {
   CommandDialog,
   CommandEmpty,
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/command'
 import { useAppStore } from '@/lib/store'
 import { Badge } from '@/components/ui/badge'
+import { moduleAutorise, typesRechercheAutorises } from '@/lib/config'
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
@@ -53,6 +54,8 @@ interface IaSuggestion {
   icon: React.ReactNode
   action: () => void
   confidence: number
+  /** Module cible : la suggestion est masquée si le rôle n'y a pas accès. */
+  module?: string
 }
 
 interface CommandPaletteProps {
@@ -81,8 +84,7 @@ const NAVIGATION_COMMANDS: Command[] = [
   { id: 'signatures', label: 'Signatures DG', icon: <FileSignature className="w-4 h-4" />, module: 'signatures', keywords: ['signer', 'sign'], badge: { label: 'DG', variant: 'primary' }, category: 'navigation' },
   { id: 'evenements', label: 'Événements', icon: <AlertTriangle className="w-4 h-4" />, module: 'evenements', keywords: ['incidents', 'accidents'], category: 'navigation' },
   { id: 'enquetes', label: 'Enquêtes', icon: <Search className="w-4 h-4" />, module: 'enquetes', keywords: ['surveys', 'questionnaires'], category: 'navigation' },
-  // Messagerie désactivée (module masqué) — réactiver en décommentant :
-  // { id: 'messagerie', label: 'Messagerie', icon: <MessageSquare className="w-4 h-4" />, module: 'messagerie', keywords: ['messages', 'chat'], category: 'navigation' },
+  { id: 'messagerie', label: 'Messagerie', icon: <MessageSquare className="w-4 h-4" />, module: 'messagerie', keywords: ['messages', 'chat'], category: 'navigation' },
   { id: 'utilisateurs', label: 'Utilisateurs', icon: <Users className="w-4 h-4" />, module: 'utilisateurs', keywords: ['users', 'comptes'], badge: { label: 'Admin', variant: 'danger' }, category: 'navigation' },
   { id: 'formation', label: 'Formations', icon: <GraduationCap className="w-4 h-4" />, module: 'formation', keywords: ['training', 'competences'], category: 'navigation' },
   { id: 'kit', label: 'Kit Inspecteur', icon: <Wrench className="w-4 h-4" />, module: 'kit', keywords: ['outils', 'templates'], category: 'navigation' },
@@ -90,6 +92,9 @@ const NAVIGATION_COMMANDS: Command[] = [
   { id: 'audit', label: "Journal d'audit", icon: <Settings className="w-4 h-4" />, module: 'audit', keywords: ['logs', 'historique'], badge: { label: 'Admin', variant: 'danger' }, category: 'navigation' },
   { id: 'charge', label: 'Charge de Travail', icon: <ClipboardList className="w-4 h-4" />, module: 'charge', keywords: ['taches', 'workload'], category: 'navigation' },
   { id: 'plans-actions', label: 'Plans d\'Actions', icon: <Rocket className="w-4 h-4" />, module: 'plans-actions', keywords: ['pac', 'ecarts'], category: 'navigation' },
+  { id: 'agents', label: 'Agents IA', icon: <Brain className="w-4 h-4" />, module: 'agents', keywords: ['ia', 'aerorisq', 'copilote'], category: 'navigation' },
+  { id: 'dossiers', label: 'Dossiers', icon: <FileText className="w-4 h-4" />, module: 'dossiers', keywords: ['dossiers', 'instruction'], category: 'navigation' },
+  { id: 'ml-monitoring', label: 'Monitoring ML', icon: <Cpu className="w-4 h-4" />, module: 'ml-monitoring', keywords: ['ml', 'modeles', 'benchmark'], category: 'navigation' },
 ]
 
 const ACTION_COMMANDS: Command[] = [
@@ -322,11 +327,12 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
       }
     })
     
-    // Trier par score décroissant
+    // Trier par score décroissant, restreint aux types autorisés au rôle.
+    const typesAutorises = typesRechercheAutorises(user?.role)
     results.sort((a, b) => b.score - a.score)
-    setSearchResults(results.slice(0, 15))
+    setSearchResults(results.filter(r => typesAutorises.includes(r.type)).slice(0, 15))
     setIsSearching(false)
-  }, [aerodromes, surveillances, ecarts, certifications, homologations, registreEntries, evenements, formations, utilisateurs, profilsRisque, setActiveModule, onNavigate])
+  }, [aerodromes, surveillances, ecarts, certifications, homologations, registreEntries, evenements, formations, utilisateurs, profilsRisque, setActiveModule, onNavigate, user?.role])
   
   // ============================================================
   // SUGGESTIONS IA PROACTIVES
@@ -346,6 +352,7 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
       if (aerodromesCritiques.length > 0) {
         suggestions.push({
           id: 'risk-critical',
+          module: 'risque',
           type: 'alerte',
           message: `⚠️ ${aerodromesCritiques.length} aérodrome(s) avec score de risque critique`,
           icon: <AlertOctagon className="w-4 h-4 text-danger" />,
@@ -359,6 +366,7 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
       if (ecartsEnRetard.length > 0) {
         suggestions.push({
           id: 'ecarts-retard',
+          module: 'plans-actions',
           type: 'rappel',
           message: `⏰ ${ecartsEnRetard.length} écart(s) en retard nécessitent une attention immédiate`,
           icon: <AlertTriangle className="w-4 h-4 text-warning" />,
@@ -377,6 +385,7 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
       if (certsExpirant.length > 0) {
         suggestions.push({
           id: 'cert-expiry',
+          module: 'certification',
           type: 'rappel',
           message: `📋 ${certsExpirant.length} certification(s) expirent dans moins de 90 jours`,
           icon: <CalendarDays className="w-4 h-4 text-info" />,
@@ -398,6 +407,7 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
       if (inspecteursSansFormation.length > 0) {
         suggestions.push({
           id: 'training-needed',
+          module: 'formation',
           type: 'recommandation',
           message: `🎓 ${inspecteursSansFormation.length} inspecteur(s) sans formation depuis plus d'un an`,
           icon: <GraduationCap className="w-4 h-4 text-primary" />,
@@ -409,10 +419,12 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
     } catch (error) {
       console.error('Erreur chargement suggestions IA:', error)
     }
-    
-    setIaSuggestions(suggestions)
+
+    // Suggestions restreintes aux modules du rôle (pas de fuite inter-périmètres).
+    const role = user?.role
+    setIaSuggestions(suggestions.filter(s => !s.module || moduleAutorise(role, s.module)))
     setIsIaThinking(false)
-  }, [aerodromes, profilsRisque, ecarts, certifications, utilisateurs, formations, setActiveModule, onNavigate])
+  }, [aerodromes, profilsRisque, ecarts, certifications, utilisateurs, formations, setActiveModule, onNavigate, user?.role])
   
   // ============================================================
   // EFFETS
@@ -533,9 +545,9 @@ export function CommandPalette({ onNavigate }: CommandPaletteProps) {
 
         <CommandSeparator className="my-3" />
 
-        {/* Navigation */}
+        {/* Navigation — restreinte aux modules du rôle (PERMISSIONS). */}
         <CommandGroup heading="📱 Navigation" className="mb-2">
-          {NAVIGATION_COMMANDS.map((cmd) => (
+          {NAVIGATION_COMMANDS.filter((cmd) => !cmd.module || moduleAutorise(user?.role, cmd.module)).map((cmd) => (
             <CommandItem
               key={cmd.id}
               value={[cmd.label, ...(cmd.keywords ?? [])].join(' ')}

@@ -48,6 +48,19 @@ describe('risqueUtils', () => {
     })
   })
 
+  describe('calculateGlobalScore', () => {
+    const criteres = { c1: 80, c2: 80, c3: 80, c4: 80, c5: 80 }
+    test('poids non normalisés (somme ≠ 100) : résultat proportionnel, pas gonflé', () => {
+      // Somme 50 → même score que les poids par défaut (proportion identique).
+      expect(risqueUtils.calculateGlobalScore(criteres, { c1: 10, c2: 10, c3: 10, c4: 10, c5: 10 })).toBe(80)
+      // Somme 99 (cas Math.round) → pas d'écrasement.
+      expect(risqueUtils.calculateGlobalScore(criteres, { c1: 20, c2: 25, c3: 20, c4: 20, c5: 14 })).toBe(80)
+    })
+    test('poids 100 % sur un critère : score = ce critère', () => {
+      expect(risqueUtils.calculateGlobalScore({ ...criteres, c1: 40 }, { c1: 100, c2: 0, c3: 0, c4: 0, c5: 0 })).toBe(40)
+    })
+  })
+
   describe('mettreAJourProfilRisque', () => {
     it('devrait mettre à jour le profil', () => {
       // Profil parfait (100) → tout écart actif doit le dégrader

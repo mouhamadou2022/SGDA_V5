@@ -10,6 +10,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 import { FormShell } from '@/components/ui/FormShell'
 import { Role, GRAVITE_EVENEMENT, TYPES_EVENEMENT } from '@/lib/config'
 import { evenementUtils, getGraviteRisque } from '@/lib/evenementUtils'
+import { prioriteEvenement } from '@/lib/processusTri'
 import { AlertTriangle, AlertOctagon, AlertCircle, Info, Calendar, MapPin, Plane, User, Eye, PenSquare, Plus, Search, Filter, List, BarChart, Flame, Activity } from 'lucide-react'
 import EvenementWorkflow from './EvenementWorkflow'
 import EvenementRapport from './EvenementRapport'
@@ -416,9 +417,28 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
         </div>
       </Card>
 
+      {/* Bilan d'activité : déclarés, clôturés, critiques ouverts */}
+      {(() => {
+        const annee = new Date().getFullYear();
+        const deLAnnee = evenements.filter(e => e.date && new Date(e.date).getFullYear() === annee);
+        const clotures = deLAnnee.filter(e => e.statut === 'cloture').length;
+        const critiquesOuverts = deLAnnee.filter(e => e.gravite === 'critique' && e.statut !== 'cloture').length;
+        return (
+          <p className="text-xs text-muted-foreground -mt-3">
+            En {annee} : <strong className="text-foreground">{deLAnnee.length} événement(s) déclaré(s)</strong>
+            {clotures > 0 ? `, dont ${clotures} clôturé(s)` : ', aucun clôturé pour le moment'}
+            {critiquesOuverts > 0 ? <span className="text-danger font-medium"> — {critiquesOuverts} critique(s) ouvert(s)</span> : '.'}
+          </p>
+        );
+      })()}
+
       {/* Liste des événements par aérodrome */}
       <AccordionGroup spacing="sm">
         {Object.entries(evenementsParAerodrome).map(([aerodromeId, { aerodrome, evenements: evts }]) => {
+          // Rangement unique : critiques ouverts d'abord, clôturés en bas.
+          const tries = [...evts].sort((a, b) =>
+            prioriteEvenement(a) - prioriteEvenement(b) ||
+            new Date(b.date || '-').getTime() - new Date(a.date || '-').getTime());
           return (
             <AccordionSection
               key={aerodromeId}
@@ -433,7 +453,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
                 </>
               }
             >
-              {evts.map(evt => {
+              {tries.map(evt => {
                 const badgeStatut = getBadgeStatut(evt.statut)
                 return (
                   <Card key={evt.id} variant="role" className="border-border/60 hover:border-role-primary/30 transition-colors" size="sm">

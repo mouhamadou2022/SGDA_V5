@@ -14,7 +14,10 @@ import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
 import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable';
+import { EquipeNoms } from './EquipeNoms';
 import { veillerItemStandard } from '@/lib/ia/watchdogEvaluation';
+import { estResultatValide, estItemTermine } from '@/lib/domaines';
+import { veillerCoherenceChecklist, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation';
 import { ConfidenceIndicator } from '@/components/modules/checklist/ChecklistFormContent';
 import {
   DomaineChecklist, ChecklistItem,
@@ -152,6 +155,12 @@ export function SurveillanceChecklistStandard({
   const [suggestions, setSuggestions] = useState<{ itemId: string; itemNumero: string; justification: string; confiance: number }[]>([]);
   const [sgsEvaluationOpen, setSgsEvaluationOpen] = useState(autoOpenSGS);
   const [sgsEvaluation, setSgsEvaluation] = useState<EvaluationSGS | null>(null);
+  // Reprise d'une évaluation faite ailleurs (page checklist : persistée sur la
+  // surveillance) — sans ceci, la signature ignorait la maturité (bug Saint-Louis).
+  const prepaExistante = useAppStore(s => s.surveillances.find(x => x.id === surveillanceId)?.sgs_evaluation_prepa) as EvaluationSGS | null | undefined;
+  useEffect(() => {
+    if (prepaExistante && !sgsEvaluation) setSgsEvaluation(prepaExistante);
+  }, [prepaExistante, sgsEvaluation]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
@@ -164,11 +173,17 @@ export function SurveillanceChecklistStandard({
     return ex;
   }, [excludeDomaines]);
 
-  const aerodromeId = surveillance.aerodrome?.code_oaci || 'unknown';
-  const profil = profilsRisque?.[aerodromeId] || null;
-  const exemptionsActives = getExemptionsActives(aerodromeId);
-
-  const aerodrome = useAppStore(s => s.aerodromes.find(a => a.id === aerodromeId) || s.aerodromes.find(a => a.code_oaci === aerodromeId));
+  // Identifiant RÉEL (id, jamais le code OACI) : les lectures comme les
+  // écritures (updateAerodrome, recalcul) exigent l'id — le code rendait
+  // chaque accès silencieux (bug Saint-Louis : maturité jamais persistée).
+  const aerodrome = useAppStore(s => {
+    const parCode = surveillance.aerodrome?.code_oaci;
+    return s.aerodromes.find(a => a.id === (surveillance as { aerodrome_id?: string }).aerodrome_id) ||
+      (parCode ? s.aerodromes.find(a => a.code_oaci === parCode) : undefined);
+  });
+  const aerodromeId = aerodrome?.id || '';
+  const profil = aerodromeId ? profilsRisque?.[aerodromeId] || null : null;
+  const exemptionsActives = aerodromeId ? getExemptionsActives(aerodromeId) : [];
   const masterChecklists = useAppStore(s => s.masterChecklists);
   const sgsTemplate = useMemo(
     () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
@@ -378,13 +393,27 @@ export function SurveillanceChecklistStandard({
   }, [surveillanceId]);
 
 
+  // R2 — validité des résultats (brouillons observateurs exclus des comptes).
+  const fichesInspecteursStd = useOptimizedStore(s => s.inspecteurs);
+  const utilisateursStd = useOptimizedStore(s => s.utilisateurs);
+  const profilRisqueStd = useOptimizedStore(s => s.profilsRisque)?.[aerodromeId];
+  const estValideStd = useCallback((item: ChecklistItem) =>
+    estResultatValide(item, fichesInspecteursStd, utilisateursStd),
+  [fichesInspecteursStd, utilisateursStd]);
+
   const stats = useMemo(() => {
-    let total = 0, sa = 0, ns = 0, nv = 0, na = 0;
+    let total = 0, sa = 0, ns = 0, nv = 0, na = 0, termines = 0;
     const collect = (items: ChecklistItem[] | undefined) => {
       if (!items) return;
       items.forEach(item => {
         total++;
-        const r = item.resultat || item.prediction || 'NV';
+        // Terminé = résultat valide (signataire) OU NV motivé. Seul le
+        // résultat POSÉ compte (jamais la prédiction IA). Brouillon ou NV
+        // muet = travail restant.
+        if (estItemTermine(item, fichesInspecteursStd, utilisateursStd)) termines++;
+        const r = estResultatValide(item, fichesInspecteursStd, utilisateursStd)
+          ? (item.resultat || 'NV')
+          : 'NV';
         if (r === 'SA') sa++; else if (r === 'NS') ns++; else if (r === 'NA') na++; else nv++;
       });
     };
@@ -395,8 +424,7 @@ export function SurveillanceChecklistStandard({
         (sd.sousSousDomaines ?? []).forEach(ssd => collect(ssd.items ?? []));
       });
     });
-    const renseignes = sa + ns + nv + na;
-    const progression = total > 0 ? Math.round((renseignes / total) * 100) : 0;
+    const progression = total > 0 ? Math.round((termines / total) * 100) : 0;
     const tauxConformiteReel = total > 0 ? Math.round((sa / (sa + ns + nv)) * 100) : 0;
     const itemsSA: { id: string; prediction: ResultatChecklist; confiance: number }[] = [];
     const collectSA = (items: ChecklistItem[] | undefined) => {
@@ -415,21 +443,29 @@ export function SurveillanceChecklistStandard({
       });
     });
     return { total, sa, ns, nv, na, progression, tauxConformiteReel, itemsSA };
-  }, [domaines]);
+  }, [domaines, fichesInspecteursStd, utilisateursStd]);
 
   // Second regard AERORISQ : points à revoir + restants NV (saut direct).
   const vigilance = useMemo(() => {
     const problemes: Array<{ id: string; ref: string; texte: string; titre: string; detail: string; niveau: string }> = [];
-    const restants: Array<{ id: string; ref: string; texte: string; domaine: string }> = [];
+    const restants: Array<{ id: string; ref: string; texte: string; domaine: string; brouillon: boolean; aMotiver: boolean }> = [];
+    // Texte COMPLET (jamais coupé) : l'inspecteur doit voir la question entière.
     const texteDe = (item: ChecklistItem) =>
       item.point_verification || (item as any).description || '';
     const visiter = (items: ChecklistItem[] | undefined, domaine: string) => {
       if (!items) return;
       for (const item of items) {
-        const r = item.resultat || 'NV';
+        const r = (item.resultat || '').toUpperCase();
         const ref = item.numero || item.reference_reglementaire || item.id.slice(0, 8);
-        if (!item.resultat || r === 'NV') {
-          restants.push({ id: item.id, ref, texte: texteDe(item).slice(0, 90), domaine });
+        // Restant = non terminé. Brouillon (posé par observateur) ou NV
+        // muet à motiver ; NV motivé = traité (hors liste).
+        if (!estItemTermine(item, fichesInspecteursStd, utilisateursStd)) {
+          const estNvMuet = r === 'NV';
+          restants.push({
+            id: item.id, ref, texte: texteDe(item), domaine,
+            brouillon: !estNvMuet && !!item.resultat && !estValideStd(item),
+            aMotiver: estNvMuet && !!item.resultat,
+          });
         } else {
           for (const a of veillerItemStandard({
             resultat: r,
@@ -438,7 +474,7 @@ export function SurveillanceChecklistStandard({
             fichiers: item.fichiers || [],
             libelle: texteDe(item),
           })) {
-            problemes.push({ id: item.id, ref, texte: texteDe(item).slice(0, 90), titre: a.titre, detail: a.detail, niveau: a.niveau });
+            problemes.push({ id: item.id, ref, texte: texteDe(item), titre: a.titre, detail: a.detail, niveau: a.niveau });
           }
         }
       }
@@ -450,8 +486,36 @@ export function SurveillanceChecklistStandard({
         (sd.sousSousDomaines ?? []).forEach(ssd => visiter(ssd.items ?? [], ssd.nom));
       });
     });
-    return { problemes, restants };
-  }, [domaines]);
+    // Cohérence d'ensemble : contradictions, tout-SA, copier-coller, technique.
+    const plats: Array<{ id: string; ref?: string; texte?: string; resultat?: string; evalue: boolean; observation?: string; directives?: string[] }> = [];
+    const aplatir = (items: ChecklistItem[] | undefined) => {
+      for (const item of items || []) {
+        plats.push({
+          id: item.id,
+          ref: item.reference_reglementaire || item.numero,
+          texte: texteDe(item),
+          resultat: item.resultat,
+          evalue: estValideStd(item),
+          observation: item.observation,
+          directives: [item.directive_sa, item.directive_ns, item.directive_nv, item.directive_na, item.directive_preuve].filter(Boolean) as string[],
+        });
+      }
+    };
+    domaines.forEach(d => {
+      aplatir(d.items ?? []);
+      (d.sousDomaines ?? []).forEach(sd => {
+        aplatir(sd.items ?? []);
+        (sd.sousSousDomaines ?? []).forEach(ssd => aplatir(ssd.items ?? []));
+      });
+    });
+    const coherence = veillerCoherenceChecklist({
+      items: plats,
+      niveauRisqueSite: profilRisqueStd?.niveau,
+    });
+    // Qualité des questions (doublons, sans réf, vagues) — mêmes items.
+    coherence.alertes.push(...veillerQuestionsChecklist(plats));
+    return { problemes, restants, coherence };
+  }, [domaines, estValideStd, profilRisqueStd]);
 
   const allerAItem = (id: string) => {
     document.getElementById(`std-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -501,7 +565,7 @@ export function SurveillanceChecklistStandard({
       sousDomaines: d.sousDomaines.map(sd => ({ ...sd, items: apply(sd.items), sousSousDomaines: sd.sousSousDomaines.map(ssd => ({ ...ssd, items: apply(ssd.items) })) })),
     })));
     for (const s of suggestions) {
-      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestions([]);
     addNotification({ user_id: user?.id || '', type: 'success', title: 'Suggestions appliquées', message: 'Toutes les suggestions ont été appliquées', canal: 'in_app' });
@@ -509,7 +573,7 @@ export function SurveillanceChecklistStandard({
 
   const handleIgnoreSuggestions = () => {
     for (const s of suggestions) {
-      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'checklist', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestions([]);
   };
@@ -544,6 +608,12 @@ export function SurveillanceChecklistStandard({
   }, [domaines, surveillanceId, surveillance])
 
   const updateItem = useCallback((updated: ChecklistItem) => {
+    // L'updater doit rester PUR (React l'exécute parfois pendant le rendu :
+    // aucun setState/store dedans). Les effets (historique, corrections,
+    // monitoring) partent APRÈS, avec le contexte capturé ici.
+    let ctx: {
+      oldItem: ChecklistItem | undefined; dNom: string; sdNom: string; ssdNom: string;
+    } = { oldItem: undefined, dNom: '', sdNom: '', ssdNom: '' };
     setDomaines(prev => {
       // Find old item & context for history tracking
       let oldItem: ChecklistItem | undefined;
@@ -564,44 +634,16 @@ export function SurveillanceChecklistStandard({
           }
         }
       }
+      ctx = { oldItem, dNom, sdNom, ssdNom };
 
-      if (oldItem && (oldItem.resultat !== updated.resultat || oldItem.observation !== updated.observation)) {
-        upsertItemHistory(aerodromeId, surveillance.type, dNom, sdNom, ssdNom, {
-          id: updated.id, numero: updated.numero || '', point_verification: updated.point_verification || '',
-          resultat: updated.resultat, observation: updated.observation, fichiers: updated.fichiers,
-        }, surveillanceId);
-        if (oldItem.prediction && oldItem.prediction !== 'NV' && oldItem.prediction !== updated.resultat) {
-          recordCorrection(aerodromeId, surveillance.type, dNom, sdNom, ssdNom, updated.id, oldItem.prediction, updated.resultat ?? '', updated.observation);
-          inspecteurMonitoring.enregistrer({
-            capacite: 'checklist', action: 'corrigee', aerodromeId, surveillanceId,
-            confiance: oldItem.confiance || undefined,
-          })
-        }
-      }
-
-      // Tracker les modifications de texte sur les items IA
-      if (oldItem?.prefilled) {
-        const textFields: [keyof Pick<ChecklistItem, 'point_verification' | 'reference_reglementaire' | 'directive_preuve' | 'directive_sa' | 'directive_ns' | 'directive_nv' | 'directive_na'>, TextModification['field']][] = [
-          ['point_verification', 'point_verification'],
-          ['reference_reglementaire', 'reference_reglementaire'],
-          ['directive_preuve', 'directive_preuve'],
-          ['directive_sa', 'directive_sa'],
-          ['directive_ns', 'directive_ns'],
-          ['directive_nv', 'directive_nv'],
-          ['directive_na', 'directive_na'],
-        ];
-        for (const [key, field] of textFields) {
-          const ancien = oldItem[key] || '';
-          const nouveau = updated[key] || '';
-          if (ancien !== nouveau) {
-            recordTextModification(aerodromeId, surveillance.type, dNom, sdNom, ssdNom,
-              { id: updated.id, numero: updated.numero || '', point_verification: updated.point_verification || '' },
-              field, ancien, nouveau, surveillanceId);
-          }
-        }
-      }
-
-      const replaceItem = (items: ChecklistItem[]) => items.map(i => i.id === updated.id ? updated : i);
+      // R2 — auteur du résultat : seul un changement de résultat restampe
+      // (une observation d'observateur ne doit pas invalider un résultat
+      // de titulaire). Sans auteur = brouillon observateur jusqu'à reprise.
+      const auteurResultat = oldItem && oldItem.resultat === updated.resultat
+        ? (updated.modified_by || oldItem.modified_by || '')
+        : (user?.id || updated.modified_by || '');
+      const stamped: ChecklistItem = { ...updated, modified_by: auteurResultat, last_modified: new Date().toISOString() };
+      const replaceItem = (items: ChecklistItem[]) => items.map(i => i.id === updated.id ? stamped : i);
       return prev.map(d => ({
         ...d,
         items: replaceItem(d.items || []),
@@ -615,7 +657,45 @@ export function SurveillanceChecklistStandard({
         })),
       }));
     });
-  }, [aerodromeId, surveillance.type, surveillanceId, upsertItemHistory, recordCorrection]);
+
+    // Effets hors updater (store + monitoring) : rien pendant le rendu.
+    const { oldItem, dNom, sdNom, ssdNom } = ctx;
+    if (oldItem && (oldItem.resultat !== updated.resultat || oldItem.observation !== updated.observation)) {
+      upsertItemHistory(aerodromeId, surveillance.type, dNom, sdNom, ssdNom, {
+        id: updated.id, numero: updated.numero || '', point_verification: updated.point_verification || '',
+        resultat: updated.resultat, observation: updated.observation, fichiers: updated.fichiers,
+      }, surveillanceId);
+      if (oldItem.prediction && oldItem.prediction !== 'NV' && oldItem.prediction !== updated.resultat) {
+        recordCorrection(aerodromeId, surveillance.type, dNom, sdNom, ssdNom, updated.id, oldItem.prediction, updated.resultat ?? '', updated.observation);
+        inspecteurMonitoring.enregistrer({
+          capacite: 'checklist', action: 'corrigee', aerodromeId, surveillanceId,
+          confiance: oldItem.confiance || undefined, inspecteurId: user?.id,
+        })
+      }
+    }
+
+    // Tracker les modifications de texte sur les items IA
+    if (oldItem?.prefilled) {
+      const textFields: [keyof Pick<ChecklistItem, 'point_verification' | 'reference_reglementaire' | 'directive_preuve' | 'directive_sa' | 'directive_ns' | 'directive_nv' | 'directive_na'>, TextModification['field']][] = [
+        ['point_verification', 'point_verification'],
+        ['reference_reglementaire', 'reference_reglementaire'],
+        ['directive_preuve', 'directive_preuve'],
+        ['directive_sa', 'directive_sa'],
+        ['directive_ns', 'directive_ns'],
+        ['directive_nv', 'directive_nv'],
+        ['directive_na', 'directive_na'],
+      ];
+      for (const [key, field] of textFields) {
+        const ancien = oldItem[key] || '';
+        const nouveau = updated[key] || '';
+        if (ancien !== nouveau) {
+          recordTextModification(aerodromeId, surveillance.type, dNom, sdNom, ssdNom,
+            { id: updated.id, numero: updated.numero || '', point_verification: updated.point_verification || '' },
+            field, ancien, nouveau, surveillanceId);
+        }
+      }
+    }
+  }, [aerodromeId, surveillance.type, surveillanceId, upsertItemHistory, recordCorrection, user?.id]);
 
   const handleSaveSGSEvaluation = (evaluation: EvaluationSGS) => {
     setSgsEvaluation(evaluation);
@@ -662,41 +742,36 @@ export function SurveillanceChecklistStandard({
     setSignatureDialogOpen(false);
 
     const scoreGlobal = computeSurveillanceScore();
+    const store = useAppStore.getState();
+
+    // L'évaluation SGS (si faite ici) est d'abord persistée sur la surveillance,
+    // puis la signature marquée SGS déclenche le report maturité → aérodrome
+    // DANS l'action centrale (source unique, vrai id, recalcul C1 via bus).
+    if (sgsEvaluation) {
+      await store.updateSurveillance(surveillanceId, { sgs_evaluation_prepa: sgsEvaluation as never });
+    }
 
     // Action centrale du store : fusion des signatures, avancement des
     // délégations du signataire, décision d'avancement du statut selon portée.
-    await useAppStore.getState().signerChecklistSurveillance(surveillanceId, {
+    await store.signerChecklistSurveillance(surveillanceId, {
       signataire_id: user?.id || '',
       signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
       signature_url: signatureUrl,
       score_global: scoreGlobal,
+      ...(sgsEvaluation ? { marque_sgs: true as const } : {}),
     });
 
-    if (sgsEvaluation) {
-      const { updateAerodrome, recalculerProfilRisque } = useAppStore.getState();
-      await updateAerodrome(aerodromeId, {
-        maturite_sgs: sgsEvaluation.scoreGlobal,
-        maturite_sgs_detaille: {
-          composantes: Object.fromEntries(
-            sgsEvaluation.composantes.map(c => [c.id, {
-              score: c.score,
-              niveauGlobal: c.niveauGlobal,
-              elements: c.elements.map(e => ({
-                elementId: e.elementId,
-                niveau: e.niveauGlobal,
-                questions: e.questions.map(q => ({ questionId: q.id, niveau: q.niveau, justification: q.justification })),
-              })),
-            }])
-          ) as Record<1 | 2 | 3 | 4 | 5, { score: number; niveauGlobal: string; elements: { elementId: string; niveau: string; questions: { questionId: string; niveau: string; justification?: string }[] }[] }>,
-          scoreGlobal: sgsEvaluation.scoreGlobal,
-          evalueLe: sgsEvaluation.date,
-          evaluePar: sgsEvaluation.inspecteurNom,
-        },
+    if (sgsEvaluation && aerodromeId) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'success',
+        title: 'Maturité SGS mise à jour',
+        message: `Niveau appliqué à l'aérodrome et profil de risque recalculé.`,
+        canal: 'in_app',
       });
-      await recalculerProfilRisque(aerodromeId);
-    } else {
-      const { recalculerProfilRisque } = useAppStore.getState();
-      await recalculerProfilRisque(aerodromeId);
+    }
+    if (aerodromeId) {
+      await store.recalculerProfilRisque(aerodromeId);
     }
 
     // Sauvegarder la structure comme template pour l'apprentissage IA
@@ -778,19 +853,28 @@ export function SurveillanceChecklistStandard({
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 border border-purple-400/30 shadow-lg shadow-purple-500/20 flex items-center justify-center">
                 <Users className="h-5 w-5 text-white" />
               </div>
-              <div className="flex -space-x-2">
-                {getSurveillanceEquipeIds(surveillance, plannings).map(id => (
-                  <div key={id} className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center text-white text-[13px] font-bold border-2 border-white shadow-lg">{id.slice(-2).toUpperCase()}</div>
-                ))}
+              <div>
+                <p className="filter-label text-xs">Équipe</p>
+                <EquipeNoms equipeIds={getSurveillanceEquipeIds(surveillance, plannings)} chefId={surveillance.chef_id} />
               </div>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-primary/20">
-            <p className="text-[11px] font-semibold text-blue-500 uppercase tracking-wide mb-2 flex items-center gap-2"><Target className="w-3 h-3" /> Domaines à inspecter (fixes)</p>
+            <p className="text-[11px] font-semibold text-blue-500 uppercase tracking-wide mb-2 flex items-center gap-2"><Target className="w-3 h-3" /> Domaines à inspecter (portée)</p>
             <div className="flex flex-wrap gap-2">
-              {domaines.map(d => (
-                <span key={d.id ?? d.nom} className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold !text-white bg-gradient-to-br from-blue-600 to-blue-500 border border-blue-400/30 shadow-lg shadow-blue-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-blue-500/40 hover:brightness-110 hover:scale-105">{d.nom}</span>
-              ))}
+              {(() => {
+                // Dédupliqués par nom (fusions template/IA) : la portée ne répète jamais.
+                const vus = new Set<string>();
+                const uniques = domaines.filter(d => {
+                  const cle = (d.nom || d.id || '').toUpperCase();
+                  if (!cle || vus.has(cle)) return false;
+                  vus.add(cle);
+                  return true;
+                });
+                return uniques.map(d => (
+                  <span key={d.id ?? d.nom} className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold !text-white bg-gradient-to-br from-blue-600 to-blue-500 border border-blue-400/30 shadow-lg shadow-blue-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-blue-500/40 hover:brightness-110 hover:scale-105">{d.nom}</span>
+                ));
+              })()}
             </div>
           </div>
           {exemptionsActives.length > 0 && (
@@ -920,10 +1004,16 @@ export function SurveillanceChecklistStandard({
               </summary>
               <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
                 {vigilance.restants.slice(0, 50).map(r => (
-                  <button key={r.id} onClick={() => allerAItem(r.id)} title="Aller à l’item"
+                  <button key={r.id} onClick={() => allerAItem(r.id)} title={`${r.texte} — Aller à l’item`}
                     className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
                     <span className="font-mono font-medium flex-shrink-0">{r.ref}</span>
                     <span className="text-muted-foreground truncate flex-1">{r.texte}</span>
+                    {r.brouillon && (
+                      <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Brouillon</span>
+                    )}
+                    {r.aMotiver && (
+                      <span className="text-[10px] font-semibold text-warning flex-shrink-0">Motif requis</span>
+                    )}
                     <span className="text-role-primary font-medium flex-shrink-0">{r.domaine} →</span>
                   </button>
                 ))}
@@ -944,7 +1034,7 @@ export function SurveillanceChecklistStandard({
                   <button key={`${p.id}-${i}`} onClick={() => allerAItem(p.id)} title="Aller à l’item"
                     className="w-full flex items-start gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
                     <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${p.niveau === 'danger' ? 'text-danger' : p.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
-                    <span><strong>{p.titre}.</strong> <span className="font-mono">{p.ref}</span> — {p.texte}</span>
+                    <span className="break-words"><strong>{p.titre}.</strong> <span className="font-mono">{p.ref}</span> — {p.texte}</span>
                   </button>
                 ))}
                 {vigilance.problemes.length === 0 && (
@@ -955,6 +1045,27 @@ export function SurveillanceChecklistStandard({
               </div>
             </details>
           </div>
+          {/* Cohérence d'ensemble : jauge d'exigence + contradictions + copier-coller */}
+          {vigilance.coherence.nbEvalues > 0 && (
+            <div className="mt-2 rounded-lg border border-border p-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold">Cohérence d’ensemble</span>
+                <span className="text-muted-foreground">
+                  {vigilance.coherence.nbEvalues} évalué(s) • {vigilance.coherence.tauxSansObservation}% sans observation
+                </span>
+              </div>
+              {vigilance.coherence.alertes.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {vigilance.coherence.alertes.map((a, i) => (
+                    <div key={i} className="flex items-start gap-1.5 rounded px-2 py-1 text-left text-xs">
+                      <AlertTriangle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'danger' ? 'text-danger' : a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
+                      <span><strong>{a.titre}.</strong> {a.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       )}
 

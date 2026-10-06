@@ -163,6 +163,49 @@ describe('simulerSurveillance', () => {
     }))
     expect(r.items.every(i => i.prediction === 'SA')).toBe(true)
   })
+  test('analyserTendance : sens et pente', async () => {
+    const { analyserTendance } = await import('../ia/simulationSurveillance')
+    expect(analyserTendance([{ date: '2026-01-01', score: 70 }, { date: '2026-02-01', score: 60 }, { date: '2026-03-01', score: 50 }])).toMatchObject({ sens: 'baisse' })
+    expect(analyserTendance([{ date: '2026-01-01', score: 50 }, { date: '2026-02-01', score: 60 }]).sens).toBe('hausse')
+    expect(analyserTendance([{ date: '2026-01-01', score: 60 }])).toMatchObject({ sens: 'stable', pente: null })
+  })
+  test('dégradation + SA fragile → NV avec alerte', () => {
+    const r = simulerSurveillance(makeParams({
+      profil: makeProfil({ score_global: 65, c1: 65, c2: 65, c3: 65, c4: 65, c5: 65 }),
+      historique: [
+        { date: '2026-01-01', score: 80 },
+        { date: '2026-02-01', score: 72 },
+        { date: '2026-03-01', score: 64 },
+      ],
+    }))
+    expect(r.contexte.penteScores).toBeLessThan(-0.75)
+    expect(r.items.some(i => i.alerte && i.prediction === 'NV')).toBe(true)
+  })
+  test('points d’attention : récidive, PAC manquant, passées', () => {
+    const r = simulerSurveillance(makeParams({
+      ecartsReels: [
+        makeEcart({ id: 'ec-old', domaine: 'SGS', niveau_risque: 'moyen', statut: 'cloture', libelle: 'Manuel SGS non à jour' }),
+        makeEcart({ id: 'ec-new', domaine: 'SGS', niveau_risque: 'moyen', statut: 'ouvert', libelle: 'Manuel SGS non à jour version 2' }),
+        makeEcart({ id: 'ec-nopac', domaine: 'PHY', niveau_risque: 'eleve', statut: 'ouvert', libelle: 'Fissures piste' }),
+      ],
+      historique: [
+        { date: '2026-01-01', score: 70, c1: 45 },
+        { date: '2026-04-01', score: 66, c1: 55 },
+      ],
+    }))
+    const cats = r.pointsAttention.map(p => p.categorie)
+    expect(cats).toContain('recrudescence')
+    expect(cats).toContain('pac_manquant')
+    expect(cats).toContain('passe')
+    expect(r.trajectoireSgs).toContain('→')
+  })
+  test('propage le marqueur mémoire vers les items', () => {
+    const r = simulerSurveillance(makeParams({
+      predireItem: () => ({ prediction: 'NS', confiance: 88, justification: 'récurrent', alerte: true, memoire: true }),
+    }))
+    expect(r.items.every(i => i.memoire === true)).toBe(true)
+    expect(r.items.every(i => i.prediction === 'NS')).toBe(true)
+  })
 })
 
 describe('construireRapportSimulation', () => {

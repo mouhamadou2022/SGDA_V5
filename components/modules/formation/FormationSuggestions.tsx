@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, normaliserDomaineCompetence, normaliserNiveauCompetence } from '@/lib/store'
 import { CheckCircle2, Lightbulb, Calendar, User, Sparkles, TrendingUp } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
@@ -26,19 +26,21 @@ export function FormationSuggestions({ userRole }: Props) {
 
       // Compétences faibles → formation requise
       ;(ins.competences || []).forEach(c => {
-        const niveau = typeof c.niveau === 'number' ? c.niveau : parseInt(c.niveau as any) || 1
+        const domaine = normaliserDomaineCompetence(c.domaine)
+        if (!domaine) return
+        const niveau = normaliserNiveauCompetence(c.niveau)
         if (niveau <= 2) {
           result.push({
-            id: `comp-${ins.id}-${c.domaine}`, inspecteur: nom,
-            titre: `Formation ${c.domaine}`, raison: `Niveau ${niveau}/5 — mise à niveau requise`,
-            priorite: niveau <= 1 ? 'CRITIQUE' : 'HAUTE', domaine: c.domaine,
+            id: `comp-${ins.id}-${domaine}`, inspecteur: nom,
+            titre: `Formation ${domaine}`, raison: `Niveau ${niveau}/5 — mise à niveau requise`,
+            priorite: niveau <= 1 ? 'CRITIQUE' : 'HAUTE', domaine,
           })
         }
       })
 
       // Nouvelles normes OACI dans le kit → formation suggérée
       const nouvellesNormes = kitDocuments.filter(d =>
-        d.type_document_oaci && d.domaines?.some(dd => (ins.competences || []).some(c => c.domaine === dd))
+        d.type_document_oaci && d.domaines?.some(dd => (ins.competences || []).some(c => normaliserDomaineCompetence(c.domaine) === dd))
       )
       nouvellesNormes.forEach(doc => {
         const id = `kit-${ins.id}-${doc.id}`

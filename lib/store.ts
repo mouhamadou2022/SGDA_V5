@@ -67,7 +67,7 @@ import { createDossiersSlice, type DossierSlice } from './store/dossiersSlice'
 export type { DossierSlice, Dossier, DossierExtension, DossierFeedback, DossierCollaborateur, DossierAssignment, DossierChecklistItem, DossierAnalyseCritere, DossierAnalyseResult, DossierFormulaire } from './store/dossiersSlice';
 import { createFormationsSlice, type FormationSlice, type Inspecteur } from './store/formationsSlice'
 export type { FormationSlice, Formation, Competence, CompetenceDeclarative, Inspecteur } from './store/formationsSlice';
-export { declarativeNiveauVersNombre, declarativesVersCompetences } from './store/formationsSlice';
+export { declarativeNiveauVersNombre, declarativesVersCompetences, normaliserDomaineCompetence, normaliserNiveauCompetence, reparerCompetence } from './store/formationsSlice';
 import { createKitDocumentsSlice, type KitSlice } from './store/kitDocumentsSlice'
 export type { KitSlice, KitDocument } from './store/kitDocumentsSlice';
 export type { TypeDocumentOACI, FormatDocument, KitDocExtrait, KitChecklistItemGenere } from './store/kitTypes';

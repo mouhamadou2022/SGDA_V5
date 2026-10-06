@@ -280,7 +280,11 @@ export const chargeUtils = {
     joursPeriode: number = 30
   ): ChargeInspecteur {
     const tempsDisponible = this.calculerTempsDisponible(joursPeriode);
-    const tempsEstimeTotal = taches.reduce((acc, t) => acc + (t.temps_estime || 0), 0);
+    // Capacité RESTANTE : les tâches terminées ne chargent plus personne
+    // (avant : 30 missions finies = 100 % de charge pour un inspecteur libre).
+    const tempsEstimeTotal = taches
+      .filter(t => t.statut !== 'termine')
+      .reduce((acc, t) => acc + (t.temps_estime || 0), 0);
     
     const charge = Math.min(100, Math.round((tempsEstimeTotal / tempsDisponible) * 100));
 

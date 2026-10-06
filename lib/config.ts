@@ -149,6 +149,40 @@ export const PERMISSIONS = {
 // aérodromes, registres, dossiers, formations, documents, kit).
 // Les autres rôles sont en lecture seule.
 // ============================================================
+// Accès lecture par rôle (palette de commandes, suggestions IA,
+// recherche universelle) : dérivé de PERMISSIONS — un seul endroit.
+export type RoleApplicatif = keyof typeof PERMISSIONS | string
+
+/** Modules visibles pour un rôle ('*' = admin/tout). Rôle inconnu → tableau de bord seul. */
+export function modulesPourRole(role?: string | null): string[] {
+  if (!role) return ['dashboard']
+  if (role === 'admin') return ['*']
+  const entree = (PERMISSIONS as Record<string, { all?: boolean; modules?: readonly string[] }>)[role]
+  if (!entree) return ['dashboard']
+  if (entree.all) return ['*']
+  return [...(entree.modules ?? ['dashboard'])]
+}
+
+/** Un module est-il proposé à ce rôle (navigation, suggestions IA) ? */
+export function moduleAutorise(role: string | undefined | null, module: string): boolean {
+  const modules = modulesPourRole(role)
+  return modules.includes('*') || modules.includes(module)
+}
+
+/** Types de recherche universelle par rôle : périmètre ANACIM complet pour
+ *  les rôles internes, vue réseau (aérodromes) seule pour exploitants/invités
+ *  (pas de fuite inter-sites via la recherche). */
+const TYPES_RECHERCHE_INTERNES = [
+  'aerodrome', 'surveillance', 'ecart', 'certification',
+  'homologation', 'document', 'evenement', 'formation',
+] as const
+
+export function typesRechercheAutorises(role: string | undefined | null): string[] {
+  if (role === 'admin' || role === 'inspector' || role === 'dg_anacim') {
+    return [...TYPES_RECHERCHE_INTERNES]
+  }
+  return ['aerodrome']
+}
 
 // ============================================================
 // SEUILS DE RISQUE CENTRALISÉS (NORMALISÉS)
@@ -191,17 +225,18 @@ export function deriverTendance(
 
 // Helper pour obtenir le label à partir du score
 export function getLabelFromScore(score: number): string {
-  if (score >= 80) return 'Excellent'
-  if (score >= 60) return 'Bon'
-  if (score >= 30) return 'Modéré'
+  if (score >= 80) return 'Faible'
+  if (score >= 60) return 'Moyen'
+  if (score >= 30) return 'Élevé'
   return 'Critique'
 }
 
 // Helper pour obtenir la classe CSS du badge
+// Palette risque officielle (cf. PROBA_ARBRE_COULEURS) : vert/jaune/orange/rouge.
 export function getBadgeClassFromScore(score: number): string {
   if (score >= 80) return 'badge success'
-  if (score >= 60) return 'badge primary'
-  if (score >= 30) return 'badge warning'
+  if (score >= 60) return 'badge moyen'
+  if (score >= 30) return 'badge eleve'
   return 'badge danger'
 }
 
@@ -326,11 +361,23 @@ export const GRAVITE_EVENEMENT = {
   AUTRE: { niveau: 'faible', couleur: 'info', delai_notification: 720, sms: false }
 } as const
 
+/** Sentinelle « saisie libre » — sélectionnée dans le formulaire, jamais persistée telle quelle. */
+export const TYPE_ENQUETE_AUTRE = 'Autre (préciser…)'
+
 export const TYPES_ENQUETE = [
   'Culture SGS',
   'Satisfaction',
   'Évaluation',
-  'Suivi'
+  'Suivi',
+  'Audit interne',
+  "Retour d'expérience (REX)",
+  'Climat social / QVT',
+  'Sécurité des opérations',
+  'Sûreté aéroportuaire',
+  'Environnement',
+  'Formation / Compétences',
+  'Infrastructures / Équipements',
+  TYPE_ENQUETE_AUTRE,
 ] as const
 
 export const TYPES_QUESTION = [

@@ -172,7 +172,7 @@ export function FtaEvenementPanel({ evenement }: Props) {
 
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Card variant="level" size="sm" levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'warning' : 'success'} title="Probabilité sommet" icon={<AlertTriangle className="w-3.5 h-3.5" />}>
+            <Card variant="level" size="sm" levelColor={niveauProba === 'critique' ? 'danger' : niveauProba === 'eleve' ? 'eleve' : niveauProba === 'moyen' ? 'moyen' : 'success'} title="Probabilité sommet" icon={<AlertTriangle className="w-3.5 h-3.5" />}>
               <div className="text-2xl font-bold" style={{ color: PROBA_ARBRE_COULEURS[niveauProba] }}>{c.probabiliteSommet} %</div>
             </Card>
             <Card variant="level" size="sm" levelColor="primary" title="Causes présentes" icon={<CheckCircle2 className="w-3.5 h-3.5" />}>

@@ -34,9 +34,37 @@ export async function fetchLearnedWeights(force = false): Promise<WeightMap> {
       }
     }
   } catch { /* ia_thresholds indisponible → poids par défaut */ }
-  cachedLearnedWeights = weights
+  // Lignes partielles possibles (un seul weight_* en base) : re-normaliser
+  // pour garantir l'invariant « somme = 100 » consommé partout.
+  const normalises = normaliserPoidsSomme100(weights)
+  cachedLearnedWeights = normalises
   learnedWeightsAt = Date.now()
-  return { ...weights }
+  return { ...normalises }
+}
+
+/**
+ * Ramène une carte de poids à une somme exacte (plus grands restes) :
+ * évite les sommes 99/101 du Math.round pur. Pur et testé.
+ */
+export function normaliserPoidsSomme100(poids: WeightMap, cible = 100): WeightMap {
+  const cles = Object.keys(poids)
+  const somme = cles.reduce((s, k) => s + (Number(poids[k]) || 0), 0)
+  if (somme <= 0 || cles.length === 0) return { ...poids }
+  const exacts = cles.map(k => (Number(poids[k]) || 0) * cible / somme)
+  const arrondis = exacts.map(v => Math.floor(v))
+  let reste = cible - arrondis.reduce((s, v) => s + v, 0)
+  const ordre = exacts
+    .map((v, i) => i)
+    .sort((a, b) => (exacts[b] - Math.floor(exacts[b])) - (exacts[a] - Math.floor(exacts[a])))
+  let i = 0
+  while (reste > 0) {
+    arrondis[ordre[i % ordre.length]]++
+    reste--
+    i++
+  }
+  const resultat: WeightMap = {}
+  cles.forEach((k, idx) => { resultat[k] = arrondis[idx] })
+  return resultat
 }
 
 export interface WeightAdjustment {
@@ -187,13 +215,8 @@ export class WeightController {
   }
 
   private normalize(): void {
-    const currentSum = Object.values(this.weights).reduce((s, v) => s + v, 0)
-    if (currentSum === 0) return
     const targetSum = Object.values(DEFAULT_WEIGHTS).reduce((s, v) => s + v, 0)
-    const factor = targetSum / currentSum
-    for (const key of Object.keys(this.weights)) {
-      this.weights[key] = Math.round(this.weights[key] * factor)
-    }
+    this.weights = normaliserPoidsSomme100(this.weights, targetSum)
   }
 
   reset(): void {

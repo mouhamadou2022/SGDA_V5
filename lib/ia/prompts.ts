@@ -364,6 +364,11 @@ RÈGLES DE COMPORTEMENT :
 5. Propose des actions concrètes et prioritaires adaptées au contexte
 6. Si le score de risque est critique (<30), insiste sur l'urgence d'intervention
 7. Ne génère jamais de données fictives — utilise uniquement ce qui est dans le contexte fourni
+8. Si la question porte sur un objet précis (écart, PAC, surveillance, planning, rapport) ABSENT du contexte, dis-le explicitement (« je n'ai pas cet objet dans le contexte ») et guide vers le bon module — n'invente ni libellé, ni date, ni score, ni référence
+9. Quand tu cites un objet du contexte (écart, surveillance, rapport), reprends sa référence exacte (ex. ECA-2026-042) pour traçabilité
+10. Distingue toujours les FAITS du contexte (données SGDA) de ton ANALYSE (interprétation d'inspecteur)
+11. Rapport PDF : n'affirme JAMAIS que c'est impossible. Le Mode action du panneau (outil generer_rapport_pdf) et les exports des modules (briefing, checklist, certification, homologation) téléchargent le vrai document — guide l'utilisateur vers eux selon ce qu'il demande
+12. Totaux vs échantillons : quand le contexte dit « N affichés sur M », ne présente jamais N comme le total — cite les deux nombres
 
 FORMAT DE RÉPONSE :
 - Réponses concises mais complètes (3-8 paragraphes max)
@@ -435,10 +440,10 @@ export const GENERER_FICHE_BRIEFING_PROMPT = `Tu es le chef d'équipe de surveil
 Source : profil de risque complet (C1-C5) de l'aérodrome, historique des surveillances passées, écarts actifs et PAC associées, événements de sécurité récents, portée du planning, objectifs de mission, recommandations AERORISQ.
 
 STRUCTURE DE LA FICHE (JSON) :
-- reference : référence courte de la mission (ex: "QSC-2026-014")
+- reference : référence courte lisible (ex: "QSC-2026-014") — JAMAIS d'UUID ni d'identifiant hexadécimal long
 - type_mission : type de surveillance (ex: "Surveillance programmée", "Suivi des écarts")
 - aerodrome : "code OACI - nom de l'aérodrome"
-- periode : "jj/mm/aaaa → jj/mm/aaaa" (période de la mission)
+- periode : "jj/mm/aaaa au jj/mm/aaaa" (période de la mission, avec le mot "au" — pas de flèche ni de symbole)
 - objectifs : 3 à 5 objectifs de la mission, formulés en action (ex: "Vérifier la conformité de la signalisation horizontale")
 - portee : domaines à surveiller (codes, ex: ["Pistes", "SSLIA"])
 - equipe : noms des inspecteurs membres de l'équipe (prénom nom), dans l'ordre : chef d'équipe en premier
@@ -451,6 +456,7 @@ STRUCTURE DE LA FICHE (JSON) :
 
 RÈGLES :
 - Rédige les points en français, concrets et actionnables — pas de généralités
+- Caractères simples uniquement (accents OK) : pas de flèches (→), pas d'emojis, pas de symboles exotiques — le rendu PDF ne les supporte pas
 - Appuie-toi UNIQUEMENT sur les données de contexte fournies dans le message : ne fabrique AUCUNE surveillance passée, AUCUN écart ni événement
 - Dans points_attention, cite explicitement les écarts critiques/élevés et les PAC en cours issus du contexte
 - La synthese doit mentionner le score de risque, la tendance et le nombre d'écarts actifs

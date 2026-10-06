@@ -203,12 +203,13 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
   const ecart = useOptimizedStore(s => s.ecarts.find((e: Ecart) => e.id === ecartId));
   const aerodromes = useOptimizedStore(s => s.aerodromes);
   const user = useOptimizedStore(s => s.user);
-  const updateEcart = useOptimizedStore(s => s.updateEcart);
+  const reajusterDelaisEcart = useOptimizedStore(s => s.reajusterDelaisEcart);
   const [verifIALe, setVerifIALe] = useState<{ conforme: boolean; niveauConfiance: number; elementsManquants: string[]; preuvesSuffisantes: boolean; commentaire: string } | null>(null);
   const [verifIALoading, setVerifIALoading] = useState(false);
   const [editingDelais, setEditingDelais] = useState(false);
   const [delaiPacInput, setDelaiPacInput] = useState('');
   const [delaiRegInput, setDelaiRegInput] = useState('');
+  const [motifDelaisInput, setMotifDelaisInput] = useState('');
   const [savingDelais, setSavingDelais] = useState(false);
 
   const runVerificationIA = async () => {
@@ -243,10 +244,12 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
     if (!delaiPacInput && !delaiRegInput) return;
     setSavingDelais(true);
     try {
-      const patch: Partial<Ecart> = {};
-      if (delaiPacInput) patch.delai_pac = new Date(delaiPacInput + 'T00:00:00').toISOString();
-      if (delaiRegInput) patch.delai_regularisation = new Date(delaiRegInput + 'T00:00:00').toISOString();
-      await updateEcart(ecart.id, patch);
+      // Tracé (historique + notification exploitants + risque) via le store.
+      await reajusterDelaisEcart(ecart.id, {
+        ...(delaiPacInput ? { delai_pac: new Date(delaiPacInput + 'T00:00:00').toISOString() } : {}),
+        ...(delaiRegInput ? { delai_regularisation: new Date(delaiRegInput + 'T00:00:00').toISOString() } : {}),
+      }, motifDelaisInput.trim() || undefined);
+      setMotifDelaisInput('');
       setEditingDelais(false);
     } catch (e) {
       console.error('Erreur mise à jour délais:', e);
@@ -378,6 +381,16 @@ export function EcartDetail({ ecartId, onClose }: EcartDetailProps) {
                         />
                       </label>
                     </div>
+                    <label className="block text-xs text-gray-500">
+                      Motif du réajustement (convenu avec l'exploitant)
+                      <input
+                        type="text"
+                        value={motifDelaisInput}
+                        onChange={ev => setMotifDelaisInput(ev.target.value)}
+                        placeholder="Ex. accord téléphonique du 12/03, contrainte pièces"
+                        className="form-select w-full text-xs px-2 py-1 rounded border border-border mt-0.5"
+                      />
+                    </label>
                     <div className="flex items-center gap-2 justify-end">
                       <button className="btn btn-sm btn-ghost" onClick={() => setEditingDelais(false)}>Annuler</button>
                       <button

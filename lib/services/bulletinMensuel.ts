@@ -8,6 +8,7 @@
 'use client'
 
 import { downloadBlob } from '@/lib/pdfGenerator'
+import { textePdf } from '@/lib/pdfText'
 import type { BulletinAerodromeInput as BulletinAerodrome, BulletinAerodromeAnalyse } from '@/lib/ia/bulletinIA'
 
 interface BulletinData {
@@ -208,8 +209,11 @@ async function buildBulletinPDF(data: BulletinData): Promise<{ blob: Blob }> {
     }
   }
 
-  const wrapped = (text: string, size: number, maxWidth = CONTENT_W): string[] =>
-    doc.splitTextToSize(text, maxWidth).map(String)
+  const wrapped = (text: string, size: number, maxWidth = CONTENT_W, bold = false): string[] => {
+    doc.setFont('times', bold ? 'bold' : 'normal')
+    doc.setFontSize(size)
+    return doc.splitTextToSize(textePdf(text), maxWidth).map(String)
+  }
 
   const paragraph = (text: string, size: number, opts: { color?: [number, number, number]; bold?: boolean; indent?: number; maxWidth?: number } = {}) => {
     const lines = wrapped(text, size, opts.maxWidth ?? CONTENT_W - (opts.indent || 0))

@@ -50,6 +50,7 @@ import { ExemptionManager } from '../exemptions/ExemptionManager';
 import { PhaseDocsModal } from './PhaseDocsModal';
 import { AssignationInstruction, peutInstruire } from './AssignationInstruction';
 import { lireInstruction } from '@/lib/instructionHabilitation';
+import { prioriteDossier, estDossierBloque } from '@/lib/processusTri';
 import { doitProposer, notifierChefProposition, notifierProposant, retransmettreDecision } from '@/lib/instructionValidation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -1739,7 +1740,9 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
       });
     }
 
-    return list;
+    // Rangement unique : bloqués → en retard → en cours → non démarrés → terminés.
+    return [...list].sort((a, b) =>
+      prioriteDossier(getCertification(a.id) ?? null) - prioriteDossier(getCertification(b.id) ?? null));
   }, [internationalAerodromes, searchTerm, filterAerodrome, filterPhase, filterStatut, certifications]);
 
   const stats = useMemo(() => {
@@ -2089,6 +2092,7 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
             certification?.statut_global === 'expire' ? 'Expiré' :
             certification?.statut_global === 'suspendu' ? 'Suspendu' : certification ? 'En cours' : 'Non certifié';
 
+          const bloque = estDossierBloque(certification ?? null);
           return (
             <AccordionSection
               key={aerodrome.id}
@@ -2097,6 +2101,7 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
               badges={
                 <>
                   <span className={`badge ${statutBadge}`}>{statutLabel}</span>
+                  {bloque && <span className="badge danger">Bloqué</span>}
                   {certification?.date_expiration && (
                     <span className={`badge ${
                       new Date(certification.date_expiration) < new Date() ? 'danger' :

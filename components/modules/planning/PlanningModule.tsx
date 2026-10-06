@@ -50,6 +50,7 @@ import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSecti
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { genererSuggestionsMaintien } from '@/lib/domaines';
 import { canManageRole } from '@/lib/config';
+import { prioritePlanning } from '@/lib/processusTri';
 import { teamOptimizer } from '@/lib/ia/engines/teamOptimizer';
 import { nettoyerMemoDelegations } from '@/lib/delegationsCleanup';
 // Source unique des statuts Planning : lib/planning.ts. Le Planning ne porte
@@ -63,7 +64,7 @@ import {
 
 // Composants du module
 import { toDatetimeLocal } from './planningDates';
-import { buildExportCSV, delaisSuggestionIA, exigencesEquipe } from '@/lib/planning-lancement';
+import { buildExportCSV, delaisSuggestionIA, exigencesEquipe, estChefDePlanning, estMembreEquipePlanning } from '@/lib/planning-lancement';
 import { ModaleSuppression, ModaleExecution, ModaleFormulaire, ModaleSuggestionsIA, ModaleFeedback } from './PlanningModals';
 import { PlanningCalendarView } from './PlanningCalendarView';
 import PlanningGanttView from './PlanningGanttView';
@@ -83,6 +84,7 @@ import {
 import { riskEngine, getEcartTriggers, type EcartTrigger } from '@/lib/riskEngine';
 import { synthetiserModeles } from '@/lib/risque/modelSynthesis';
 import { Card } from '@/components/ui/card';
+import { Markdown } from '@/components/ui/markdown';
 import { DataTable } from '@/components/ui/DataTable'
 import { predictHMM } from '@/lib/risque/hmm'
 
@@ -160,6 +162,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const ecarts             = useOptimizedStore(s => s.ecarts);
   const evenements         = useOptimizedStore(s => s.evenements || []);
   const user               = useOptimizedStore(s => s.user);
+  const inspecteurs        = useOptimizedStore(s => s.inspecteurs);
   const addNotification    = useAppStore(s => s.addNotification);
 
   // Source de vérité : seuls les rôles gestionnaires (admin) peuvent planifier,
@@ -170,9 +173,9 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   // Contrôle d'accès mission : une fois l'équipe désignée (chef + membres),
   // seul le chef d'équipe exécute, chef + membres préparent, l'admin passe en
   // lecture seule stricte (il corrige uniquement avant désignation).
-  const userMissionId = user?.id || '';
-  const isChefEquipeMission = (p: Planning) => !!p.chef_id && userMissionId === p.chef_id;
-  const isMembreEquipeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids || []).includes(userMissionId);
+  // Source unique via lib/planning-lancement (résolution compte ↔ inspecteur).
+  const isChefEquipeMission = (p: Planning) => estChefDePlanning(user, inspecteurs, p);
+  const isMembreEquipeMission = (p: Planning) => estMembreEquipePlanning(user, inspecteurs, p);
   const equipeDesigneeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids?.length ?? 0) > 0;
   const canExecuteMission = (p: Planning) => isChefEquipeMission(p);
   const canPrepareMission = (p: Planning) => isChefEquipeMission(p) || isMembreEquipeMission(p) || (isManager && !equipeDesigneeMission(p));
@@ -538,8 +541,16 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       if (planning.aDesMesuresEnRetard) group.aDesMesuresEnRetard = true;
     });
 
+    // Rangement unique : en retard → en cours → planifiées → réalisées (groupes et cartes).
+    const prioriteGroupe = (g: { plannings: Array<{ statut?: string; estRetard?: boolean }> }) =>
+      Math.min(...g.plannings.map(p => prioritePlanning(p)), 4);
+    for (const g of grouped.values()) {
+      g.plannings.sort((a: { statut?: string; estRetard?: boolean }, b: { statut?: string; estRetard?: boolean }) =>
+        prioritePlanning(a) - prioritePlanning(b));
+    }
     return Array.from(grouped.values())
-      .sort((a, b) => a.aerodrome.code_oaci.localeCompare(b.aerodrome.code_oaci));
+      .sort((a, b) => prioriteGroupe(a) - prioriteGroupe(b) ||
+        a.aerodrome.code_oaci.localeCompare(b.aerodrome.code_oaci));
   }, [planningsEnrichis, aerodromes, aerodromesActifs, surveillances]);
 
   // Statistiques globales
@@ -623,7 +634,13 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   };
 
   const handleRequestExecute = (planning: Planning) => {
-    if (!planning.chef_id) {
+    // Filet anti-silence : toute exception inattendue devient une notification
+    // visible au lieu de « rien ne se passe » (diagnostic : F12 + ce message).
+    try {
+      if (!planning || !planning.id) {
+        throw new Error('Planning introuvable (données non chargées, rechargez la page).')
+      }
+      if (!planning.chef_id) {
       addNotification({
         user_id: user?.id || '', type: 'warning',
         title: 'Chef d\'équipe à désigner',
@@ -632,7 +649,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       });
       return;
     }
-    const isChefEquipe = !!user?.id && !!planning.chef_id && planning.chef_id === user.id;
+    const isChefEquipe = estChefDePlanning(user, inspecteurs, planning);
     if (!isChefEquipe) {
       addNotification({
         user_id: user?.id || '', type: 'warning',
@@ -656,12 +673,21 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     setExecuteDateFin(toDatetimeLocal(planning.date_fin));
     setExecuteTarget(planning);
     setExecuteConfirmOpen(true);
+    } catch (err) {
+      console.error('[Planning] Échec ouverture exécution:', err);
+      addNotification({
+        user_id: user?.id || '', type: 'danger',
+        title: 'Exécution impossible',
+        message: err instanceof Error ? err.message : 'Erreur inattendue à l’ouverture. Ouvrez la console (F12) et transmettez le message.',
+        canal: 'in_app',
+      });
+    }
   };
 
   // Lancement planning → surveillance : orchestration extraite
   // (voir ./useLancerSurveillance.ts + lib/planning-lancement.ts).
   const { handleConfirmExecute: confirmerExecution } = useLancerSurveillance({
-    user, aerodromesActifs, aerodromes, utilisateurs, profilsRisque,
+    user, aerodromesActifs, aerodromes, utilisateurs, inspecteurs, profilsRisque,
     addNotification, updatePlanning, enregistrerFeedbackPlanning,
   });
 
@@ -669,6 +695,14 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     confirmerExecution({
       executeTarget, executeDateDebut, executeDateFin,
       onClose: () => { setExecuteConfirmOpen(false); },
+    }).catch((err) => {
+      console.error('[Planning] Échec lancement surveillance:', err);
+      addNotification({
+        user_id: user?.id || '', type: 'danger',
+        title: 'Lancement impossible',
+        message: err instanceof Error ? err.message : 'Erreur inattendue au lancement. Ouvrez la console (F12) et transmettez le message.',
+        canal: 'in_app',
+      });
     });
   };
 
@@ -812,7 +846,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
 // Définition extraite : voir ./PlanningTableColumns.tsx
 // (buildPlanningTableColumns — mêmes permissions, mêmes callbacks).
 const tableColumns = buildPlanningTableColumns({
-  user, isManager,
+  user, inspecteurs, isManager,
   onPrepare: handlePrepare,
   onExecute: handleRequestExecute,
   onViewDetails: handleViewDetails,
@@ -931,6 +965,20 @@ const tableColumns = buildPlanningTableColumns({
           </button>
         </div>
       )}
+
+      {/* Bilan d'activité de l'année : programmées, exécutées, en retard */}
+      <div className="p-3 rounded-lg border border-primary/20 bg-primary-soft/20 flex items-start gap-2">
+        <Calendar className="w-4 h-4 text-role-primary shrink-0 mt-0.5" />
+        <p className="text-xs">
+          <span className="font-semibold text-foreground">
+            {selectedYear || new Date().getFullYear()} : {stats.total} mission(s) programmée(s), {stats.realisees} exécutée(s){stats.enRetard > 0 ? `, ${stats.enRetard} en retard` : ''}.
+          </span>{' '}
+          <span className="text-foreground">
+            {stats.enCours > 0 ? `${stats.enCours} en cours d’exécution. ` : ''}
+            Les plannings avec équipe désignée sont en lecture seule pour l&apos;admin : la préparation revient au chef d&apos;équipe et aux membres, l&apos;exécution au seul chef d&apos;équipe désigné.
+          </span>
+        </p>
+      </div>
 
       {/* Rappel lecture seule pour l'admin après désignation */}
       {isManager && filteredPlannings.some(equipeDesigneeMission) && (
@@ -1170,7 +1218,7 @@ const tableColumns = buildPlanningTableColumns({
                   </button>
                 </div>
               </div>
-              <p className="text-sm whitespace-pre-wrap">{iaAnswer}</p>
+              <Markdown texte={iaAnswer} className="text-sm" />
             </div>
           )}
         </div>
@@ -1180,7 +1228,10 @@ const tableColumns = buildPlanningTableColumns({
       {certHomologPlannings.length > 0 && (
         <AccordionGroup spacing="sm">
           {['certification', 'homologation'].map(type => {
-            const items = certHomologPlannings.filter(p => p.type === type)
+            const items = certHomologPlannings
+              .filter(p => p.type === type)
+              .sort((a, b) => prioritePlanning({ statut: a.statut, estRetard: estPlanningEnRetard(a, surveillances) }) -
+                prioritePlanning({ statut: b.statut, estRetard: estPlanningEnRetard(b, surveillances) }))
             if (items.length === 0) return null
             return (
               <AccordionSection

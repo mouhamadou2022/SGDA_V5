@@ -12,7 +12,7 @@ import { CompetenceMatrix } from './CompetenceMatrix';
 import { FormationSuggestions } from './FormationSuggestions';
 import { DeleteConfirmationDialog } from '@/components/ui/DeleteConfirmationDialog';
 import { useOptimizedStore, useGlobalTransition } from '@/lib/performance/globalOptimizer';
-import { useAppStore, Formation, Inspecteur, Competence, declarativesVersCompetences } from '@/lib/store';
+import { useAppStore, Formation, Inspecteur, Competence, declarativesVersCompetences, normaliserDomaineCompetence, normaliserNiveauCompetence } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { formationUtils } from '@/lib/formationUtils';
 import { canManageRole } from '@/lib/config';
@@ -65,7 +65,17 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
   const setActiveModule = useAppStore((s) => s.setActiveModule);
 
   const competencesVersion = useAppStore((s) => s.competencesVersion);
+  const reparerCompetencesInspecteurs = useAppStore((s) => s.reparerCompetencesInspecteurs);
   const lastRecalcVersion = useRef(0);
+  const reparationCompetencesFaite = useRef(false);
+
+  // Migration corrective unique : répare les compétences sales (domaine stocké
+  // en JSON sérialisé du type '{"domaine":"COP","niveau":3}'). Idempotent.
+  useEffect(() => {
+    if (reparationCompetencesFaite.current) return;
+    reparationCompetencesFaite.current = true;
+    reparerCompetencesInspecteurs().catch(() => {});
+  }, [reparerCompetencesInspecteurs]);
 
   // Recalculer les compétences automatiquement uniquement si les données ont changé
   useEffect(() => {
@@ -74,9 +84,9 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
 
     const ctx = { formations: formations || [], surveillances: surveillances || [] }
     inspecteurs.filter(i => !i.deleted_at).forEach(ins => {
-      const domaines = [...new Set((ins.competences || []).map(c => c.domaine))]
+      const domaines = [...new Set((ins.competences || []).map(c => normaliserDomaineCompetence(c.domaine)).filter(Boolean))]
       const nouvelles: Competence[] = domaines.map(d => {
-        const existante = ins.competences?.find(c => c.domaine === d)
+        const existante = ins.competences?.find(c => normaliserDomaineCompetence(c.domaine) === d)
         if (existante?.source === 'manuel') return existante
         return { ...(existante || {} as any), id: existante?.id || crypto.randomUUID(), inspecteur_id: ins.id, domaine: d, niveau: formationUtils.calculerNiveauCompetence(ins, d, ctx), source: 'auto' as Competence['source'], date_obtention: existante?.date_obtention || ins.created_at }
       })
@@ -255,6 +265,25 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       budgetTotal: listeFormations.reduce((sum, f) => sum + (f.budget || 0), 0),
     };
   }, [listeFormations, listeInspecteurs]);
+
+  // Bilan annuel (miroir planning) : planifiées, exécutées, en retard + taux d'exécution annuel.
+  const statsAnnuelles = useMemo(() => {
+    const annee = new Date().getFullYear();
+    const maintenant = new Date();
+    const deAnnee = listeFormations.filter(f => {
+      if (!f.date) return false;
+      const d = new Date(f.date);
+      return !isNaN(d.getTime()) && d.getFullYear() === annee;
+    });
+    const total = deAnnee.length;
+    const executees = deAnnee.filter(f => f.statut === 'terminee').length;
+    const enCours = deAnnee.filter(f => f.statut === 'en_cours').length;
+    const enRetard = deAnnee.filter(f =>
+      f.statut === 'planifiee' && f.date && new Date(f.date) < maintenant
+    ).length;
+    const taux = total > 0 ? Math.round((executees / total) * 100) : 0;
+    return { annee, total, executees, enCours, enRetard, taux };
+  }, [listeFormations]);
 
   const toggleInspector = (id: string) => {
     setExpandedInspectors(prev => ({ ...prev, [id]: !prev[id] }));
@@ -959,7 +988,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     const st = statutConfig[ins.statut] || { label: ins.statut, class: '' };
     const totalCompetences = ins.competences?.length || 0;
     const avgNiveau = totalCompetences > 0
-      ? (ins.competences!.reduce((s, c) => s + c.niveau, 0) / totalCompetences).toFixed(1)
+      ? (ins.competences!.reduce((s, c) => s + normaliserNiveauCompetence(c.niveau), 0) / totalCompetences).toFixed(1)
       : '—';
     return (
       <FormShell
@@ -1074,13 +1103,15 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             {ins.competences && ins.competences.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {ins.competences.map((c, i) => {
-                  const pct = Math.round((c.niveau / 5) * 100);
-                  const barColor = c.niveau >= 4 ? 'bg-green-500' : c.niveau >= 3 ? 'bg-blue-500' : c.niveau >= 2 ? 'bg-amber-500' : 'bg-red-500';
+                  const domaineAffiche = normaliserDomaineCompetence(c.domaine) || '—';
+                  const niveauAffiche = normaliserNiveauCompetence(c.niveau);
+                  const pct = Math.round((niveauAffiche / 5) * 100);
+                  const barColor = niveauAffiche >= 4 ? 'bg-green-500' : niveauAffiche >= 3 ? 'bg-blue-500' : niveauAffiche >= 2 ? 'bg-amber-500' : 'bg-red-500';
                   return (
                     <div key={i} className="p-4 rounded-xl border border-border/40 bg-card hover:shadow-md transition-all">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold">{c.domaine}</span>
-                        <span className="text-xs font-medium text-muted-foreground">{c.niveau}/5</span>
+                        <span className="text-sm font-semibold">{domaineAffiche}</span>
+                        <span className="text-xs font-medium text-muted-foreground">{niveauAffiche}/5</span>
                       </div>
                       <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
@@ -1787,6 +1818,24 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
             <div className="kpi-card"><div className="kpi-icon"><TrendingUp className="w-5 h-5 text-role-primary" /></div><div className="kpi-content"><div className="kpi-value">{stats.tauxCompletion}%</div><div className="kpi-label">Taux complétion</div></div></div>
             <div className="kpi-card"><div className="kpi-icon"><BarChart3 className="w-5 h-5" /></div><div className="kpi-content"><div className="kpi-value">{stats.budgetTotal.toLocaleString()} F</div><div className="kpi-label">Budget</div></div></div>
           </div>
+          {/* Bilan d'activité de l'année : planifiées, exécutées, en retard + taux d'exécution annuel */}
+          <div className="p-3 rounded-lg border border-primary/20 bg-primary-soft/20 flex items-start gap-2">
+            <Calendar className="w-4 h-4 text-role-primary shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs">
+                <span className="font-semibold text-foreground">
+                  {statsAnnuelles.annee} : {statsAnnuelles.total} formation(s) planifiée(s), {statsAnnuelles.executees} exécutée(s){statsAnnuelles.enRetard > 0 ? `, ${statsAnnuelles.enRetard} en retard` : ''}.
+                </span>{' '}
+                <span className="text-foreground">
+                  {statsAnnuelles.enCours > 0 ? `${statsAnnuelles.enCours} en cours d'exécution. ` : ''}
+                  Taux d'exécution annuel : {statsAnnuelles.taux}%.
+                </span>
+              </p>
+              <div className="progress h-1 mt-2">
+                <div className="progress-bar" style={{ width: `${statsAnnuelles.taux}%` }} />
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="lg:col-span-1">
               <Card title="Formations à venir / en cours" icon={<Calendar className="w-4 h-4" />} className="h-full">
@@ -1840,52 +1889,154 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
               </Card>
             </div>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1">
-              <Card title="Inspecteurs" icon={<Users className="w-4 h-4" />} className="h-full">
-                {listeInspecteurs.slice(0, 6).map(ins => {
+          {/* Cartes inspecteurs individuelles (miroir RiskCard du profil de risque) */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-role-primary" />
+              <h3 className="font-semibold text-sm text-foreground">Inspecteurs ({listeInspecteurs.length})</h3>
+            </div>
+            {listeInspecteurs.length === 0 ? (
+              <Card>
+                <div className="text-center py-8">
+                  <Users className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm text-muted-foreground">Aucun inspecteur</p>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {listeInspecteurs.map(ins => {
+                  const maintenant = new Date();
+                  const all = formationsParInspecteur[ins.id] || [];
+                  const nbPlanifiees = all.filter(f => f.statut === 'planifiee').length;
+                  const nbEnCours = all.filter(f => f.statut === 'en_cours').length;
+                  const nbTerminees = all.filter(f => f.statut === 'terminee').length;
+                  const nbRetard = all.filter(f => f.statut === 'planifiee' && f.date && new Date(f.date) < maintenant).length;
+                  const tauxExec = all.length > 0 ? Math.round((nbTerminees / all.length) * 100) : 0;
+                  const levelColor = nbRetard > 0 ? 'danger' as const : nbEnCours > 0 ? 'warning' as const : (all.length > 0 && nbPlanifiees === 0 ? 'success' as const : 'primary' as const);
                   const domaine = DOMAINES_COMPETENCE.find(d => d.id === ins.domaine_principal);
+                  const statutBadge = ins.statut === 'en_service'
+                    ? <span className="badge success text-xs">En service</span>
+                    : ins.statut === 'en_conge'
+                      ? <span className="badge warning text-xs">En congé</span>
+                      : ins.statut === 'en_mission'
+                        ? <span className="badge primary text-xs">En mission</span>
+                        : <span className="badge neutral text-xs">{ins.statut}</span>;
+                  const competences = ins.competences || [];
+                  const niveauMoyen = competences.length > 0
+                    ? (competences.reduce((s, c) => s + normaliserNiveauCompetence(c.niveau), 0) / competences.length).toFixed(1)
+                    : null;
+                  const topCompetences = [...competences].sort((a, b) => normaliserNiveauCompetence(b.niveau) - normaliserNiveauCompetence(a.niveau)).slice(0, 3);
+                  const prochaine = [...all]
+                    .filter(f => (f.statut === 'planifiee' || f.statut === 'en_cours') && f.date)
+                    .sort((a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime())[0];
                   return (
-                    <div key={ins.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-role-primary-soft transition-colors">
-                      <div className="w-9 h-9 rounded-full bg-blue-950 flex items-center justify-center !text-white font-semibold text-xs shrink-0">
-                        {getInitials(ins.prenom, ins.nom)}
+                    <Card key={ins.id} variant="level" levelColor={levelColor} interactive onClick={() => handleViewInspecteur(ins.id)}
+                      icon={<UserIcon className="w-5 h-5 text-role-primary" />}
+                      title={`${ins.prenom} ${ins.nom}`}
+                      badge={statutBadge}
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-full bg-blue-950 flex items-center justify-center !text-white font-bold text-sm shrink-0 overflow-hidden ring-2 ring-white/20">
+                            {ins.photo ? (
+                              <img src={ins.photo} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              getInitials(ins.prenom, ins.nom)
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">{ins.matricule || 'Sans matricule'}</p>
+                            <p className="text-xs text-foreground truncate">{getNiveauLabel(ins.type)}{domaine ? ` · ${domaine.label.split(' (')[0]}` : ''}</p>
+                            <p className="text-[11px] text-muted-foreground capitalize truncate">{ins.service?.replace(/_/g, ' ') || ''}</p>
+                          </div>
+                        </div>
+
+                        {nbRetard > 0 && (
+                          <div className="flex items-center gap-1.5 text-xs text-danger">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span className="font-medium">{nbRetard} formation(s) en retard</span>
+                          </div>
+                        )}
+
+                        {/* Formations */}
+                        <div>
+                          <p className="text-xs text-foreground mb-1.5">Formations ({all.length}) — {tauxExec}% exécutées</p>
+                          <div className="grid grid-cols-4 gap-1 mb-1.5">
+                            {[
+                              { label: 'Planif.', value: nbPlanifiees, cls: 'text-primary' },
+                              { label: 'Cours', value: nbEnCours, cls: 'text-warning' },
+                              { label: 'Term.', value: nbTerminees, cls: 'text-success' },
+                              { label: 'Retard', value: nbRetard, cls: 'text-danger' },
+                            ].map(item => (
+                              <div key={item.label} className="text-center rounded-md bg-role-primary-soft/20 p-1.5">
+                                <p className={`text-base font-bold ${item.cls}`}>{item.value}</p>
+                                <p className="text-[9px] text-foreground">{item.label}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="progress h-1.5"><div className="progress-bar" style={{ width: `${tauxExec}%` }} /></div>
+                        </div>
+
+                        {/* Compétences */}
+                        <div>
+                          <p className="text-xs text-foreground mb-1.5">
+                            Compétences ({competences.length}){niveauMoyen !== null ? ` — niveau moyen ${niveauMoyen}/5` : ''}
+                          </p>
+                          {topCompetences.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {topCompetences.map((c, i) => {
+                                const niveauAffiche = normaliserNiveauCompetence(c.niveau);
+                                const pct = Math.round((niveauAffiche / 5) * 100);
+                                const barColor = niveauAffiche >= 4 ? 'bg-green-500' : niveauAffiche >= 3 ? 'bg-blue-500' : niveauAffiche >= 2 ? 'bg-amber-500' : 'bg-red-500';
+                                return (
+                                  <div key={i}>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="text-[11px] font-medium truncate">{normaliserDomaineCompetence(c.domaine) || '—'}</span>
+                                      <span className="text-[10px] text-muted-foreground">{niveauAffiche}/5</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                                      <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground">Aucune compétence renseignée</p>
+                          )}
+                        </div>
+
+                        {/* Prochaine formation */}
+                        <div className="rounded-md bg-role-primary-soft/20 p-2.5">
+                          {prochaine ? (
+                            <>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Prochaine formation</p>
+                              <p className="text-xs font-medium truncate">{prochaine.titre}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {prochaine.date ? new Date(prochaine.date).toLocaleDateString('fr-FR') : '-'}
+                                {prochaine.duree_heures ? ` · ${prochaine.duree_heures}h` : ''}
+                                {prochaine.lieu ? ` · ${prochaine.lieu}` : ''}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground">Aucune formation à venir</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{ins.prenom} {ins.nom}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {getNiveauLabel(ins.type)}{domaine ? ` · ${domaine.label.split(' (')[0]}` : ''}
-                        </p>
+
+                      <div className="flex items-center justify-between pt-4 mt-1 border-t border-border">
+                        <span className="text-xs text-foreground">{all.length} formation(s) · {competences.length} compétence(s)</span>
+                        <div className="flex gap-1">
+                          <button className="action-button hover:text-role-primary" onClick={e => { e.stopPropagation(); handleViewInspecteur(ins.id); }} title="Voir la fiche"><Eye className="w-4 h-4" /></button>
+                          <button className="action-button hover:text-role-primary" onClick={e => { e.stopPropagation(); handleEditInspecteur(ins); }} title="Modifier"><PenSquare className="w-4 h-4" /></button>
+                          <button className="action-button danger" onClick={e => { e.stopPropagation(); handleDeleteInspecteur(ins.id); }} title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                        </div>
                       </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button className="action-button" onClick={() => { handleViewInspecteur(ins.id); }} title="Voir">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button className="action-button" onClick={() => { handleEditInspecteur(ins); }} title="Modifier">
-                          <PenSquare className="w-4 h-4" />
-                        </button>
-                        <button className="action-button danger" onClick={() => { handleDeleteInspecteur(ins.id); }} title="Supprimer">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
+                    </Card>
                   );
                 })}
-              </Card>
-            </div>
-            <div className="lg:col-span-2">
-              <Card title="Formations expirées" icon={<AlertTriangle className="w-4 h-4 text-danger" />} className="h-full">
-                {(() => {
-                  const expirees = listeFormations.filter(estExpiree)
-                  if (expirees.length === 0) return <p className="text-sm text-muted-foreground text-center py-8">Aucune formation expirée</p>
-                  return <div className="space-y-2">{expirees.slice(0, 5).map(f => (
-                    <div key={f.id} className="flex items-center justify-between p-2 rounded-lg bg-danger-soft">
-                      <div><p className="text-sm font-medium">{f.titre}</p><p className="text-xs text-muted-foreground">{f.reference} — {new Date(f.date).toLocaleDateString('fr-FR')}</p></div>
-                      <span className="badge danger">{f.duree_heures}h</span>
-                    </div>
-                  ))}</div>
-                })()}
-              </Card>
-            </div>
+              </div>
+            )}
           </div>
           <div className="flex justify-end pt-2">
             <button className="btn btn-secondary gap-2" onClick={() => {

@@ -21,10 +21,12 @@ import { HelpModal, type HelpSection } from '@/components/ui/HelpModal'
 import { getABStats, clearABHistory } from '@/lib/ab_testing'
 import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engineFeedback'
 import { inspecteurMonitoring, type CapaciteInspecteur, CAPACITES_INSPECTEUR, type InspecteurMonitoringStats } from '@/lib/ia/engines/inspecteurMonitoring'
+import { statsCacheOutils } from '@/lib/ia/pilote/bouclePilote'
 import { thresholdController } from '@/lib/ia/thresholdController'
 import { synthetiserModeles, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
 import { pctBayes } from '@/lib/risque/bayesian'
 import { EnClairNote } from './EnClairNote'
+import { CompteurPoidsAprentissage } from './CompteurPoidsAprentissage'
 import { recommanderModeleAnalyse } from '@/lib/ia/modelSelector'
 import { lancerDiagnosticOrchestrateur, lireDernierDiagnostic, historiqueOrchestrateur } from '@/lib/ia/orchestrateur'
 import type { ResultatOrchestrateur } from '@/lib/ia/orchestrateur'
@@ -32,6 +34,7 @@ import DigitalTwinCard from './DigitalTwinCard'
 import ShapExplainerCard from './ShapExplainerCard'
 import OaciGraphCard from './OaciGraphCard'
 import SimulationSurveillanceCard from './SimulationSurveillanceCard'
+import ApprentissageCard from './ApprentissageCard'
 import type { ModeleBenchmarkId } from '@/lib/ia/benchmark'
 import { MODELE_LABELS, DEFAULT_BENCHMARK_CONFIG, MODEL_HYPERPARAMS, configEstPersonnalisee } from '@/lib/ia/benchmark'
 import type { BenchmarkConfig } from '@/lib/ia/benchmark'
@@ -96,6 +99,8 @@ export default function MLMonitoringModule({ user }: Props) {
   const loadBenchmarkState = useAppStore(s => s.loadBenchmarkState)
   const benchmarkConfig = useAppStore(s => s.benchmarkConfig)
   const setBenchmarkConfig = useAppStore(s => s.setBenchmarkConfig)
+  const hydrateMlSamplesFromCentral = useAppStore(s => s.hydrateMlSamplesFromCentral)
+  const refreshModelInfoAfterHydration = useAppStore(s => s.refreshModelInfo)
 
   const aerodromes = useAppStore(s => s.aerodromes)
 
@@ -109,6 +114,16 @@ export default function MLMonitoringModule({ user }: Props) {
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
 
   useEffect(() => { loadBenchmarkState() }, [loadBenchmarkState])
+
+  // Hydratation best-effort : Supabase (ml_samples) → cache local IDB.
+  // Débloque benchmark + auto-train sur tout poste autre que celui qui a signé.
+  useEffect(() => {
+    let cancelled = false
+    hydrateMlSamplesFromCentral().then((added) => {
+      if (!cancelled && added > 0) refreshModelInfoAfterHydration()
+    }).catch(() => { /* réseau indisponible — cache local conservé */ })
+    return () => { cancelled = true }
+  }, [hydrateMlSamplesFromCentral, refreshModelInfoAfterHydration])
 
   const isAdmin = user?.role === 'admin'
   const stats = learningFeedbacks.length > 0 ? calculatePerformance() : null
@@ -397,6 +412,9 @@ export default function MLMonitoringModule({ user }: Props) {
         ecarts={ecarts}
         evenements={evenementsSecurite}
       />
+
+      {/* ══════════════════ CARTE 12 : APPRENTISSAGE AERORISQ (DONNÉES RÉELLES) ══════════════════ */}
+      <ApprentissageCard aerodromeId={premierProfil?.aerodrome_id} />
     </div>
   )
 }
@@ -500,6 +518,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
           </p>
         </div>
       )}
+      <CompteurPoidsAprentissage />
       {rfSamplesCount < 10 ? (
         <div className="text-center py-8 text-muted">
           <Database className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -563,8 +582,16 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
               </tbody>
             </table>
           </div>
+          {benchmarkOutcome.autoSelected === false && benchmarkOutcome.selectionBlockedReason && (
+            <div className="alert alert-warning animate-fade-up">
+              <AlertTriangle className="alert-icon" />
+              <div className="alert-content text-xs">{benchmarkOutcome.selectionBlockedReason}</div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            Benchmark sur {benchmarkOutcome.datasetSize} échantillons (split train/test 75/25, seed fixe). Le modèle sélectionné pilote réellement les prédictions de risque — dernier entraînement actif : {activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : 'jamais'}.
+            Benchmark sur {benchmarkOutcome.datasetSize} échantillons (train {benchmarkOutcome.trainSize ?? '—'} / test {benchmarkOutcome.testSize ?? '—'}, split 75/25 stratifié).
+            Le modèle sélectionné pilote réellement les prédictions de risque — dernier entraînement actif : {activeModelTrainedAt ? new Date(activeModelTrainedAt).toLocaleDateString('fr-FR') : 'jamais'}.
+            {(benchmarkOutcome.testSize ?? 0) < 10 ? ' Test < 10 : métriques indicatives uniquement.' : ''}
           </p>
 
           {/* Calibrage + évolution */}
@@ -918,6 +945,47 @@ function AgentsCard({ engineStats, inspecteurStats, aerodromeId }: {
                   )
                 })}
               </div>
+              {/* Objectivité : confiance aveugle (tout accepté, jamais corrigé ni rejeté) */}
+              {(() => {
+                const parInspecteur = inspecteurMonitoring.objectiviteParInspecteur()
+                  .filter(o => o.volume >= 3);
+                if (parInspecteur.length === 0) return null;
+                const st = useAppStore.getState();
+                const nomDe = (id: string) => {
+                  const u = (st.utilisateurs || []).find(x => x.id === id);
+                  const nom = `${u?.prenom || ''} ${u?.nom || ''}`.trim();
+                  return nom || `ID ${id.slice(0, 8)}`;
+                };
+                return (
+                  <div className="mt-2 p-2 rounded-lg bg-muted/20">
+                    <p className="text-xs font-medium mb-1">Objectivité des suggestions IA</p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {parInspecteur.map(o => (
+                        <div key={o.inspecteurId} className="flex items-center justify-between text-[11px]">
+                          <span className="truncate">{nomDe(o.inspecteurId)}</span>
+                          <span className="flex items-center gap-1.5 flex-shrink-0">
+                            <span className="text-muted-foreground">{o.tauxAcceptation}% ok / {o.volume}</span>
+                            {o.aveugle && (
+                              <span className="px-1.5 py-px rounded-full bg-danger/15 text-danger font-semibold" title="≥90 % acceptés sans jamais corriger ni rejeter — à signaler au chef">
+                                Confiance aveugle
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const cache = statsCacheOutils();
+                      if (cache.lectures === 0) return null;
+                      return (
+                        <p className="text-[11px] text-muted-foreground mt-1.5" title="Lectures d'outils servies depuis le cache (session)">
+                          ⚡ Cache outils : {cache.taux}% hits ({cache.hits}/{cache.lectures} lectures évitées)
+                        </p>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
             </div>
           ) : <p className="text-sm text-muted text-center py-6">Aucun retour inspecteur virtuel. Acceptez, corrigez ou ignorez les suggestions dans les checklists et la rédaction d&apos;écarts.</p>}
         </div>
@@ -1349,4 +1417,5 @@ const HELP_SECTIONS: HelpSection[] = [
   { id: 'shap', title: '9. Explicabilité SHAP-like', content: 'Attribution additive exacte du score : chaque critère C1-C5 reçoit une contribution φ = poids × (valeur − référence)/100, et baseline + Σφ = score (exactitude vérifiée). Trois références possibles : neutre (50), moyenne historique ou mois précédent. Aucune approximation.' },
   { id: 'oaci', title: '10. Graphe unifié OACI → risques → écarts', content: 'Chaîne causale Critère OACI (C1-C5) → Barrière Bow-Tie → Domaine → Écart. Sélectionnez un critère pour tracer la propagation de son impact (décroissante le long du graphe), et consultez par domaine l\'efficacité des barrières et les écarts rattachés.' },
   { id: 'simulation', title: '11. Simulation de surveillance', content: 'Simule une surveillance sur un aérodrome à partir de ses données réelles : profil C1-C5, écarts ouverts, historique et items du Kit Inspecteur. Choisissez l\'aérodrome, le type de surveillance et la portée, puis lancez la simulation pour obtenir une checklist pré-remplie SA/NS/NA/NV avec confiance, les écarts probables et le rapport PDF (gabarit ANACIM existant). Lecture seule — aucune donnée créée ni modifiée.' },
+  { id: 'apprentissage', title: '12. Apprentissage AERORISQ', content: 'Précision réelle des prédictions (MAE, biais), dataset (écarts résolus, preuves transcrites, rapports, échantillons ML, prédictions suivies/vérifiées), derniers passages des 6 boucles et modèle local Ollama. Lecture seule.' },
 ]

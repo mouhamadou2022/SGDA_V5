@@ -60,6 +60,13 @@ export interface BenchmarkOutcome {
   bestModelId: ModeleBenchmarkId | null
   executedAt: string
   datasetSize: number
+  /** Tailles du split (garde statistique : un test de 2-3 points ne prouve rien). */
+  trainSize: number
+  testSize: number
+  /** Faux si la sélection auto a été bloquée (dataset/test trop petits). */
+  autoSelected: boolean
+  /** Raison du blocage de la sélection auto (affichée dans l'UI). */
+  selectionBlockedReason: string | null
 }
 
 // ============================================================

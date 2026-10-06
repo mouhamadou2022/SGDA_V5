@@ -6,7 +6,8 @@ import { useAppStore, type EvenementSecurite } from '@/lib/store'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
 import { Card } from '@/components/ui/card'
 import { X, CheckCircle2, AlertTriangle, FileText, User, Calendar, MapPin, Clock, ChevronDown, ChevronRight, AlertCircle, Sparkles, Loader2, Send, RotateCcw, MessageSquare } from 'lucide-react'
-import { getGraviteRisque, getGraviteRisqueLabel } from '@/lib/evenementUtils'
+import { getGraviteRisque, getGraviteRisqueLabel, graviteDepuisCellule, normaliserCellule, getGraviteRisqueClasse } from '@/lib/evenementUtils'
+import { getCellColor } from '@/lib/risque'
 import { verifierEquipeInstruction, peutEtreChefInstruction, type ExpertExterne } from '@/lib/instructionHabilitation'
 import { FtaEvenementPanel } from './FtaEvenementPanel'
 import { ModeleAnalyseSelector } from '@/components/ui/ModeleAnalyseSelector'
@@ -547,7 +548,30 @@ function EvenementWorkflow({ evenementId, userRole, onClose }: EvenementWorkflow
               <Card variant="role" size="sm">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-role-primary-soft flex items-center justify-center shrink-0"><AlertCircle className="w-4 h-4 text-role-primary" /></div>
-                  <div><p className="text-xs text-muted-foreground font-medium">GRAVITÉ</p><div className="mt-1"><span className={getBadgeGravite(evt.gravite)}>{getLabelGravite(evt.gravite)}</span></div></div>
+                  <div><p className="text-xs text-muted-foreground font-medium">GRAVITÉ</p><div className="mt-1 flex items-center gap-1.5 flex-wrap"><span className={getBadgeGravite(evt.gravite)}>{getLabelGravite(evt.gravite)}</span>
+                    {(() => {
+                      const cellule = normaliserCellule(evt.cellule_oaci);
+                      if (!cellule) return null;
+                      const derivee = graviteDepuisCellule(cellule);
+                      return (
+                        <span className="inline-flex items-center gap-1.5" title={`Indice OACI déclaré par l'exploitant : ${cellule}`}>
+                          <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCellColor(cellule)}`}>{cellule}</span>
+                          {derivee && derivee !== evt.gravite && (
+                            <span className={`text-[10px] font-medium ${getGraviteRisqueClasse(derivee).replace('badge ', 'text-')}`}>→ {derivee} ? à valider</span>
+                          )}
+                        </span>
+                      );
+                    })()}
+                    {evt.cellule_justification && (
+                      <p className="text-[11px] mt-1 text-foreground/70 italic">« {evt.cellule_justification} »</p>
+                    )}
+                    {evt.cellule_residuelle && (
+                      <p className="text-[11px] mt-1 text-foreground/70">
+                        Résiduel : <span className={`inline-flex items-center justify-center rounded font-bold text-[10px] px-1.5 py-0.5 font-mono ${getCellColor(evt.cellule_residuelle)}`}>{evt.cellule_residuelle}</span>
+                        {evt.cellule_residuelle_justification && <span className="italic"> — « {evt.cellule_residuelle_justification} »</span>}
+                      </p>
+                    )}
+                  </div></div>
                 </div>
               </Card>
               <Card variant="role" size="sm" className="col-span-2">

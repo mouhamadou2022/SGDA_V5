@@ -96,6 +96,16 @@ export const createKitDocumentsSlice: StateCreator<AppStore, [], [], KitSlice> =
     if (error) { console.error('[store] createKitDocument error:', error); return newDoc; }
     if (data) set((state) => ({ kitDocuments: [...state.kitDocuments.filter(k => k.id !== id), data] }));
     else set((state) => ({ kitDocuments: [...state.kitDocuments, newDoc] }));
+    const docFinal = (data || newDoc) as KitDocument;
+    // Auto-lecture dès le chargement : le texte est extrait en arrière-plan
+    // (best-effort, silencieux) — fini l'attente d'une génération de checklist
+    // pour que le RAG voie le document. Import différé : évite le cycle
+    // store ↔ kitDocAgent. Sans fichier : rien à lire (tests, métadonnées).
+    if (docFinal.fichier_url && (!docFinal.contenu_complet || docFinal.contenu_complet.length < 50)) {
+      import('@/lib/ia/agents/kitDocAgent')
+        .then(m => m.kitDocAgent.extraireTexteDocument(docFinal.id).catch(() => {}))
+        .catch(() => {});
+    }
     return data || newDoc;
   },
 
@@ -104,6 +114,16 @@ export const createKitDocumentsSlice: StateCreator<AppStore, [], [], KitSlice> =
     const { data: result, error } = await import('@/lib/datastore').then(m => m.updateKitDocument(id, data as any));
     if (error) console.error('[store] updateKitDocument error:', error);
     if (result) set((state) => ({ kitDocuments: state.kitDocuments.map(k => k.id === id ? result : k) }));
+    // Nouveau fichier ou nouvelle version : relire le texte en arrière-plan
+    // (extraireTexteDocument ignore les docs déjà à jour — sans doublon).
+    if (data.fichier_url !== undefined || (data as Partial<KitDocument>).version !== undefined) {
+      const doc = get().kitDocuments.find(k => k.id === id);
+      if (doc?.fichier_url) {
+        import('@/lib/ia/agents/kitDocAgent')
+          .then(m => m.kitDocAgent.extraireTexteDocument(id).catch(() => {}))
+          .catch(() => {});
+      }
+    }
   },
 
   deleteKitDocument: async (id) => {

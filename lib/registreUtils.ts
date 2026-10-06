@@ -6,6 +6,27 @@ export const registreUtils = {
     const prefix = type.substring(0, 3).toUpperCase()
     return `REG-${prefix}-${annee}-${String(compteur).padStart(4, '0')}`
   },
+  /**
+   * Prochain compteur par max+1 sur (type, année) — jamais length+1 (une
+   * suppression ou 2 utilisateurs simultanés dupliquaient la référence).
+   * Pur et testé. La contrainte UNIQUE SQL garde-fou en dernier ressort.
+   */
+  prochainCompteurRegistre(
+    entries: Array<{ reference?: string }>,
+    type: string,
+    annee: number,
+  ): number {
+    const tete = `REG-${type.substring(0, 3).toUpperCase()}-${annee}-`
+    let max = 0
+    for (const e of entries || []) {
+      const ref = e.reference || ''
+      if (ref.startsWith(tete)) {
+        const n = parseInt(ref.slice(tete.length), 10)
+        if (Number.isFinite(n) && n > max) max = n
+      }
+    }
+    return max + 1
+  },
 
   toRegistreEntryFromCertification(certification: any, aerodrome?: any): Omit<RegistreEntry, 'id' | 'created_at' | 'timeline'> {
     const fichiers: { nom: string; url: string }[] = []

@@ -119,7 +119,7 @@ export class ChecklistFeedbackEngine {
 
     // 1) Random Forest locale (IndexedDB navigateur) — déclenche l'auto-entraînement à ≥ 20 échantillons
     try {
-      advancedModels.addTrainingSample(profil, niveauTerrain)
+      advancedModels.addTrainingSample(profil, niveauTerrain, surveillanceId)
       console.log(`[ChecklistFeedback] Échantillon ML local : formule=${profil.score_global} (${profil.niveau}) → terrain=${tauxConformite}% (${niveauTerrain})`)
     } catch (err) {
       console.warn('[ChecklistFeedback] Erreur addTrainingSample:', err)

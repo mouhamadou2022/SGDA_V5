@@ -1,6 +1,7 @@
 import type { ProfilRisque } from '@/lib/store'
 import type { MLRiskCorrelationData } from '@/lib/store/advancedModelsSlice'
 import { inferNaiveBayesC5, getC5Label as _getC5Label, getC5Color as _getC5Color } from './naiveBayesC5'
+import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController'
 
 export const getC5Label = _getC5Label
 export const getC5Color = _getC5Color
@@ -38,9 +39,6 @@ const FEATURE_NAMES: Record<string, string> = {
   c4: 'Charge critique',
   c5: 'Résilience',
 }
-const DEFAULT_WEIGHTS: Record<string, number> = {
-  c1: 0.20, c2: 0.25, c3: 0.20, c4: 0.20, c5: 0.15,
-}
 
 export function computeFeatureContributions(
   profil: ProfilRisque,
@@ -62,7 +60,8 @@ export function computeFeatureContributions(
     const currentValue = (profil as any)[key] ?? 50
     const previousValue = lastMonth ? (lastMonth as any)[key] ?? null : null
     const delta = previousValue !== null ? currentValue - previousValue : null
-    const importance = importanceMap[key] ?? DEFAULT_WEIGHTS[key]
+    // Poids canoniques (échelle 0-100) ramenés à l'échelle 0-1 de ce module.
+    const importance = importanceMap[key] ?? DEFAULT_WEIGHTS[key as keyof typeof DEFAULT_WEIGHTS] / 100
 
     let direction: 'up' | 'down' | 'stable' = 'stable'
     if (delta !== null) {

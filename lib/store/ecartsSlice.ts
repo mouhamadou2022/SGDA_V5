@@ -15,6 +15,7 @@ import * as datastore from '../datastore'
 import { plansActionsUtils } from '../plansActionsUtils'
 // Décisions pures des rappels (la tranche applique : set/emit).
 import { evaluerRappelsEcart, evaluerDelaisInspecteur, calculerDelaiRestant } from '../ecarts-rappels'
+import { estEnRetardAccepte, qualiteCompte } from '../domaines'
 
 import type {
   Ecart,
@@ -38,6 +39,12 @@ export interface EcartSlice {
   setCurrentEcart: (ecart: Ecart | null) => void
   addEcart: (ecart: Ecart) => Promise<void>
   updateEcart: (id: string, data: Partial<Ecart>) => Promise<void>
+  /**
+   * Réajuste les échéances convenues (délais négociés avec l'exploitant).
+   * Tracé : historique + notification exploitants + recalcul risque
+   * (via updateEcart, les délais étant des clés risque).
+   */
+  reajusterDelaisEcart: (ecartId: string, delais: { delai_pac?: string; delai_regularisation?: string }, motif?: string) => Promise<void>
   soumettrePAC: (ecartId: string, pacData: SoumissionPAC) => Promise<void>
   evaluerPAC: (ecartId: string, evaluation: EvaluationPAC) => Promise<void>
   soumettrePreuves: (ecartId: string, preuves: SoumissionPreuves) => Promise<void>
@@ -140,12 +147,57 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
           console.error('Erreur update écart Supabase:', result.error)
           return
         }
+        const avant = get().ecarts.find(e => e.id === id)
         set((state) => ({
           ecarts: state.ecarts.map((e) => e.id === id ? { ...e, ...data, ...result.data, updated_at: new Date().toISOString() } : e),
           currentEcart: state.currentEcart?.id === id ? { ...state.currentEcart, ...data, ...result.data } : state.currentEcart,
         }))
+        // Dynamisme C2/C4 : uniquement si un champ à impact risque change
+        // (évite les recalculs sur retouches de libellé/commentaire).
+        const CLES_RISQUE_ECART = ['statut', 'niveau_risque', 'delai_pac', 'delai_regularisation', 'cellule_risque_oaci', 'cellule_risque_reevalue', 'pac', 'evaluation_pac', 'preuves', 'validation_preuves', 'cloture_le']
+        if (avant?.aerodrome_id && Object.keys(data || {}).some(k => CLES_RISQUE_ECART.includes(k))) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: avant.aerodrome_id })
+        }
       },
 
+      reajusterDelaisEcart: async (ecartId, delais, motif) => {
+        const state = get()
+        const ecart = state.ecarts.find(e => e.id === ecartId)
+        if (!ecart) throw new Error('Écart introuvable')
+        const patch: Partial<Ecart> = {}
+        if (delais.delai_pac) patch.delai_pac = delais.delai_pac
+        if (delais.delai_regularisation) patch.delai_regularisation = delais.delai_regularisation
+        if (Object.keys(patch).length === 0) return
+        await get().updateEcart(ecartId, patch)
+        const fmt = (iso?: string) => iso ? new Date(iso).toLocaleDateString('fr-FR') : '—'
+        get().addHistoriqueEntry(ecartId, {
+          type: 'ajustement_delais',
+          date: new Date().toISOString(),
+          acteur: state.user?.id || 'system',
+          role_acteur: state.user?.role || 'system',
+          description: `Échéances réajustées — PAC : ${fmt(patch.delai_pac ?? ecart.delai_pac)}, régularisation : ${fmt(patch.delai_regularisation ?? ecart.delai_regularisation)}${motif ? ` — ${motif}` : ''}`,
+          details: {
+            avant: { delai_pac: ecart.delai_pac, delai_regularisation: ecart.delai_regularisation },
+            apres: { delai_pac: patch.delai_pac ?? ecart.delai_pac, delai_regularisation: patch.delai_regularisation ?? ecart.delai_regularisation },
+            motif,
+          },
+        })
+        try {
+          const operators = state.utilisateurs.filter(u =>
+            ['focal_operator', 'dg_operator'].includes(u.role) &&
+            u.aerodrome_id === ecart.aerodrome_id)
+          operators.forEach(op => {
+            storeEvents.emit('notification:envoyer', {
+              user_id: op.id,
+              type: 'info',
+              title: `Échéances ajustées — ${ecart.reference}`,
+              message: `Nouvelles échéances convenues${motif ? ` (${motif})` : ''} — PAC : ${fmt(patch.delai_pac ?? ecart.delai_pac)}, régularisation : ${fmt(patch.delai_regularisation ?? ecart.delai_regularisation)}`,
+              canal: 'in_app',
+              link: '/portail-exploitant/ecarts',
+            })
+          })
+        } catch { /* notification non critique */ }
+      },
       soumettrePAC: async (ecartId, pacData) => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
@@ -210,8 +262,19 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             date: now,
             acteur: pacData.soumis_par,
             role_acteur: 'focal_operator',
-            description: `Soumission du PAC version ${nouvelleVersion}`,
-            fichiers: pacData.fichiers
+            description: `Soumission du PAC version ${nouvelleVersion} — ${(pacData.actions || []).length} action(s) corrective(s)`,
+            fichiers: pacData.fichiers,
+            // Instantané pour la chronologie (versions passées restées lisibles).
+            details: {
+              version: nouvelleVersion,
+              actions: (pacData.actions || []).map(a => ({
+                description: a.description,
+                responsable: a.responsable,
+                date_prevue: a.date_prevue,
+                livrables: a.livrables || [],
+              })),
+              observations: pacData.observations,
+            },
           }
           // DEBUG: vérifier l'état après mise à jour
           const ecartApres = updatedEcarts.find(e => e.id === ecartId)
@@ -261,12 +324,25 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             })
           })
         }
+        // Dynamisme C2/C4 : PAC soumis → risque à jour via bus.
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 
       evaluerPAC: async (ecartId, evaluation) => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) throw new Error('Écart introuvable')
+        // Garde : on n'évalue qu'un PAC soumis (jamais sans soumission exploitant).
+        if (ecart.statut !== 'pac_soumis') throw new Error(`Évaluation impossible — l'écart ${ecart.reference} n'a pas de PAC soumis (statut : ${ecart.statut})`)
+        // R4 — seuls titulaires et principaux évaluent (observateurs exclus).
+        {
+          const validateur = state.utilisateurs.find(u => u.id === evaluation.evalue_par)
+          if (qualiteCompte(state.inspecteurs || [], validateur) === 'observateur') {
+            throw new Error('Évaluation réservée aux inspecteurs titulaires et principaux (observateurs exclus)')
+          }
+        }
         // Vérifier que l'évaluateur a participé à la surveillance
         if (ecart.surveillance_id) {
           const surv = state.surveillances.find(s => s.id === ecart.surveillance_id)
@@ -334,9 +410,21 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             acteur: evaluation.evalue_par,
             role_acteur: 'inspector',
             description: `Évaluation PAC soumise au chef — ${evaluation.decision === 'accepte' ? 'accepté' : evaluation.decision === 'reserve' ? 'accepté avec réserves' : 'refusé'}`,
+            // Notes à plat (même forme que l'état courant — la chronologie
+            // réutilise le même affichage pour versions passées et actuelles).
             details: {
+              decision: evaluation.decision,
               note_globale: evaluationPac.note_globale,
-              commentaire_refus: evaluation.commentaire_refus
+              note_pertinence: evaluation.note_pertinence,
+              note_exhaustivite: evaluation.note_exhaustivite,
+              note_precision: evaluation.note_precision,
+              note_specificite: evaluation.note_specificite,
+              note_coherence: evaluation.note_coherence,
+              note_tracabilite: evaluation.note_tracabilite,
+              note_realisme: evaluation.note_realisme,
+              commentaire_refus: evaluation.commentaire_refus,
+              niveau_risque_reevalue: evaluation.niveau_risque_reevalue,
+              delai_traitement: evaluationPac.delai_traitement,
             }
           }
           return {
@@ -367,12 +455,22 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             canal: 'in_app'
           })
         }
+        // Dynamisme C2 (note/globale, niveau réévalué) via bus.
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 
       soumettrePreuves: async (ecartId, preuves) => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) throw new Error('Écart introuvable')
+        // Garde verrouillée : pas de preuves sans PAC accepté (ni contournement
+        // du verrouillage acceptation → checklist PAC). Resoumission admise après
+        // évaluation (preuves_evaluees) et en retard-accepté.
+        if (ecart.statut !== 'pac_accepte' && ecart.statut !== 'preuves_evaluees' && !estEnRetardAccepte(ecart)) {
+          throw new Error(`Dépôt impossible — le PAC de l'écart ${ecart.reference} n'est pas accepté (statut : ${ecart.statut})`)
+        }
         const now = new Date().toISOString()
         const preuvesPayload = { ...preuves, soumis_le: now }
 
@@ -413,8 +511,9 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             date: now,
             acteur: preuves.soumis_par,
             role_acteur: 'focal_operator',
-            description: `Soumission des preuves de levée`,
-            fichiers: preuves.fichiers.map(f => f.url)
+            description: `Soumission des preuves de levée (${(preuves.fichiers || []).length} fichier(s))`,
+            fichiers: preuves.fichiers.map(f => f.url),
+            details: { commentaire: preuves.commentaire },
           }
           return {
             ecarts: updatedEcarts,
@@ -433,12 +532,25 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
           link: `/plans-actions/${ecartId}`,
           canal: 'in_app'
         })
+        // Dynamisme C2/C4 via bus.
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 
       evaluerPreuves: async (ecartId, validation) => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
         if (!ecart) throw new Error('Écart introuvable')
+        // Garde : on ne valide que des preuves soumises.
+        if (ecart.statut !== 'preuves_soumises') throw new Error(`Validation impossible — aucune preuve soumise pour l'écart ${ecart.reference} (statut : ${ecart.statut})`)
+        // R4 — seuls titulaires et principaux valident (observateurs exclus).
+        {
+          const validateur = state.utilisateurs.find(u => u.id === validation.valide_par)
+          if (qualiteCompte(state.inspecteurs || [], validateur) === 'observateur') {
+            throw new Error('Validation réservée aux inspecteurs titulaires et principaux (observateurs exclus)')
+          }
+        }
         // Vérifier que le validateur a participé à la surveillance
         if (ecart.surveillance_id) {
           const surv = state.surveillances.find(s => s.id === ecart.surveillance_id)
@@ -534,6 +646,10 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             canal: 'in_app'
           })
         }
+        // Dynamisme C2 (notes, niveau réévalué) via bus.
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 
       validerEvaluationChef: async (ecartId, action, commentaire) => {
@@ -576,6 +692,18 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                   : e
               )
             }))
+
+            // Chronologie : décision du chef (accepté / réserves / refusé).
+            get().addHistoriqueEntry(ecartId, {
+              type: 'validation_chef',
+              date: now,
+              acteur: currentUser?.id || 'system',
+              role_acteur: currentUser?.role || 'system',
+              description: decision === 'refuse'
+                ? `PAC refusé par le chef${commentaire ? ` — ${commentaire}` : ''}`
+                : `PAC ${decision === 'reserve' ? 'accepté avec réserves' : 'accepté'} par le chef`,
+              details: { objet: 'evaluation_pac', action: 'approuve', decision, commentaire },
+            })
 
             // Création surveillance suivi PAC (anciennement dans evaluerPAC)
             if ((decision === 'accepte' || decision === 'reserve') && ecart.surveillance_id) {
@@ -676,6 +804,30 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
               )
             }))
 
+            // Chronologie : décision du chef + clôture éventuelle.
+            get().addHistoriqueEntry(ecartId, {
+              type: 'validation_chef',
+              date: now,
+              acteur: currentUser?.id || 'system',
+              role_acteur: currentUser?.role || 'system',
+              description: decision === 'valide'
+                ? 'Preuves validées par le chef — écart clôturé'
+                : decision === 'reserve'
+                  ? `Preuves acceptées avec réserves par le chef${commentaire ? ` — ${commentaire}` : ''}`
+                  : `Preuves refusées par le chef${commentaire ? ` — ${commentaire}` : ''}`,
+              details: { objet: 'validation_preuves', action: 'approuve', decision, commentaire },
+            })
+            if (decision === 'valide') {
+              get().addHistoriqueEntry(ecartId, {
+                type: 'cloture',
+                date: now,
+                acteur: currentUser?.id || 'system',
+                role_acteur: currentUser?.role || 'system',
+                description: 'Écart clôturé — preuves validées',
+                details: { decision },
+              })
+            }
+
             // Notification exploitant (anciennement dans evaluerPreuves)
             const soumisPar = ecart.preuves?.soumis_par
             if (soumisPar) {
@@ -727,6 +879,15 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
               )
             }))
 
+            get().addHistoriqueEntry(ecartId, {
+              type: 'validation_chef',
+              date: now,
+              acteur: currentUser?.id || 'system',
+              role_acteur: currentUser?.role || 'system',
+              description: `Révision de l'évaluation PAC demandée par le chef${commentaire ? ` — ${commentaire}` : ''}`,
+              details: { objet: 'evaluation_pac', action: 'revision', commentaire },
+            })
+
             // Notification à l'inspecteur
             storeEvents.emit('notification:envoyer', {
               user_id: ecart.inspecteur_ref_id,
@@ -755,6 +916,15 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                   : e
               )
             }))
+
+            get().addHistoriqueEntry(ecartId, {
+              type: 'validation_chef',
+              date: now,
+              acteur: currentUser?.id || 'system',
+              role_acteur: currentUser?.role || 'system',
+              description: `Révision de la validation des preuves demandée par le chef${commentaire ? ` — ${commentaire}` : ''}`,
+              details: { objet: 'validation_preuves', action: 'revision', commentaire },
+            })
 
             // Notification à l'inspecteur
             storeEvents.emit('notification:envoyer', {
@@ -810,7 +980,11 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                 link: `/plans-actions/${ecart.id}`, canal: 'in_app'
               })
             } else {
-              const deadlineInsp = new Date(ecart.evaluation_pac!.deadline!)
+              // Garde : PAC soumis SANS évaluation démarrée (pas de deadline) —
+              // rien à rappeler ni à dater (plantait en .deadline sur null).
+              const deadlineStr = ecart.evaluation_pac?.deadline
+              if (!deadlineStr) return
+              const deadlineInsp = new Date(deadlineStr)
               delaisInsp.rappelsEvalPAC.forEach((joursRestantsInsp) => {
                 const key: string = `_rappel_eval_j${joursRestantsInsp}`
                 storeEvents.emit('notification:envoyer', {
@@ -870,7 +1044,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
       marquerEcartEnRetard: (ecartId) => {
         const state = get()
         const ecart = state.ecarts.find(e => e.id === ecartId)
-        if (!ecart) return
+        if (!ecart || ecart.statut === 'en_retard') return
         // Vérifier si le retard est dû à l'inspecteur (PAC soumis/preuves soumises en attente d'évaluation)
         const retardInsp = ecart.statut === 'pac_soumis' && ecart.evaluation_pac?.deadline && new Date(ecart.evaluation_pac.deadline) < new Date()
           || ecart.statut === 'preuves_soumises' && ecart.validation_preuves?.deadline && new Date(ecart.validation_preuves.deadline) < new Date()
@@ -958,6 +1132,11 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             })
           }
         }
+        // Dynamisme C4 (recrudescence des retards) via bus — une seule fois
+        // (garde anti-doublon en tête de fonction).
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 
       envoyerRappelEcart: (ecartId, typeRappel) => {
@@ -1036,5 +1215,17 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         const exists = get().ecarts.some(e => e.id === ecart.id)
         if (exists) return
         set((state) => ({ ecarts: [...state.ecarts, ecart] }))
+        // Chronologie : tout écart a une naissance traçable (issu d'événement).
+        get().addHistoriqueEntry(ecart.id, {
+          type: 'creation',
+          date: ecart.created_at || new Date().toISOString(),
+          acteur: 'system',
+          role_acteur: 'system',
+          description: `Écart constaté${ecart.evenement_id ? ' depuis un événement de sécurité' : ' lors de la surveillance terrain'}`,
+          details: ecart.evenement_id ? { evenement_id: ecart.evenement_id } : undefined,
+        })
+        if (ecart.aerodrome_id) {
+          storeEvents.emit('risque:recalcul-demande', { aerodrome_id: ecart.aerodrome_id })
+        }
       },
 })

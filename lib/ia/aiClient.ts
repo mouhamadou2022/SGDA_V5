@@ -37,6 +37,11 @@ export interface AICallOptions {
   maxTokens?: number
   responseFormat?: 'text' | 'json_object'
   /**
+   * Réflexion qwen3 (défaut false = direct et rapide). true uniquement pour
+   * les tâches dures (évaluations, synthèses, générations structurées).
+   */
+  think?: boolean
+  /**
    * Timeout navigateur (ms) pour CET appel précis. Surcharge le défaut dérivé
    * de maxTokens. Utilisé par callJSON pour borner les tentatives de retry
    * (2ᵉ/3ᵉ palier) qui n'ont pas besoin de la fenêtre pleine du 1ᵉʳ appel.
@@ -48,9 +53,45 @@ export interface AICallResult {
   content: string
   ok: boolean
   error?: string
+  /** Compteurs renvoyés par /api/ia/analyze (si le provider les expose). */
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 }
 
 // Clé de déduplication basée sur le hash du prompt + message
+/**
+ * Réponse probablement coupée au plafond ? Deux signaux (soit suffit) :
+ * compteurs du provider au taquet, ou texte qui finit en plein milieu
+ * (virgule, deux-points, accolade/crochet ouvrant). Pur et testé.
+ */
+export function sembleTronque(contenu: string, maxTokens: number, completionTokens?: number): boolean {
+  const texte = (contenu || '').trim()
+  if (!texte) return false
+  if ((completionTokens ?? 0) >= Math.floor(maxTokens * 0.9)) return true
+  return /[,:{\[]\s*$/.test(texte)
+}
+
+/**
+ * Traduit une erreur IA technique en français actionnable pour l'inspecteur.
+ * Le message d'origine est conservé quand aucun cas connu ne matche (jamais
+ * de perte d'information). Pur et testé.
+ */
+export function erreurIaEnClair(message: string | undefined | null): string {
+  const m = message || ''
+  if (/ALL_PROVIDERS_FAILED|Tous les providers LLM ont échoué/i.test(m)) {
+    return `L'IA est momentanément indisponible (tous les moteurs ont échoué). Réessayez dans un instant ; si ça persiste, vérifiez qu'Ollama tourne et que vos quotas cloud sont actifs. Détail : ${m.slice(0, 300)}`
+  }
+  if (/quota|429|402|crédits|credits|insufficient/i.test(m)) {
+    return `Quotas cloud épuisés — le mode local prend le relais (plus lent). Rechargez vos crédits ou désactivez le provider concerné (IA_ENABLE_*=false). Détail : ${m.slice(0, 300)}`
+  }
+  if (/Délai dépassé|timed out|timeout|aborted|abort/i.test(m)) {
+    return `L'IA locale met trop longtemps (gros document ou machine chargée). Reformulez en plus petites étapes, ou réessayez. Détail : ${m.slice(0, 300)}`
+  }
+  if (/404|model.*retir|not found|does not exist|indisponible/i.test(m)) {
+    return `Modèle IA indisponible ou retiré par son fournisseur. Le système a basculé sur les moteurs restants ; si ça persiste, mettez à jour l'identifiant du modèle. Détail : ${m.slice(0, 300)}`
+  }
+  return m || 'Réponse indisponible.'
+}
+
 function hashOptions(opts: AICallOptions): string {
   const histStr = opts.history ? opts.history.map(h => `${h.role}:${h.content}`).join('|') : ''
   return `${opts.systemPrompt}|${opts.userMessage}|${histStr}|${opts.responseFormat ?? 'text'}`
@@ -85,6 +126,28 @@ class AIClientClass {
         ...(options.history ?? []),
         { role: 'user', content: options.userMessage },
       ]
+      // Garde-fou taille CENTRAL (tous les agents, voie texte) : au-delà du
+      // plafond on coupe l'historique ancien — jamais le message courant — en
+      // le signalant au modèle. Plafond = tier gratuit Groq (6000, le plus
+      // strict) : en dessous, Groq retente (rapide) au lieu de sauter, et le
+      // local CPU reste dans son budget. Mesuré : 6096 tokens → 503 partout.
+      // Exclu de callJSON (responseFormat json_object) : les paliers JSON ont
+      // besoin de leur contexte complet pour rester valides.
+      let systemPrompt = options.systemPrompt
+      if (options.responseFormat !== 'json_object') {
+        const limite = Number(process.env.NEXT_PUBLIC_IA_MAX_INPUT_TOKENS) || 6000
+        const jetons = (t: string) => Math.ceil(((t || '').length + 10) / 3)
+        let total = messages.reduce((s, m) => s + jetons(m.content), 0) + jetons(options.systemPrompt)
+        let tronqueHisto = false
+        while (total > limite && messages.length > 1) {
+          const retire = messages.shift()!
+          total -= jetons(retire.content)
+          tronqueHisto = true
+        }
+        if (tronqueHisto) {
+          systemPrompt = `${options.systemPrompt}\n[Note : débuts de conversation tronqués pour tenir dans la fenêtre — réponds avec le contexte récent.]`
+        }
+      }
 
       // Délai navigateur aligné sur les timeouts serveur : AERORISQ peut être
       // servi en inférence locale (Ollama/mistral sur CPU) — chargement du
@@ -101,11 +164,12 @@ class AIClientClass {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemPrompt: options.systemPrompt,
+          systemPrompt,
           messages,
           temperature: options.temperature ?? 0.3,
           maxTokens: options.maxTokens ?? 2048,
           responseFormat: options.responseFormat,
+          think: options.think ?? false,
         }),
         signal: AbortSignal.timeout(timeout),
       })
@@ -123,7 +187,7 @@ class AIClientClass {
       if (!data.content) {
         console.error('[aiClient] Réponse API vide — données brutes:', JSON.stringify(data).slice(0, 300))
       }
-      return { content: data.content ?? '', ok: true }
+      return { content: data.content ?? '', ok: true, usage: data.usage ?? undefined }
     } catch (err: any) {
       // Un `AbortSignal.timeout()` expiré rejette avec une DOMException de nom
       // `TimeoutError` (message « signal timed out »). Ce n'est PAS une panne de
@@ -199,7 +263,11 @@ class AIClientClass {
     // qu'à re-tester si un JSON mal formé redevient parseable : ils n'ont pas
     // besoin de la fenêtre pleine — un timeout réduit borne le pire cas cumulé
     // (3 paliers × 90 s ≈ 4,5 min) sans jamais raccourcir un appel qui réussit.
+    // Exception : tronqué au plafond → UN retry PLUS GRAND (fenêtre pleine),
+    // car des paliers plus petits rejoueraient la même troncature en pire.
     const retryTimeoutMs = 20000
+    let dernierContenu = ''
+    let bonusTente = false
 
     for (let i = 0; i < tokenTiers.length; i++) {
       const isFirst = i === 0
@@ -224,10 +292,37 @@ class AIClientClass {
         return parsed as T
       }
 
+      dernierContenu = result.content
+      const complete = result.usage?.completion_tokens ?? 0
+      if (!bonusTente && sembleTronque(result.content, maxTokens, complete)) {
+        bonusTente = true
+        const plusGrand = Math.min(32768, Math.ceil(maxTokens * 1.5))
+        if (plusGrand > maxTokens) {
+          tokenTiers.splice(i + 1, 0, plusGrand)
+          console.warn(`[aiClient] JSON tronqué au plafond (${complete}/${maxTokens}) — retry à ${plusGrand} (fenêtre pleine)`)
+          const gros = await this._call({
+            ...options,
+            maxTokens: plusGrand,
+            responseFormat: 'json_object',
+            timeoutMs: options.timeoutMs,
+          })
+          i++
+          if (gros.ok && gros.content) {
+            const reparsed = this._tryParseJSON(gros.content)
+            if (reparsed !== null) {
+              setCached(cacheKey, reparsed).catch(() => {})
+              return reparsed as T
+            }
+            dernierContenu = gros.content
+          }
+          continue
+        }
+      }
+
       console.warn(`[aiClient] JSON invalide avec maxTokens=${maxTokens}, retry...`)
     }
 
-    console.error('[aiClient] Échec après tous les paliers maxTokens')
+    console.error(`[aiClient] Échec après tous les paliers maxTokens [${tokenTiers.join('/')}] — prompt : ${(options.systemPrompt || '').slice(0, 80)} — dernier contenu : ${(dernierContenu || '').slice(0, 200)}`)
     return fallback
   }
 

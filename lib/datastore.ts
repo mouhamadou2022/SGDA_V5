@@ -167,12 +167,13 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
     const nouveauxProfils: ProfilRisque[] = [];
 
     // Importer une seule fois hors de la boucle
-    const { calculerProfilInitial } = await import('@/lib/risque/initialProfile');
+    const { calculerProfilInitial, construireRefsFlotte } = await import('@/lib/risque/initialProfile');
+    const refsFlotte = construireRefsFlotte(aerodromes, Object.fromEntries(profilsMap));
     const upsertPromises = aerodromes
       .filter(a => !profilsMap.has(a.id))
       .map(async (aero) => {
         try {
-          const result = calculerProfilInitial(aero as Aerodrome);
+          const result = calculerProfilInitial(aero as Aerodrome, refsFlotte);
           await supabase.from('profils_risque').upsert(result.profil);
           console.log(`[Datastore] Profil calculé pour ${aero.code_oaci}`);
           return result.profil;

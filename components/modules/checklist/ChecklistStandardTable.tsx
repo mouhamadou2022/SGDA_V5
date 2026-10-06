@@ -16,7 +16,9 @@ import {
   Shield, ChevronDown, ChevronRight, FileText, Upload, Trash2,
   PenLine, Eye, TrendingUp, X, Plus, FolderPlus, Sparkles, CheckCircle2,
 } from 'lucide-react';
-import { DOMAINES_SURVEILLANCE, DOMAINES_INDIVIDUELS, getDomaineLabel } from '@/lib/domaines';
+import { DOMAINES_SURVEILLANCE, DOMAINES_INDIVIDUELS, getDomaineLabel, estResultatValide } from '@/lib/domaines';
+import { nomActeur } from '@/lib/acteurs';
+import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import type {
   DomaineChecklist, ChecklistItem, ResultatChecklist,
   SousDomaine, SousSousDomaine, ModeSaisie,
@@ -646,6 +648,10 @@ function ItemRow({ item, onUpdate, onDelete, onAdd, onSplitDomaine, domaines, re
   const addBtnRef                   = useRef<HTMLButtonElement>(null);
 
   const preuves: Preuve[] = item.fichiers || [];
+  // R2 — brouillon observateur : visible, à reprendre par un signataire.
+  const utilisateursRow = useOptimizedStore(s => s.utilisateurs);
+  const fichesRow = useOptimizedStore(s => s.inspecteurs);
+  const estBrouillon = !!item.resultat && !estResultatValide(item, fichesRow, utilisateursRow);
   const showKeyboard = modeSaisie === 'clavier' || modeSaisie === 'mixte';
   const showStylus   = modeSaisie === 'stylet'  || modeSaisie === 'mixte';
   const hasStylusData = !!item.observation_stylus_data;
@@ -758,6 +764,11 @@ function ItemRow({ item, onUpdate, onDelete, onAdd, onSplitDomaine, domaines, re
             placeholder="Réf"
           />
           {item.prefilled && <span className="text-[9px] text-purple-500 font-semibold block">IA</span>}
+          {estBrouillon && (
+            <span className="text-[9px] text-amber-600 font-semibold block" title={`Brouillon de ${nomActeur(item.modified_by, [...utilisateursRow, ...fichesRow])} — à reprendre par un titulaire ou principal`}>
+              Brouillon
+            </span>
+          )}
         </td>
 
         {/* ── Réf. réglementaire (structureLocked) ── */}

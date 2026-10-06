@@ -11,6 +11,7 @@ import { RapportAnnexes } from './RapportAnnexes';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { generateEquipeTableHtml, generateEcartsTableHtml } from '@/lib/rapportHtml';
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
+import { estResultatValide, qualiteCompte, signatairesRequisRapport } from '@/lib/domaines';
 import { getSgsMaturiteLabel } from '@/lib/utils';
 import { PAOE_LABELS, type PAOELevel } from '@/types/checklist';
 import { reportAgent } from '@/lib/ia/agents/reportAgent';
@@ -457,17 +458,18 @@ export default function SurveillanceRapport({
     return getEcartsEffectifs(surveillanceId);
   }, [getEcartsEffectifs, surveillanceId]);
 
-  // Statistiques checklist
+  // Statistiques checklist (R2 : brouillons observateurs exclus — non vérifiés).
   const checklistStats = useMemo(() => {
     const items = checklistItems[surveillanceId] || [];
     const total = items.length;
-    const sa = items.filter(i => i.resultat === 'SA').length;
-    const ns = items.filter(i => i.resultat === 'NS').length;
-    const nv = items.filter(i => i.resultat === 'NV' || !i.resultat).length;
-    const na = items.filter(i => i.resultat === 'NA').length;
+    const valides = items.filter(i => estResultatValide(i, inspecteurs, utilisateurs));
+    const sa = valides.filter(i => i.resultat === 'SA').length;
+    const ns = valides.filter(i => i.resultat === 'NS').length;
+    const na = valides.filter(i => i.resultat === 'NA').length;
+    const nv = total - sa - ns - na;
     const taux = (sa + ns) > 0 ? Math.round((sa / (sa + ns)) * 100) : 0;
     return { total, sa, ns, nv, na, taux };
-  }, [checklistItems, surveillanceId]);
+  }, [checklistItems, surveillanceId, inspecteurs, utilisateurs]);
 
   // Génération du tableau de l'équipe
   const generateEquipeHtml = useCallback(() => {
@@ -495,9 +497,11 @@ export default function SurveillanceRapport({
     items.forEach(item => {
       if (!byDomaine[item.domaine]) byDomaine[item.domaine] = { sa: 0, ns: 0, nv: 0, total: 0 };
       byDomaine[item.domaine].total++;
-      if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
+      // R2 : brouillon observateur = non vérifié.
+      if (!estResultatValide(item, inspecteurs, utilisateurs)) byDomaine[item.domaine].nv++;
+      else if (item.resultat === 'SA') byDomaine[item.domaine].sa++;
       else if (item.resultat === 'NS') byDomaine[item.domaine].ns++;
-      else if (item.resultat === 'NV' || !item.resultat) byDomaine[item.domaine].nv++;
+      else byDomaine[item.domaine].nv++;
     });
 
     const ecartsList = surveillanceEcarts();
@@ -660,7 +664,7 @@ export default function SurveillanceRapport({
 
     html += `</div></div></div>`;
     return html;
-  }, [profil, checklistItems, surveillanceId, checklistStats, surveillanceEcarts, surveillance, aerodrome]);
+  }, [profil, checklistItems, surveillanceId, checklistStats, surveillanceEcarts, surveillance, aerodrome, inspecteurs, utilisateurs]);
 
   // ─── Contexte par type de surveillance ──────────────────────────────
   const RAPPORT_TYPE_META: Record<string, {
@@ -1582,27 +1586,51 @@ ${pageGardeHtml}
   const handleSign = () => setSignatureDialogOpen(true);
 
   const onSignatureSave = (signatureUrl: string) => {
+    // R3 — observateurs ne signent pas le rapport.
+    if (qualiteCompte(inspecteurs, utilisateurs.find(u => u.id === user?.id)) === 'observateur') {
+      setSignatureDialogOpen(false);
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Signature réservée',
+        message: 'Seuls les inspecteurs titulaires et principaux signent le rapport (observateurs exclus).',
+        canal: 'in_app',
+      });
+      return;
+    }
     setIsSigned(true);
     setSignatureDialogOpen(false);
     const rapportHtml = reportContainerRef.current?.innerHTML || '';
+    // Fusion (jamais d'écrasement) : chaque signataire qualifié s'ajoute.
+    // Le statut n'avance que quand TOUS les requis ont signé (R3).
+    const existantes = surveillance?.signatures_rapport || [];
+    const nouvelle = {
+      signataire_id: user?.id || '',
+      signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
+      date_signature: new Date().toISOString(),
+      signature_url: signatureUrl,
+    };
+    const fusionnees = [...existantes.filter(s => s.signataire_id !== user?.id), nouvelle];
+    const requis = signatairesRequisRapport(
+      surveillance?.equipe_ids, surveillance?.chef_id, inspecteurs, utilisateurs,
+    );
+    const signataires = new Set(fusionnees.map(s => s.signataire_id));
+    const complet = requis.length > 0 && requis.every(id => signataires.has(id));
     updateSurveillance(surveillanceId, {
-      statut: 'rapport_signe',
+      ...(complet ? { statut: 'rapport_signe' as const } : {}),
       rapport_html: rapportHtml,
       rapport_sections: JSON.stringify(sections),
       rapport_signe_le: new Date().toISOString(),
-      signatures_rapport: [{
-        signataire_id: user?.id || '',
-        signataire_nom: `${user?.prenom || ''} ${user?.nom || ''}`,
-        date_signature: new Date().toISOString(),
-        signature_url: signatureUrl,
-      }],
+      signatures_rapport: fusionnees,
     });
     onSigner?.(signatureUrl);
     addNotification({
       user_id: user?.id || '',
-      type: 'success',
-      title: 'Rapport signé',
-      message: 'Le rapport a été signé avec succès',
+      type: complet ? 'success' : 'info',
+      title: complet ? 'Rapport signé' : 'Signature enregistrée',
+      message: complet
+        ? 'Le rapport a été signé par tous les signataires qualifiés'
+        : `Signature enregistrée — encore ${requis.filter(id => !signataires.has(id)).length} signataire(s) qualifié(s) attendu(s)`,
       canal: 'in_app',
     });
   };

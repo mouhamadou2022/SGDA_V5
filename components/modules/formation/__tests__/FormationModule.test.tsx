@@ -44,6 +44,7 @@ function resetStore() {
     incrementerVersion: jest.fn(),
     setFormations: jest.fn(),
     setInspecteurs: jest.fn(),
+    reparerCompetencesInspecteurs: jest.fn().mockResolvedValue(0),
   }
 }
 
@@ -52,7 +53,14 @@ function selector(sel: any) {
   return (storeDynamic as any)[sel]
 }
 
-jest.mock('@/lib/store', () => ({ useAppStore: (s: any) => selector(s) }))
+jest.mock('@/lib/store', () => ({
+  useAppStore: (s: any) => selector(s),
+  // Helpers réellement importés par FormationModule (évite les `is not a function`)
+  normaliserDomaineCompetence: (d: unknown) => (typeof d === 'string' ? d.trim() : ''),
+  normaliserNiveauCompetence: (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(5, Math.max(1, Math.round(n))) : 1),
+  declarativesVersCompetences: () => [],
+  reparerCompetencesInspecteurs: jest.fn().mockResolvedValue(0),
+}))
 jest.mock('@/lib/performance/globalOptimizer', () => ({
   useOptimizedStore: (s: any) => selector(s),
   useGlobalTransition: () => ({ startTransition: (fn: any) => { if (fn) fn() } }),

@@ -8,7 +8,7 @@
 // (règle anti-fabrication intégrée au formateur).
 
 import type { KitDocument, KitDocExtrait } from '@/lib/store'
-import { getDomaineCode } from '@/lib/domaines'
+import { getDomaineCode, retirerDiacritiques } from '@/lib/domaines'
 import { getSourcesForDomaine } from '@/lib/kitDocMapping'
 
 export type TypeEntiteRag = 'aerodrome' | 'helistation' | 'mixte'
@@ -36,7 +36,10 @@ export interface RecuperationParams {
   maxChars?: number
 }
 
-const MAX_CHUNK = 700
+// Extraits larges (~1100 car.) : les chunks de 700 caractères coupaient les
+// paragraphes réglementaires en plein milieu — l'IA répondait « dans les
+// limites de l'extrait ». Budget total inchangé (maxChars borne toujours).
+const MAX_CHUNK = 1100
 
 interface ChunkBrut {
   reference: string
@@ -112,9 +115,7 @@ function construireChunks(doc: KitDocument): ChunkBrut[] {
 // ────────────────────────────────────────────────────────────
 
 function tokens(texte: string): string[] {
-  return texte.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  return retirerDiacritiques(texte.toLowerCase())
     .split(/[^a-z0-9]+/)
     .filter(w => w.length > 2)
 }
@@ -159,9 +160,14 @@ export function recupererExtraitsAvecDocs(docsInput: KitDocument[], params: Recu
     const refBase = doc.reference_base || ''
     for (const chunk of construireChunks(doc)) {
       const chunkDomaines = chunk.domaines.map(d => getDomaineCode(d).toUpperCase())
+      // AGA = global (même sémantique que expandDomaines côté UI/sélections) :
+      // un chunk taggé AGA répond à tout domaine demandé.
+      const chunkGlobal = chunkDomaines.includes('AGA')
       const domaineMatch = requested.size === 0
         ? chunkDomaines[0] || ''
-        : chunkDomaines.find(d => requested.has(d)) || ''
+        : chunkGlobal
+          ? [...requested][0] || ''
+          : chunkDomaines.find(d => requested.has(d)) || ''
 
       if (requested.size > 0 && !domaineMatch) continue
 
@@ -241,7 +247,7 @@ export function formaterContexteReglementaire(extraits: ExtraitCite[]): string {
 
   const lignes = extraits.map((e, i) => {
     const source = `[${i + 1}] ${e.reference} — « ${e.titre} » (${e.reference_base || e.document_nom}, v${e.version}, ${e.statut})`
-    const corps = e.contenu.length > 500 ? `${e.contenu.substring(0, 500)}…` : e.contenu
+    const corps = e.contenu.length > 900 ? `${e.contenu.substring(0, 900)}…` : e.contenu
     return `${source}\n> ${corps}`
   })
 
@@ -260,4 +266,44 @@ export function formaterContexteReglementaire(extraits: ExtraitCite[]): string {
 
 export function construireContexteAvecDocs(docs: KitDocument[], params: RecuperationParams): string {
   return formaterContexteReglementaire(recupererExtraitsAvecDocs(docs, params))
+}
+
+// ────────────────────────────────────────────────────────────
+// Génération déterministe d'extraits citables depuis les chapitres
+// détectés à l'extraction (sans LLM : rapide, hors-ligne, fiable).
+// Comble le trou : analyzeDocument ne persistait jamais ses extraits et
+// l'enrichissement IA lisait un résumé souvent vide — ici on cite le texte
+// réellement extrait. Ne touche jamais aux extraits existants (manuels).
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Construit jusqu'à `max` extraits citables depuis des chapitres
+ * { titre, contenu } : référence = base + titre de chapitre, résumé = tête
+ * du contenu (400 car.), domaines du document. Pur et testé.
+ */
+export function extraitsDepuisChapitres(
+  doc: Pick<KitDocument, 'id' | 'nom' | 'domaines'> & { reference_base?: string },
+  chapitres: Array<{ titre: string; contenu: string }>,
+  max = 10,
+): KitDocExtrait[] {
+  const refBase = (doc.reference_base || doc.nom || '').trim() || 'Référence à préciser'
+  const domaines = (doc.domaines || []).filter(Boolean)
+  const extraits: KitDocExtrait[] = []
+  for (const ch of chapitres || []) {
+    if (extraits.length >= max) break
+    const contenu = (ch.contenu || '').trim()
+    if (contenu.length < 50) continue
+    const titre = (ch.titre || '').trim() || 'Section du document'
+    extraits.push({
+      reference: `${refBase} — ${titre}`.substring(0, 160),
+      titre,
+      contenu_resume: contenu.substring(0, 400),
+      statut: 'ACTIF',
+      domaines: domaines.length > 0 ? domaines : ['AGA'],
+      type_entite_cible: 'tous',
+      source_document_id: doc.id,
+      detecte_le: new Date().toISOString().substring(0, 10),
+    })
+  }
+  return extraits
 }

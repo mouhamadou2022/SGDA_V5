@@ -4,79 +4,6 @@ import { NIVEAUX_RISQUE_ECART } from './config'
 
 export const plansActionsUtils = {
   /**
-   * Calcule le score C2 (Efficacité & Réactivité) basé sur historique des écarts
-   */
-  calculerScoreC2(ecartsClotures: Ecart[]): number {
-    if (ecartsClotures.length === 0) return 100
-
-    const maintenant = new Date()
-    const douzeMois = new Date(maintenant.setMonth(maintenant.getMonth() - 12))
-
-    const ecartsPeriode = ecartsClotures.filter(e => 
-      new Date(e.cloture_le || e.updated_at) >= douzeMois
-    )
-
-    if (ecartsPeriode.length === 0) return 100
-
-    const scores = ecartsPeriode.map(ecart => {
-      const dateCreation = new Date(ecart.created_at)
-      const dateCloture = new Date(ecart.cloture_le || ecart.updated_at)
-      const dateEcheance = new Date(ecart.delai_regularisation)
-
-      const delaiEffectif = Math.ceil((dateCloture.getTime() - dateCreation.getTime()) / (1000 * 60 * 60 * 24))
-      const delaiEcheance = Math.ceil((dateEcheance.getTime() - dateCreation.getTime()) / (1000 * 60 * 60 * 24))
-
-      // Score 100 si en avance, dégradé proportionnellement
-      const ratio = delaiEffectif / delaiEcheance
-      return Math.max(0, 100 - ((ratio - 1) * 100))
-    })
-
-    return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-  },
-
-  /**
-   * Calcule le score C4 (Charge Critique Non Résolue)
-   */
-  calculerScoreC4(ecartsActifs: Ecart[], seuilMax: number = 50): number {
-    const poids: Record<string, number> = {
-      critique: 4,
-      eleve: 2,
-      moyen: 1,
-      faible: 0.5
-    }
-
-    const scorePenalite = ecartsActifs.reduce((acc, ecart) => {
-      return acc + (poids[ecart.niveau_risque] || 0)
-    }, 0)
-
-    return Math.max(0, 100 - Math.min(100, (scorePenalite / seuilMax) * 100))
-  },
-
-  /**
-   * Détermine la couleur du délai restant
-   */
-  getCouleurDelai(joursRestants: number): 'vert' | 'orange' | 'rouge' {
-    if (joursRestants < 0) return 'rouge'
-    if (joursRestants < 7) return 'rouge'
-    if (joursRestants < 15) return 'orange'
-    return 'vert'
-  },
-
-  /**
-   * Vérifie si un écart nécessite un rappel automatique
-   */
-  necessiteRappel(ecart: Ecart): boolean {
-    const maintenant = new Date()
-    const delaiPAC = new Date(ecart.delai_pac)
-    const delaiReg = new Date(ecart.delai_regularisation)
-    const joursAvantPAC = Math.ceil((delaiPAC.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-    const joursAvantReg = Math.ceil((delaiReg.getTime() - maintenant.getTime()) / (1000 * 60 * 60 * 24))
-
-    // Rappel à J-7, J-3, J-1
-    return [7, 3, 1].includes(joursAvantPAC) || [7, 3, 1].includes(joursAvantReg)
-  },
-
-  /**
    * Génère la référence auto pour un écart
    */
   genererReference(annee: number, compteur: number): string {
@@ -95,28 +22,6 @@ export const plansActionsUtils = {
       }
     }
     return { pac: 15, regularisation: 90 }
-  },
-
-  /**
-   * Vérifie la complétude d'un PAC
-   */
-  verifierCompletudePAC(pac: any): { complet: boolean; manquants: string[] } {
-    const manquants: string[] = []
-
-    if (!pac?.actions || pac.actions.length === 0) {
-      manquants.push('Au moins une action corrective')
-    } else {
-      pac.actions.forEach((action: any, idx: number) => {
-        if (!action.description?.trim()) manquants.push(`Description action ${idx + 1}`)
-        if (!action.responsable?.trim()) manquants.push(`Responsable action ${idx + 1}`)
-        if (!action.date_prevue) manquants.push(`Date prévue action ${idx + 1}`)
-      })
-    }
-
-    return {
-      complet: manquants.length === 0,
-      manquants
-    }
   },
 
   /**

@@ -29,6 +29,71 @@ export interface ProfilInitialResult {
   recommandations: RecommandationInitiale[]
   confiance: number   // 0-100 — faible au départ (pas de données historiques)
   source: 'initial_form'
+  /** Prior de flotte utilisé pour C3 (null = heuristique, pas assez de pairs). */
+  priorFlotte?: { cle: string; nbPairs: number; mediane: number } | null
+}
+
+// ─── Priors empiriques de flotte ───────────────────────────────────────────
+// Un site neuf hérite du C3 MÉDIAN de ses pairs (même type × SSLIA × entité)
+// au lieu des constantes 55/70/80 — partial pooling interprétable, sans
+// modèle à entraîner. Minimum 3 pairs, sinon repli heuristique (inchangé).
+// Pur et testé (données passées en paramètres, jamais de store ici).
+
+/** Un pair de flotte : site existant avec C3 calculé (profil risque). */
+export interface PairFlotte {
+  type?: string | null
+  categorie_sslia?: string | number | null
+  type_entite?: string | null
+  c3: number
+}
+
+/** Clé de regroupement stable : type|sslia|entite (minuscules, '?' si absent). */
+export function cleFlotte(pair: { type?: string | null; categorie_sslia?: string | number | null; type_entite?: string | null }): string {
+  const type = (pair.type || '?').toString().toLowerCase()
+  const ssliaParsed = parseInt(String(pair.categorie_sslia ?? ''), 10)
+  const sslia = Number.isFinite(ssliaParsed) ? String(ssliaParsed) : '?'
+  const entite = (pair.type_entite || '?').toString().toLowerCase()
+  return `${type}|${sslia}|${entite}`
+}
+
+/** Construit les refs de flotte depuis les données du store (pairs avec C3). */
+export function construireRefsFlotte(
+  aeros: Array<{ id: string; type?: string | null; categorie_sslia?: string | number | null; type_entite?: string | null }>,
+  profils: Record<string, { c3?: number | null } | null | undefined>,
+): PairFlotte[] {
+  const refs: PairFlotte[] = []
+  for (const a of aeros || []) {
+    const c3 = profils?.[a.id]?.c3
+    if (typeof c3 !== 'number' || !Number.isFinite(c3)) continue
+    refs.push({ type: a.type, categorie_sslia: a.categorie_sslia, type_entite: a.type_entite, c3 })
+  }
+  return refs
+}
+
+function mediane(valeurs: number[]): number | null {
+  if (valeurs.length === 0) return null
+  const triees = [...valeurs].sort((a, b) => a - b)
+  const milieu = Math.floor(triees.length / 2)
+  return triees.length % 2 === 1
+    ? triees[milieu]
+    : (triees[milieu - 1] + triees[milieu]) / 2
+}
+
+/**
+ * C3 médian des pairs de flotte (même clé). null si moins de minPairs —
+ * l'appelant garde alors l'heuristique. Pur et testé.
+ */
+export function priorC3Flotte(
+  cible: { type?: string | null; categorie_sslia?: string | number | null; type_entite?: string | null },
+  flotte: PairFlotte[],
+  minPairs = 3,
+): { valeur: number | null; nbPairs: number; cle: string } {
+  const cle = cleFlotte(cible)
+  const valeurs = (flotte || [])
+    .filter(p => cleFlotte(p) === cle && Number.isFinite(p.c3))
+    .map(p => p.c3)
+  if (valeurs.length < minPairs) return { valeur: null, nbPairs: valeurs.length, cle }
+  return { valeur: Math.round(mediane(valeurs) as number), nbPairs: valeurs.length, cle }
 }
 
 // ─── Heuristiques multi-domaines C3 / C4 / C5 ────────────────────────────────
@@ -126,7 +191,7 @@ function profilHomologue(aerodrome: Aerodrome): {
 
 // ─── Calcul principal ────────────────────────────────────────────────────────
 
-export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult {
+export function calculerProfilInitial(aerodrome: Aerodrome, flotte: PairFlotte[] = []): ProfilInitialResult {
   // Normaliser l'échelle SGS une fois pour toutes (legacy 1-5 → 0-100).
   aerodrome = avecSgsNormalise(aerodrome)
   // Si l'aérodrome est déjà certifié ou homologué, utiliser le profil correspondant
@@ -149,9 +214,17 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
     }
   }
 
-  // Aucun statut → heuristique (C3) + valeurs par défaut (C4=95, C5=90)
+  // Aucun statut → prior de flotte si ≥3 pairs, sinon heuristique (C3) ;
+  // valeurs par défaut (C4=95, C5=90).
   const c1 = calculateC1(aerodrome.maturite_sgs ?? 50, undefined, aerodrome.statut_sgs)
-  const c3 = baselineC3(aerodrome)
+  const prior = priorC3Flotte(
+    { type: aerodrome.type, categorie_sslia: aerodrome.categorie_sslia, type_entite: aerodrome.type_entite },
+    flotte,
+  )
+  const c3 = prior.valeur ?? baselineC3(aerodrome)
+  const priorFlotte = prior.valeur != null
+    ? { cle: prior.cle, nbPairs: prior.nbPairs, mediane: prior.valeur }
+    : null
   // Pas d'écarts ni d'événements à la création → scores par défaut élevés
   const c4 = 95
   const c5 = 90
@@ -177,6 +250,7 @@ export function calculerProfilInitial(aerodrome: Aerodrome): ProfilInitialResult
     recommandations: genererRecommandations(aerodrome),
     confiance: 15,
     source: 'initial_form',
+    priorFlotte,
   }
 }
 

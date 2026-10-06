@@ -31,6 +31,7 @@ import type { MessageCopilote, PieceJointeCopilote } from '@/lib/ia/agents/copil
 import { detecterFormatOffice, extractTextFromOffice } from '@/lib/services/officeExtractor'
 import { Markdown, markdownVersTexte } from '@/components/ui/markdown'
 import { executerPilote } from '@/lib/ia/pilote/bouclePilote'
+import { erreurIaEnClair } from '@/lib/ia/aiClient'
 import { exporterRapportConversation } from '@/lib/services/rapportConversation'
 
 const SUGGESTIONS = [
@@ -73,6 +74,14 @@ export function CopiloteInspecteur() {
   const jetonReponse = useRef(0)
   // ── Mode pilote AERORISQ : l'IA agit via des outils (écritures confirmées).
   const [modePilote, setModePilote] = useState(false)
+  // Rapports auto : PDF/Word sans demander (lecture seule). Le reste confirmé.
+  const [autoRapports, setAutoRapports] = useState(() => {
+    try { return localStorage.getItem('sgda_auto_rapports') === '1' } catch { return false }
+  })
+  const basculerAutoRapports = (v: boolean) => {
+    setAutoRapports(v)
+    try { localStorage.setItem('sgda_auto_rapports', v ? '1' : '0') } catch { /* stockage indisponible */ }
+  }
   const [tracePilote, setTracePilote] = useState<string[]>([])
   const [confirmation, setConfirmation] = useState<{
     outil: string
@@ -82,7 +91,146 @@ export function CopiloteInspecteur() {
   // ── Commandes vocales : dictée (STT) + lecture des réponses (TTS).
   const [dictation, setDictation] = useState(false)
   const [lectureActive, setLectureActive] = useState(false)
+  const [niveauMicro, setNiveauMicro] = useState(0)
+  const [transcriptionWhisper, setTranscriptionWhisper] = useState(false)
+  const [micros, setMicros] = useState<Array<{ id: string; nom: string }>>([])
+  const [microChoisi, setMicroChoisi] = useState('')
+  // Niveau max capté pendant la dictée : resté à zéro = micro muet,
+  // inutile d'appeler Whisper (qui hallucinerait sur du silence).
+  const niveauMaxRef = useRef(0)
   const recognitionRef = useRef<any>(null)
+  // Capture audio parallèle (secours Whisper si le service navigateur échoue).
+  const captureRef = useRef<{
+    stream?: MediaStream
+    enregistreur?: MediaRecorder
+    morceaux: Blob[]
+    ctx?: AudioContext
+    analyseur?: AnalyserNode
+    raf?: number
+  }>({ morceaux: [] })
+
+  const arreterCapture = () => {
+    const c = captureRef.current
+    if (c.raf) cancelAnimationFrame(c.raf)
+    try { c.ctx?.close() } catch { /* silencieux */ }
+    try { c.stream?.getTracks().forEach(t => t.stop()) } catch { /* silencieux */ }
+    captureRef.current = { morceaux: [] }
+    setNiveauMicro(0)
+  }
+
+  /** Vu-mètre : prouve que le son arrive (ou pas) jusqu'au navigateur. */
+  const demarrerVuMetre = async (): Promise<boolean> => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setErreur('Capture audio non supportée par ce navigateur — utilisez Chrome ou Edge récent.')
+        return false
+      }
+      // Liste les micros pour choisir le bon (souvent le mauvais par défaut).
+      try {
+        const appareils = await navigator.mediaDevices.enumerateDevices()
+        const entrees = appareils
+          .filter(d => d.kind === 'audioinput')
+          .map((d, i) => ({ id: d.deviceId, nom: d.label || `Micro ${i + 1}` }))
+        setMicros(entrees)
+        if (entrees.length === 0) {
+          setErreur('Aucun micro détecté par le navigateur — branchez un micro puis rechargez la page.')
+          return false
+        }
+      } catch { /* enumerateDevices optionnel */ }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: microChoisi ? { deviceId: { exact: microChoisi } } : true,
+      })
+      const morceaux: Blob[] = []
+      const enregistreur = new MediaRecorder(stream)
+      enregistreur.ondataavailable = (e: BlobEvent) => { if (e.data?.size) morceaux.push(e.data) }
+      enregistreur.start(250)
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext
+      let analyseur: AnalyserNode | undefined
+      let ctx: AudioContext | undefined
+      if (Ctx) {
+        ctx = new Ctx()
+        const source = ctx.createMediaStreamSource(stream)
+        analyseur = ctx.createAnalyser()
+        analyseur.fftSize = 512
+        source.connect(analyseur)
+        const tampon = new Uint8Array(analyseur.frequencyBinCount)
+        niveauMaxRef.current = 0
+        const boucle = () => {
+          analyseur!.getByteTimeDomainData(tampon as unknown as Uint8Array<ArrayBuffer>)
+          let somme = 0
+          for (let i = 0; i < tampon.length; i++) {
+            const v = (tampon[i] - 128) / 128
+            somme += v * v
+          }
+          const niveau = Math.min(100, Math.round(Math.sqrt(somme / tampon.length) * 300))
+          if (niveau > niveauMaxRef.current) niveauMaxRef.current = niveau
+          setNiveauMicro(niveau)
+          captureRef.current.raf = requestAnimationFrame(boucle)
+        }
+        boucle()
+      }
+      captureRef.current = { stream, enregistreur, morceaux, ctx, analyseur }
+      return true
+    } catch (err: any) {
+      const nom = err?.name || ''
+      if (nom === 'NotAllowedError' || nom === 'SecurityError') {
+        setErreur('Micro bloqué : autorisez-le (cadenas à gauche de l’adresse), fermez les autres onglets/applis qui l’utilisent (Teams, Zoom…), puis rechargez la page.')
+      } else if (nom === 'NotFoundError' || nom === 'OverconstrainedError') {
+        setErreur('Le micro choisi est introuvable — sélectionnez-en un autre ci-dessous puis réessayez.')
+      } else if (nom === 'NotReadableError') {
+        setErreur('Micro déjà utilisé par une autre application (Teams, Zoom, enregistreur…) — fermez-la puis réessayez.')
+      } else {
+        setErreur('Capture micro impossible — réessayez ou écrivez la demande.')
+      }
+      return false
+    }
+  }
+
+  /** Secours Whisper : transcrit l'audio capté quand le navigateur échoue. */
+  const transcrireSecours = async (): Promise<boolean> => {
+    // Vu-mètre resté plat = micro muet : on n'appelle même pas Whisper
+    // (il hallucinerait des génériques sur du silence).
+    if (niveauMaxRef.current <= 5) {
+      arreterCapture()
+      setErreur('Micro muet : aucun son capté pendant l’écoute — vérifiez le volume et le micro par défaut de Windows, ou choisissez un autre micro ci-dessus.')
+      return false
+    }
+    const c = captureRef.current
+    const morceaux = c.morceaux || []
+    try { c.enregistreur?.state !== 'inactive' && c.enregistreur?.stop() } catch { /* silencieux */ }
+    await new Promise(r => setTimeout(r, 400))
+    const blob = new Blob(morceaux, { type: c.enregistreur?.mimeType || 'audio/webm' })
+    arreterCapture()
+    if (blob.size < 2000) return false
+    setTranscriptionWhisper(true)
+    try {
+      const form = new FormData()
+      form.append('audio', blob, 'dictee.webm')
+      const res = await fetch('/api/ia/transcrire', {
+        method: 'POST', body: form, signal: AbortSignal.timeout(110000),
+      })
+      const data = await res.json().catch(() => ({}))
+      const texte = (data?.texte || '').trim()
+      if (res.ok && texte) {
+        setErreur(null)
+        setQuestion(texte)
+        setTimeout(() => envoyerRef.current(texte), 50)
+        return true
+      }
+      setErreur(data?.error
+        ? `Whisper : ${data.error}`
+        : 'Whisper n’a rien compris non plus — écrivez la demande.')
+      return false
+    } catch {
+      setErreur('Transcription Whisper injoignable — écrivez la demande.')
+      return false
+    } finally {
+      setTranscriptionWhisper(false)
+    }
+  }
+  // Référence toujours fraîche d'envoyer (la dictée est asynchrone : le
+  // callback onresult fermerait sinon sur un envoyer périmé).
+  const envoyerRef = useRef<(q?: string) => Promise<void>>(async () => {})
   const voixSupportee = typeof window !== 'undefined' &&
     ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)
 
@@ -149,7 +297,7 @@ export function CopiloteInspecteur() {
     if (derniere) lireTexte(derniere.content)
   }
 
-  const basculerDictee = () => {
+  const basculerDictee = async () => {
     if (!voixSupportee) {
       setErreur('Commandes vocales non supportées par ce navigateur — utilisez Chrome ou Edge (micro autorisé).')
       return
@@ -157,32 +305,90 @@ export function CopiloteInspecteur() {
     if (dictation) {
       try { recognitionRef.current?.stop() } catch { /* silencieux */ }
       setDictation(false)
+      arreterCapture()
       return
     }
+    // Erreurs micro explicites (avant : silence total, « l'IA n'écrit rien »).
+    const expliquerErreurMicro = (code?: string) => {
+      setDictation(false)
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        setErreur('Micro refusé par le navigateur — cliquez sur le cadenas à gauche de l’adresse, autorisez le micro, puis rechargez la page.')
+      } else if (code === 'no-speech') {
+        setErreur('Rien entendu — parlez plus fort ou rapprochez-vous du micro, puis réessayez.')
+      } else if (code === 'network') {
+        setErreur('Reconnaissance vocale injoignable (réseau requis) — vérifiez la connexion puis réessayez.')
+      } else if (code === 'audio-capture') {
+        setErreur('Aucun micro détecté sur cet appareil.')
+      } else if (code) {
+        setErreur(`Dictée impossible (${code}) — réessayez ou écrivez la demande.`)
+      }
+    }
+    let rec: any = null
     try {
       const Classe = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      const rec = new Classe()
+      rec = new Classe()
+    } catch {
+      setErreur('Dictée indisponible — réessayez ou écrivez la demande.')
+      return
+    }
+    // Résultats intermédiaires : l'utilisateur VOIT les mots arriver —
+    // si rien ne s'affiche, c'est le micro/la page, pas l'IA.
+    let finalRecu = false
+    try {
       rec.lang = 'fr-FR'
       rec.continuous = false
-      rec.interimResults = false
+      rec.interimResults = true
       rec.onresult = (event: any) => {
-        const texte = event.results?.[0]?.[0]?.transcript || ''
-        setDictation(false)
-        if (texte.trim()) {
-          setQuestion(texte.trim())
+        let interim = ''
+        let finale = ''
+        const resultats = event.results || []
+        for (let i = event.resultIndex || 0; i < resultats.length; i++) {
+          const texte = resultats[i]?.[0]?.transcript || ''
+          if (resultats[i]?.isFinal) finale += texte + ' '
+          else interim += texte + ' '
+        }
+        if (interim.trim()) setQuestion(interim.trim())
+        if (finale.trim()) {
+          finalRecu = true
+          setDictation(false)
+          setErreur(null)
+          try { rec.stop() } catch { /* silencieux */ }
+          setQuestion(finale.trim())
           // Envoi automatique : « demande à l'IA » d'une phrase.
-          setTimeout(() => envoyer(texte.trim()), 50)
+          setTimeout(() => envoyerRef.current(finale.trim()), 50)
         }
       }
-      rec.onerror = () => setDictation(false)
-      rec.onend = () => setDictation(false)
+      rec.onerror = (event: any) => expliquerErreurMicro(event?.error)
+      rec.onend = async () => {
+        setDictation(false)
+        // Fin d'écoute SANS aucun résultat : bascule auto vers Whisper avec
+        // l'audio capté en parallèle (le vu-mètre dit si le son arrivait).
+        if (!finalRecu) {
+          const ok = await transcrireSecours()
+          if (!ok && captureRef.current.morceaux.length === 0) {
+            setErreur('Écoute terminée sans rien capter et aucun audio enregistré — vérifiez le volume micro de Windows et le micro par défaut, gardez l’onglet au premier plan, puis réessayez.')
+          }
+        } else {
+          arreterCapture()
+        }
+      }
       recognitionRef.current = rec
+      // Capture parallèle (vu-mètre + secours Whisper) avant de démarrer.
+      // Sans capture, inutile d'écouter : le message d'erreur est déjà posé.
+      const captureOk = await demarrerVuMetre()
+      if (!captureOk) return
       rec.start()
       setDictation(true)
+      setErreur(null)
     } catch {
-      setDictation(false)
+      expliquerErreurMicro('network')
     }
   }
+
+  // Référence fraîche d'envoyer pour la dictée asynchrone (voir basculerDictee).
+  useEffect(() => {
+    envoyerRef.current = envoyer
+  })
 
   // Chronomètre d'attente pendant la réponse IA (rassure quand le modèle est lent).
   useEffect(() => {
@@ -287,24 +493,57 @@ export function CopiloteInspecteur() {
     try {
       if (modePilote) {
         // MODE PILOTE : AERORISQ agit via ses outils (confirmations humaines).
+        // Le texte s'affiche au fil de la génération (placeholder mis à jour).
         const textesPieces = pieces
           .filter(p => p.texte.trim().length > 50)
           .map(p => `── PIÈCE : ${p.nom} ──\n${p.texte.trim().substring(0, 4000)}`)
           .join('\n\n')
+        const indexPlaceHolder = historique.length
+        setMessages([...historique, { role: 'assistant' as const, content: '' }])
+        const controleur = new AbortController()
+        abortPiloteRef.current = controleur
+        let texteStream = ''
         const resultat = await executerPilote({
           instruction: [textesPieces, `DEMANDE : ${q}`].filter(Boolean).join('\n\n'),
           historique: messages,
-          contexte: { userId: user?.id },
-          onConfirmer: (outil, args) => new Promise<boolean>(resoudre => {
-            setConfirmation({ outil, args, resoudre })
-          }),
+          contexte: {
+            userId: user?.id,
+            userRole: (user as any)?.role,
+            userName: [(user as any)?.prenom, (user as any)?.nom].filter(Boolean).join(' ') || undefined,
+          },
+          onConfirmer: (outil, args) => {
+            // Rapports auto : génération + téléchargement sans demander.
+            if (autoRapports && (outil === 'generer_rapport_pdf' || outil === 'generer_rapport_word')) {
+              setTracePilote(prev => [...prev, `✅ ${outil} (auto — rapports sans demander)`])
+              return Promise.resolve(true)
+            }
+            return new Promise<boolean>(resoudre => {
+            if (controleur.signal.aborted) { resoudre(false); return }
+            const surAbort = () => resoudre(false)
+            controleur.signal.addEventListener('abort', surAbort, { once: true })
+            setConfirmation({ outil, args, resoudre: (ok) => {
+              controleur.signal.removeEventListener('abort', surAbort)
+              resoudre(ok)
+            } })
+            })
+          },
           onTrace: (etape) => setTracePilote(prev => [...prev, etape]),
+          onToken: (texte) => {
+            if (jetonReponse.current !== jeton) return
+            texteStream += texte
+            const fige = texteStream
+            setMessages(prev => prev.map((m, i) =>
+              i === indexPlaceHolder && m.role === 'assistant' ? { ...m, content: fige } : m))
+          },
+          signal: controleur.signal,
         })
+        abortPiloteRef.current = null
         if (jetonReponse.current !== jeton) return
+        if (resultat.interrompu) return
         const resumeActions = resultat.actions.length > 0
           ? `\n\n---\n**Actions du pilote :**\n${resultat.actions.map(a => `- ${a.outil} : ${a.statut}`).join('\n')}`
           : ''
-        const contenuFinal = resultat.reponse + resumeActions
+        const contenuFinal = (texteStream + resumeActions).trim() || resultat.reponse + resumeActions
         setMessages([...historique, { role: 'assistant', content: contenuFinal }])
         if (lectureActive) lireTexte(contenuFinal)
       } else {
@@ -321,7 +560,7 @@ export function CopiloteInspecteur() {
       }
     } catch (err) {
       if (jetonReponse.current !== jeton) return
-      setMessages([...historique, { role: 'assistant', content: 'Erreur : ' + ((err as Error).message || 'réponse indisponible.') }])
+      setMessages([...historique, { role: 'assistant', content: erreurIaEnClair((err as Error)?.message) }])
     } finally {
       if (jetonReponse.current === jeton) {
         setRepondreLoading(false)
@@ -330,13 +569,22 @@ export function CopiloteInspecteur() {
     }
   }
 
+  const abortPiloteRef = useRef<AbortController | null>(null)
+
   const abandonnerReponse = () => {
+    // Interruption réelle du streaming (aucun outil ne démarre après abort).
+    abortPiloteRef.current?.abort()
+    abortPiloteRef.current = null
     jetonReponse.current++
     setRepondreLoading(false)
+    setConfirmation(null)
     setMessages(prev => [...prev, { role: 'assistant', content: 'Réponse interrompue à votre demande — reformulez ou réessayez.' }])
   }
 
   const resetAll = () => {
+    try { recognitionRef.current?.stop() } catch { /* silencieux */ }
+    arreterCapture()
+    setDictation(false)
     setMessages([])
     setQuestion('')
     setFichiers([])
@@ -410,6 +658,17 @@ export function CopiloteInspecteur() {
               <Sparkles className="w-3.5 h-3.5 text-warning" /> Mode action — l’IA exécute
             </span>
           </label>
+          {modePilote && (
+            <label className="flex items-center gap-1.5 cursor-pointer" title="PDF/Word générés et téléchargés aussitôt, sans demander. Ne concerne QUE les rapports (lecture seule) — planifications et écarts restent confirmés un par un.">
+              <input
+                type="checkbox"
+                checked={autoRapports}
+                onChange={(e) => basculerAutoRapports(e.target.checked)}
+                className="accent-success w-3.5 h-3.5"
+              />
+              <span className="text-[11px] text-foreground/70">Rapports auto (PDF/Word sans demander)</span>
+            </label>
+          )}
           {messages.length > 0 && (
             <div className="flex items-center gap-2 ml-auto">
               <button onClick={resetAll} className="btn btn-secondary h-9 px-3 text-xs gap-1.5">
@@ -580,8 +839,39 @@ export function CopiloteInspecteur() {
               </button>
             </div>
             {dictation && (
-              <p className="text-xs text-danger mt-1.5 flex items-center gap-1.5">
-                <Mic className="w-3.5 h-3.5 animate-pulse" /> Écoute en cours… parlez, la demande part automatiquement.
+              <div className="mt-1.5 space-y-1">
+                <p className="text-xs text-danger flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5 animate-pulse" /> Écoute en cours… parlez, la demande part automatiquement.
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${niveauMicro > 5 ? 'bg-success' : 'bg-muted-foreground/40'}`}
+                      style={{ width: `${niveauMicro}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">
+                    {niveauMicro > 5 ? 'Le micro capte ✓' : 'Aucun son détecté'}
+                  </span>
+                </div>
+                {micros.length > 1 && (
+                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    Micro :
+                    <select
+                      value={microChoisi}
+                      onChange={e => setMicroChoisi(e.target.value)}
+                      className="rounded border border-border bg-card px-1.5 py-1 text-[11px] text-foreground"
+                    >
+                      <option value="">Par défaut</option>
+                      {micros.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+            )}
+            {transcriptionWhisper && (
+              <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Le navigateur n’a rien capté — transcription via Whisper…
               </p>
             )}
           </Card>

@@ -12,7 +12,8 @@ import { useAppStore, KitDocument, ProfilRisque, Aerodrome, KitChecklistItemGene
 import type { DossierAnalyseResult, DossierAnalyseCritere, DossierChecklistItem, FicheBriefing } from '@/lib/store'
 import type { ResultatChecklist } from '@/types/checklist'
 import { riskAgent } from '@/lib/ia/agents/riskAgent'
-import { checklistMemory, type TypeInspection } from '@/lib/checklistMemory'
+import { checklistMemory, getTextDeltaStats, type TypeInspection } from '@/lib/checklistMemory'
+import { controlerDirectivesItems, formulerConsigneRetouches, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation'
 import { aiClient } from '@/lib/ia/aiClient'
 import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, ANALYSER_DOCUMENT_DOSSIER_PROMPT, GENERER_CHECKLIST_TRAITEMENT_PROMPT, GENERER_FICHE_BRIEFING_PROMPT } from '@/lib/ia/prompts'
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
@@ -587,6 +588,19 @@ export function toDomaineChecklistArray(result: KitChecklistResult): any[] {
 // ANALYSE D'UN DOCUMENT KIT NOUVELLEMENT AJOUTÉ
 // ============================================================
 
+/**
+ * Normalise la référence de briefing venue de l'IA : un UUID brut
+ * (ex. « 87470ba1-… ») ou une chaîne vide est refusé au profit d'un
+ * identifiant court lisible. Jamais d'identifiant opaque dans le PDF.
+ */
+export function normaliserReferenceBriefing(refIA: unknown, planningId?: string): string {
+  const propre = String(refIA || '').trim()
+  const estUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(propre)
+  if (propre && !estUUID && propre.length <= 24) return propre
+  if (planningId) return planningId.slice(0, 8).toUpperCase()
+  return `BRIEF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`
+}
+
 export class KitDocAgent {
   private initialized = false
   private analysisCache = new Map<string, KitDocAnalysis>()
@@ -646,14 +660,19 @@ export class KitDocAgent {
       detecte_le: new Date().toISOString(),
     }))
 
-    // Enrichissement optionnel via IA
-    if (doc.resume && doc.resume.length > 20) {
+    // Enrichissement via IA : sur le TEXTE extrait (6000 premiers car.) en
+    // priorité — le résumé seul est presque toujours vide (mesuré : 0 car.
+    // sur 10 docs) et ne donnait que des génériques « §X.X ».
+    const sourceIA = (doc.contenu_complet && doc.contenu_complet.trim().length > 200)
+      ? doc.contenu_complet.trim().substring(0, 6000)
+      : (doc.resume && doc.resume.length > 20 ? doc.resume : '')
+    if (sourceIA) {
       type ExtraitAI = { reference: string; titre: string; resume: string; seuil?: string }
       const aiResult = await aiClient.callJSON<{ extraits: ExtraitAI[] }>(
         {
           systemPrompt: KITDOC_SYSTEM_PROMPT,
           userMessage: `Document: "${doc.nom}" (${reference_base})
-Résumé: ${doc.resume}
+Texte réglementaire (extrait) : ${sourceIA}
 Domaines: ${doc.domaines.join(', ')}
 Mots-clés: ${doc.mots_cles.join(', ')}
 
@@ -1772,6 +1791,8 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
           temperature: 0.3,
           maxTokens: 4096,
           responseFormat: 'json_object',
+          // Tâche dure (synthèse multi-sources) : réflexion rentable.
+          think: true,
         },
         {}
       )
@@ -1817,7 +1838,7 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
     }))
 
     const fiche: FicheBriefing = {
-      reference: json.reference || planning?.id?.slice(0, 8) || new Date().getTime().toString(36).toUpperCase(),
+      reference: normaliserReferenceBriefing(json.reference, planning?.id),
       type_mission: json.type_mission || planning?.type?.replace(/_/g, ' ') || 'Surveillance',
       aerodrome: json.aerodrome || (aerodrome ? `${aerodrome.code_oaci} - ${aerodrome.nom}` : ''),
       periode: json.periode || `${planning?.date_debut ? new Date(planning.date_debut).toLocaleDateString('fr-FR') : ''} → ${planning?.date_fin ? new Date(planning.date_fin).toLocaleDateString('fr-FR') : ''}`,
@@ -2015,6 +2036,29 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
    * Extrait le texte d'un document PDF via pdfjs-dist et le stocke sur le document.
    * Ne fait rien si le texte a déjà été extrait (sauf si force=true).
    */
+  /**
+   * Remplit les extraits citables (§) d'un document depuis son texte extrait
+   * (chapitres détectés) — sans LLM, en une écriture. Ne touche jamais aux
+   * extraits existants (manuels). Retourne true si des extraits ont été créés.
+   * C'est le chaînon manquant : analyzeDocument générait des extraits sans
+   * jamais les persister, et l'enrichissement IA lisait un résumé vide.
+   */
+  async synchroniserExtraits(docId: string): Promise<boolean> {
+    const store = useAppStore.getState()
+    const doc = store.kitDocuments.find(d => d.id === docId)
+    if (!doc) return false
+    if ((doc.extraits || []).length > 0) return false
+    const texte = doc.contenu_complet || ''
+    if (texte.trim().length < 200) return false
+    const { extraitsDepuisChapitres } = await import('@/lib/ia/rag/reglementaireRag')
+    const { decouperChapitres } = await import('@/lib/services/pdfExtractor')
+    const extraits = extraitsDepuisChapitres(doc, decouperChapitres(texte))
+    if (extraits.length === 0) return false
+    await store.updateKitDocument(docId, { extraits } as never)
+    console.log(`[KitDocAgent] Extraits générés pour "${doc.nom}" : ${extraits.length} § citables.`)
+    return true
+  }
+
   async extraireTexteDocument(docId: string, force = false): Promise<void> {
     const store = useAppStore.getState()
     const doc = store.kitDocuments.find(d => d.id === docId)
@@ -2030,6 +2074,22 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
 
     try {
       console.log(`[KitDocAgent] Extraction PDF: "${doc.nom}" url=${fichierUrl.substring(0, 100)}...`)
+      const nomFichier = doc.fichier_nom || ''
+      // Word/Excel/PowerPoint modernes : extraction locale instantanée (ZIP+XML),
+      // jamais de vision dessus. Vieux .doc/.xls/.ppt : refusé avec consigne.
+      if (/\.(docx|xlsx|pptx)$/i.test(nomFichier)) {
+        const { extractTextFromOffice } = await import('@/lib/services/officeExtractor')
+        const rep = await fetch(fichierUrl)
+        if (!rep.ok) throw new Error(`Document inaccessible (HTTP ${rep.status}).`)
+        const office = await extractTextFromOffice(await rep.arrayBuffer(), nomFichier)
+        console.log(`[KitDocAgent] Extraction Office: ${doc.nom} — ${office.texte.length} caractères (${office.format})`)
+        store.updateKitDocument(docId, {
+          contenu_complet: office.texte,
+          texte_extrait_le: new Date().toISOString(),
+          texte_extrait_version: doc.version,
+        })
+        return
+      }
       const result = await extractTextFromPDF(fichierUrl)
       console.log(`[KitDocAgent] Extraction OK: ${doc.nom} — ${result.texte_complet.length} caractères, ${result.nb_pages} pages, ${result.chapitres.length} chapitres`)
       store.updateKitDocument(docId, {
@@ -2040,6 +2100,68 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
     } catch (err) {
       console.error(`[KitDocAgent] Erreur extraction PDF ${doc.nom}:`, err)
     }
+    // Chaînon extraits : le texte frais devient des § citables persistés
+    // (no-op si extraits manuels présents ou texte insuffisant).
+    try { await this.synchroniserExtraits(docId) } catch { /* RAG inchangé si échec */ }
+  }
+
+  /**
+   * OCR vision INTÉGRAL d'un PDF scanné, par tranches de 5 pages avec reprise
+   * (marqueurs « --- Page N --- » → on continue où on s'était arrêté).
+   * Réservé aux passes de fond (cours du soir) : JAMAIS dans le chemin de
+   * génération des checklists (trop lent sur CPU). Borné par maxPages par
+   * appel, persiste après chaque tranche (coupure = reprise, pas de perte).
+   */
+  async ocrVisionIntegral(docId: string, opts?: { maxPages?: number; onEtape?: (m: string) => void }): Promise<{ pagesLues: number; nbPages: number; termine: boolean }> {
+    const vide = { pagesLues: 0, nbPages: 0, termine: true }
+    const store = useAppStore.getState()
+    const premier = store.kitDocuments.find(d => d.id === docId)
+    if (!premier?.fichier_url) return vide
+    if (!/\.pdf$/i.test(premier.fichier_nom || '')) return vide
+    const { rendrePagesPng, dernierePageLue } = await import('@/lib/services/pdfExtractor')
+    // Plafond haut (200 pages ≈ gros RAS scanné en une passe) : la persistance
+    // par tranche + la reprise sur marqueurs rendent les gros volumes sûrs.
+    const maxPages = Math.min(200, Math.max(1, opts?.maxPages ?? 50))
+    const dire = opts?.onEtape ?? (() => {})
+    const PAQUET = 5
+    let page = dernierePageLue(premier.contenu_complet || '') + 1
+    let lues = 0
+    let total = 0
+    try {
+      while (lues < maxPages) {
+        const paquet = await rendrePagesPng(premier.fichier_url, Math.min(PAQUET, maxPages - lues), page)
+        total = paquet.nb_pages
+        if (page > total || paquet.images.length === 0) break
+        dire(`Lecture visuelle : ${premier.nom} — pages ${page} à ${page + paquet.images.length - 1}…`)
+        const res = await fetch('/api/ia/lire-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nom: premier.fichier_nom || premier.nom, images: paquet.images }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || typeof data.texte !== 'string' || data.texte.trim().length <= 50) break
+        // La route numérote 1..N par appel : on renumérote en pages absolues.
+        let n = 0
+        const absolu = data.texte.replace(/---\s*Page\s+(\d+)\s*---/gi, () => `--- Page ${page + (n++)} ---`)
+        const actuel = useAppStore.getState().kitDocuments.find(d => d.id === docId)
+        if (!actuel) break
+        const base = (actuel.contenu_complet || '').trim()
+        await store.updateKitDocument(docId, {
+          contenu_complet: base ? `${base}\n\n${absolu}` : absolu,
+          texte_extrait_le: new Date().toISOString(),
+          texte_extrait_version: actuel.version,
+        })
+        lues += paquet.images.length
+        page += paquet.images.length
+      }
+    } catch (err) {
+      console.warn(`[KitDocAgent] OCR vision interrompu pour "${premier.nom}" :`, (err as Error)?.message)
+    }
+    const fait = useAppStore.getState().kitDocuments.find(d => d.id === docId)?.contenu_complet || ''
+    const derniere = dernierePageLue(fait)
+    // Chaînon extraits : le texte OCR devient des § citables persistés.
+    try { await this.synchroniserExtraits(docId) } catch { /* RAG inchangé si échec */ }
+    return { pagesLues: lues, nbPages: total, termine: total > 0 && derniere >= total }
   }
 
   /**
@@ -2152,6 +2274,13 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
     const texte = docMaj.contenu_complet || ''
     if (texte.length < 50) return stored
 
+    // P2 — la boucle formulation se referme : les champs que les inspecteurs
+    // recorrigent le plus deviennent une exigence du prompt de génération.
+    let consigneRetouches = ''
+    try {
+      consigneRetouches = formulerConsigneRetouches(getTextDeltaStats().top_fields)
+    } catch { /* mémoire indisponible : génération standard */ }
+
     const chapitres = decouperChapitres(texte)
     const nouveauxItems: KitChecklistItemGenere[] = []
 
@@ -2187,6 +2316,7 @@ ${contexteFallback}
 
 Génère les items de checklist standard pour le domaine ${domaine}.
 Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
+${consigneRetouches}
 
 Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
 {
@@ -2239,7 +2369,11 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
         continue
       }
 
-      const contexteTexte = chapitresPertinents.join('\n\n').substring(0, 35000)
+      // Plafond contexte : 35000 car. ≈ 13000 tokens → 503 partout (Groq refuse,
+      // local avorte). 12000 car. ≈ 4000 tokens + prompt ≈ 5000 : Groq retente
+      // (cap 6000), le local tient dans son budget. Mesuré : 15000 car. + prompt
+      // = 6125 tokens, encore refusé. Couverture intégrale = lots (chantier).
+      const contexteTexte = chapitresPertinents.join('\n\n').substring(0, 12000)
       const indicationSources = sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''
 
       const aiResult = await aiClient.callJSON<{ items: any[] }>(
@@ -2253,6 +2387,7 @@ ${contexteTexte}
 
 Génère les items de checklist standard pour le domaine ${domaine}.
 Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
+${consigneRetouches}
 
 Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
 {
@@ -2304,6 +2439,19 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
 
     const tousItems = [...stored, ...nouveauxItems]
     console.log(`[genererItemsPourDocument] ${docMaj.nom}: généré ${nouveauxItems.length} items pour domaines ${domainesAGenerer.join(',')} — total ${tousItems.length}`)
+    // Auto-contrôle qualité des NOUVEAUX items (journalisé, jamais bloquant,
+    // jamais de suppression silencieuse) : doublons, sans réf, directives.
+    try {
+      const auto = [
+        ...controlerDirectivesItems(nouveauxItems),
+        ...veillerQuestionsChecklist(nouveauxItems.map(i => ({
+          id: i.id, ref: i.reference_reglementaire, texte: i.point_verification,
+        }))),
+      ]
+      if (auto.length > 0) {
+        console.warn(`[genererItemsPourDocument] auto-contrôle ${docMaj.nom}: ${auto.length} remarque(s) — ${auto.slice(0, 3).map(a => a.titre).join(' ; ')}`)
+      }
+    } catch { /* auto-contrôle indisponible : items conservés tels quels */ }
     store.updateKitDocument(docId, {
       items_generes: tousItems,
       items_generes_le: new Date().toISOString(),

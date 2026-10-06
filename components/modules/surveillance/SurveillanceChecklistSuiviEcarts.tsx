@@ -29,7 +29,10 @@ import {
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
-import { DomaineCode } from '@/lib/domaines';
+import { DomaineCode, releveChecklistEcarts, PRIORITE_RISQUE, campEnSuivi, estResultatValide, estItemTermine } from '@/lib/domaines';
+import { EquipeNoms } from './EquipeNoms';
+import { veillerCoherenceChecklist, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation';
+import { nomActeur } from '@/lib/acteurs';
 import type { PAOELevel, EvaluationSGS } from '@/types/checklist';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
@@ -71,6 +74,10 @@ export interface EcartEvaluation {
   domaine?: DomaineCode;
   niveau_risque: NiveauRisque;
 
+  /** Statut de l'écart source (badge « camp » + tri) — revalué à chaque session. */
+  statut_ecart?: string;
+  retard_inspecteur?: boolean;
+
   statut_mesure: StatutMesure;
   mesure_description?: string;
   mesure_incidence?: string;
@@ -84,6 +91,8 @@ export interface EcartEvaluation {
 
   commentaire?: string;
   conclusion?: ResultatSuivi;
+  // R2 — auteur de la conclusion (brouillon observateur jusqu'à reprise).
+  modified_by?: string;
 
   ordre: number;
   isExpanded: boolean;
@@ -285,6 +294,10 @@ export function EcartEvaluationCard({
   onDeleteFile: (itemId: string, fileId: string) => void;
 }) {
   const [preuveOpen, setPreuveOpen] = useState(false);
+  // R2 — brouillon observateur : visible, à reprendre par un signataire.
+  const utilisateursCard = useOptimizedStore(s => s.utilisateurs);
+  const fichesCard = useOptimizedStore(s => s.inspecteurs);
+  const estBrouillon = !!item.conclusion && !estResultatValide(item, fichesCard, utilisateursCard);
   const isSGS = item.domaine === 'SGS';
   const risqueConfig = isSGS && item.niveau_maturite ? MATURITE_CONFIG[item.niveau_maturite] : RISQUE_CONFIG[item.niveau_risque];
   const RisqueIcon = risqueConfig.icon;
@@ -309,7 +322,7 @@ export function EcartEvaluationCard({
   };
 
   return (
-    <div className={`card border-border mb-3 overflow-hidden ${risqueConfig.border} border-l-4`}>
+    <div id={`suivi-item-${item.id}`} className={`card border-border mb-3 overflow-hidden ${risqueConfig.border} border-l-4`}>
       {/* Header */}
       <div className={`flex items-center justify-between px-3 py-2 bg-gradient-to-r ${risqueConfig.gradient}`}>
         <div className="flex items-center gap-2">
@@ -319,10 +332,27 @@ export function EcartEvaluationCard({
             <RisqueIcon className="w-3 h-3" />
             {risqueConfig.label}
           </span>
+          {(() => {
+            // Balle dans quel camp : l'exploitant doit (re)soumettre, ou
+            // l'inspecteur doit évaluer — le système le sait, on l'affiche.
+            const camp = campEnSuivi({ statut: item.statut_ecart, retard_inspecteur: item.retard_inspecteur })
+            const enRetard = item.statut_ecart === 'en_retard'
+            return (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${enRetard ? 'bg-red-100 text-red-700 border-red-300' : camp === 'inspecteur' ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-blue-100 text-blue-700 border-blue-300'}`}>
+                {enRetard ? 'En retard — ' : ''}{camp === 'inspecteur' ? 'attente inspecteur' : 'attente exploitant'}
+              </span>
+            )
+          })()}
         </div>
         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${item.conclusion ? RESULTAT_LABELS[item.conclusion].color : 'bg-gray-100 text-gray-500'}`}>
           {item.conclusion ? RESULTAT_LABELS[item.conclusion].short : 'NV'}
         </span>
+        {estBrouillon && (
+          <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700"
+            title={`Brouillon de ${nomActeur(item.modified_by, [...utilisateursCard, ...fichesCard])} — à reprendre par un titulaire ou principal`}>
+            Brouillon
+          </span>
+        )}
       </div>
 
       {/* Libellé */}
@@ -671,14 +701,20 @@ export function SurveillanceChecklistSuiviEcarts({
   }, []);
 
   useEffect(() => {
+    // Règle canonique releveChecklistEcarts : pas de PAC accepté (absence,
+    // attente, refus) ou retard sans acceptation. Puis tri : le retard prime,
+    // le risque tranche, puis l'échéance d'envoi du PAC.
     const ecartsASuivre = ecarts.filter(e => {
       if (e.aerodrome_id !== aerodromeId) return false;
-      if (e.statut === 'cloture') return false;
-      if (!['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut)) return false;
+      if (!releveChecklistEcarts(e)) return false;
       // Exclure les écarts issus de certification/homologation non terminée
       if (isEcartProcessusActif(e.surveillance_id, aerodromeId, certifications, homologations)) return false;
       return true;
     });
+    ecartsASuivre.sort((a, b) =>
+      (Number(b.statut === 'en_retard') - Number(a.statut === 'en_retard')) ||
+      ((PRIORITE_RISQUE[b.niveau_risque || ''] ?? 0) - (PRIORITE_RISQUE[a.niveau_risque || ''] ?? 0)) ||
+      ((new Date(a.delai_pac || '').getTime() || Number.POSITIVE_INFINITY) - (new Date(b.delai_pac || '').getTime() || Number.POSITIVE_INFINITY)))
 
     if (ecartsASuivre.length === 0) {
       setEvaluations([]);
@@ -697,10 +733,20 @@ export function SurveillanceChecklistSuiviEcarts({
         const prevSaved = savedMap.get(ec.id);
         const domaine = (ec as any).domaine as DomaineCode | undefined;
         const ref = ec.ref_reglementaire || ec.reference;
+        // Récidive : antécédent clôturé même site + même domaine → la case
+        // récurrence est pré-cochée (signal positif uniquement, jamais de
+        // faux négatif ; l'inspecteur peut décocher).
+        const aUnAntecedent = ecarts.some(autre =>
+          autre.id !== ec.id &&
+          autre.aerodrome_id === ec.aerodrome_id &&
+          (autre as { domaine?: string }).domaine === (ec as { domaine?: string }).domaine &&
+          autre.statut === 'cloture')
         const criticite = existing?.criticite ?? prevSaved?.criticite ?? {
           defenses_existantes: { valeur: null },
           facteurs_aggravants: { valeur: null },
-          recurrence: { valeur: null },
+          recurrence: aUnAntecedent
+            ? { valeur: true, justification: 'Antécédent clôturé même site et domaine — récidive probable à confirmer' }
+            : { valeur: null },
           impact_operationnel: { valeur: null },
           delai_correction: { valeur: null },
         };
@@ -710,6 +756,8 @@ export function SurveillanceChecklistSuiviEcarts({
           reference: ref,
           libelle: ec.libelle || 'Écart sans libellé',
           domaine,
+          statut_ecart: ec.statut,
+          retard_inspecteur: (ec as { retard_inspecteur?: boolean }).retard_inspecteur,
           niveau_risque: (ec.niveau_risque || 'moyen') as NiveauRisque,
           statut_mesure: existing?.statut_mesure ?? prevSaved?.statut_mesure ?? 'aucune',
           mesure_description: existing?.mesure_description ?? prevSaved?.mesure_description,
@@ -722,6 +770,7 @@ export function SurveillanceChecklistSuiviEcarts({
           criticite,
           commentaire: existing?.commentaire ?? prevSaved?.commentaire,
           conclusion: existing?.conclusion ?? prevSaved?.conclusion,
+          modified_by: existing?.modified_by ?? prevSaved?.modified_by,
           ordre: idx,
           isExpanded: existing?.isExpanded ?? prevSaved?.isExpanded ?? true,
         } as EcartEvaluation;
@@ -751,7 +800,7 @@ export function SurveillanceChecklistSuiviEcarts({
       return item;
     }));
     for (const s of suggestions) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestions([]);
     addNotification({ user_id: user?.id || '', type: 'success', title: 'Suggestions appliquées', message: `${suggestions.length} suggestion(s) appliquée(s)`, canal: 'in_app' });
@@ -759,14 +808,21 @@ export function SurveillanceChecklistSuiviEcarts({
 
   const handleIgnoreSuggestions = () => {
     for (const s of suggestions) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestions([]);
   };
 
   const handleUpdateItem = useCallback((updatedItem: EcartEvaluation) => {
-    setEvaluations(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
-  }, []);
+    setEvaluations(prev => prev.map(i => {
+      if (i.id !== updatedItem.id) return i;
+      // R2 — seul un changement de conclusion restampe l'auteur.
+      const auteur = i.conclusion === updatedItem.conclusion
+        ? (updatedItem.modified_by || i.modified_by || '')
+        : (user?.id || updatedItem.modified_by || '');
+      return { ...updatedItem, modified_by: auteur };
+    }));
+  }, [user?.id]);
 
   const handleAddFile = useCallback((itemId: string, file: Preuve) => {
     setEvaluations(prev => prev.map(i => i.id === itemId ? { ...i, preuves: [...i.preuves, file] } : i));
@@ -792,18 +848,56 @@ export function SurveillanceChecklistSuiviEcarts({
     return () => clearInterval(interval);
   }, [evaluations, readOnly, isSigned, onSave, observationsGenerales]);
 
+  // R2 — validité des conclusions (brouillons observateurs exclus des comptes).
+  const fichesInspecteursSuivi = useOptimizedStore(s => s.inspecteurs);
+  const utilisateursSuivi = useOptimizedStore(s => s.utilisateurs);
+  const profilRisqueSuivi = useOptimizedStore(s => s.profilsRisque)?.[aerodromeId];
+  const estValideSuivi = useCallback((item: EcartEvaluation) =>
+    estResultatValide(item, fichesInspecteursSuivi, utilisateursSuivi),
+  [fichesInspecteursSuivi, utilisateursSuivi]);
+
   const stats = useMemo(() => {
     const total = evaluations.length;
-    const sa = evaluations.filter(i => i.conclusion === 'SA').length;
-    const ns = evaluations.filter(i => i.conclusion === 'NS').length;
-    const nv = evaluations.filter(i => !i.conclusion || i.conclusion === 'NV').length;
-    const progression = total > 0 ? Math.round(((sa + ns) / total) * 100) : 0;
+    const valides = evaluations.filter(i => estValideSuivi(i));
+    const sa = valides.filter(i => i.conclusion === 'SA').length;
+    const ns = valides.filter(i => i.conclusion === 'NS').length;
+    // Terminés = valides OU NV motivés ; le reste = à conclure.
+    const termines = evaluations.filter(i => estItemTermine(i, fichesInspecteursSuivi, utilisateursSuivi)).length;
+    const nv = total - termines;
+    const progression = total > 0 ? Math.round((termines / total) * 100) : 0;
     return { total, sa, ns, nv, progression };
-  }, [evaluations]);
+  }, [evaluations, estValideSuivi, fichesInspecteursSuivi, utilisateursSuivi]);
+
+  // Carte « traités / restants » (même pattern que la checklist standard) :
+  // Restant = non terminé : ni valide, ni NV motivé.
+  const restants = useMemo(() => evaluations
+    .filter(i => !estItemTermine(i, fichesInspecteursSuivi, utilisateursSuivi))
+    .map(i => {
+      const estNvMuet = (i.conclusion || '').toUpperCase() === 'NV';
+      return {
+        id: i.id,
+        ref: i.reference,
+        texte: (i.libelle || ''),
+        risque: i.niveau_risque,
+        brouillon: !estNvMuet && !!i.conclusion,
+        aMotiver: estNvMuet,
+      };
+    }), [evaluations, fichesInspecteursSuivi, utilisateursSuivi]);
+
+  const allerAItem = useCallback((id: string) => {
+    document.getElementById(`suivi-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
 
   const handleSign = () => {
     if (stats.progression < 100) {
       addNotification({ user_id: user?.id || '', type: 'warning', title: 'Évaluation incomplète', message: `${100 - stats.progression}% des écarts non conclus`, canal: 'in_app' });
+      return;
+    }
+    // NV sans motif : on ne signe pas sans savoir pourquoi ce n'est pas vérifié.
+    const nvSansMotif = evaluations.filter(i =>
+      (i.conclusion || '').toUpperCase() === 'NV' && !(i.commentaire || '').trim()).length;
+    if (nvSansMotif > 0) {
+      addNotification({ user_id: user?.id || '', type: 'warning', title: 'Motifs manquants', message: `${nvSansMotif} écart(s) NV sans motif — dites pourquoi chacun n'est pas vérifié avant de signer`, canal: 'in_app' });
       return;
     }
     setSignatureDialogOpen(true);
@@ -848,6 +942,9 @@ export function SurveillanceChecklistSuiviEcarts({
             <div>
               <p className="text-xs text-muted-foreground">SUIVI DES ÉCARTS</p>
               <p className="font-bold text-small">Vérification terrain des écarts non résolus</p>
+              <div className="mt-1.5">
+                <EquipeNoms surveillanceId={surveillanceId} />
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -887,6 +984,79 @@ export function SurveillanceChecklistSuiviEcarts({
           </div>
         </div>
       </Card>
+
+      {/* Traités / restants : saut direct à l'écart (pattern checklist standard) */}
+      {restants.length > 0 && (
+        <Card className="overflow-hidden">
+          <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={restants.length <= 10}>
+            <summary className="text-xs font-semibold cursor-pointer">
+              ⚠ Restants à conclure ({restants.length}) — cliquer pour aller à l’écart
+            </summary>
+            <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+              {restants.slice(0, 50).map(r => (
+                <button key={r.id} onClick={() => allerAItem(r.id)} title={`${r.texte} — Aller à l’écart`}
+                  className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
+                  <span className="font-mono font-medium flex-shrink-0">{r.ref}</span>
+                  <span className="text-muted-foreground truncate flex-1">{r.texte}</span>
+                  {r.brouillon && (
+                    <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Brouillon</span>
+                  )}
+                  {r.aMotiver && (
+                    <span className="text-[10px] font-semibold text-warning flex-shrink-0">Motif requis</span>
+                  )}
+                  <span className="text-role-primary font-medium flex-shrink-0">{r.risque} →</span>
+                </button>
+              ))}
+              {restants.length > 50 && (
+                <p className="text-[11px] text-muted-foreground px-2">+{restants.length - 50} autres…</p>
+              )}
+            </div>
+          </details>
+        </Card>
+      )}
+
+      {/* Cohérence d'ensemble : jauge d'exigence + contradictions + copier-coller */}
+      {(() => {
+        if (evaluations.length === 0) return null;
+        const itemsPlats = evaluations.map(i => ({
+          id: i.id,
+          ref: i.reference,
+          texte: i.libelle,
+          resultat: i.conclusion,
+          evalue: estValideSuivi(i),
+          observation: i.commentaire,
+          directives: [],
+        }));
+        const coherence = veillerCoherenceChecklist({
+          items: itemsPlats,
+          niveauRisqueSite: profilRisqueSuivi?.niveau,
+        });
+        // Qualité des questions (doublons, sans réf, vagues) — mêmes items.
+        coherence.alertes.push(...veillerQuestionsChecklist(itemsPlats));
+        if (coherence.nbEvalues === 0 && coherence.alertes.length === 0) return null;
+        return (
+          <Card className="overflow-hidden">
+            <div className="p-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold">Cohérence d’ensemble</span>
+                <span className="text-muted-foreground">
+                  {coherence.nbEvalues} conclu(s) • {coherence.tauxSansObservation}% sans commentaire
+                </span>
+              </div>
+              {coherence.alertes.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {coherence.alertes.map((a, i) => (
+                    <div key={i} className="flex items-start gap-1.5 rounded px-2 py-1 text-left text-xs">
+                      <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0 text-amber-600" />
+                      <span><strong>{a.titre}.</strong> {a.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* Second regard AERORISQ : synthèse des points à revoir */}
       {(() => {

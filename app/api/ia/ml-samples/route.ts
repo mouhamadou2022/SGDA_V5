@@ -61,19 +61,48 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
-  // Comptage simple pour le monitoring (ML Monitoring / module Agents).
+export async function GET(request: Request) {
+  // Par défaut : comptage simple pour le monitoring (ML Monitoring / module Agents).
+  // Avec ?select=samples : retourne les échantillons labellisés terrain pour
+  // hydrater le cache local (IndexedDB) — Supabase reste la source de vérité,
+  // l'IDB le cache. Dédoublonnage côté client par (surveillance_id, aerodrome_id).
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!supabaseUrl || !serviceKey) {
-    return NextResponse.json({ ok: false, total: null })
+    return NextResponse.json({ ok: false, total: null, samples: [] })
   }
   try {
     const { createClient } = await import('@supabase/supabase-js')
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
-    const { count, error } = await sb.from('ml_samples').select('id', { count: 'exact', head: true })
-    return NextResponse.json({ ok: !error, total: count ?? null })
+
+    let selectSamples = false
+    let limit = 500
+    try {
+      const url = new URL(request.url)
+      selectSamples = url.searchParams.get('select') === 'samples'
+      const rawLimit = Number(url.searchParams.get('limit') || '500')
+      if (Number.isFinite(rawLimit)) limit = Math.min(1000, Math.max(1, Math.floor(rawLimit)))
+    } catch {
+      // URL non parsable — retomber sur le comptage simple
+    }
+
+    if (!selectSamples) {
+      const { count, error } = await sb.from('ml_samples').select('id', { count: 'exact', head: true })
+      return NextResponse.json({ ok: !error, total: count ?? null })
+    }
+
+    const [{ count }, { data, error }] = await Promise.all([
+      sb.from('ml_samples').select('id', { count: 'exact', head: true }),
+      sb.from('ml_samples')
+        .select('id,aerodrome_id,surveillance_id,features,label,created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit),
+    ])
+    if (error) {
+      return NextResponse.json({ ok: false, total: count ?? null, samples: [], reason: error.message })
+    }
+    return NextResponse.json({ ok: true, total: count ?? (data?.length ?? 0), samples: data ?? [] })
   } catch (err) {
-    return NextResponse.json({ ok: false, total: null, reason: (err as Error).message })
+    return NextResponse.json({ ok: false, total: null, samples: [], reason: (err as Error).message })
   }
 }

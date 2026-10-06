@@ -43,6 +43,34 @@ describe('evaluerRappelsEcart', () => {
       { ...base, delai_pac: iso(7), rappels_envoyes: { j7: true } } as unknown as Ecart, NOW)
     expect(deja.rappels).toEqual([])
   })
+  test('phase-aware : accepté ne flippe que sur régularisation', () => {
+    // delai_pac dépassé (normal après acceptation) + régularisation future → rien
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'pac_accepte', delai_pac: iso(-30), delai_regularisation: iso(20) } as unknown as Ecart, NOW))
+      .toEqual({ passerEnRetard: false, rappels: [] })
+    // régularisation dépassée → flip
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'pac_accepte', delai_pac: iso(-30), delai_regularisation: iso(-2) } as unknown as Ecart, NOW).passerEnRetard).toBe(true)
+    // rappel J-7 sur régularisation (pas sur delai_pac ignoré)
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'pac_accepte', delai_pac: iso(-30), delai_regularisation: iso(7) } as unknown as Ecart, NOW).rappels).toEqual(['J-7'])
+  })
+  test('phase-aware : attente inspecteur / arbitrage chef → jamais de flip', () => {
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'pac_soumis', delai_pac: iso(-5), delai_regularisation: iso(-5) } as unknown as Ecart, NOW))
+      .toEqual({ passerEnRetard: false, rappels: [] })
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'preuves_soumises', delai_pac: iso(-5), delai_regularisation: iso(-5) } as unknown as Ecart, NOW))
+      .toEqual({ passerEnRetard: false, rappels: [] })
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'en_attente_validation_chef', delai_pac: iso(-5) } as unknown as Ecart, NOW))
+      .toEqual({ passerEnRetard: false, rappels: [] })
+  })
+  test('phase-aware : pré-acceptation ignore la régularisation', () => {
+    // pac_attendu : seuil régularisation atteint mais delai_pac futur → aucun rappel
+    expect(evaluerRappelsEcart(
+      { ...base, statut: 'pac_attendu', delai_pac: iso(20), delai_regularisation: iso(7) } as unknown as Ecart, NOW).rappels).toEqual([])
+  })
 })
 
 describe('evaluerDelaisInspecteur', () => {

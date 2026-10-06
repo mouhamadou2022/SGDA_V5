@@ -11,6 +11,9 @@ import { ClipboardCheck, Download, AlertTriangle, Loader2, RotateCcw } from 'luc
 import { type Aerodrome, type Ecart, type EvenementSecurite, type KitChecklistItemGenere, type Planning, type ProfilRisque, type ScoreHistoryPoint, type Utilisateur } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { simulerSurveillance, construireRapportSimulation, type ResultatSimulation } from '@/lib/ia/simulationSurveillance'
+import { getPredictionForItem, trouverRecordSimilaire } from '@/lib/checklistMemory'
+import type { TypeInspection } from '@/lib/checklistMemory'
+import { useAppStore } from '@/lib/store'
 
 interface Props {
   planning: Planning
@@ -57,12 +60,76 @@ export default function SimulationSurveillancePrepa({
     : typeSurveillance === 'inopine' || typeSurveillance === 'inopinee' ? 'INOP'
     : 'QSC'
 
+  // Prédiction par la MÉMOIRE checklist (historique réel item par item) :
+  // appariement sur le texte du point de vérification (les ids simulés ne
+  // correspondent jamais aux ids enregistrés). Repli règles locales sinon.
+  const predireItemMemoire = (item: {
+    id: string
+    numero: string
+    point_verification: string
+    domaine: string
+    sous_domaine?: string
+  }) => {
+    try {
+      const normes = (t: string) => (t || '').toLowerCase().trim().replace(/\s+/g, ' ')
+      const texte = normes(item.point_verification)
+      if (!texte) return null
+      const typesValides: string[] = [
+        'periodique', 'inopine', 'maintien', 'certification', 'homologation',
+        'suivi_ecarts', 'mise_oeuvre_pac', 'programmee', 'inopinee', 'speciale',
+        'surveillance', 'evenement', 'audit_complet', 'urgence', 'ecart',
+      ]
+      const typeInspection: TypeInspection = (typesValides.includes(typeSurveillance)
+        ? typeSurveillance
+        : 'periodique') as TypeInspection
+      const records = useAppStore.getState().checklistMemoryRecords || []
+      const candidat = records
+        .filter(r =>
+          r.aerodrome_id === planning.aerodrome_id &&
+          (r.domaine || '').toUpperCase() === (item.domaine || '').toUpperCase() &&
+          normes(r.item_description || '') === texte,
+        )
+        .sort((a, b) => (b.nb_occurrences || 0) - (a.nb_occurrences || 0))[0]
+        // Repli flou : question reformulée entre deux surveillances
+        // (recouvrement de tokens ≥ 0.6, même site + domaine).
+        || trouverRecordSimilaire(records, {
+          aerodrome_id: planning.aerodrome_id,
+          domaine: item.domaine,
+          texte: item.point_verification,
+        })
+      if (!candidat) return null
+      const res = getPredictionForItem(
+        planning.aerodrome_id,
+        typeInspection,
+        candidat.domaine,
+        candidat.sous_domaine,
+        candidat.sous_sous_domaine,
+        { id: candidat.item_id, numero: candidat.item_numero, point_verification: item.point_verification },
+        profil ? { score_global: profil.score_global, tendance: profil.tendance } : undefined,
+      )
+      // Mémoire utile : alerte, ou prédiction tranchée et confiante.
+      if (res.alerte) return { ...res, memoire: true }
+      if (res.prediction !== 'NV' && res.confiance >= 50) return { ...res, memoire: true }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  const detailsEvenements = useMemo(
+    () => evenements
+      .filter(e => e.aerodrome_id === planning.aerodrome_id)
+      .map(e => ({ gravite: e.gravite, date: e.date, type: e.type })),
+    [evenements, planning.aerodrome_id],
+  )
+
   const lancerSimulation = () => {
     const r = simulerSurveillance({
       aerodrome,
       profil,
       ecartsReels: ecartsAerodrome,
       evenementsReels,
+      evenementsDetail: detailsEvenements,
       historique,
       kitItems,
       typeSurveillance,
@@ -70,6 +137,7 @@ export default function SimulationSurveillancePrepa({
       typeEntite: aerodrome?.type_entite ?? 'aerodrome',
       utilisateurs,
       prefixNumero,
+      predireItem: predireItemMemoire,
     })
     setResultat(r)
   }
@@ -91,6 +159,7 @@ export default function SimulationSurveillancePrepa({
         typeEntite: aerodrome?.type_entite ?? 'aerodrome',
         utilisateurs,
         prefixNumero,
+        predireItem: predireItemMemoire,
       })
       const blob = await batirRapportSurveillancePdf(rapport)
       const url = URL.createObjectURL(blob)
@@ -154,6 +223,28 @@ export default function SimulationSurveillancePrepa({
             </div>
           </div>
 
+          {resultat.pointsAttention.length > 0 && (
+            <Card title={`Points d'attention (${resultat.pointsAttention.length})`}>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {resultat.pointsAttention.map((p, i) => (
+                  <div key={i} className={`flex items-start gap-2 p-2 rounded-lg border text-xs ${
+                    p.gravite === 'danger' ? 'border-danger/30 bg-danger/5'
+                    : p.gravite === 'warning' ? 'border-warning/30 bg-warning/5'
+                    : 'border-border bg-card'
+                  }`}>
+                    <span className={`badge text-[10px] flex-shrink-0 mt-0.5 ${
+                      p.gravite === 'danger' ? 'danger' : p.gravite === 'warning' ? 'warning' : 'neutral'
+                    }`}>{p.categorie}</span>
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{p.titre}</p>
+                      <p className="text-muted-foreground">{p.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <Card title={`Écarts probables (${resultat.ecartsProposes.length})`}>
             {resultat.ecartsProposes.length === 0 ? (
               <p className="text-sm text-muted text-center py-3">Aucun écart proposé — conformité estimée satisfaisante.</p>
@@ -175,6 +266,24 @@ export default function SimulationSurveillancePrepa({
             )}
           </Card>
 
+          {resultat.items.some(i => i.memoire) && (
+            <p className="text-[11px] text-muted-foreground">
+              🧠 {resultat.items.filter(i => i.memoire).length} prédiction(s) issue(s) de l’historique réel (mémoire checklist) — le reste suit les règles locales sur données réelles.
+            </p>
+          )}
+          {(resultat.contexte.penteScores != null || resultat.contexte.projection3m != null) && (
+            <p className="text-[11px] text-muted-foreground">
+              📈 Trajectoire des scores : {resultat.contexte.penteScores == null
+                ? 'stable'
+                : resultat.contexte.penteScores < -0.75
+                  ? `en dégradation (${resultat.contexte.penteScores} pts/relevé)`
+                  : resultat.contexte.penteScores > 0.75
+                    ? `en amélioration (+${resultat.contexte.penteScores} pts/relevé)`
+                    : 'stable'}
+              {resultat.contexte.projection3m != null ? ` · projection 3 mois : ${Math.round(resultat.contexte.projection3m)}/100` : ''}.
+              Les items fragiles sont marqués à vérifier en priorité.
+            </p>
+          )}
           <div className="rounded-lg p-3 text-sm bg-muted/20">
             <div className="flex items-center gap-2 mb-1">
               <RotateCcw className="w-3.5 h-3.5 text-role-primary" />

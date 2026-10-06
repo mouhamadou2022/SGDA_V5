@@ -103,13 +103,16 @@ export function computeProfilScore(input: ComputeProfilScoreInput): ComputeProfi
           date: s.date_debut as string,
         })))
       : aerodrome
-        ? Math.round(
+        // Poids 0.25+0.25+0.15+0.15+0.10 = 0.90 (historique) : on divise par
+        // 0.9 pour préserver EXACTEMENT les proportions relatives voulues —
+        // sans jugement sur quelle composante « mériterait » les 0.10 manquants.
+        ? Math.round((
             (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
             (normaliserScoreSgs(aerodrome.maturite_sgs, 50) * 0.25) +
             ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
             (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia ?? '', 10) || 1) - 3) * 2) * 0.15 +
             ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
-          )
+          ) / 0.9)
         : 30,
     30
   )

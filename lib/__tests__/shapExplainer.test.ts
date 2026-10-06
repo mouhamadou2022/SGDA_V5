@@ -78,6 +78,19 @@ test('baseline précédent : base + Σφ = score', () => {
     expect(c4.direction).toBe('baisse')
     expect(ex.totalBaisse).toBeLessThan(0)
   })
+
+  test('poids appris : φ et score suivent les poids effectifs (cohérence moteur)', () => {
+    const profil = makeProfil()
+    const poids = { c1: 10, c2: 30, c3: 20, c4: 30, c5: 10 }
+    const ex = calculerExplicationShap(profil, [], 'neutre', undefined, poids)
+    // c2 : 30/100 × (72 − 50) = +6.6 (et non 5.5 en poids par défaut)
+    const c2 = ex.contributions.find(c => c.key === 'c2')!
+    expect(c2.phi).toBeCloseTo(6.6, 2)
+    expect(c2.poids).toBe(30)
+    // Score recalculé avec les mêmes poids : 70×.1+72×.3+68×.2+66×.3+74×.1 = 69.2 → 69
+    expect(ex.score).toBe(69)
+    expect(Math.abs(ex.ecart)).toBeLessThan(0.51)
+  })
 })
 
 describe('construireNarrationShap', () => {

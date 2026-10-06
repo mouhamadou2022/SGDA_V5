@@ -27,6 +27,8 @@ export interface KitDocFormProps {
   formData: any
   setFormData: any
   formErrors: Record<string, string>
+  erreurUpload?: string | null
+  onEffacerErreurUpload?: () => void
   userRole: string
   focusClass: string
   selectStyle: React.CSSProperties
@@ -34,7 +36,8 @@ export interface KitDocFormProps {
 
 export function KitDocForm({
   showForm, setShowForm, resetForm, selectedDocument, isSubmitting,
-  handleSubmit, formData, setFormData, formErrors, userRole, focusClass, selectStyle,
+  handleSubmit, formData, setFormData, formErrors, erreurUpload, onEffacerErreurUpload,
+  userRole, focusClass, selectStyle,
 }: KitDocFormProps) {
   const [domDropdown, setDomDropdown] = useState(false);
   const domDropdownRef = useRef<HTMLDivElement>(null);
@@ -100,7 +103,7 @@ export function KitDocForm({
               className={`form-select w-full ${focusClass}`}
               style={selectStyle}
             >
-              {TYPES_DOCUMENTS.map(t => (
+              {TYPES_DOCUMENTS.filter(t => !(t as { retireCreation?: boolean }).retireCreation).map(t => (
                 <option key={t.id} value={t.id}>{t.label}</option>
               ))}
             </select>
@@ -287,6 +290,7 @@ export function KitDocForm({
                 type="file"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   if (e.target.files && e.target.files[0]) {
+                    onEffacerErreurUpload?.();
                     setFormData({...formData, fichier: e.target.files[0]});
                   }
                 }}
@@ -303,6 +307,11 @@ export function KitDocForm({
               </label>
             </div>
             {formErrors.fichier && <span className="field-error">{formErrors.fichier}</span>}
+            {erreurUpload && (
+              <div className="mt-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-foreground" role="alert">
+                <strong>Échec d'envoi du fichier.</strong> {erreurUpload}
+              </div>
+            )}
           </div>
 
           <Card variant="glass" className="col-span-2" contentClassName="!p-0">

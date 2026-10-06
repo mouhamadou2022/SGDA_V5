@@ -9,6 +9,7 @@
 import { creerRapportPdf } from '@/lib/services/pdfRapport'
 import { downloadBlob } from '@/lib/pdfGenerator'
 import { normaliserGravite } from '@/lib/evenementUtils'
+import { idCourtPdf } from '@/lib/pdfText'
 
 export interface RegistreTimelineStep {
   etape: string
@@ -52,7 +53,7 @@ export async function exporterRegistreSurveillancePDF(
   pdf.coverPage({
     titre: 'FICHE DE REGISTRE — SURVEILLANCE',
     sousTitre: `${s?.aerodrome?.nom || ''} (${s?.aerodrome?.code_oaci || ''})`,
-    ref: s?.reference || s?.id,
+    ref: s?.reference || idCourtPdf(s?.id),
     meta: [
       ['Type', s?.type || '—'],
       ['Période', `${fmtDate(s?.date_debut)} → ${fmtDate(s?.date_fin)}`],
@@ -83,8 +84,8 @@ export async function exporterRegistreSurveillancePDF(
   renderTimeline(pdf, timeline)
   renderFichiers(pdf, fichiers)
 
-  pdf.drawFooter(`ANACIM — Registre de surveillance — ${s?.reference || s?.id || ''}`)
-  downloadBlob(pdf.blob(), `surveillance-${s?.id || s?.reference || 'registre'}.pdf`)
+  pdf.drawFooter(`ANACIM — Registre de surveillance — ${s?.reference || idCourtPdf(s?.id)}`)
+  downloadBlob(pdf.blob(), `surveillance-${s?.reference || idCourtPdf(s?.id)}.pdf`)
 }
 
 export async function exporterRegistreEcartPDF(
@@ -162,8 +163,8 @@ export async function exporterRegistreEcartPDF(
   renderTimeline(pdf, timeline)
   renderFichiers(pdf, fichiers)
 
-  pdf.drawFooter(`ANACIM — Registre des écarts — ${e?.reference || e?.id || ''}`)
-  downloadBlob(pdf.blob(), `ecart-${e?.reference || e?.id || 'registre'}.pdf`)
+  pdf.drawFooter(`ANACIM — Registre des écarts — ${e?.reference || idCourtPdf(e?.id)}`)
+  downloadBlob(pdf.blob(), `ecart-${e?.reference || idCourtPdf(e?.id)}.pdf`)
 }
 
 export async function exporterRegistreEvenementPDF(
@@ -224,8 +225,8 @@ export async function exporterRegistreEvenementPDF(
   renderTimeline(pdf, timeline)
   renderFichiers(pdf, fichiers)
 
-  pdf.drawFooter(`ANACIM — Registre des événements — ${ev?.reference || ev?.id || ''}`)
-  downloadBlob(pdf.blob(), `evenement-${ev?.reference || ev?.id || 'registre'}.pdf`)
+  pdf.drawFooter(`ANACIM — Registre des événements — ${ev?.reference || idCourtPdf(ev?.id)}`)
+  downloadBlob(pdf.blob(), `evenement-${ev?.reference || idCourtPdf(ev?.id)}.pdf`)
 }
 
 export async function exporterRegistreFormationPDF(
@@ -237,7 +238,7 @@ export async function exporterRegistreFormationPDF(
   pdf.coverPage({
     titre: 'FICHE DE REGISTRE — FORMATION',
     sousTitre: f?.titre,
-    ref: f?.id,
+    ref: f?.reference || idCourtPdf(f?.id),
     meta: [
       ['Type', f?.type || '—'],
       ['Date', fmtDate(f?.date)],
@@ -276,6 +277,6 @@ export async function exporterRegistreFormationPDF(
   section('CHRONOLOGIE')
   renderTimeline(pdf, timeline)
 
-  pdf.drawFooter(`ANACIM — Registre des formations — ${f?.titre || f?.id || ''}`)
-  downloadBlob(pdf.blob(), `formation-${f?.id || 'registre'}.pdf`)
+  pdf.drawFooter(`ANACIM — Registre des formations — ${f?.titre || idCourtPdf(f?.id)}`)
+  downloadBlob(pdf.blob(), `formation-${f?.reference || idCourtPdf(f?.id)}.pdf`)
 }

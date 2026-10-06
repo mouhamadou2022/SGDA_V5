@@ -11,7 +11,7 @@ import {
 } from '@/lib/store';
 import { isSGSApplicable } from '@/lib/risque';
 import { normalizePlanningType } from '@/lib/planning';
-import { verifierCompositionEquipe, getDomaineLabel } from '@/lib/domaines';
+import { verifierCompositionEquipe, getDomaineLabel, justifierSurveillancePAC } from '@/lib/domaines';
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { startOfToday } from './planningDates';
 import {
@@ -23,8 +23,10 @@ import {
   construireMessageExploitants,
   nomsEquipe,
   appliquerPredictionsPrefill,
-  peutLancer,
+  estChefDePlanning,
   filtresTemplatesParType,
+  validerQualiteDelegations,
+  equipeASignataire,
 } from '@/lib/planning-lancement';
 type Notifier = (n: Omit<Notification, 'id' | 'sent_at'>) => void;
 
@@ -33,6 +35,7 @@ export interface DepsLancement {
   aerodromesActifs: Aerodrome[];
   aerodromes: Aerodrome[];
   utilisateurs: Utilisateur[];
+  inspecteurs: Array<{ id: string; user_id?: string }>;
   profilsRisque: AppStore['profilsRisque'];
   addNotification: Notifier;
   updatePlanning: (id: string, data: Partial<Planning>) => Promise<void>;
@@ -41,7 +44,7 @@ export interface DepsLancement {
 
 export function useLancerSurveillance(deps: DepsLancement) {
   const router = useRouter();
-  const { user, aerodromesActifs, aerodromes, utilisateurs, profilsRisque, addNotification, updatePlanning, enregistrerFeedbackPlanning } = deps;
+  const { user, aerodromesActifs, aerodromes, utilisateurs, inspecteurs, profilsRisque, addNotification, updatePlanning, enregistrerFeedbackPlanning } = deps;
 
   const handleLancer = async (planning: Planning, dateDebutReelle?: string, dateFinReelle?: string) => {
     const store = useAppStore.getState()
@@ -78,8 +81,53 @@ export function useLancerSurveillance(deps: DepsLancement) {
       });
       return;
     }
-    // Seul le chef d'équipe désigné peut lancer la surveillance (garde de sécurité)
-    if (!peutLancer(user?.id, planning.chef_id)) {
+    // Règle métier verrouillée : une mise en œuvre PAC ne se lance que s'il y
+    // a quelque chose à vérifier (preuves en attente, régularisation
+    // dépassée, ou action à échéance proche/dépassée selon le risque).
+    if (planning.type === 'mise_oeuvre_pac') {
+      const justification = justifierSurveillancePAC(store.ecarts, planning.aerodrome_id)
+      if (!justification.justifiee) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'warning',
+          title: 'Surveillance PAC prématurée',
+          message: justification.motif,
+          canal: 'in_app',
+        });
+        return;
+      }
+    }
+    // R1 — qualité verrouillée : délégués signataires uniquement, et équipe
+    // avec au moins un signataire (observateurs : voient tout, signent rien).
+    {
+      const fiches = store.inspecteurs || []
+      const comptes = store.utilisateurs || []
+      const invalides = validerQualiteDelegations(
+        planning.delegations as Record<string, string> | undefined, fiches, comptes)
+      if (invalides.length > 0) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Délégation non qualifiée',
+          message: `${invalides.map(i => `${i.nom} (${i.domaine})`).join(', ')} — seuls les inspecteurs titulaires et principaux peuvent recevoir une délégation. Réassignez ces domaines.`,
+          canal: 'in_app',
+        });
+        return;
+      }
+      if (!equipeASignataire(planning.equipe_ids, planning.chef_id, fiches, comptes)) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Mission sans signataire',
+          message: 'Impossible de lancer : l\u2019équipe (chef compris) ne compte aucun inspecteur titulaire ou principal — personne ne pourrait signer.',
+          canal: 'in_app',
+        });
+        return;
+      }
+    }
+    // Seul le chef d'équipe désigné peut lancer la surveillance (garde de
+    // sécurité, source unique avec résolution compte ↔ inspecteur)
+    if (!estChefDePlanning(user, inspecteurs, planning)) {
       addNotification({
         user_id: user?.id || '',
         type: 'warning',
@@ -276,7 +324,16 @@ export function useLancerSurveillance(deps: DepsLancement) {
     onClose: () => void;
   }) => {
     const { executeTarget, executeDateDebut, executeDateFin, onClose } = args;
-    if (!executeTarget) return;
+    if (!executeTarget) {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Lancement impossible',
+        message: 'Planning introuvable au moment du lancement (données non chargées, rechargez la page).',
+        canal: 'in_app',
+      });
+      return;
+    }
     // Garde de sécurité : les dates réelles sont obligatoires avant lancement.
     if (!executeDateDebut || !executeDateFin) {
       addNotification({
@@ -330,6 +387,29 @@ async function genererChecklistFallback(
   const normalizedType = normalizePlanningType(planning.type)
   const typeSurv = resoudreTypeSurveillance(normalizedType);
 
+  // Portée SGS uniquement : pas de hiérarchie checklist attendue — le SGS
+  // est couvert par l'évaluation PAOE (transférée plus haut si préparée).
+  // Ne pas crier à l'erreur « template manquant » dans ce cas normal.
+  const porteeSansSGS = (planning.portee || []).filter(p => (p || '').toUpperCase() !== 'SGS')
+  if (porteeSansSGS.length === 0) {
+    if (planning.sgs_evaluation_prepa) {
+      addNotification({
+        user_id: userId, type: 'info',
+        title: 'Évaluation SGS reprise',
+        message: 'Portée SGS : l’évaluation PAOE préparée a été transférée vers la surveillance (pas de checklist hiérarchique attendue).',
+        canal: 'in_app',
+      })
+    } else {
+      addNotification({
+        user_id: userId, type: 'warning',
+        title: 'Évaluation SGS à préparer',
+        message: 'Portée SGS uniquement : préparez l’évaluation SGS (PAOE) depuis la page Préparation — aucune checklist hiérarchique requise.',
+        canal: 'in_app',
+      })
+    }
+    return
+  }
+
   // Strict puis assemblage par domaine (données réelles uniquement).
   const resolution = store.resoudreChecklist(planning.portee || [],
     filtresTemplatesParType(planning.type),
@@ -344,7 +424,7 @@ async function genererChecklistFallback(
       addNotification({
         user_id: userId, type: 'warning',
         title: 'Couverture partielle',
-        message: `Aucun template pour : ${resolution.manquants.join(', ')}. Checklist partielle chargée — importez un template dans le kit inspecteur.`,
+        message: `Aucun template pour : ${resolution.manquants.join(', ')} (le SGS relève de l’évaluation PAOE, pas des templates). Checklist partielle chargée — importez un template dans le kit inspecteur.`,
         canal: 'in_app',
       });
     }
@@ -364,15 +444,16 @@ async function genererChecklistFallback(
     // PAS de génération IA ici (données réelles uniquement) : sans template
     // du kit couvrant la portée, la checklist reste à préparer — importez un
     // template dans le kit inspecteur (ou préparez-la dans Préparation).
+    const sansSGS = (planning.portee || []).filter(p => (p || '').toUpperCase() !== 'SGS')
     console.error(
-      '[Planning] Aucun template du kit ne couvre la portée',
-      planning.portee,
+      '[Planning] Aucun template du kit ne couvre la portée (hors SGS) :',
+      sansSGS,
       '— checklist non générée.',
     );
     addNotification({
       user_id: userId, type: 'warning',
       title: 'Checklist à préparer',
-      message: `Aucun template du kit ne couvre la portée (${(planning.portee || []).join(', ')}). Importez un template dans le kit inspecteur ou préparez la checklist manuellement.`,
+      message: `Aucun template du kit ne couvre : ${sansSGS.join(', ') || '—'} (hors SGS, couvert par l’évaluation PAOE). Importez un template dans le kit inspecteur ou préparez la checklist manuellement.`,
       canal: 'in_app',
     });
   }

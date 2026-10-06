@@ -4,6 +4,7 @@
 // de comportement, uniquement testable isolément (DOM + repli regex).
 
 import type { Surveillance } from '../store/surveillancesSlice';
+import { retirerDiacritiques } from '../domaines';
 import type { Ecart } from '../store';
 import type { EcartRedaction } from '../store/ecartsRedactionSlice';
 
@@ -19,11 +20,7 @@ export function stripHtmlToText(value: string): string {
 }
 
 export function normalizeEcartNiveau(value: string): Ecart['niveau_risque'] {
-  const normalized = value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
+  const normalized = retirerDiacritiques(value.toLowerCase()).trim()
 
   if (normalized.includes('critique')) return 'critique'
   if (normalized.includes('eleve')) return 'eleve'

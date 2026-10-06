@@ -44,12 +44,37 @@ export interface MessageCopilote {
 // ============================================================
 
 /**
- * Budget global du contexte documentaire (caractères) : plusieurs grosses
- * pièces + RAG + historique dépassaient la fenêtre des petits modèles et
- * étouffaient l'inférence locale (timeout). On tronque proprement en le
- * signalant, au lieu d'échouer chez tous les providers.
+ * Budget global du contexte documentaire (caractères) : à 24000, pièces +
+ * RAG + historique atteignaient ~9000 tokens — refusé par le tier gratuit
+ * Groq ET trop lent pour le local CPU (abort à 120 s) → 503 partout.
+ * 12000 car. ≈ 10 pages utiles : les questions ciblées restent couvertes ;
+ * la synthèse intégrale d'un gros doc relèvera du map-reduce (chantier).
  */
-export const BUDGET_PIECES_CHARS = 24000
+export const BUDGET_PIECES_CHARS = 12000
+/**
+ * Budget de l'historique de conversation (caractères) : les 8 derniers
+ * messages SANS plafond dépassaient le tier gratuit avec les pièces + RAG
+ * (mesuré : 11865 tokens → 503 chez tous les providers). On garde les plus
+ * récents et on coupe les anciens en le signalant.
+ */
+export const BUDGET_HISTORIQUE_CHARS = 6000
+/** Plafond de génération d'une réponse (tokens) : au-delà, suite automatique. */
+export const MAX_REPONSE_TOKENS = 4096
+
+export function plafonnerHistorique(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  budget: number = BUDGET_HISTORIQUE_CHARS,
+): { messages: Array<{ role: 'user' | 'assistant'; content: string }>; tronque: boolean } {
+  const derniers = (messages || []).slice(-8)
+  let total = derniers.reduce((s, m) => s + (m.content || '').length, 0)
+  if (total <= budget) return { messages: derniers, tronque: false }
+  // Retire les plus anciens jusqu'à tenir (garde toujours le dernier).
+  const gardes = [...derniers]
+  while (gardes.length > 1 && total > budget) {
+    total -= (gardes.shift()?.content || '').length
+  }
+  return { messages: gardes, tronque: gardes.length < derniers.length }
+}
 
 export function plafonnerTextePieces(
   pieces: PieceJointeCopilote[],
@@ -170,16 +195,41 @@ class CopiloteAgent {
       `DEMANDE DE L'INSPECTEUR :\n${params.question}`,
     ].filter(s => s.trim()).join('\n\n')
 
+    const { messages: historiquePlafonne, tronque: historiqueTronque } = plafonnerHistorique(
+      params.historique.map(m => ({ role: m.role, content: m.content })),
+    )
+
     const result = await aiClient.call({
-      systemPrompt: REPONDRE_COPILOTE_PROMPT,
+      systemPrompt: REPONDRE_COPILOTE_PROMPT + (historiqueTronque
+        ? '\n[Note : historique de conversation tronqué aux échanges récents pour tenir dans la fenêtre du modèle.]'
+        : ''),
       userMessage,
-      history: params.historique.slice(-8).map(m => ({ role: m.role, content: m.content })),
+      history: historiquePlafonne,
       temperature: 0.3,
-      maxTokens: 4096,
+      maxTokens: MAX_REPONSE_TOKENS,
       responseFormat: 'text',
+      // Laisse le local finir les synthèses : route /api/ia/analyze = 300 s max.
+      timeoutMs: 300000,
     })
 
-    return result.content?.trim() || 'Je n\'ai pas pu formuler de réponse. Reformulez votre demande, ou vérifiez que les documents joints sont bien lus.'
+    let texte = result.content?.trim() || ''
+    // Réponse probablement coupée au plafond de génération (compteurs du
+    // provider) : UNE suite allégée, jamais de boucle.
+    const tokensGeneres = result.usage?.completion_tokens ?? 0
+    if (result.ok && texte && tokensGeneres >= Math.floor(MAX_REPONSE_TOKENS * 0.9)) {
+      const suite = await aiClient.call({
+        systemPrompt: REPONDRE_COPILOTE_PROMPT,
+        userMessage: `Votre réponse précédente a été coupée net faute de place. Continuez EXACTEMENT où vous vous êtes arrêté, sans répéter ni résumer :\n\n…${texte.slice(-3000)}`,
+        history: historiquePlafonne.slice(-2),
+        temperature: 0.3,
+        maxTokens: MAX_REPONSE_TOKENS,
+        responseFormat: 'text',
+        timeoutMs: 300000,
+      })
+      if (suite.ok && suite.content?.trim()) texte = `${texte}\n${suite.content.trim()}`
+    }
+
+    return texte || 'Je n\'ai pas pu formuler de réponse. Reformulez votre demande, ou vérifiez que les documents joints sont bien lus.'
   }
 }
 

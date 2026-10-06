@@ -250,7 +250,11 @@ export function RegistreForm({
       );
       const tousFichiers = [...existingFichiers, ...uploadedFiles];
       const reference = formData.reference ||
-        registreUtils.genererReference(formData.type, new Date().getFullYear(), (registreEntries?.length || 0) + 1);
+        registreUtils.genererReference(
+          formData.type,
+          new Date().getFullYear(),
+          registreUtils.prochainCompteurRegistre(registreEntries || [], formData.type, new Date().getFullYear()),
+        );
 
       const entryType = formData.type === 'certifications' ? 'certification' :
             formData.type === 'homologations' ? 'homologation' :

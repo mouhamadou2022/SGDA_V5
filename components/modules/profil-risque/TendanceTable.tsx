@@ -9,6 +9,7 @@ import { TrendingUp, TrendingDown, Minus, Info, AlertTriangle, CheckCircle2, Bar
 import { ProfilRisque } from '@/lib/store'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
+import { usePoidsAppris } from './usePoidsAppris'
 
 interface Props { profil: ProfilRisque; sgsNonApplicable?: boolean }
 
@@ -46,13 +47,16 @@ function TendanceIcon({ t, s = 'sm' }: { t: string; s?: 'sm' | 'md' }) {
 }
 
 export function TendanceTable({ profil, sgsNonApplicable = false }: Props) {
+  // Poids effectifs (appris) affichés — mêmes que le moteur de score.
+  const { poids, personnalises } = usePoidsAppris()
   const data = useMemo(() => {
     const criteres = sgsNonApplicable ? CRITERES.filter(c => c.key !== 'c1') : CRITERES
     return criteres.map(c => {
       const s = profil[c.key]; const t = getCritereTendance(s, profil.tendance)
-      return { ...c, score: s, tendance: t, pred3m: computePrediction(s, t, 3), pred6m: computePrediction(s, t, 6) }
+      const poidsEff = typeof poids[c.key] === 'number' ? poids[c.key] : c.poids
+      return { ...c, poids: Math.round(poidsEff * 10) / 10, score: s, tendance: t, pred3m: computePrediction(s, t, 3), pred6m: computePrediction(s, t, 6) }
     })
-  }, [profil, sgsNonApplicable])
+  }, [profil, sgsNonApplicable, poids])
 
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 20
@@ -82,7 +86,7 @@ export function TendanceTable({ profil, sgsNonApplicable = false }: Props) {
       {(() => {
         const columns: Column<typeof data[number]>[] = [
           { key: 'critere', header: 'Critère', render: (row) => <div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg ${getScoreBg(row.score)} flex items-center justify-center font-bold text-sm ${getScoreColor(row.score)}`}>{row.court}</div><div><p className="font-medium text-sm text-foreground">{row.label}</p><p className="text-xs text-foreground">{row.desc}</p></div></div> },
-          { key: 'poids', header: 'Poids', className: 'text-center', render: (row) => <span className="badge neutral text-xs">{row.poids}%</span> },
+          { key: 'poids', header: `Poids${personnalises ? ' IA' : ''}`, className: 'text-center', render: (row) => <span className="badge neutral text-xs" title={personnalises ? 'Poids appris par l’IA (moteur de score)' : 'Poids par défaut'}>{row.poids}%</span> },
           { key: 'score', header: 'Score actuel', render: (row) => <div className="space-y-1"><div className="flex items-center gap-2"><span className={`text-base font-bold ${getScoreColor(row.score)}`}>{row.score}</span><span className="text-xs text-foreground">/100</span></div><div className="progress h-2"><div className={`progress-bar ${getProgressCls(row.score)}`} style={{ width: `${row.score}%` }} /></div></div> },
           { key: 'tendance', header: 'Tendance', className: 'text-center', render: (row) => <TendanceIcon t={row.tendance} s="md" /> },
           { key: 'pred3m', header: 'Prédiction 3m', className: 'text-center', render: (row) => <div><span className={`text-sm font-semibold ${getScoreColor(row.pred3m.valeur)}`}>{row.pred3m.valeur}</span><div className="text-xs text-foreground">IC: [{row.pred3m.intervalle[0]}–{row.pred3m.intervalle[1]}]</div></div> },

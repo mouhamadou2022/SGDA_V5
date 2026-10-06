@@ -12,6 +12,21 @@ const base = {
   evenements: [],
 }
 
+describe('computeProfilScore — fallback C3 sans surveillance', () => {
+  test('poids 0.90 renormalisés (/0.9) : proportions préservées', () => {
+    // 70*.25 + 70*.25 + 70*.15 + 80*.15 + 75*.10 = 65 → 65/0.9 = 72.22 → 72
+    // (avant : 65, déflaté de ~10 %).
+    const r = computeProfilScore({
+      ...base,
+      aerodrome: {
+        type: 'national', maturite_sgs: 70, type_entite: 'aerodrome',
+        categorie_sslia: '3', region: 'Dakar',
+      },
+    })
+    expect(r.c3).toBe(72)
+  })
+})
+
 describe('computeProfilScore — ajustements C3 centralisés', () => {
   test('sans exemptions ni AMDEC : c3 === c3Base, c3Ajuste faux', () => {
     const r = computeProfilScore({

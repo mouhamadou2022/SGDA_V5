@@ -16,6 +16,7 @@ import { getPhaseStats as getHomoPhaseStats } from '@/lib/homologationUtils';
 import { CertificationDocumentUpload } from '../certification/CertificationDocumentUpload';
 import { AssignationInstruction, peutInstruire } from '../certification/AssignationInstruction';
 import { lireInstruction } from '@/lib/instructionHabilitation';
+import { prioriteDossier, estDossierBloque } from '@/lib/processusTri';
 import { doitProposer, notifierChefProposition, notifierProposant, retransmettreDecision } from '@/lib/instructionValidation';
 import { SignatureSection } from '../signatures/SignatureSection';
 import { LettreTransmissionUpload } from '@/components/ui/LettreTransmissionUpload';
@@ -1383,8 +1384,10 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
       );
     }
 
-    return result;
-  }, [nationalAerodromes, filterAerodrome, filterPhase, filterStatut, searchTerm]);
+    // Rangement unique : bloqués → en retard → en cours → non démarrés → terminés.
+    return [...result].sort((a, b) =>
+      prioriteDossier(getHomologation(a.id) ?? null) - prioriteDossier(getHomologation(b.id) ?? null));
+  }, [nationalAerodromes, filterAerodrome, filterPhase, filterStatut, searchTerm, homologations]);
 
   // Homologations archivées (terminées)
   const archivedHomologations = useMemo(() => {
@@ -1714,6 +1717,7 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
         {filteredAerodromes.map((aerodrome) => {
           const homologation = getHomologation(aerodrome.id);
           const phaseActive = homologation?.phase_active || 1;
+          const bloque = estDossierBloque(homologation ?? null);
 
           const getStatutClass = () => {
             if (aerodrome.statut_certification === 'homologue' || homologation?.statut_global === 'homologue') return 'badge success';
@@ -1734,6 +1738,7 @@ export default function HomologationModule({ userRole: userRoleProp, user: userP
               badges={
                 <>
                   <span className={getStatutClass()}>{getStatutLabel()}</span>
+                  {bloque && <span className="badge danger">Bloqué</span>}
                   {homologation && <span className="badge outline">Phase {phaseActive}/3</span>}
                   {!homologation && aerodrome.statut_certification === 'homologue' && (
                     <span className="badge outline">Préexistante</span>

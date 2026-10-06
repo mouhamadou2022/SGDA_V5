@@ -12,6 +12,7 @@ import SurveillanceChecklistMaintien from '@/components/modules/surveillance/Sur
 import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation';
 import type { DomaineChecklist, EvaluationSGS } from '@/types/checklist';
 import type { TypeChecklist } from '@/lib/domaines';
+import { qualiteCompte } from '@/lib/domaines';
 import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type, RefreshCw } from 'lucide-react';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 import { canEditSurveillanceContent } from '@/lib/config';
@@ -182,6 +183,11 @@ export default function ChecklistPage() {
   // Lecture seule : statut avancé OU utilisateur hors équipe désignée (admin inclus)
   const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids, user?.id);
   const checklistReadOnly = STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 2 || equipeReadOnly;
+  // R2 — observateurs (stagiaires, cadres) : lecture seule sur l'évaluation
+  // SGS (acte de maturité, pas de brouillon). Sur standard/suivi/PAC ils
+  // peuvent saisir en brouillon (tampon auteur, reprise signataire).
+  const stQualite = useAppStore.getState();
+  const observateurReadOnly = qualiteCompte(stQualite.inspecteurs || [], stQualite.utilisateurs.find(u => u.id === user?.id)) === 'observateur';
 
   const deriveUiFromDecisionChecklist = (
     typesChecklist: TypeChecklist[]
@@ -388,8 +394,8 @@ export default function ChecklistPage() {
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
-            readOnly={checklistReadOnly}
-            structureReadOnly={sgsStructureReadOnly}
+            readOnly={checklistReadOnly || observateurReadOnly}
+            structureReadOnly={sgsStructureReadOnly || observateurReadOnly}
             onComplete={() => {
               const portee = surveillance?.portee || [];
               const isMixed = portee.includes('SGS') && !(portee.length === 1 && portee[0] === 'SGS');
@@ -587,8 +593,8 @@ component: (
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
-            readOnly={checklistReadOnly}
-            structureReadOnly={sgsStructureReadOnly}
+            readOnly={checklistReadOnly || observateurReadOnly}
+            structureReadOnly={sgsStructureReadOnly || observateurReadOnly}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}

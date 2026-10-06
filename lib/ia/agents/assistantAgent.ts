@@ -6,6 +6,7 @@
 'use client'
 
 import { useAppStore, ProfilRisque } from '@/lib/store'
+import { normaliserRecherche } from '@/lib/domaines'
 
 // ============================================================
 // TYPES
@@ -43,6 +44,7 @@ export interface ChatRequest {
     aerodromeId?: string
     surveillanceId?: string
     ecartId?: string
+    userId?: string
     historiqueMessages?: ChatMessage[]
   }
   userRole: string
@@ -95,6 +97,63 @@ const RACCOURCIS: Record<string, { action: string; shortcut?: string }> = {
 }
 
 // ============================================================
+// RÉSOLUTION DE SITE NOMMÉ (testable)
+// ============================================================
+
+export interface AerodromeMinimal {
+  id: string
+  code_oaci?: string
+  nom?: string
+}
+
+export function normaliserNomSite(s: string): string {
+  return normaliserRecherche(s)
+}
+
+/** Initiales d'un nom (« Aéroport International Blaise Diagne » → « aibd »). */
+export function initialesNomSite(nom: string): string {
+  return normaliserNomSite(nom || '')
+    .split(' ')
+    .filter((w) => w.length > 2)
+    .map((w) => w[0])
+    .join('')
+}
+
+/**
+ * Résout un site nommé dans une question vers l'aérodrome du référentiel,
+ * SANS rien hardcoder (ni codes, ni alias) : code OACI exact, initiales
+ * (AIBD…), nom complet, mot significatif. Retourne undefined si ambigu/absent.
+ */
+export function resoudreSiteNomme<T extends AerodromeMinimal>(question: string, aerodromes: T[] | undefined): T | undefined {
+  if (!aerodromes || aerodromes.length === 0) return undefined
+  const q = ` ${normaliserNomSite(question)} `
+  const codeMatch = /[^a-z]([a-z]{4})[^a-z]/.exec(q)
+  if (codeMatch) {
+    const parCode = aerodromes.find((a) => (a.code_oaci || '').toLowerCase() === codeMatch[1])
+    if (parCode) return parCode
+  }
+  const mots = q.split(' ').filter((w) => w.length >= 3)
+  for (const w of mots) {
+    const parInitiales = aerodromes.find((a) => {
+      const ini = initialesNomSite(a.nom || '')
+      return ini.length >= 3 && ini === w
+    })
+    if (parInitiales) return parInitiales
+  }
+  const candidats = aerodromes.filter((a) => {
+    const nom = normaliserNomSite(a.nom || '')
+    return nom.length >= 4 && q.includes(` ${nom} `)
+  })
+  if (candidats.length > 0) return candidats[0]
+  const significatifs = q.split(' ').filter((w) => w.length >= 5)
+  for (const w of significatifs) {
+    const trouve = aerodromes.find((a) => normaliserNomSite(a.nom || '').includes(w))
+    if (trouve) return trouve
+  }
+  return undefined
+}
+
+// ============================================================
 // AGENT ASSISTANT
 // ============================================================
 
@@ -128,6 +187,14 @@ export class AssistantAgent {
     // Commandes purement structurelles — pas besoin du LLM
     if (this.matches(message, ['raccourci', 'touche', 'keyboard', 'shortcut'])) {
       response = this.handleShortcuts()
+    } else if (this.estDemandePdf(request.message)) {
+      // Fichier PDF demandé : réponse déterministe (le LLM nie
+      // systématiquement cette capacité par habitude — on ne lui demande pas).
+      response = this.handlePdfIntent()
+    } else if (this.estSalutation(message)) {
+      // « bonjour » seul : réponse brève SANS appel LLM ni déballage du contexte
+      // (sinon le LLM disserte sur les écarts critiques pour un simple salut).
+      response = this.handleGreeting()
     } else if (this.matches(message, ['merci', 'thanks', 'ok', 'super', 'parfait'])) {
       response = this.handleThanks()
     } else {
@@ -160,28 +227,260 @@ export class AssistantAgent {
       ? store.aerodromes?.find((a) => a.id === contexte.aerodromeId)
       : undefined
 
-    const profilCtx = contexte.aerodromeId
-      ? store.profilsRisque?.[contexte.aerodromeId]
-      : undefined
+    // Site nommé dans la question (« Blaise Diagne », « GOOY », « AIBD »…) :
+    // on le résout depuis le référentiel et on recentre le contexte dessus,
+    // même depuis le dashboard (aucun aérodrome sélectionné).
+    const siteNomme = resoudreSiteNomme(request.message, store.aerodromes)
+    // Identifiant de site effectif : question explicite > sélection courante.
+    const siteIdEffectif = siteNomme?.id || contexte.aerodromeId
+    const aeroEffectif = siteNomme || aerodromeCtx
+    const profilEffectif = siteIdEffectif ? store.profilsRisque?.[siteIdEffectif] : undefined
 
-    const ecartsCtx = store.ecarts
+    const ecartsOuvertsSite = store.ecarts
       ? store.ecarts
-          .filter((e) => !contexte.aerodromeId || e.aerodrome_id === contexte.aerodromeId)
+          .filter((e) => !siteIdEffectif || e.aerodrome_id === siteIdEffectif)
           .filter((e) => e.statut !== 'cloture')
-          .slice(0, 10)
-          .map((e) => ({
-            reference: e.reference,
-            libelle: e.libelle?.substring(0, 80),
-            niveau_risque: e.niveau_risque,
-            statut: e.statut,
-            jours_restants: e.delai_pac
-              ? Math.ceil((new Date(e.delai_pac).getTime() - Date.now()) / 86400000)
-              : undefined,
-          }))
       : []
+    const totalEcartsOuverts = ecartsOuvertsSite.length
+    const ecartsCtx = ecartsOuvertsSite
+          .slice(0, 10)
+          .map((e) => {
+            const aeroEcart = store.aerodromes?.find((a) => a.id === e.aerodrome_id)
+            return {
+              reference: e.reference,
+              site: aeroEcart?.code_oaci,
+              libelle: e.libelle?.substring(0, 140),
+              niveau_risque: e.niveau_risque,
+              statut: e.statut,
+              jours_restants: e.delai_pac
+                ? Math.ceil((new Date(e.delai_pac).getTime() - Date.now()) / 86400000)
+                : undefined,
+            }
+          })
+
+    // Fiche du site demandé : identité + risque + écarts + certification,
+    // pour répondre « donne-moi des informations sur X » sans inventer.
+    const siteFocus = siteNomme
+      ? (() => {
+          const p = store.profilsRisque?.[siteNomme.id]
+          const ouverts = (store.ecarts || []).filter((e) => e.aerodrome_id === siteNomme.id && e.statut !== 'cloture')
+          const critiques = ouverts.filter((e) => e.niveau_risque === 'critique').map((e) => ({
+            reference: e.reference,
+            libelle: e.libelle?.substring(0, 140),
+            statut: e.statut,
+            ref_reglementaire: e.ref_reglementaire || null,
+            delai_regularisation: (e as any).delai_regularisation || null,
+          }))
+          const cert = (store.certifications || []).find((c) => c.aerodrome_id === siteNomme.id)
+          const dernieres = (store.surveillances || [])
+            .filter((s) => s.aerodrome_id === siteNomme.id)
+            .sort((a, b) => new Date(b.date_debut || '-').getTime() - new Date(a.date_debut || '-').getTime())
+            .slice(0, 3)
+          return {
+            code_oaci: siteNomme.code_oaci,
+            nom: siteNomme.nom,
+            type: siteNomme.type,
+            region: siteNomme.region,
+            sgs: siteNomme.statut_sgs || 'complet',
+            score: p != null ? Math.round(p.score_global) : null,
+            niveau: (p as any)?.niveau ?? null,
+            certification: (cert as any)?.statut_global || 'aucun dossier',
+            nb_ecarts_ouverts: ouverts.length,
+            critiques: critiques.slice(0, 5),
+            dernieres_surveillances: dernieres.map((s) => ({ type: s.type, date: s.date_debut, statut: s.statut, score: s.score_global ?? null })),
+          }
+        })()
+      : undefined
 
     const surveillanceCtx = contexte.surveillanceId
       ? store.surveillances?.find((s) => s.id === contexte.surveillanceId)
+      : undefined
+
+    // Ancrage ciblé : si la question vise un objet précis, on l'injecte en
+    // intégralité pour que le LLM n'ait pas à l'inventer.
+    const qLower = request.message.toLowerCase()
+    const refEcartMatch = /ECA-\d{4}-\d+/i.exec(request.message)
+    const ecartVise = refEcartMatch
+      ? store.ecarts?.find((e) => e.reference?.toUpperCase() === refEcartMatch[0].toUpperCase())
+      : undefined
+    const ecartDetail = ecartVise
+      ? (() => {
+          const aeroEcart = store.aerodromes?.find((a) => a.id === ecartVise.aerodrome_id)
+          const survLiee = ecartVise.surveillance_id
+            ? store.surveillances?.find((s) => s.id === ecartVise.surveillance_id)
+            : undefined
+          return {
+            reference: ecartVise.reference,
+            site: aeroEcart?.code_oaci,
+            libelle: ecartVise.libelle?.substring(0, 300),
+            domaine: ecartVise.domaine,
+            ref_reglementaire: ecartVise.ref_reglementaire,
+            niveau_risque: ecartVise.niveau_risque,
+            statut: ecartVise.statut,
+            delai_pac: ecartVise.delai_pac,
+            delai_regularisation: ecartVise.delai_regularisation,
+            surveillance_liee: survLiee
+              ? { type: survLiee.type, date: survLiee.date_debut, statut: survLiee.statut }
+              : undefined,
+            pac: ecartVise.pac
+              ? {
+                  nb_actions: ecartVise.pac.actions?.length || 0,
+                  actions: (ecartVise.pac.actions || []).slice(0, 5).map((a) => ({
+                    description: a.description?.substring(0, 120),
+                    responsable: a.responsable,
+                    date_prevue: a.date_prevue,
+                  })),
+                  soumis_le: ecartVise.pac.soumis_le,
+                  version: ecartVise.pac.version,
+                }
+              : undefined,
+            evaluation_pac: ecartVise.evaluation_pac
+              ? {
+                  note_globale: ecartVise.evaluation_pac.note_globale,
+                  decision: ecartVise.evaluation_pac.decision,
+                  commentaire: ecartVise.evaluation_pac.commentaire_refus?.substring(0, 200),
+                }
+              : undefined,
+            preuves: ecartVise.preuves
+              ? {
+                  nb_fichiers: ecartVise.preuves.fichiers?.length || 0,
+                  validation: ecartVise.validation_preuves?.decision,
+                }
+              : undefined,
+          }
+        })()
+      : undefined
+
+    // Détails PAC : question PAC sans référence → focus sur les PAC en jeu du site.
+    const veutPac = /pac\b|plan d.action|corrective/.test(qLower)
+    const pacsCtx = !ecartDetail && veutPac && siteIdEffectif
+      ? (store.ecarts || [])
+          .filter((e) => e.aerodrome_id === siteIdEffectif && e.statut !== 'cloture' && (e.pac || e.evaluation_pac))
+          .slice(0, 3)
+          .map((e) => ({
+            reference: e.reference,
+            statut: e.statut,
+            nb_actions: e.pac?.actions?.length || 0,
+            note_globale: e.evaluation_pac?.note_globale,
+            decision: e.evaluation_pac?.decision,
+          }))
+      : undefined
+
+    // Surveillances récentes : question rapport/surveillance → 3 dernières du site.
+    const veutSurv = /rapport|surveillance|inspection|checklist|conformit/.test(qLower)
+    const survsCtx = !surveillanceCtx && veutSurv && siteIdEffectif
+      ? (store.surveillances || [])
+          .filter((s) => s.aerodrome_id === siteIdEffectif)
+          .sort((a, b) => new Date(b.date_debut || '-').getTime() - new Date(a.date_debut || '-').getTime())
+          .slice(0, 3)
+          .map((s) => ({
+            type: s.type,
+            date: s.date_debut,
+            statut: s.statut,
+            score: s.score_global ?? null,
+            nb_ecarts: (store.ecarts || []).filter((e) => e.surveillance_id === s.id).length,
+            rapport_disponible: !!(s.rapport_html || s.rapport_type || s.rapport_fichier_url),
+          }))
+      : undefined
+
+    // Autres modules : résumés compacts quand la question les vise (mode conseil
+    // = le LLM ne voit QUE ce qu'on lui injecte — sans ça, il invente).
+    const blocsModules: string[] = []
+    if (/formation|competence|inspecteur/.test(qLower)) {
+      const forms = (store.formations || []) as any[]
+      const parStatut: Record<string, number> = {}
+      for (const f of forms) parStatut[f.statut || '?'] = (parStatut[f.statut || '?'] || 0) + 1
+      const recentes = [...forms]
+        .sort((a, b) => new Date(b.date || '-').getTime() - new Date(a.date || '-').getTime())
+        .slice(0, 3)
+      blocsModules.push(
+        `FORMATIONS : ${forms.length} total (${Object.entries(parStatut).map(([k, v]) => `${v} ${k}`).join(', ') || 'aucune'}).` +
+        (recentes.length > 0 ? `\nDernières :\n` + recentes.map((f) => `- ${f.titre || '?'} — ${f.date || '?'} — ${f.statut || ''}`).join('\n') : '')
+      )
+    }
+    if (/dossier/.test(qLower)) {
+      const doss = ((store as any).dossiers || []).filter((d: any) => d.statut !== 'archive')
+        .filter((d: any) => !siteIdEffectif || !d.aerodrome_id || d.aerodrome_id === siteIdEffectif)
+        .slice(0, 5)
+      blocsModules.push(
+        `DOSSIERS (${doss.length} affichés) :\n` +
+        (doss.map((d: any) => `- ${d.reference || '?'} — ${(d.titre || '').substring(0, 70)} — ${d.statut} — ${d.progression || 0}% — limite ${d.date_limite || '—'}`).join('\n') || 'Aucun dossier en cours.')
+      )
+    }
+    if (/evenement|incident|accident/.test(qLower)) {
+      const evts = (store.evenements || [])
+        .filter((e) => !siteIdEffectif || e.aerodrome_id === siteIdEffectif)
+        .sort((a, b) => new Date(b.date || '-').getTime() - new Date(a.date || '-').getTime())
+        .slice(0, 3)
+      blocsModules.push(
+        `ÉVÉNEMENTS RÉCENTS :\n` +
+        (evts.map((e) => `- ${(e.type || '').replace(/_/g, ' ')} — ${e.gravite || ''} — ${e.date || '?'} (${e.statut || ''})`).join('\n') || 'Aucun événement récent.')
+      )
+    }
+    if (/enquete|sondage|questionnaire/.test(qLower)) {
+      const enqs = [...(store.enquetes || [])].slice(0, 5)
+      blocsModules.push(
+        `ENQUÊTES (${(store.enquetes || []).length} total) :\n` +
+        (enqs.map((e: any) => {
+          const nb = ((store as any).reponsesEnquetes || []).filter((r: any) => r.enquete_id === e.id).length
+          return `- ${e.reference || '?'} — ${(e.titre || '').substring(0, 70)} — ${e.statut} — ${nb} réponse(s)`
+        }).join('\n') || 'Aucune enquête.')
+      )
+    }
+    if (/registre|archive/.test(qLower)) {
+      const regs = [...((store as any).registreEntries || [])]
+        .filter((e: any) => !siteIdEffectif || !e.aerodrome_id || e.aerodrome_id === siteIdEffectif)
+        .sort((a: any, b: any) => new Date(b.date_entree || '-').getTime() - new Date(a.date_entree || '-').getTime())
+        .slice(0, 5)
+      blocsModules.push(
+        `REGISTRE (${((store as any).registreEntries || []).length} entrées) :\n` +
+        (regs.map((e: any) => `- ${e.reference || '?'} — ${(e.titre || '').substring(0, 70)} — ${e.type} — ${e.date_entree || '?'}`).join('\n') || 'Registre vide.')
+      )
+    }
+    if (/kit\b|document|oaci|reglementaire/.test(qLower)) {
+      const docs = (store.kitDocuments || []) as any[]
+      const obsoletes = docs.filter((d) => d.etat === 'obsolete').length
+      const enRevision = docs.filter((d) => d.etat === 'en_revision').length
+      blocsModules.push(`KIT INSPECTEUR : ${docs.length} document(s) — ${obsoletes} obsolète(s), ${enRevision} en révision.`)
+    }
+    if (/charge|tache|surcharge|workload/.test(qLower)) {
+      const survsEnCours = (store.surveillances || []).filter((s) => s.statut === 'en_cours').length
+      const pacASuivre = (store.ecarts || []).filter((e) => ['pac_soumis', 'preuves_soumises'].includes(e.statut)).length
+      const dossEnCours = ((store as any).dossiers || []).filter((d: any) => d.statut === 'en_cours').length
+      const nbInsp = (store.inspecteurs || []).filter((i) => !i.deleted_at).length
+      blocsModules.push(`CHARGE : ${nbInsp} inspecteur(s) — ${survsEnCours} surveillance(s) en cours, ${pacASuivre} PAC/preuves à évaluer, ${dossEnCours} dossier(s) en cours.`)
+    }
+    if (/\bml\b|modele|apprentissage|recalibrage|intelligence artificielle/.test(qLower)) {
+      const st = store as any
+      const alertes = (st.recalibrationAlerts || []).filter((a: any) => !a.traitee).length
+      blocsModules.push(`ML : modèle ${st.activeModelName || 'non défini'} — échantillons RF ${st.rfSamplesCount || 0} — ${alertes} alerte(s) de recalibrage en attente — ${(st.learningFeedbacks || []).length} feedback(s).`)
+    }
+    if (/message|messagerie|mail|courrier|non.lu/.test(qLower) && (contexte as any).userId) {
+      const uid = (contexte as any).userId as string
+      const recus = ((store as any).messages || []).filter((m: any) =>
+        (Array.isArray(m.to_id) ? m.to_id.includes(uid) : m.to_id === uid) ||
+        (Array.isArray(m.cc_id) && m.cc_id.includes(uid)))
+      const nonLus = recus.filter((m: any) => !(m.read_by || []).includes(uid))
+      blocsModules.push(
+        `MESSAGERIE (utilisateur connecté) : ${nonLus.length} non-lu(s) / ${recus.length} reçu(s).` +
+        (nonLus.slice(0, 3).map((m: any) => `\n- ${m.from_nom || '?'} : ${m.subject || '(sans objet)'}`).join('') || '')
+      )
+    }
+
+    // Plannings : question planning/mission → 5 prochains + en retard du site.
+    const veutPlanning = /planning|mission|programm|année|annee/.test(qLower)
+    const planningsCtx = veutPlanning && siteIdEffectif
+      ? (store.plannings || [])
+          .filter((p) => p.aerodrome_id === siteIdEffectif && !['archivee', 'terminee'].includes(p.statut))
+          .sort((a, b) => new Date(a.date_debut).getTime() - new Date(b.date_debut).getTime())
+          .slice(0, 5)
+          .map((p) => ({
+            type: p.type,
+            date_debut: p.date_debut,
+            date_fin: p.date_fin,
+            statut: p.statut,
+            proposition: !!p.est_proposition,
+          }))
       : undefined
 
     const checklistCtx = contexte.surveillanceId
@@ -204,8 +503,9 @@ export class AssistantAgent {
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-    // 3. Appel API avec cache 5 minutes
-    const cacheKey = request.message.substring(0, 100)
+    // 3. Appel API avec cache 5 minutes (clé = message + périmètre, jamais
+    // le message seul : sinon une réponse d'un site fuit vers un autre).
+    const cacheKey = `${contexte.module || ''}|${contexte.aerodromeId || ''}|${contexte.surveillanceId || ''}|${request.message.substring(0, 100)}`
     const cached = this.responseCache?.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < 300_000) {
       return cached.response
@@ -218,21 +518,23 @@ export class AssistantAgent {
         body: JSON.stringify({
           message: request.message,
           contexte: {
-            aerodrome: aerodromeCtx
-              ? { code_oaci: aerodromeCtx.code_oaci, nom: aerodromeCtx.nom, categorie: aerodromeCtx.categorie_sslia, type: aerodromeCtx.type }
+            aerodrome: aeroEffectif
+              ? { code_oaci: aeroEffectif.code_oaci, nom: aeroEffectif.nom, categorie: aeroEffectif.categorie_sslia, type: aeroEffectif.type }
               : undefined,
-            profil_risque: profilCtx
+            profil_risque: profilEffectif
               ? {
-                  score_global: profilCtx.score_global,
-                  niveau: profilCtx.niveau,
-                  tendance: profilCtx.tendance,
-                  c1: profilCtx.c1, c2: profilCtx.c2, c3: profilCtx.c3,
-                  c4: profilCtx.c4, c5: profilCtx.c5,
-                  alerte: profilCtx.proactive_alert?.message_court,
-                  statut_sgs: aerodromeCtx?.statut_sgs,
+                  score_global: profilEffectif.score_global,
+                  niveau: profilEffectif.niveau,
+                  tendance: profilEffectif.tendance,
+                  c1: profilEffectif.c1, c2: profilEffectif.c2, c3: profilEffectif.c3,
+                  c4: profilEffectif.c4, c5: profilEffectif.c5,
+                  alerte: profilEffectif.proactive_alert?.message_court,
+                  statut_sgs: aeroEffectif?.statut_sgs,
                 }
               : undefined,
+            site_focus: siteFocus,
             ecarts_actifs: ecartsCtx.length > 0 ? ecartsCtx : undefined,
+            total_ecarts_ouverts: totalEcartsOuverts,
             surveillance_en_cours: surveillanceCtx
               ? {
                   type: surveillanceCtx.type,
@@ -241,6 +543,11 @@ export class AssistantAgent {
                   taux_conformite: checklistCtx?.progression,
                 }
               : undefined,
+            ecart_detail: ecartDetail,
+            pacs_en_jeu: pacsCtx && pacsCtx.length > 0 ? pacsCtx : undefined,
+            surveillances_recentes: survsCtx && survsCtx.length > 0 ? survsCtx : undefined,
+            plannings: planningsCtx && planningsCtx.length > 0 ? planningsCtx : undefined,
+            blocs_modules: blocsModules.length > 0 ? blocsModules : undefined,
             historique: recentHistory,
             module: contexte.module,
           },
@@ -251,10 +558,16 @@ export class AssistantAgent {
         this.llmAvailable = true
         const data = await apiResponse.json()
         const result = this.wrapLLMResponse(data.message, request.message, {
-          aerodromeId: contexte.aerodromeId,
+          aerodromeId: siteIdEffectif,
           surveillanceId: contexte.surveillanceId,
           hasCriticalEcarts: ecartsCtx.some((e) => e.niveau_risque === 'critique'),
-          profilScore: profilCtx?.score_global,
+          profilScore: profilEffectif?.score_global,
+          refs: [
+            ...(siteFocus ? [{ type: 'donnee' as const, title: `Fiche site ${siteFocus.code_oaci} — ${siteFocus.nom}`, reference: `${siteFocus.niveau ? `risque ${siteFocus.niveau}` : 'risque non calculé'} · ${siteFocus.nb_ecarts_ouverts} écart(s) ouvert(s)` }] : []),
+            ...(ecartDetail ? [{ type: 'donnee' as const, title: `Écart ${ecartDetail.reference}`, reference: `${ecartDetail.site || ''} · ${ecartDetail.domaine} · ${ecartDetail.statut}` }] : []),
+            ...(surveillanceCtx ? [{ type: 'donnee' as const, title: `Surveillance ${surveillanceCtx.type} du ${surveillanceCtx.date_debut}`, reference: `Statut ${surveillanceCtx.statut}` }] : []),
+            ...(profilEffectif && aeroEffectif && !siteFocus ? [{ type: 'donnee' as const, title: `Profil de risque ${aeroEffectif.code_oaci}`, reference: `Score ${Math.round(profilEffectif.score_global)}/100 (${profilEffectif.niveau})` }] : []),
+          ],
         })
         this.responseCache.set(cacheKey, { timestamp: Date.now(), response: result })
         return result
@@ -273,8 +586,8 @@ export class AssistantAgent {
       // Fallback local si l'API est indisponible (ne marque pas comme définitivement indisponible — retry possible)
       console.warn('[AssistantAgent] LLM indisponible, fallback local:', error)
       return this.localFallback(request.message, contexte, {
-        aerodrome: aerodromeCtx,
-        profil: profilCtx,
+        aerodrome: aeroEffectif,
+        profil: profilEffectif,
         ecarts: ecartsCtx,
         checklist: checklistCtx,
       })
@@ -290,6 +603,7 @@ export class AssistantAgent {
       surveillanceId?: string
       hasCriticalEcarts?: boolean
       profilScore?: number
+      refs?: SourceReference[]
     }
   ): ChatResponse {
     const actions: ActionSuggestion[] = []
@@ -315,6 +629,26 @@ export class AssistantAgent {
       actions.push({ id: '1', label: 'Voir planning', description: 'Module planning', type: 'navigate', target: 'planning' })
     } else if (q.includes('certification') || q.includes('homologation')) {
       actions.push({ id: '1', label: 'Voir certifications', description: 'Module certification', type: 'navigate', target: 'certification' })
+    } else if (q.includes('dossier')) {
+      actions.push({ id: '1', label: 'Voir dossiers', description: 'Dossiers techniques', type: 'navigate', target: 'dossiers' })
+    } else if (q.includes('formation') || q.includes('compétence') || q.includes('competence') || q.includes('inspecteur')) {
+      actions.push({ id: '1', label: 'Voir formations', description: 'Formations et compétences', type: 'navigate', target: 'formation' })
+    } else if (q.includes('message') || q.includes('messagerie') || q.includes('mail') || q.includes('courrier')) {
+      actions.push({ id: '1', label: 'Voir messagerie', description: 'Messagerie interne', type: 'navigate', target: 'messagerie' })
+    } else if (q.includes('événement') || q.includes('evenement') || q.includes('incident') || q.includes('accident')) {
+      actions.push({ id: '1', label: 'Voir événements', description: 'Événements de sécurité', type: 'navigate', target: 'evenements' })
+    } else if (q.includes('aérodrome') || q.includes('aerodrome') || q.includes('site')) {
+      actions.push({ id: '1', label: 'Voir aérodromes', description: 'Réseau des aérodromes', type: 'navigate', target: 'aerodromes' })
+    } else if (q.includes('registre') || q.includes('archive')) {
+      actions.push({ id: '1', label: 'Voir registres', description: 'Archives et registres', type: 'navigate', target: 'registres' })
+    } else if (q.includes('kit') || q.includes('document') || q.includes('oaci') || q.includes('réglementaire') || q.includes('reglementaire')) {
+      actions.push({ id: '1', label: 'Voir kit inspecteur', description: 'Documentation et référentiels', type: 'navigate', target: 'kit' })
+    } else if (q.includes('enquête') || q.includes('enquete') || q.includes('sondage') || q.includes('questionnaire')) {
+      actions.push({ id: '1', label: 'Voir enquêtes', description: 'Enquêtes et réponses', type: 'navigate', target: 'enquetes' })
+    } else if (q.includes('charge') || q.includes('tâche') || q.includes('tache') || q.includes('surcharge') || q.includes('workload')) {
+      actions.push({ id: '1', label: 'Voir charge de travail', description: 'Charge des inspecteurs', type: 'navigate', target: 'charge' })
+    } else if (q.includes('signature')) {
+      actions.push({ id: '1', label: 'Voir signatures', description: 'Signatures DG', type: 'navigate', target: 'signatures' })
     } else if (q.includes('rapport') || q.includes('génère') || q.includes('genere')) {
       if (context.surveillanceId) {
         actions.push({ id: '1', label: 'Générer rapport', description: 'Générer le rapport de surveillance', type: 'generate', target: 'report', params: { surveillanceId: context.surveillanceId } })
@@ -326,7 +660,7 @@ export class AssistantAgent {
       actions.push({ id: 'alert', label: 'Voir alertes', description: 'Alertes proactives', type: 'navigate', target: 'risque', params: { tab: 'alertes' } })
     }
 
-    return { message, actions, sources: [], confidence: 90 }
+    return { message, actions, sources: context.refs || [], confidence: 90 }
   }
 
   // ============================================================
@@ -428,6 +762,44 @@ export class AssistantAgent {
     return {
       message: `Je vous en prie ! N'hésitez pas si vous avez d'autres questions sur vos missions ou la réglementation.`,
       actions: [{ id: '1', label: 'Suggestions intelligentes', description: 'Voir les alertes proactives', type: 'action', target: 'suggestions' }],
+      sources: [],
+      confidence: 100,
+    }
+  }
+
+  /**
+   * Intention fichier PDF : l'utilisateur veut TÉLÉCHARGER (pas seulement lire).
+   * Exige un marqueur explicite de fichier (pdf, télécharger, fichier, générer+pdf…),
+   * sinon « fais un rapport sur X » reste une demande de contenu textuel.
+   */
+  private estDemandePdf(messageBrut: string): boolean {
+    const m = messageBrut.toLowerCase()
+    if (!m.includes('pdf') && !m.includes('télécharg') && !m.includes('telecharg')) return false
+    return /pdf|télécharg|telecharg|fichier|export/.test(m)
+  }
+
+  private handlePdfIntent(): ChatResponse {
+    return {
+      message: `Pour un **fichier PDF téléchargeable** (vrai document ANACIM, jamais de contenu factice), cliquez ci-dessous : cela rebascule en **Mode action** et régénère le document depuis les données réelles — fiche briefing ou checklist par site, rapport national de certification/homologation. Chaque étape reste confirmée par vous.\n\nSi vous vouliez seulement *lire* le contenu ici, reformulez sans « pdf » (ex. « situation détaillée de Tambacounda »).`,
+      actions: [{ id: 'pdf', label: 'Générer le PDF (Mode action)', description: 'Télécharge le vrai document via le pilote', type: 'generate', target: 'report' }],
+      sources: [],
+      confidence: 100,
+    }
+  }
+
+  /** Vrai seulement pour un salut isolé (« bonjour », « salut ! »…), pas « bonjour, détaille l'écart X ». */
+  private estSalutation(messageNormalise: string): boolean {
+    const t = messageNormalise.trim()
+    if (t.length > 28) return false
+    return ['bonjour', 'bonsoir', 'salut', 'hello', 'coucou', 'slt', 'yo', 'hey'].some(
+      (g) => t === g || t.startsWith(`${g} `) || t.startsWith(`${g},`) || t.startsWith(`${g}!`),
+    )
+  }
+
+  private handleGreeting(): ChatResponse {
+    return {
+      message: `Bonjour ! Je suis AERORISQ, l'assistant SGDA. Posez votre question en langage naturel : un écart par sa référence, un site (ex. « situation de GOBD »), un rapport, une planification… Je réponds depuis les données réelles des modules.`,
+      actions: [],
       sources: [],
       confidence: 100,
     }

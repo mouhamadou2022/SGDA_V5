@@ -2,7 +2,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, normaliserDomaineCompetence, normaliserNiveauCompetence } from '@/lib/store'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer, Tooltip } from 'recharts'
 
 interface Props { inspecteurId: string; userRole?: string }
@@ -14,10 +14,10 @@ export function CompetenceRadar({ inspecteurId, userRole = 'inspector' }: Props)
   const data = useMemo(() => {
     if (!inspecteur) return []
     const competences = inspecteur.competences || []
-    const domaines = [...new Set(competences.map(c => c.domaine))]
+    const domaines = [...new Set(competences.map(c => normaliserDomaineCompetence(c.domaine)).filter(Boolean))]
     return domaines.map(d => {
-      const c = competences.find(x => x.domaine === d)
-      const niveau = c ? (typeof c.niveau === 'number' ? c.niveau : parseInt(c.niveau as any) || 1) : 1
+      const c = competences.find(x => normaliserDomaineCompetence(x.domaine) === d)
+      const niveau = c ? normaliserNiveauCompetence(c.niveau) : 1
       return { domaine: d, actuel: niveau * 20, requis: 60 }
     })
   }, [inspecteur])

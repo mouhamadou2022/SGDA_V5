@@ -7,6 +7,7 @@
 import { PlayCircle, CheckCircle2, Info, Edit2, Trash2 } from 'lucide-react';
 import type { Planning } from '@/lib/store';
 import type { Column } from '@/components/ui/DataTable';
+import { estChefDePlanning, estMembreEquipePlanning } from '@/lib/planning-lancement';
 
 export interface TablePlanning extends Planning {
   aerodromeCode: string
@@ -19,8 +20,10 @@ export interface TablePlanning extends Planning {
 }
 
 export interface PlanningTableDeps {
-  /** Seul `user.id` est lu (permissions par ligne) — AuthUser ou Utilisateur. */
-  user: { id?: string } | null
+  /** Identités lues (permissions par ligne) — AuthUser ou Utilisateur. */
+  user: { id?: string; inspecteur_id?: string } | null
+  /** Fiches inspecteurs pour la résolution compte ↔ inspecteur (garde unique). */
+  inspecteurs: Array<{ id: string; user_id?: string }>
   isManager: boolean
   onPrepare: (item: TablePlanning) => void
   onExecute: (item: TablePlanning) => void
@@ -32,7 +35,7 @@ export interface PlanningTableDeps {
 /* ───────── Colonnes DataTable pour la vue Tableau ───────── */
 
 export function buildPlanningTableColumns({
-  user, isManager, onPrepare, onExecute, onViewDetails, onEdit, onDelete,
+  user, inspecteurs, isManager, onPrepare, onExecute, onViewDetails, onEdit, onDelete,
 }: PlanningTableDeps): Column<TablePlanning>[] {
   return [
     {
@@ -104,8 +107,8 @@ export function buildPlanningTableColumns({
       headerClassName: 'text-right',
       className: 'text-right',
       render: (item) => {
-        const isChefEquipe = !!user?.id && !!item.chef_id && item.chef_id === user.id;
-        const isMembreEquipe = !!user?.id && !!item.chef_id && (item.equipe_ids || []).includes(user.id);
+        const isChefEquipe = estChefDePlanning(user, inspecteurs, item);
+        const isMembreEquipe = estMembreEquipePlanning(user, inspecteurs, item);
         const equipeDesignee = !!item.chef_id && (item.equipe_ids?.length ?? 0) > 0;
         const canExecute = isChefEquipe;
         const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);

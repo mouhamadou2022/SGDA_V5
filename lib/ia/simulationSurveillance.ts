@@ -14,6 +14,7 @@
 import { getRiskLevel } from '@/lib/risque'
 import { expandDomaines, getDomaineLabel } from '@/lib/domaines'
 import { getSgsMaturiteLabel } from '@/lib/utils'
+import { ressemblance } from './watchdogEvaluation'
 import type { Aerodrome, Ecart, ProfilRisque, ScoreHistoryPoint, KitChecklistItemGenere } from '@/lib/store'
 import type { RapportSurveillanceData } from '@/lib/services/rapportSurveillancePdf'
 
@@ -38,6 +39,8 @@ export interface ItemSimule {
   alerte: boolean
   /** Source : 'kit' (réel, issu du Kit Inspecteur) | 'generique' (fallback) */
   source: 'kit' | 'generique'
+  /** Vrai si la prédiction vient de la mémoire checklist (historique réel). */
+  memoire?: boolean
 }
 
 export interface EcartPropose {
@@ -76,6 +79,44 @@ export interface ContexteSimulation {
   maturiteSgs: string
   ecartsOuvertsReels: number
   evenementsRecents: number
+  /** Tendance calculée sur l'historique des scores (régression linéaire). */
+  penteScores?: number | null
+  /** Projection du profil à 3 mois (si disponible). */
+  projection3m?: number | null
+}
+
+/** Sens d'une trajectoire de scores : 'hausse' = le score monte = s'améliore. */
+export type SensTendance = 'hausse' | 'baisse' | 'stable'
+
+/**
+ * Tendance par régression linéaire sur les 6 derniers scores (données réelles).
+ * |pente| <= 0.75 → stable (bruit). Pure et testée.
+ */
+export function analyserTendance(historique: ScoreHistoryPoint[]): { sens: SensTendance; pente: number | null } {
+  const scores = (historique || [])
+    .map(h => h.score)
+    .filter(s => Number.isFinite(s))
+    .slice(-6)
+  if (scores.length < 2) return { sens: 'stable', pente: null }
+  const n = scores.length
+  const mx = (n - 1) / 2
+  const my = scores.reduce((s, v) => s + v, 0) / n
+  let num = 0
+  let den = 0
+  for (let i = 0; i < n; i++) {
+    num += (i - mx) * (scores[i] - my)
+    den += (i - mx) * (i - mx)
+  }
+  const pente = den === 0 ? 0 : Math.round((num / den) * 100) / 100
+  const sens: SensTendance = pente > 0.75 ? 'hausse' : pente < -0.75 ? 'baisse' : 'stable'
+  return { sens, pente }
+}
+
+export interface PointAttention {
+  categorie: 'recrudescence' | 'evenement' | 'pac_manquant' | 'preuve_manquante' | 'approfondir' | 'sgs' | 'passe'
+  gravite: 'danger' | 'warning' | 'info'
+  titre: string
+  detail: string
 }
 
 export interface ResultatSimulation {
@@ -87,6 +128,10 @@ export interface ResultatSimulation {
   ecartsProposes: EcartPropose[]
   stats: StatsSimulation
   contexte: ContexteSimulation
+  /** Points d'attention pour l'inspecteur (données historiques réelles). */
+  pointsAttention: PointAttention[]
+  /** Trajectoire maturité SGS (si SGS dans la portée et historique C1). */
+  trajectoireSgs: string | null
   sections: Record<string, string>
   reference: string
 }
@@ -97,6 +142,8 @@ export interface SimulationSurveillanceParams {
   ecartsReels: Ecart[]
   /** Nombre d'événements de sécurité réels de l'aérodrome. */
   evenementsReels?: number
+  /** Détail des événements récents (gravité/date/type) pour les points d'attention. */
+  evenementsDetail?: Array<{ gravite?: string; date?: string; type?: string }>
   historique: ScoreHistoryPoint[]
   /** Items générés depuis le Kit Inspecteur (référentiel réel). */
   kitItems: KitChecklistItemGenere[]
@@ -106,14 +153,18 @@ export interface SimulationSurveillanceParams {
   utilisateurs?: Array<{ id: string; prenom?: string; nom?: string }>
   prefixNumero?: string
   dateSimulation?: string
-  /** Fonction de prédiction injectable (historique réel) — défaut : prédiction locale. */
+  /**
+   * Fonction de prédiction injectable (historique réel) — défaut : prédiction
+   * locale. `memoire: true` = issu de la mémoire checklist (historique réel),
+   * propagé sur l'item pour affichage de provenance.
+   */
   predireItem?: (item: {
     id: string
     numero: string
     point_verification: string
     domaine: string
     sous_domaine?: string
-  }) => { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean } | null
+  }) => { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean; memoire?: boolean } | null
 }
 
 /** Paramètres pour construire le rapport PDF (réutilise le builder ANACIM existant). */
@@ -149,7 +200,46 @@ function estNonApplicable(typeEntite: string, typeCible?: string): boolean {
   return false
 }
 
+export interface ContextePredictionLocale {
+  profil?: ProfilRisque | null
+  ecartsReels: Ecart[]
+  typeEntite: string
+  /** Pente des scores (analyserTendance) : < -0.75 = dégradation. */
+  pente?: number | null
+  /** Projection profil à 3 mois (si disponible). */
+  prediction3m?: number | null
+}
+
 function predireLocal(
+  item: { id: string; numero: string; point_verification: string; domaine: string; sous_domaine?: string; type_entite_cible?: string },
+  ctx: ContextePredictionLocale,
+): { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean } {
+  const base = predireLocalBase(item, ctx)
+  // Ajustement tendance + prédictif : un SA fragile ne survit pas à une
+  // trajectoire en dégradation ou à une projection critique → NV + alerte
+  // (miroir de la logique checklistMemory, même prudence).
+  if (base.prediction === 'SA' && base.confiance < 75) {
+    if (ctx.pente != null && ctx.pente < -0.75) {
+      return {
+        prediction: 'NV',
+        confiance: 55,
+        justification: `${base.justification} (⚠️ trajectoire en dégradation ${ctx.pente} pts/relevé — vérification recommandée)`,
+        alerte: true,
+      }
+    }
+    if (ctx.prediction3m != null && ctx.prediction3m < 40) {
+      return {
+        prediction: 'NV',
+        confiance: 55,
+        justification: `${base.justification} (⚠️ projection à 3 mois critique (${Math.round(ctx.prediction3m)}/100) — vérification recommandée)`,
+        alerte: true,
+      }
+    }
+  }
+  return base
+}
+
+function predireLocalBase(
   item: { id: string; numero: string; point_verification: string; domaine: string; sous_domaine?: string; type_entite_cible?: string },
   ctx: { profil?: ProfilRisque | null; ecartsReels: Ecart[]; typeEntite: string }
 ): { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean } {
@@ -258,7 +348,14 @@ function construireItems(
     return true
   })
 
-  const ctx = { profil, ecartsReels, typeEntite }
+  const { pente } = analyserTendance(params.historique)
+  const ctx: ContextePredictionLocale = {
+    profil,
+    ecartsReels,
+    typeEntite,
+    pente,
+    prediction3m: profil?.prediction_3m ?? null,
+  }
 
   const items: ItemSimule[] = kit.map((ig, i) => {
     const id = `${ig.domaine}_SIM_${String(i + 1).padStart(2, '0')}`
@@ -283,6 +380,7 @@ function construireItems(
       confiance: pred.confiance,
       justification: pred.justification,
       alerte: pred.alerte,
+      memoire: pred.memoire,
       source: 'kit',
     }
   })
@@ -306,7 +404,8 @@ function construireItems(
         alerte: false,
         source: 'generique',
       }
-      items.push({ ...item, prediction: predireItemAvecInjection(params, item, ctx).prediction })
+      const predFb = predireItemAvecInjection(params, item, ctx)
+      items.push({ ...item, prediction: predFb.prediction, memoire: predFb.memoire })
     }
   }
 
@@ -317,7 +416,7 @@ function predireItemAvecInjection(
   params: SimulationSurveillanceParams,
   item: { id: string; numero: string; point_verification: string; domaine: string; sous_domaine?: string; type_entite_cible?: string },
   ctx: { profil?: ProfilRisque | null; ecartsReels: Ecart[]; typeEntite: string }
-): { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean } {
+): { prediction: ResultatSimule; confiance: number; justification: string; alerte: boolean; memoire?: boolean } {
   if (params.predireItem) {
     const externe = params.predireItem({
       id: item.id,
@@ -466,6 +565,138 @@ function construireSections(
 }
 
 // ============================================================
+// POINTS D'ATTENTION (données historiques réelles)
+// ============================================================
+
+/**
+ * Ce que l'inspecteur doit surveiller en priorité : récidives, événements
+ * récents graves, PAC/preuves manquants, items à approfondir, trajectoire
+ * SGS et résultats des surveillances antérieures. Le modèle d'apprentissage
+ * (mémoire checklist, ml_samples) prend ensuite le relais sur ces signaux.
+ */
+export function construirePointsAttention(
+  params: SimulationSurveillanceParams,
+  items: ItemSimule[],
+  maintenant = Date.now(),
+): { points: PointAttention[]; trajectoireSgs: string | null } {
+  const points: PointAttention[] = []
+  const ouverts = params.ecartsReels.filter(e => e.statut !== 'cloture')
+  const clotures = params.ecartsReels.filter(e => e.statut === 'cloture')
+
+  // 1. Récidives : écart ouvert ressemblant à un clôturé (même domaine).
+  for (const o of ouverts) {
+    const sosie = clotures.find(c =>
+      (c.domaine || '').toUpperCase() === (o.domaine || '').toUpperCase() &&
+      ressemblance(c.libelle || '', o.libelle || '') >= 0.5,
+    )
+    if (sosie) {
+      points.push({
+        categorie: 'recrudescence',
+        gravite: o.niveau_risque === 'critique' ? 'danger' : 'warning',
+        titre: `Récidive probable : ${o.reference || o.domaine}`,
+        detail: `Ressemble à l’écart clôturé ${sosie.reference || ''} — exiger l’analyse de la cause racine.`,
+      })
+    }
+  }
+
+  // 2. Événements graves récents (90 jours).
+  const graves = (params.evenementsDetail || []).filter(e =>
+    ['critique', 'eleve'].includes((e.gravite || '').toLowerCase()) &&
+    e.date && maintenant - new Date(e.date).getTime() <= 90 * 86400000,
+  )
+  for (const g of graves.slice(0, 5)) {
+    points.push({
+      categorie: 'evenement',
+      gravite: (g.gravite || '').toLowerCase() === 'critique' ? 'danger' : 'warning',
+      titre: `Événement ${g.gravite} récent : ${g.type || 'sécurité'}`,
+      detail: `Survenu le ${new Date(g.date!).toLocaleDateString('fr-FR')} — vérifier les domaines impactés sur site.`,
+    })
+  }
+
+  // 3. PAC manquants : écarts ouverts sans plan d'actions.
+  const sansPac = ouverts.filter(e =>
+    ['ouvert', 'pac_attendu'].includes(e.statut) &&
+    !((e as unknown as { pac?: { actions?: unknown[] } }).pac?.actions?.length),
+  )
+  if (sansPac.length > 0) {
+    points.push({
+      categorie: 'pac_manquant',
+      gravite: sansPac.some(e => e.niveau_risque === 'critique') ? 'danger' : 'warning',
+      titre: `${sansPac.length} écart(s) ouvert(s) sans PAC`,
+      detail: `${sansPac.slice(0, 5).map(e => e.reference).join(', ')}${sansPac.length > 5 ? ` (+${sansPac.length - 5})` : ''} — exiger les plans avant la mission.`,
+    })
+  }
+
+  // 4. Preuves manquantes : PAC en place mais rien déposé.
+  const sansPreuves = ouverts.filter(e => {
+    const actions = ((e as unknown as { pac?: { actions?: unknown[] } }).pac?.actions || []) as unknown[]
+    if (actions.length === 0) return false
+    const preuves = (e as unknown as { preuves?: { fichiers?: unknown[] } }).preuves
+    return !preuves || (preuves.fichiers || []).length === 0
+  })
+  if (sansPreuves.length > 0) {
+    points.push({
+      categorie: 'preuve_manquante',
+      gravite: 'warning',
+      titre: `${sansPreuves.length} PAC sans preuve déposée`,
+      detail: `${sansPreuves.slice(0, 5).map(e => e.reference).join(', ')}${sansPreuves.length > 5 ? ` (+${sansPreuves.length - 5})` : ''} — contrôler la mise en œuvre sur site.`,
+    })
+  }
+
+  // 5. À approfondir : items en alerte ou non vérifiés.
+  const approfondir = items.filter(i => i.alerte || i.prediction === 'NV')
+  if (approfondir.length > 0) {
+    points.push({
+      categorie: 'approfondir',
+      gravite: 'info',
+      titre: `${approfondir.length} item(s) à approfondir sur site`,
+      detail: approfondir.slice(0, 8).map(i => i.numero).join(', ') +
+        (approfondir.length > 8 ? ` (+${approfondir.length - 8})` : ''),
+    })
+  }
+
+  // 6. Trajectoire SGS (si portée SGS + historique C1).
+  let trajectoireSgs: string | null = null
+  const porteSgs = (params.portee || []).map(p => p.toUpperCase()).includes('SGS') ||
+    (params.portee || []).map(p => p.toUpperCase()).includes('AGA')
+  if (porteSgs) {
+    const c1 = (params.historique || [])
+      .filter(h => Number.isFinite(h.c1))
+      .slice(-4)
+      .map(h => getSgsMaturiteLabel(h.c1 as number).split(' ')[0])
+    if (c1.length >= 2) {
+      trajectoireSgs = c1.join(' → ')
+      if (c1[c1.length - 1] !== c1[0]) {
+        points.push({
+          categorie: 'sgs',
+          gravite: 'info',
+          titre: `Maturité SGS : ${trajectoireSgs}`,
+          detail: 'Évolution sur les derniers relevés — creuser les composantes en retrait.',
+        })
+      }
+    }
+  }
+
+  // 7. Surveillances antérieures (3 derniers scores).
+  const passes = [...(params.historique || [])]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 3)
+  if (passes.length > 0) {
+    points.push({
+      categorie: 'passe',
+      gravite: 'info',
+      titre: 'Dernières surveillances',
+      detail: passes.map(h =>
+        `${new Date(h.date).toLocaleDateString('fr-FR')} : ${Math.round(h.score)}/100`).join(' · '),
+    })
+  }
+
+  const ordre = { danger: 0, warning: 1, info: 2 }
+  points.sort((a, b) => ordre[a.gravite] - ordre[b.gravite])
+  return { points, trajectoireSgs }
+}
+
+// ============================================================
 // SIMULATION PRINCIPALE
 // ============================================================
 
@@ -475,6 +706,7 @@ export function simulerSurveillance(params: SimulationSurveillanceParams): Resul
   const score = params.profil?.score_global ?? null
   const niveau = score != null ? NIVEAU_LABEL[getRiskLevel(score)] || 'faible' : 'N/A'
 
+  const { pente } = analyserTendance(params.historique)
   const contexte: ContexteSimulation = {
     scoreGlobal: score,
     niveau,
@@ -482,11 +714,14 @@ export function simulerSurveillance(params: SimulationSurveillanceParams): Resul
     maturiteSgs: params.profil ? getSgsMaturiteLabel(params.profil.c1) : 'N/A',
     ecartsOuvertsReels: params.ecartsReels.filter(e => e.statut === 'ouvert').length,
     evenementsRecents: params.evenementsReels ?? 0,
+    penteScores: pente,
+    projection3m: params.profil?.prediction_3m ?? null,
   }
 
   const items = construireItems(params)
   const stats = construireStats(items)
   const ecartsProposes = construireEcartsProposes(items, contexte, params.ecartsReels)
+  const { points: pointsAttention, trajectoireSgs } = construirePointsAttention(params, items)
 
   const base = {
     aerodromeId,
@@ -497,6 +732,8 @@ export function simulerSurveillance(params: SimulationSurveillanceParams): Resul
     ecartsProposes,
     stats,
     contexte,
+    pointsAttention,
+    trajectoireSgs,
   }
 
   const sections = construireSections(params, base)

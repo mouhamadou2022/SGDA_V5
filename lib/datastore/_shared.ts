@@ -87,10 +87,23 @@ export function normalizeInspecteurCompetences(ins: unknown): Inspecteur {
   const rec = ins as Record<string, unknown> | null | undefined
   if (!rec || !Array.isArray(rec.competences)) return ins as Inspecteur
   // Rétrocompatibilité : les competences étaient stockées en string[]
-  // Maintenant on stocke des objets { domaine, niveau, ... }
-  rec.competences = (rec.competences as unknown[]).map((c: unknown) =>
-    typeof c === 'string' ? { id: crypto.randomUUID(), domaine: c, niveau: 1 } : c
-  )
+  // Maintenant on stocke des objets { domaine, niveau, ... }.
+  // Certaines lignes historiques stockent chaque objet SÉRIALISÉ en JSON
+  // ('{"domaine":"COP","niveau":3}') : on le parse, sinon le JSON brut
+  // se retrouvait affiché tel quel dans les cartes (domaine = JSON string).
+  rec.competences = (rec.competences as unknown[]).map((c: unknown) => {
+    if (typeof c === 'string') {
+      const t = c.trim()
+      if (t.startsWith('{')) {
+        try {
+          const parsed: unknown = JSON.parse(t)
+          if (parsed && typeof parsed === 'object') return parsed
+        } catch { /* JSON invalide : traité comme code brut ci-dessous */ }
+      }
+      return { id: crypto.randomUUID(), domaine: c, niveau: 1 }
+    }
+    return c
+  })
   return ins as Inspecteur
 }
 

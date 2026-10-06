@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { Role } from './config'
+import { retirerDiacritiques } from './domaines'
 
 export type PosteANACIM = 'chef_dnsa' | 'chef_ssa' | 'chef_sna' | 'inspecteur'
 
@@ -28,11 +29,7 @@ export function detectLoginType(identifiant: string): LoginType {
 
 export function buildIdentifiant(prenom: string, nom: string): string {
   const normalize = (s: string) =>
-    s
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/\s+/g, '.')
+    retirerDiacritiques(s.toLowerCase()).replace(/\s+/g, '.')
   const domain = process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'anacim.sn'
   return `${normalize(prenom)}.${normalize(nom)}@${domain}`
 }

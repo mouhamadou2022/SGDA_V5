@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom'
 import { useOptimizedStore, useGlobalDebounce, useGlobalTransition } from '@/lib/performance/globalOptimizer'
 import { useAppStore } from '@/lib/store'
 import { Card } from '@/components/ui/card'
+import { Markdown } from '@/components/ui/markdown'
 import { getProcessusActifs } from '@/lib/processus'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection'
@@ -39,6 +40,70 @@ interface PlansActionsModuleProps {
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
 const selectStyle = {backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,backgroundPosition:'right 0.75rem center',backgroundRepeat:'no-repeat'}
+
+/**
+ * Carte statistique rattachée à UN accordéon (surveillance / événement /
+ * aérodrome-processus). Affiche le suivi des preuves ET la transmission
+ * groupée des PAC, strictement scopés aux écarts de l'accordéon parent.
+ * Remplace les anciennes cartes globales qui mélangeaient les aérodromes.
+ */
+function StatsAccordeon({ ecarts, evalDrafts, onEvaluer, onTransmettre, isSubmitting }: {
+  ecarts: any[]
+  evalDrafts: Record<string, any>
+  onEvaluer: (ecart: any) => void
+  onTransmettre: (ecarts: any[]) => void
+  isSubmitting: boolean
+}) {
+  const preuvesAEvaluer = ecarts.filter((e: any) => e.statut === 'preuves_soumises')
+  const preuvesEvaluees = ecarts.filter((e: any) => ['preuves_evaluees', 'cloture'].includes(e.statut))
+  const pacAEvaluer = ecarts.filter((e: any) => e.statut === 'pac_soumis')
+  const pacComplets = pacAEvaluer.filter((e: any) => {
+    const d = evalDrafts[e.id]
+    return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision
+  })
+  if (preuvesAEvaluer.length === 0 && preuvesEvaluees.length === 0 && pacAEvaluer.length === 0) return null
+  const pct = pacAEvaluer.length > 0 ? Math.round((pacComplets.length / pacAEvaluer.length) * 100) : 0
+  const allReady = pacAEvaluer.length > 0 && pacComplets.length === pacAEvaluer.length
+  return (
+    <div className="space-y-3 mb-3">
+      {(preuvesAEvaluer.length > 0 || preuvesEvaluees.length > 0) && (
+        <Card variant="role" size="sm">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="w-4 h-4 text-role-primary" />
+            <span className="font-semibold text-sm">Suivi des preuves</span>
+            <span className="badge neutral text-[10px]">{preuvesEvaluees.length}/{preuvesAEvaluer.length + preuvesEvaluees.length} évaluées</span>
+          </div>
+          <ListesEvaluation aEvaluer={preuvesAEvaluer} complets={preuvesEvaluees} onEvaluer={onEvaluer} />
+        </Card>
+      )}
+      {pacAEvaluer.length > 0 && (
+        <Card variant="role" size="sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Send className="w-4 h-4 text-role-primary" />
+            <span className="font-semibold text-sm">Évaluations PAC — cet ensemble uniquement</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{pacAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
+            <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{pacComplets.length}/{pacAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
+            <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{pct}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
+          </div>
+          <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${pct}%` }} /></div>
+          {allReady ? (
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations de cet ensemble sont prêtes — {pacComplets.length} PAC</span></div>
+              <button onClick={() => onTransmettre(pacAEvaluer)} disabled={isSubmitting} className="btn btn-sm btn-primary gap-1">
+                <Send className="w-3.5 h-3.5" />{isSubmitting ? 'Transmission...' : 'Transmettre ce lot'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{pacAEvaluer.length - pacComplets.length} évaluation(s) encore incomplète(s) dans cet ensemble</span></div>
+          )}
+          <ListesEvaluation aEvaluer={pacAEvaluer} complets={pacComplets} onEvaluer={onEvaluer} />
+        </Card>
+      )}
+    </div>
+  )
+}
 
 /**
  * Listes cliquables évalués / restants (comme les liens d'écarts) : chaque
@@ -250,11 +315,12 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Un appelant = trois vigies propriétaires (écarts, dossiers, plannings).
+      // Un appelant = quatre vigies propriétaires (écarts, dossiers, plannings, notifications).
       const s = useAppStore.getState()
       s.verifierRappelsEcarts()
       s.verifierRappelsDossiers()
       s.verifierPlanningsDepasses()
+      s.verifierEscaladesNotifications()
     }, 60 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
@@ -497,8 +563,20 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
     return (order[b.prioriteDynamique] || 0) - (order[a.prioriteDynamique] || 0)
   })
 
+  const processusActifs = useMemo(() =>
+    getProcessusActifs(certifications, homologations, surveillances, ecarts, aerodromes),
+  [certifications, homologations, surveillances, ecarts, aerodromes]);
+
+  // Surveillances rattachées à un processus certif/homologation actif :
+  // leurs écarts vivent dans l'onglet « Certification / Homologation » uniquement,
+  // jamais dans l'onglet « Surveillances » (source unique de vérité, pas de doublon).
+  const surveillanceIdsProcessus = useMemo(
+    () => new Set(processusActifs.map(p => p.surveillance_id).filter(Boolean) as string[]),
+    [processusActifs]
+  )
+
   const ecartsParSurveillance = sortedEcarts
-    .filter(e => e.surveillance_id)
+    .filter(e => e.surveillance_id && !surveillanceIdsProcessus.has(e.surveillance_id))
     .reduce((acc, ecart) => {
       const surveillance = surveillances.find(s => s.id === ecart.surveillance_id)
       if (!surveillance) return acc
@@ -519,9 +597,12 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
       return acc
     }, {} as Record<string, { evenement: any; ecarts: any[] }>)
 
-  const processusActifs = useMemo(() =>
-    getProcessusActifs(certifications, homologations, surveillances, ecarts, aerodromes),
-  [certifications, homologations, surveillances, ecarts, aerodromes]);
+  // Transmission d'un lot scopé à un accordéon (surveillance / événement / aérodrome).
+  const transmettreLot = useCallback((lot: any[]) => {
+    const aTransmettre = lot.filter((e: any) => evalDrafts[e.id])
+    setPendingEvalGroup({ domaine: 'Lot accordéon', ecarts: aTransmettre.length > 0 ? aTransmettre : lot })
+    setShowEvalTransmissionModal(true)
+  }, [evalDrafts])
 
   const stats = getStatistiquesPAC(aerodromeId)
   
@@ -597,7 +678,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                   </button>
                 </div>
               </div>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{iaAnswer}</p>
+              <Markdown texte={iaAnswer} className="text-sm text-gray-700" />
             </div>
           )}
       </Card>
@@ -798,7 +879,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
             <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
             <p className="text-xs text-foreground">
               <strong>{brouillons.length} évaluation(s) en brouillon local</strong> — visibles uniquement sur cet appareil. Transmettez-les
-              (cartes « Transmission groupée » ci-dessous) sinon elles seront perdues en cas de vidage du navigateur.
+              (bouton « Transmettre ce lot » dans l'accordéon concerné) sinon elles seront perdues en cas de vidage du navigateur.
             </p>
           </div>
         )
@@ -840,23 +921,6 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
           Archives → Registres
         </button>
       </div>
-
-      {/* Suivi des preuves (tous onglets) : restants cliquables vers l'évaluation, évalués vers la relecture. */}
-      {(() => {
-        const preuvesAEvaluer = sortedEcarts.filter((e: any) => e.statut === 'preuves_soumises')
-        const preuvesEvaluees = sortedEcarts.filter((e: any) => ['preuves_evaluees', 'cloture'].includes(e.statut))
-        if (preuvesAEvaluer.length === 0 && preuvesEvaluees.length === 0) return null
-        return (
-          <Card variant="role" size="sm" className="mb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle2 className="w-4 h-4 text-role-primary" />
-              <span className="font-semibold text-sm">Suivi des preuves</span>
-              <span className="badge neutral text-[10px]">{preuvesEvaluees.length}/{preuvesAEvaluer.length + preuvesEvaluees.length} évaluées</span>
-            </div>
-            <ListesEvaluation aEvaluer={preuvesAEvaluer} complets={preuvesEvaluees} onEvaluer={ouvrirEvaluationEcart} />
-          </Card>
-        )
-      })()}
 
       <div className="tab-content">
         {activeTab === 'surveillances' && (<>
@@ -912,6 +976,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     ) : undefined
                   }
                 >
+                  {/* Stats rattachées à CETTE surveillance / CET aérodrome uniquement */}
+                  <StatsAccordeon ecarts={ecarts} evalDrafts={evalDrafts} onEvaluer={ouvrirEvaluationEcart} onTransmettre={transmettreLot} isSubmitting={isSubmittingEvalBulk} />
                   {/* Regroupement par domaine réglementaire */}
                   {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => {
                     const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
@@ -971,37 +1037,6 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               )
             })}
           </AccordionGroup>
-          {/* Transmission groupée des évaluations */}
-          {(() => {
-            const tabAEvaluer = sortedEcarts.filter((e: any) => e.surveillance_id && e.statut === 'pac_soumis')
-            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
-            if (tabAEvaluer.length === 0) return null
-            if (!tabAEvaluer.some(e => peutEvaluerEcart(e))) return null
-            const allReady = tabComplet.length === tabAEvaluer.length
-            return (
-              <Card variant="role" size="sm" className="mt-4">
-                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
-                </div>
-                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
-                {allReady ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
-                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
-                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
-                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
-                )}
-                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
-              </Card>
-            )
-          })()}
         </> )}
 
         {activeTab === 'evenements' && (<>
@@ -1026,6 +1061,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                     </>
                   }
                 >
+                  {/* Stats rattachées à CET événement / CET aérodrome uniquement */}
+                  <StatsAccordeon ecarts={ecarts} evalDrafts={evalDrafts} onEvaluer={ouvrirEvaluationEcart} onTransmettre={transmettreLot} isSubmitting={isSubmittingEvalBulk} />
                   {grouperParDomaine(ecarts).map((groupe: DomaineItems<any>) => {
                     const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
                     const draftComplet = ecartsAEvaluer.filter((e: any) => {
@@ -1071,73 +1108,100 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               )
             })}
           </AccordionGroup>
-          {/* Transmission groupée des évaluations */}
-          {(() => {
-            const tabAEvaluer = sortedEcarts.filter((e: any) => e.evenement_id && e.statut === 'pac_soumis')
-            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
-            if (tabAEvaluer.length === 0) return null
-            if (!tabAEvaluer.some(e => peutEvaluerEcart(e))) return null
-            const allReady = tabComplet.length === tabAEvaluer.length
-            return (
-              <Card variant="role" size="sm" className="mt-4">
-                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
-                </div>
-                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
-                {allReady ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
-                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
-                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
-                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
-                )}
-                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
-              </Card>
-            )
-          })()}
         </> )}
 
         {activeTab === 'urgences' && (
           <div className="animate-fade-in space-y-4">
-            {sortedEcarts
-              .filter(e => e.prioriteDynamique === 'critique' || e.statut === 'en_retard' || e.prioriteDynamique === 'haute')
-              .map(ecart => {
-                const aerodrome = aerodromes.find(a => a.id === ecart.aerodrome_id)
-                const evalAutorise = peutEvaluerEcart(ecart)
+            {/* Triage : rangé par aérodrome (critiques + retards d'abord) pour traiter par lots.
+                L'onglet est conservé : avec des dizaines de PAC/preuves, c'est la seule vue
+                qui remonte tout ce qui brûle, quel que soit l'onglet d'origine. */}
+            {(() => {
+              const urgents = sortedEcarts.filter(e => e.prioriteDynamique === 'critique' || e.statut === 'en_retard' || e.prioriteDynamique === 'haute')
+              if (urgents.length === 0) {
                 return (
-                  <EcartCard
-                    key={ecart.id}
-                    ecart={ecart}
-                    aerodrome={aerodrome}
-                    prioriteDynamique={ecart.prioriteDynamique}
-                    raisonPriorite={ecart.raisonPriorite}
-                    onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
-                    onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
-                    onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
-                    onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
-                    onValidationChef={estChefDeSurveillance(ecart) ? () => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) } : undefined}
-                    canEvaluate={evalAutorise}
-                    canValiderChef={estChefDeSurveillance(ecart)}
-                    userRole={userRole}
-                    userId={user?.id || ''}
-                    urgent
-                  />
+                  <Card className="text-center">
+                      <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
+                      <p className="text-muted-foreground">Aucun écart urgent ou critique</p>
+                      <p className="text-xs text-muted-foreground mt-1">Tous les écarts sont sous contrôle</p>
+                  </Card>
                 )
-              })}
-            {sortedEcarts.filter(e => e.prioriteDynamique === 'critique' || e.statut === 'en_retard').length === 0 && (
-              <Card className="text-center">
-                  <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
-                  <p className="text-muted-foreground">Aucun écart urgent ou critique</p>
-                  <p className="text-xs text-muted-foreground mt-1">Tous les écarts sont sous contrôle</p>
-              </Card>
-            )}
+              }
+              const parAero = new Map<string, { aerodrome: any; ecarts: any[] }>()
+              urgents.forEach(e => {
+                const aero = aerodromes.find(a => a.id === e.aerodrome_id)
+                if (!aero) return
+                if (!parAero.has(aero.id)) parAero.set(aero.id, { aerodrome: aero, ecarts: [] })
+                parAero.get(aero.id)!.ecarts.push(e)
+              })
+              const groupes = Array.from(parAero.values()).sort((a, b) => {
+                const score = (g: { ecarts: any[] }) =>
+                  g.ecarts.filter(e => e.prioriteDynamique === 'critique').length * 100 +
+                  g.ecarts.filter(e => e.statut === 'en_retard').length * 10 +
+                  g.ecarts.length
+                return score(b) - score(a)
+              })
+              return (
+                <AccordionGroup spacing="sm">
+                  {groupes.map(({ aerodrome, ecarts: urgAero }) => {
+                    const critiques = urgAero.filter(e => e.prioriteDynamique === 'critique').length
+                    const retards = urgAero.filter(e => e.statut === 'en_retard').length
+                    const nbSurv = new Set(urgAero.map(e => e.surveillance_id).filter(Boolean)).size
+                    const nbEvt = new Set(urgAero.map(e => e.evenement_id).filter(Boolean)).size
+                    const sources: string[] = []
+                    if (nbSurv > 0) sources.push(`${nbSurv} surveillance${nbSurv > 1 ? 's' : ''}`)
+                    if (nbEvt > 0) sources.push(`${nbEvt} événement${nbEvt > 1 ? 's' : ''}`)
+                    if (urgAero.some(e => surveillanceIdsProcessus.has(e.surveillance_id))) sources.push('certif/homologation')
+                    const tries = [...urgAero].sort((a, b) => {
+                      const order = { critique: 3, haute: 2, normale: 1, basse: 0 } as Record<string, number>
+                      const retardFirst = (b.statut === 'en_retard' ? 1 : 0) - (a.statut === 'en_retard' ? 1 : 0)
+                      return retardFirst || ((order[b.prioriteDynamique] || 0) - (order[a.prioriteDynamique] || 0))
+                    })
+                    return (
+                      <AccordionSection
+                        key={aerodrome.id}
+                        icon={<Flame className="w-4 h-4 text-white" />}
+                        title={<><span className="code-oaci-badge mr-2">{aerodrome.code_oaci}</span>{aerodrome.nom}</>}
+                        subtitle={sources.length > 0 ? sources.join(' • ') : undefined}
+                        badges={
+                          <>
+                            {critiques > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">{critiques} critique(s)</span>}
+                            {retards > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">{retards} en retard</span>}
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">{urgAero.length} urgent{urgAero.length > 1 ? 's' : ''}</span>
+                          </>
+                        }
+                      >
+                        <StatsAccordeon ecarts={urgAero} evalDrafts={evalDrafts} onEvaluer={ouvrirEvaluationEcart} onTransmettre={transmettreLot} isSubmitting={isSubmittingEvalBulk} />
+                        <div className="space-y-3">
+                          {tries.map(ecart => {
+                            const evalAutorise = peutEvaluerEcart(ecart)
+                            const lieProcessus = !!ecart.surveillance_id && surveillanceIdsProcessus.has(ecart.surveillance_id)
+                            return (
+                              <EcartCard
+                                key={ecart.id}
+                                ecart={ecart}
+                                aerodrome={aerodrome}
+                                prioriteDynamique={ecart.prioriteDynamique}
+                                raisonPriorite={`${lieProcessus ? 'Certif/Homologation • ' : ecart.surveillance_id ? 'Surveillance • ' : ecart.evenement_id ? 'Événement • ' : ''}${ecart.raisonPriorite || ''}`}
+                                onViewDetails={() => { setSelectedEcart(ecart.id); startTransition(() => setShowHistoriqueModal(true)) }}
+                                onEvaluate={() => { setSelectedEcart(ecart.id); startTransition(() => { ecart.statut === 'preuves_soumises' ? setShowPreuvesEvaluationModal(true) : setShowEvaluationModal(true) }) }}
+                                onSubmitPAC={() => { setSelectedEcart(ecart.id); startTransition(() => setShowSoumissionModal(true)) }}
+                                onIaEvaluate={evalAutorise ? (pacData) => handleIaEvaluatePAC(ecart.id, pacData) : undefined}
+                                onValidationChef={estChefDeSurveillance(ecart) ? () => { setSelectedEcart(ecart.id); startTransition(() => setShowValidationChefModal(true)) } : undefined}
+                                canEvaluate={evalAutorise}
+                                canValiderChef={estChefDeSurveillance(ecart)}
+                                userRole={userRole}
+                                userId={user?.id || ''}
+                                urgent
+                              />
+                            )
+                          })}
+                        </div>
+                      </AccordionSection>
+                    )
+                  })}
+                </AccordionGroup>
+              )
+            })()}
           </div>
         )}
 
@@ -1154,7 +1218,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                 const group = processusParAerodrome.get(pr.aerodrome_id)!
                 group.processus.push(pr)
                 if (pr.surveillance_id) {
-                  const ecartsPr = ecarts.filter(e => e.surveillance_id === pr.surveillance_id)
+                  // Respecte les filtres actifs (recherche, niveau, statut…) via sortedEcarts
+                  const ecartsPr = sortedEcarts.filter(e => e.surveillance_id === pr.surveillance_id)
                   group.ecarts.push(...ecartsPr)
                 }
               })
@@ -1170,7 +1235,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                       <>
                         {processus.map(pr => (
                           <span key={pr.processus_id} className={`badge ${pr.processus_type === 'certification' ? 'primary' : 'info'} text-[10px] mr-1`}>
-                            {pr.phase_label}
+                            {pr.processus_type === 'certification' ? 'Certification' : 'Homologation'} · {pr.phase_label}
                           </span>
                         ))}
                         <span className="badge outline">{total} écart{total > 1 ? 's' : ''}</span>
@@ -1183,6 +1248,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
                       </button>
                     }
                   >
+                    {/* Stats rattachées à CET aérodrome-processus uniquement (ex : GOTT) */}
+                    <StatsAccordeon ecarts={aeroEcarts} evalDrafts={evalDrafts} onEvaluer={ouvrirEvaluationEcart} onTransmettre={transmettreLot} isSubmitting={isSubmittingEvalBulk} />
                     {grouperParDomaine(aeroEcarts).map((groupe: DomaineItems<any>) => {
                       const ecartsAEvaluer = groupe.items.filter((e: any) => e.statut === 'pac_soumis')
                       const draftComplet = ecartsAEvaluer.filter((e: any) => {
@@ -1237,36 +1304,6 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
               })
             })()}
           </AccordionGroup>
-          {/* Transmission groupée des évaluations */}
-          {(() => {
-            const tabAEvaluer = sortedEcarts.filter((e: any) => e.statut === 'pac_soumis')
-            const tabComplet = tabAEvaluer.filter((e: any) => { const d = evalDrafts[e.id]; return d && d.notes && Object.values(d.notes).every((v: any) => v > 0) && d.decision })
-            if (tabAEvaluer.length === 0) return null
-            const allReady = tabComplet.length === tabAEvaluer.length
-            return (
-              <Card variant="role" size="sm" className="mt-4">
-                <div className="flex items-center gap-2 mb-3"><Send className="w-4 h-4 text-role-primary" /><span className="font-semibold text-sm">Transmission groupée des évaluations PAC</span></div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">PAC à évaluer</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{tabComplet.length}/{tabAEvaluer.length}</p><p className="text-[10px] text-muted-foreground">Évaluations complètes</p></div>
-                  <div className="text-center p-2 rounded bg-muted/20"><p className="text-2xl font-bold">{Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%</p><p className="text-[10px] text-muted-foreground">Avancement</p></div>
-                </div>
-                <div className="progress h-2 mb-3"><div className={`progress-bar ${allReady ? 'progress-faible' : 'progress-moyen'}`} style={{ width: `${Math.round((tabComplet.length / tabAEvaluer.length) * 100)}%` }} /></div>
-                {allReady ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Toutes les évaluations sont prêtes — {tabComplet.length} PAC</span></div>
-                    <button onClick={() => { setPendingEvalGroup({ domaine: 'Tous', ecarts: sortedEcarts.filter((e2: any) => e2.statut === 'pac_soumis') }); setShowEvalTransmissionModal(true) }}
-                      disabled={isSubmittingEvalBulk} className="btn btn-sm btn-primary gap-1">
-                      <Send className="w-3.5 h-3.5" />{isSubmittingEvalBulk ? 'Transmission...' : 'Transmettre toutes les évaluations'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm text-muted-foreground">{tabAEvaluer.length - tabComplet.length} évaluation(s) encore incomplète(s)</span></div>
-                )}
-                <ListesEvaluation aEvaluer={tabAEvaluer} complets={tabComplet} onEvaluer={ouvrirEvaluationEcart} />
-              </Card>
-            )
-          })()}
         </> )}
 
       </div>

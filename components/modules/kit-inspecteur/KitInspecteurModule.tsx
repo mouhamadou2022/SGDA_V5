@@ -917,6 +917,9 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Erreur d'upload Storage affichée DANS le formulaire (la notification
+  // seule est ratée) — le formulaire reste ouvert pour réessayer.
+  const [erreurUpload, setErreurUpload] = useState<string | null>(null);
 
   const listeDocuments = kitDocuments ?? [];
 
@@ -1047,6 +1050,24 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       const fichierUrl = formData.fichier
         ? (uploadError ? URL.createObjectURL(formData.fichier) : storageUrl)
         : documentBlobUrls.get(selectedDocument!.id) || selectedDocument?.fichier_url;
+
+      // Échec d'upload Storage : ne JAMAIS valider en silence (sinon doc
+      // sans fichier, illisible pour l'IA). On garde le formulaire ouvert
+      // avec l'erreur affichée dedans (bannière, pas seulement notification).
+      if (formData.fichier && uploadError) {
+        const detail = `Le fichier n'a pas pu être stocké (${uploadError}). Rechargez la page (Ctrl+F5) puis réessayez — sans fichier, le document reste illisible pour l'IA.`;
+        setErreurUpload(detail);
+        addNotification?.({
+          user_id: user?.id || '',
+          type: 'danger',
+          title: 'Fichier non enregistré',
+          message: detail,
+          canal: 'in_app',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      setErreurUpload(null);
 
       const documentData = {
         nom: formData.nom,
@@ -2680,7 +2701,8 @@ export default function KitInspecteurModule({ userRole }: KitInspecteurModulePro
       <KitDocForm showForm={showForm} setShowForm={setShowForm} resetForm={resetForm}
         selectedDocument={selectedDocument} isSubmitting={isSubmitting}
         handleSubmit={handleSubmit} formData={formData} setFormData={setFormData}
-        formErrors={formErrors}
+        formErrors={formErrors} erreurUpload={erreurUpload}
+        onEffacerErreurUpload={() => setErreurUpload(null)}
         userRole={userRole} focusClass={focusClass} selectStyle={selectStyle} />
       <DetailModal showDetails={showDetails} selectedDocument={selectedDocument}
         setShowDetails={setShowDetails} handleDownload={handleDownload}

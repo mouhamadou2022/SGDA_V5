@@ -41,7 +41,7 @@ export function ModuleHeader({ icon, title, description, actions }: ModuleHeader
           <button
             onClick={handleOpenAI}
             className="btn btn-secondary h-7 px-2.5 text-xs gap-1.5"
-            title="Assistant AERORISQ (Ctrl+K)"
+            title="Assistant AERORISQ (Ctrl+J)"
           >
             <Brain className="w-3.5 h-3.5 text-role-primary" />
             Assistant AERORISQ

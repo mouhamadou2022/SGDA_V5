@@ -34,6 +34,417 @@ export const DOMAINES_SURVEILLANCE = [
 
 export type DomaineCode = typeof DOMAINES_SURVEILLANCE[number]['code'];
 
+// ─────────────────────────────────────────────────────
+// RÈGLE MÉTIER VERROUILLÉE — checklist PAC vs checklist écarts
+// La checklist PAC (mise en œuvre) ne concerne QUE les PAC déjà ACCEPTÉS
+// par l'inspecteur (surveiller un PAC non accepté n'a aucun sens).
+// Tout le reste (ouvert → pac refusé) relève de la checklist écarts.
+// ─────────────────────────────────────────────────────
+
+/** Statuts dont le PAC est accepté (et aval) : éligibles checklist PAC. */
+export const STATUTS_PAC_ACCEPTES = ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'] as const
+
+/** Statuts avant acceptation : relèvent de la checklist Écarts. */
+export const STATUTS_PRE_ACCEPTATION = ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse'] as const
+
+export interface EcartAvecPac {
+  aerodrome_id?: string
+  statut?: string
+  niveau_risque?: string
+  delai_regularisation?: string
+  pac?: { actions?: Array<{ date_prevue?: string }> } | null
+  evaluation_pac?: { decision?: string } | null
+}
+
+/**
+ * En retard MAIS avec PAC accepté : l'accord existe, c'est l'exécution qui
+ * est en retard → relève de la checklist PAC (pas des écarts).
+ */
+export function estEnRetardAccepte(e: EcartAvecPac | undefined | null): boolean {
+  if (!e || e.statut !== 'en_retard') return false
+  const decision = e.evaluation_pac?.decision
+  return (decision === 'accepte' || decision === 'reserve') &&
+    (e.pac?.actions?.length || 0) > 0
+}
+
+/** Écart relevant de la checklist PAC (accepté, aval preuves, ou retard-accepté). */
+export function releveChecklistPAC(e: EcartAvecPac | undefined | null): boolean {
+  if (!e) return false
+  if ((e.pac?.actions?.length || 0) > 0 &&
+    (STATUTS_PAC_ACCEPTES as readonly string[]).includes(e.statut || '')) return true
+  return estEnRetardAccepte(e)
+}
+
+/**
+ * Écart relevant de la checklist Écarts : pas de PAC accepté (absence,
+ * attente, refus) ou retard sans acceptation. Exclut la clôture et
+ * l'arbitrage chef (pas de terrain pendant ces phases).
+ */
+export function releveChecklistEcarts(e: EcartAvecPac | undefined | null): boolean {
+  if (!e || e.statut === 'cloture' || e.statut === 'en_attente_validation_chef') return false
+  if (releveChecklistPAC(e)) return false
+  return (STATUTS_PRE_ACCEPTATION as readonly string[]).includes(e.statut || '') ||
+    e.statut === 'en_retard'
+}
+
+/** Vrai si au moins un écart a un PAC accepté (avec actions, retard-accepté inclus). */
+export function aPACAccepte(ecarts: readonly EcartAvecPac[] | undefined | null): boolean {
+  return (ecarts || []).some(releveChecklistPAC)
+}
+
+// ─────────────────────────────────────────────────────
+// ÉCHÉANCES — déclenchement de la surveillance PAC
+// Fenêtre d'anticipation par risque (jours avant échéance) : plus le
+// risque est grand, plus tôt on déclenche (temps d'organiser la mission).
+// Le dépassé déclenche toujours, quel que soit le niveau.
+// ─────────────────────────────────────────────────────
+
+/** Fenêtre d'anticipation (jours) par niveau de risque. */
+export const FENETRE_VERIF_PAR_RISQUE: Record<string, number> = {
+  critique: 30,
+  eleve: 21,
+  moyen: 14,
+  faible: 7,
+}
+
+export function fenetreVerification(niveauRisque?: string): number {
+  return FENETRE_VERIF_PAR_RISQUE[niveauRisque || ''] ?? 14
+}
+
+/**
+ * Priorité d'affichage par niveau (le retard prime toujours — voir
+ * prioriteEcart —, le risque tranche à retard égal).
+ */
+export const PRIORITE_RISQUE: Record<string, number> = {
+  critique: 4,
+  eleve: 3,
+  moyen: 2,
+  faible: 1,
+}
+
+/**
+ * Camp qui doit jouer sur un écart en suivi : l'exploitant (soumettre ou
+ * resoumettre son PAC) ou l'inspecteur (évaluer — la balle est chez lui).
+ */
+export function campEnSuivi(e: { statut?: string; retard_inspecteur?: boolean } | undefined | null): 'exploitant' | 'inspecteur' {
+  if (!e) return 'exploitant'
+  if (e.statut === 'pac_soumis') return 'inspecteur'
+  if (e.statut === 'en_retard' && e.retard_inspecteur) return 'inspecteur'
+  return 'exploitant'
+}
+
+export interface AttenteEcart {
+  camp: 'exploitant' | 'inspecteur' | 'chef' | null
+  action: string
+}
+
+/**
+ * Qualité d'un acteur ANACIM : seuls titulaires et principaux évaluent et
+ * signent. Stagiaires et cadres techniques = observateurs (voient tout,
+ * ne signent rien). Règle verrouillée, source unique.
+ */
+export type QualiteInspecteur = 'titulaire' | 'principal' | 'observateur';
+
+/** Mapping brut (fiche inspecteur ou compte) → qualité. */
+export function qualiteDepuisType(
+  typeBrut: string | undefined | null,
+): QualiteInspecteur {
+  if (typeBrut === 'inspecteur_titulaire') return 'titulaire';
+  if (typeBrut === 'inspecteur_principal') return 'principal';
+  return 'observateur';
+}
+
+export interface SourceQualite {
+  /** Type fiche inspecteur (prioritaire) ou compte (type_inspecteur). */
+  type?: string;
+  type_inspecteur?: string;
+}
+
+/** Qualité depuis une fiche ou un compte (fiche prioritaire si fournie). */
+export function qualiteInspecteur(
+  fiche: SourceQualite | undefined | null,
+  compte?: SourceQualite | undefined | null,
+): QualiteInspecteur {
+  const brut = fiche?.type || compte?.type_inspecteur || compte?.type || null;
+  return qualiteDepuisType(brut);
+}
+
+/** Vrai si l'acteur peut évaluer et signer (titulaire ou principal). */
+export function aQualiteSignature(
+  fiche: SourceQualite | undefined | null,
+  compte?: SourceQualite | undefined | null,
+): boolean {
+  return qualiteInspecteur(fiche, compte) !== 'observateur';
+}
+
+/** Fiche inspecteur liée à un compte (inspecteur_id prioritaire, sinon user_id). */
+export function trouverFicheInspecteur<T extends { id?: string; user_id?: string }>(
+  fiches: readonly T[] | undefined | null,
+  compte: { id?: string; inspecteur_id?: string } | undefined | null,
+): T | undefined {
+  if (!compte) return undefined;
+  return (fiches || []).find(f =>
+    (!!compte.inspecteur_id && f.id === compte.inspecteur_id) ||
+    (f.user_id != null && f.user_id === compte.id));
+}
+
+/** Qualité de signature d'un compte (fiche liée prioritaire, compte en repli). */
+export function qualiteCompte<T extends { id?: string; user_id?: string } & SourceQualite>(
+  fiches: readonly T[] | undefined | null,
+  compte: ({ id?: string; inspecteur_id?: string } & SourceQualite) | undefined | null,
+): QualiteInspecteur {
+  return qualiteInspecteur(trouverFicheInspecteur(fiches, compte) || undefined, compte);
+}
+
+export interface CompteDelegable extends SourceQualite {
+  id?: string;
+  inspecteur_id?: string;
+  role?: string;
+  statut?: string;
+  prenom?: string;
+  nom?: string;
+}
+
+/**
+ * Retire accents et diacritiques (propriété Unicode, aucun caractère
+ * invisible dans le code). Source unique pour toutes les comparaisons
+ * insensibles aux accents (recherche, récidive, matching).
+ */
+export function retirerDiacritiques(texte: string): string {
+  return (texte || '').normalize('NFD').replace(/\p{M}/gu, '');
+}
+
+/** Normalisation de recherche : minuscules, sans accents, espaces condensés. */
+export function normaliserRecherche(texte: string): string {
+  return retirerDiacritiques((texte || '').toLowerCase())
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Nom affichable d'un compte (jamais d'UUID brut). */
+export function nomCompteDelegable(compte: CompteDelegable | undefined | null): string {
+  const nom = `${compte?.prenom || ''} ${compte?.nom || ''}`.trim();
+  return nom || compte?.id?.slice(0, 8) || 'Inconnu';
+}
+
+/**
+ * R2 — résultat d'item valable pour le workflow : renseigné PAR un
+ * signataire. Un résultat posé par un observateur = brouillon (visible,
+ * reprisable, mais invisible des progressions, signatures et clôtures).
+ * Rétrocompatibilité : sans auteur tracé (données anciennes), ça compte.
+ */
+export function estResultatValide<
+  TFiche extends { id?: string; user_id?: string } & SourceQualite,
+  TCpte extends CompteDelegable,
+>(
+  item: { resultat?: string | null; conclusion?: string | null; modified_by?: string } | undefined | null,
+  fiches: readonly TFiche[] | undefined,
+  comptes: readonly TCpte[] | undefined,
+): boolean {
+  const valeur = item?.resultat ?? item?.conclusion;
+  if (!valeur || valeur === 'NV') return false;
+  if (!item?.modified_by) return true;
+  const compte = (comptes || []).find(c => c.id === item.modified_by);
+  return qualiteCompte(fiches, compte) !== 'observateur';
+}
+
+/**
+ * Item terminé pour la signature : résultat valide (signataire) OU Non
+ * Vérifié avec motif écrit (on sait pourquoi : reporté, inaccessible…).
+ * Un NV muet ou un brouillon = travail restant. Règle canonique des
+ * progressions, restants et gates de signature.
+ */
+export function estItemTermine<
+  TFiche extends { id?: string; user_id?: string } & SourceQualite,
+  TCpte extends CompteDelegable,
+>(
+  item: {
+    resultat?: string | null;
+    conclusion?: string | null;
+    observation?: string | null;
+    observation_stylus_data?: string | null;
+    commentaire?: string | null;
+    modified_by?: string;
+  } | undefined | null,
+  fiches: readonly TFiche[] | undefined,
+  comptes: readonly TCpte[] | undefined,
+): boolean {
+  const valeur = (item?.resultat ?? item?.conclusion ?? '').toUpperCase();
+  if (!valeur) return false;
+  if (valeur === 'NV') {
+    return !!((item?.observation || '').trim() ||
+      (item?.observation_stylus_data || '').trim() ||
+      (item?.commentaire || '').trim());
+  }
+  return estResultatValide(
+    { resultat: item?.resultat, conclusion: item?.conclusion, modified_by: item?.modified_by },
+    fiches, comptes);
+}
+
+/**
+ * Signataires requis pour le rapport : titulaires et principaux de l'équipe
+ * (chef compris), observateurs exclus. Règle R3, source unique.
+ */
+export function signatairesRequisRapport<
+  TFiche extends { id?: string; user_id?: string } & SourceQualite,
+  TCpte extends CompteDelegable,
+>(
+  equipeIds: readonly string[] | undefined,
+  chefId: string | undefined | null,
+  fiches: readonly TFiche[] | undefined,
+  comptes: readonly TCpte[] | undefined,
+): string[] {
+  return [...new Set([...(equipeIds || []), ...(chefId ? [chefId] : [])])]
+    .filter(Boolean)
+    .filter(id => {
+      const compte = (comptes || []).find(c => c.id === id);
+      return qualiteCompte(fiches, compte) !== 'observateur';
+    });
+}
+
+/**
+ * Peut recevoir une délégation : inspecteur en activité ET qualité
+ * signataire (titulaire ou principal). Stagiaires et cadres techniques =
+ * observateurs, jamais proposés.
+ */
+export function peutRecevoirDelegation<T extends { id?: string; user_id?: string } & SourceQualite>(
+  fiches: readonly T[] | undefined | null,
+  compte: CompteDelegable | undefined | null,
+): boolean {
+  if (!compte || compte.role !== 'inspector') return false;
+  if (compte.statut === 'inactif') return false;
+  return qualiteCompte(fiches, compte) !== 'observateur';
+}
+
+/**
+ * Qui doit jouer sur un écart (tous statuts) et quoi : affiché dans
+ * l'historique et réutilisable (portail exploitant, relances).
+ */
+export function quiDoitJouer(statut?: string, retardInspecteur?: boolean): AttenteEcart {
+  switch (statut) {
+    case 'ouvert':
+    case 'pac_attendu':
+      return { camp: 'exploitant', action: 'Soumettre le PAC' }
+    case 'pac_soumis':
+      return { camp: 'inspecteur', action: 'Évaluer le PAC soumis' }
+    case 'pac_refuse':
+      return { camp: 'exploitant', action: 'Resoumettre un PAC révisé' }
+    case 'pac_accepte':
+      return { camp: 'exploitant', action: 'Réaliser les actions et déposer les preuves' }
+    case 'preuves_soumises':
+      return { camp: 'inspecteur', action: 'Vérifier et valider les preuves' }
+    case 'preuves_evaluees':
+      return { camp: 'chef', action: 'Arbitrer (réserves ou refus)' }
+    case 'en_attente_validation_chef':
+      return { camp: 'chef', action: "Valider l'évaluation" }
+    case 'en_retard':
+      return retardInspecteur
+        ? { camp: 'inspecteur', action: 'Évaluation en retard — régulariser sans délai' }
+        : { camp: 'exploitant', action: 'Régulariser sans délai' }
+    case 'cloture':
+      return { camp: null, action: 'Dossier clôturé' }
+    default:
+      return { camp: 'exploitant', action: 'Faire avancer le dossier' }
+  }
+}
+
+/** Retard avéré d'un écart : régularisation dépassée (référence unique). */
+export function estEnRetardReglementaire(
+  delaiRegularisation: string | undefined | null,
+  maintenant: number = Date.now(),
+): boolean {
+  const t = new Date(delaiRegularisation || '').getTime()
+  return !isNaN(t) && t < maintenant
+}
+
+/** Échéance vérifiable : échue ou dans la fenêtre d'anticipation du risque. */
+export function estEcheanceVerifiable(
+  datePrevue: string | undefined | null,
+  niveauRisque?: string,
+  maintenant: number = Date.now(),
+): boolean {
+  const t = new Date(datePrevue || '').getTime()
+  if (isNaN(t)) return false
+  return t < maintenant + fenetreVerification(niveauRisque) * 86400000
+}
+
+/** Plus proche échéance des actions d'un PAC (ISO) ou null. */
+export function prochaineEcheanceActions(pac: EcartAvecPac['pac']): string | null {
+  const dates = (pac?.actions || [])
+    .map(a => new Date(a?.date_prevue || '').getTime())
+    .filter(t => !isNaN(t))
+  if (dates.length === 0) return null
+  return new Date(Math.min(...dates)).toISOString()
+}
+
+export interface JustificationSurveillancePAC {
+  justifiee: boolean
+  motif: string
+  prochaineEcheance: string | null
+}
+
+/**
+ * Une surveillance PAC se justifie seulement s'il y a quelque chose à
+ * vérifier : preuves en attente, régularisation dépassée, ou action à
+ * échéance proche/dépassée. Sinon : planifiée, pas lancée.
+ */
+export function justifierSurveillancePAC(
+  ecarts: readonly EcartAvecPac[] | undefined | null,
+  aerodromeId: string,
+  maintenant: number = Date.now(),
+): JustificationSurveillancePAC {
+  const acceptes = (ecarts || []).filter(e =>
+    e.aerodrome_id === aerodromeId && releveChecklistPAC(e))
+  if (acceptes.length === 0) {
+    return {
+      justifiee: false,
+      prochaineEcheance: null,
+      motif: 'Aucun PAC accepté sur ce site — utilisez une surveillance de suivi des écarts tant que les PAC ne sont pas acceptés.',
+    }
+  }
+  const preuvesEnAttente = acceptes.filter(e => e.statut === 'preuves_soumises')
+  if (preuvesEnAttente.length > 0) {
+    return {
+      justifiee: true,
+      prochaineEcheance: null,
+      motif: `${preuvesEnAttente.length} preuve(s) en attente de vérification terrain.`,
+    }
+  }
+  const regularisationDepassee = acceptes.filter(e => {
+    const t = new Date(e.delai_regularisation || '').getTime()
+    return !isNaN(t) && t < maintenant
+  })
+  if (regularisationDepassee.length > 0) {
+    return {
+      justifiee: true,
+      prochaineEcheance: null,
+      motif: `Délai de régularisation dépassé pour ${regularisationDepassee.length} écart(s) à PAC accepté.`,
+    }
+  }
+  const avecEcheance = acceptes.filter(e =>
+    (e.pac?.actions || []).some(a => estEcheanceVerifiable(a?.date_prevue, e.niveau_risque, maintenant)))
+  if (avecEcheance.length > 0) {
+    return {
+      justifiee: true,
+      prochaineEcheance: null,
+      motif: `${avecEcheance.length} action(s) à échéance proche ou dépassée.`,
+    }
+  }
+  const prochaines = acceptes
+    .map(e => prochaineEcheanceActions(e.pac))
+    .filter((d): d is string => !!d)
+    .sort()
+  const prochaine = prochaines.length > 0 ? prochaines[0] : null
+  return {
+    justifiee: false,
+    prochaineEcheance: prochaine,
+    motif: prochaine
+      ? `Rien à vérifier pour l'instant — prochaine échéance le ${new Date(prochaine).toLocaleDateString('fr-FR')}.`
+      : `Rien à vérifier pour l'instant — aucune échéance d'action à venir.`,
+  }
+}
+
 // Domaines individuels (sans AGA)
 export const DOMAINES_INDIVIDUELS = DOMAINES_SURVEILLANCE.filter(d => !('estGlobal' in d && d.estGlobal));
 
@@ -186,7 +597,7 @@ export function genererSuggestionsMaintien(params: {
     if (domainesEcarts.size > 0) {
       suggestions.push({
         domaines: [...domainesEcarts],
-typesChecklist: ['suivi_ecarts', ...(params.ecartsActifs.some(e => e.pac) ? ['pac'] as const : [])],
+typesChecklist: ['suivi_ecarts', ...(aPACAccepte(params.ecartsActifs) ? ['pac'] as const : [])],
         raison: `${params.ecartsActifs.length} écart(s) actif(s) nécessitent un suivi`,
         source: 'ecart_actif',
         confiance: 90,

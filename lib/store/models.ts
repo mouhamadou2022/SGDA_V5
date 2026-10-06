@@ -80,15 +80,29 @@ export interface ModelPerformanceMetrics {
 const KEYS = {
   RF_MODEL: 'sgda_rf_model',
   RF_SAMPLES: 'sgda_rf_samples',
+  RF_SAMPLE_IDS: 'sgda_rf_sample_ids',
   GRAPH_MODEL: 'sgda_graph_model',
   TRAINING_CONFIG: 'sgda_training_config',
   PERFORMANCE_METRICS: 'sgda_model_metrics',
   TRAINING_HISTORY: 'sgda_training_history'
 }
 
+/** Échantillon local : TrainingSample + traçabilité optionnelle vers ml_samples. */
+export type RFSampleWithOrigin = TrainingSample & { surveillance_id?: string }
+
+/** Échantillon central (Supabase ml_samples) — source de vérité multi-postes. */
+export interface CentralMlSample {
+  features: Record<string, number>
+  label: 'critique' | 'eleve' | 'moyen' | 'faible'
+  surveillance_id: string
+  aerodrome_id?: string
+}
+
 class AdvancedModelsManager {
   private rfModel: RandomForestModel | null = null
-  private rfSamples: TrainingSample[] = []
+  private rfSamples: RFSampleWithOrigin[] = []
+  /** Clés connues (surveillance_id) pour dédupliquer l'hydratation centrale. */
+  private rfSampleIds: Set<string> = new Set()
   private riskGraph: RiskGraph | null = null
   private config: ModelTrainingConfig = {
     auto_train_enabled: true,
@@ -208,8 +222,23 @@ class AdvancedModelsManager {
       if (metricsData) this.metrics = metricsData
 
       // Charger échantillons RF
-      const samplesData = await idbStorage.get<TrainingSample[]>(KEYS.RF_SAMPLES)
-      if (samplesData) this.rfSamples = samplesData
+      const samplesData = await idbStorage.get<RFSampleWithOrigin[]>(KEYS.RF_SAMPLES)
+      if (samplesData) {
+        this.rfSamples = samplesData
+        for (const s of samplesData) {
+          if (s.surveillance_id) this.rfSampleIds.add(s.surveillance_id)
+        }
+      }
+
+      // Charger clés d'hydratation connues (déduplication centrale)
+      try {
+        const idsData = await idbStorage.get<string[]>(KEYS.RF_SAMPLE_IDS)
+        if (idsData) {
+          for (const id of idsData) this.rfSampleIds.add(id)
+        }
+      } catch {
+        // Best-effort : la déduplication reste assurée par rfSamples
+      }
 
       // Charger métadonnées RF
       const rfMeta = await idbStorage.get<RandomForestModelStored>(KEYS.RF_MODEL)
@@ -244,17 +273,30 @@ class AdvancedModelsManager {
     // Limiter à 2000 échantillons (IndexedDB supporte bien plus que localStorage)
     const samplesToSave = this.rfSamples.slice(-2000)
     await idbStorage.set(KEYS.RF_SAMPLES, samplesToSave)
+    // Persister les clés connues (cap aligné sur les échantillons)
+    try {
+      await idbStorage.set(KEYS.RF_SAMPLE_IDS, [...this.rfSampleIds].slice(-2000))
+    } catch {
+      // Best-effort
+    }
   }
 
   // ============================================================
   // RANDOM FOREST
   // ============================================================
 
-  addTrainingSample(profil: ProfilRisque, actualLevel?: 'critique' | 'eleve' | 'moyen' | 'faible') {
+  addTrainingSample(profil: ProfilRisque, actualLevel?: 'critique' | 'eleve' | 'moyen' | 'faible', surveillanceId?: string) {
     const features = profilToFeatures(profil)
     const label = actualLevel || scoreToLabel(profil.score_global)
-    
-    const sample: TrainingSample = { features, label }
+
+    const sample: RFSampleWithOrigin = surveillanceId
+      ? { features, label, surveillance_id: surveillanceId }
+      : { features, label }
+    // Dédupliquer les ré-ingestions locales d'une même surveillance
+    if (surveillanceId) {
+      if (this.rfSampleIds.has(surveillanceId)) return
+      this.rfSampleIds.add(surveillanceId)
+    }
     this.rfSamples.push(sample)
     this.saveRFSamples()
 
@@ -262,6 +304,30 @@ class AdvancedModelsManager {
     if (this.rfSamples.length >= this.config.min_samples_for_training) {
       this.trainRandomForestIfNeeded()
     }
+  }
+
+  /**
+   * Hydrate le cache local (IDB) depuis la source centrale Supabase (ml_samples).
+   * Fusion dédupliquée par surveillance_id : l'IDB devient le cache,
+   * Supabase la source de vérité multi-postes. Retourne le nombre d'ajouts.
+   */
+  async hydrateFromCentral(central: CentralMlSample[]): Promise<number> {
+    if (!central || central.length === 0) return 0
+    const validLabels = new Set(['critique', 'eleve', 'moyen', 'faible'])
+    let added = 0
+    for (const c of central) {
+      if (!c || !c.surveillance_id || !c.features || !validLabels.has(c.label)) continue
+      if (this.rfSampleIds.has(c.surveillance_id)) continue
+      this.rfSampleIds.add(c.surveillance_id)
+      this.rfSamples.push({ features: c.features, label: c.label, surveillance_id: c.surveillance_id })
+      added++
+    }
+    if (added > 0) {
+      // Re-cap à 2000 comme saveRFSamples
+      this.rfSamples = this.rfSamples.slice(-2000)
+      await this.saveRFSamples()
+    }
+    return added
   }
 
   async trainRandomForest(nTrees: number = 10, maxDepth: number = 4): Promise<RandomForestModel | null> {
@@ -532,6 +598,7 @@ class AdvancedModelsManager {
   resetModels() {
     this.rfModel = null
     this.rfSamples = []
+    this.rfSampleIds = new Set()
     this.riskGraph = null
     this.metrics = {
       random_forest: { accuracy: 0, precision_by_class: {}, confusion_matrix: {}, last_evaluated: null },
@@ -542,6 +609,7 @@ class AdvancedModelsManager {
     this._cachedGraphModelInfo = null
     idbStorage.remove(KEYS.RF_MODEL)
     idbStorage.remove(KEYS.RF_SAMPLES)
+    idbStorage.remove(KEYS.RF_SAMPLE_IDS)
     idbStorage.remove(KEYS.GRAPH_MODEL)
     idbStorage.remove(KEYS.PERFORMANCE_METRICS)
 

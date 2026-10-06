@@ -18,6 +18,7 @@ import type { EcartRedaction } from './ecartsRedactionSlice'
 import * as datastore from '../datastore'
 import { calculerDelaisEcart, normaliserIdEcart, normaliserNiveauEcart } from '../flux'
 import { storeEvents } from './eventBus'
+import type { EvaluationSGS } from '@/types/checklist'
 // (EcartRedaction/Ecart déjà importés ci-dessus pour le typage strict
 // des réparations — remplace les `any` historiques.)
 import { registreUtils } from '../registreUtils'
@@ -25,6 +26,7 @@ import { registreUtils } from '../registreUtils'
 import { extractEcartsFromRapportHtml } from '../workflow/extractionEcarts'
 import { fusionnerSignatures, evaluerAvancement, buildPatchSignatureDelegation } from '../workflow/reglesSignature'
 import { buildEcartOfficiel } from '../workflow/conversionEcarts'
+import { qualiteCompte, signatairesRequisRapport } from '../domaines'
 
 // ─────────────────────────────────────────────────────────────
 // Interface publique du slice
@@ -70,6 +72,11 @@ export interface WorkflowSlice {
    */
   reparerEcartsManquants: (surveillanceId: string) => Promise<{ repaired: number; message: string }>
   reparerEcartsTransmisPourAerodrome: (aerodromeId: string) => Promise<{ repaired: number; surveillances: number }>
+  /**
+   * Rattrapage one-shot (bug Saint-Louis) : signatures SGS déjà posées dont
+   * la maturité n'a jamais été reportée. Idempotent (divergents seuls).
+   */
+  reparerMaturiteSGSNonReportee: () => Promise<number>
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -207,6 +214,16 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         const fresh = get().surveillances.find(s => s.id === surveillanceId)
         if (!fresh) return { ok: false, avancee: false, raison: 'Surveillance introuvable' }
 
+        // R3 — qualité verrouillée : observateurs (stagiaires, cadres) ne
+        // signent pas. Seuls titulaires et principaux signent.
+        {
+          const st = get()
+          const compte = (st.utilisateurs || []).find(u => u.id === opts.signataire_id)
+          if (qualiteCompte(st.inspecteurs || [], compte) === 'observateur') {
+            return { ok: false, avancee: false, raison: 'Signature réservée aux inspecteurs titulaires et principaux (observateurs exclus)' }
+          }
+        }
+
         // Logique pure (lib/workflow/reglesSignature) — la saga ne fait
         // qu'orchestrer les écritures awaited.
         const now = new Date().toISOString()
@@ -216,12 +233,24 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         if (opts.score_global != null) updateData.score_global = opts.score_global
         if (opts.marque_sgs) updateData.sgs_evaluation_signee_le = now
 
-        // Toutes les personnes déléguées doivent avoir signé pour avancer.
+        // Toutes les personnes déléguées QUALIFIÉES doivent avoir signé pour
+        // avancer (les observateurs ne sont jamais délégables — leurs
+        // délégations résiduelles éventuelles ne bloquent pas).
         const delegations = get().getDelegationsBySurveillance(surveillanceId)
+        const stQualite = get()
+        const delegatedIds = [...new Set(
+          delegations
+            .map(d => d.assigne_a)
+            .filter(Boolean)
+            .filter(id => {
+              const compte = (stQualite.utilisateurs || []).find(u => u.id === id)
+              return qualiteCompte(stQualite.inspecteurs || [], compte) !== 'observateur'
+            }),
+        )]
         const decision = evaluerAvancement({
           statut: fresh.statut,
           portee: fresh.portee || [],
-          delegatedIds: [...new Set(delegations.map(d => d.assigne_a).filter(Boolean))],
+          delegatedIds,
           signatures: allSigs,
           marqueSgs: !!opts.marque_sgs,
           sgsEvaluationPrepa: fresh.sgs_evaluation_prepa,
@@ -234,6 +263,39 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
 
         await get().updateSurveillance(surveillanceId, updateData)
 
+        // Report maturité SGS → aérodrome (SOURCE UNIQUE) : toute signature
+        // marquée SGS avec une évaluation persistée met à jour maturite_sgs +
+        // maturite_sgs_detaille. updateAerodrome émet le recalcul (C1) via bus,
+        // d'où profil, module aérodrome et portail suivent automatiquement.
+        // Sans ceci, N1→N3 restait invisible partout (bug Saint-Louis).
+        if (opts.marque_sgs) {
+          const prepa = get().surveillances.find(s => s.id === surveillanceId)?.sgs_evaluation_prepa as EvaluationSGS | null | undefined
+          if (prepa && typeof prepa.scoreGlobal === 'number') {
+            const aeroId = fresh.aerodrome_id
+            await get().updateAerodrome(aeroId, {
+              maturite_sgs: prepa.scoreGlobal,
+              maturite_sgs_detaille: {
+                composantes: Object.fromEntries(
+                  (prepa.composantes || []).map(c => [c.id, {
+                    score: c.score,
+                    niveauGlobal: c.niveauGlobal,
+                    elements: (c.elements || []).map(e => ({
+                      elementId: e.elementId,
+                      niveau: e.niveauGlobal,
+                      questions: (e.questions || []).map(q => ({
+                        questionId: q.id, niveau: q.niveau, justification: q.justification,
+                      })),
+                    })),
+                  }])
+                ),
+                scoreGlobal: prepa.scoreGlobal,
+                evalueLe: prepa.date || now,
+                evaluePar: opts.signataire_nom || '',
+              } as never,
+            })
+          }
+        }
+
         // Avancement automatique des délégations du signataire.
         const patchDelegation = buildPatchSignatureDelegation(opts.signature_url, now)
         delegations
@@ -243,6 +305,60 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
           })
 
         return { ok: true, avancee: decision.peutAvancer, raison: decision.raison }
+      },
+
+      /**
+       * Rattrapage one-shot (bug Saint-Louis) : signatures SGS déjà posées
+       * dont la maturité n'a jamais été reportée à l'aérodrome (ancien code
+       * par chemin + id OACI au lieu de l'id). Idempotent : par aérodrome,
+       * seule la signature la plus récente est appliquée, et seulement si
+       * divergente. Retourne le nombre d'aérodromes réparés.
+       */
+      reparerMaturiteSGSNonReportee: async () => {
+        let repares = 0
+        const now = new Date().toISOString()
+        const { normaliserScoreSgs } = await import('../utils')
+        // Dernière signature SGS par aérodrome (jamais d'écrasement par une vieille).
+        const dernieres = new Map<string, Surveillance>()
+        for (const s of get().surveillances) {
+          if (!s.sgs_evaluation_signee_le) continue
+          const precedent = dernieres.get(s.aerodrome_id)
+          if (!precedent || (precedent.sgs_evaluation_signee_le || '') < (s.sgs_evaluation_signee_le || '')) {
+            dernieres.set(s.aerodrome_id, s)
+          }
+        }
+        for (const s of dernieres.values()) {
+          const prepa = s.sgs_evaluation_prepa as EvaluationSGS | null | undefined
+          if (!prepa || typeof prepa.scoreGlobal !== 'number') continue
+          const aero = get().aerodromes.find(a => a.id === s.aerodrome_id)
+          if (!aero) continue
+          const attendu = normaliserScoreSgs(prepa.scoreGlobal, 50)
+          const actuel = normaliserScoreSgs(aero.maturite_sgs, 50)
+          if (attendu === actuel) continue
+          await get().updateAerodrome(aero.id, {
+            maturite_sgs: prepa.scoreGlobal,
+            maturite_sgs_detaille: {
+              composantes: Object.fromEntries(
+                (prepa.composantes || []).map(c => [c.id, {
+                  score: c.score,
+                  niveauGlobal: c.niveauGlobal,
+                  elements: (c.elements || []).map(e => ({
+                    elementId: e.elementId,
+                    niveau: e.niveauGlobal,
+                    questions: (e.questions || []).map(q => ({
+                      questionId: q.id, niveau: q.niveau, justification: q.justification,
+                    })),
+                  })),
+                }])
+              ),
+              scoreGlobal: prepa.scoreGlobal,
+              evalueLe: prepa.date || now,
+              evaluePar: prepa.inspecteurNom || '',
+            } as never,
+          })
+          repares++
+        }
+        return repares
       },
 
       getProchaineEtape: (surveillance) => {
@@ -292,9 +408,13 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
               }>
             }>
             let nsSansObs = 0
+            let nvSansMotif = 0
             const compter = (items?: Array<{ resultat?: string; observation?: string; observation_stylus_data?: string }>) => {
               for (const i of items || []) {
-                if ((i.resultat || '').toUpperCase() === 'NS' && !(i.observation || '').trim() && !(i.observation_stylus_data || '').trim()) nsSansObs++
+                const sansMotif = !(i.observation || '').trim() && !(i.observation_stylus_data || '').trim()
+                if ((i.resultat || '').toUpperCase() === 'NS' && sansMotif) nsSansObs++
+                // NV sans motif : on ne signe pas sans savoir pourquoi ce n'est pas vérifié.
+                if ((i.resultat || '').toUpperCase() === 'NV' && sansMotif) nvSansMotif++
               }
             }
             if (hierarchie.length > 0) {
@@ -311,6 +431,9 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
             if (nsSansObs > 0) {
               return { peut: false, raison: `${nsSansObs} item(s) NS sans observation — justifiez chaque non-conformité avant de signer` }
             }
+            if (nvSansMotif > 0) {
+              return { peut: false, raison: `${nvSansMotif} item(s) NV sans motif — dites pourquoi chaque item n'est pas vérifié avant de signer` }
+            }
             return { peut: true }
           }
           case 'checklist_signee': {
@@ -321,9 +444,18 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
           }
           case 'ecarts_signes': return { peut: true }
           case 'rapport_signe': {
+            // R3 — le rapport est signé par tous les titulaires et principaux
+            // de l'équipe (chef compris), observateurs exclus.
             const signatures = surveillance.signatures_rapport || []
-            if (signatures.length < surveillance.equipe_ids.length) {
-              return { peut: false, raison: 'Tous les inspecteurs n\'ont pas signé' }
+            const stRapport = get()
+            const requis = signatairesRequisRapport(
+              surveillance.equipe_ids, surveillance.chef_id,
+              stRapport.inspecteurs || [], stRapport.utilisateurs || [],
+            )
+            const signataires = new Set(signatures.map(s => s.signataire_id))
+            const manquants = requis.filter(id => !signataires.has(id))
+            if (manquants.length > 0) {
+              return { peut: false, raison: `Signature du rapport : ${manquants.length} signataire(s) qualifié(s) manquant(s) — titulaires et principaux uniquement` }
             }
             return { peut: true }
           }
@@ -586,7 +718,13 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         // On valide donc sur l'existence d'au moins 1 signature, plutôt que sur (nombre signatures >= taille équipe).
         const checklistSignee = (surveillance.signatures_checklist?.length || 0) >= 1
         const ecartsTraites = itemsNSNV.length === ecarts.length
-        const rapportSigne = (surveillance.signatures_rapport?.length || 0) >= 1
+        // Cohérent avec la garde : tous les signataires qualifiés (R3).
+        const requisRapport = signatairesRequisRapport(
+          surveillance.equipe_ids, surveillance.chef_id,
+          get().inspecteurs || [], get().utilisateurs || [],
+        )
+        const signatairesRapport = new Set((surveillance.signatures_rapport || []).map(s => s.signataire_id))
+        const rapportSigne = requisRapport.length > 0 && requisRapport.every(id => signatairesRapport.has(id))
         const lettreSigneeDG = !!surveillance.lettre_signee_url
         const manquants: string[] = []
         if (!checklistSignee) manquants.push('Checklist non signée par toute l\'équipe')

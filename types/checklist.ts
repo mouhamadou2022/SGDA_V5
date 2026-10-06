@@ -23,6 +23,9 @@ export interface ChecklistItem {
   /** Item ajouté/modifié par le Chat IA — en attente de validation par l'inspecteur */
   aiPropose?: boolean;
   mode_saisie_obs?: ModeSaisie;
+  /** R2 — auteur du résultat (brouillon observateur jusqu'à reprise signataire). */
+  modified_by?: string;
+  last_modified?: string;
   // ── Directives d'évaluation (une phrase par état) ──────────────────────────
   directive_sa?: string;   // Critère "Satisfaisant" : ce qui caractérise une réponse SA
   directive_ns?: string;   // Critère "Non Satisfaisant" : ce qui caractérise une réponse NS

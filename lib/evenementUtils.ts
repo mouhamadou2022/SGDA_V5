@@ -1,6 +1,8 @@
 // lib/evenementUtils.ts
 import { EvenementSecurite } from './store'
 import { GRAVITE_EVENEMENT } from './config'
+import { getRiskLevelFromCell, getRiskLevelFromCell5 } from './risque/matrix'
+import { GRAVITE_LABEL, PROBABILITE_LABEL } from './risque/amdecEngine'
 
 /**
  * Niveaux de gravité d'un événement alignés sur les niveaux de risque
@@ -10,8 +12,8 @@ type NiveauGraviteEvenement = 'critique' | 'eleve' | 'moyen' | 'faible'
 
 const GRAVITE_RISQUE: Record<string, { label: string; classe: string }> = {
   critique: { label: 'Critique', classe: 'badge danger' },
-  eleve:    { label: 'Élevé',    classe: 'badge warning' },
-  moyen:    { label: 'Moyen',    classe: 'badge primary' },
+  eleve:    { label: 'Élevé',    classe: 'badge eleve' },
+  moyen:    { label: 'Moyen',    classe: 'badge moyen' },
   faible:   { label: 'Faible',   classe: 'badge success' },
 }
 
@@ -24,6 +26,97 @@ const GRAVITE_LEGACY: Record<string, NiveauGraviteEvenement> = {
  * Normalise la gravité d'un événement vers les 4 niveaux de risque.
  * Gère les anciennes valeurs OACI 5 niveaux persistées ou reçues de l'API.
  */
+/** Format cellule OACI : probabilité 1-5 + gravité A-E (ex. 2A, 4C). */
+export const FORMAT_CELLULE_OACI = /^[1-5][A-E]$/i
+
+/**
+ * Listes fermées de saisie (aucune valeur invalide possible) — libellés
+ * canoniques AMDEC/OACI (source unique : amdecEngine, pas de duplication).
+ */
+const ORDRE_PROBABILITE = ['5', '4', '3', '2', '1'] as const
+const ORDRE_GRAVITE = ['A', 'B', 'C', 'D', 'E'] as const
+export const PROBABILITE_OACI_OPTIONS = ORDRE_PROBABILITE.map(v => ({
+  value: v,
+  label: `${v} — ${PROBABILITE_LABEL[Number(v)]}`,
+}))
+export const GRAVITE_OACI_OPTIONS = ORDRE_GRAVITE.map(v => ({
+  value: v,
+  label: `${v} — ${GRAVITE_LABEL[v as keyof typeof GRAVITE_LABEL]}`,
+}))
+
+export function normaliserCellule(cellule: string | undefined | null): string | null {
+  const c = (cellule || '').trim().toUpperCase()
+  return FORMAT_CELLULE_OACI.test(c) ? c : null
+}
+
+/**
+ * Gravité dérivée d'une cellule OACI via la matrice (référence unique).
+ * 'tres_faible' matriciel → 'faible' événement (4 niveaux). null si format invalide.
+ */
+export function graviteDepuisCellule(cellule: string | undefined | null): NiveauGraviteEvenement | null {
+  const c = normaliserCellule(cellule)
+  if (!c) return null
+  const niveau = getRiskLevelFromCell(c)
+  if (niveau === 'tres_faible') return 'faible'
+  if (niveau === 'critique' || niveau === 'eleve' || niveau === 'moyen' || niveau === 'faible') return niveau
+  return 'moyen'
+}
+
+/**
+ * Niveau matriciel 5 niveaux d'une cellule (null si invalide) — échelle fine
+ * (avec 'tres_faible') pour comparer initial/résiduel : un initial 'faible'
+ * admet un résiduel 'tres_faible' (ex. 1E), sinon aucun résiduel ne serait
+ * jamais valable au plancher.
+ */
+export function niveauDepuisCellule(cellule: string | undefined | null): string | null {
+  const c = normaliserCellule(cellule)
+  if (!c) return null
+  return getRiskLevelFromCell5(c)
+}
+
+/** Ordre croissant des niveaux (échelle matrice 5 niveaux). */
+export const ORDRE_NIVEAU_RISQUE: Record<string, number> = {
+  tres_faible: 0, faible: 1, moyen: 2, eleve: 3, critique: 4,
+}
+
+export function libelleNiveau5(niveau: string): string {
+  const labels: Record<string, string> = {
+    critique: 'Critique', eleve: 'Élevé', moyen: 'Moyen', faible: 'Faible', tres_faible: 'Très faible',
+  }
+  return labels[(niveau || '').toLowerCase()] || niveau
+}
+
+/**
+ * Axes proposables pour le résiduel : seules les probabilités/gravités dont
+ * AU MOINS une combinaison donne un niveau strictement inférieur à l'initial
+ * (matrice canonique — guide l'exploitant AVANT l'erreur, pas après).
+ */
+export function axesResiduelCoherents(niveauInitial: string): { probas: string[]; gravites: string[] } {
+  const ini = ORDRE_NIVEAU_RISQUE[(niveauInitial || '').toLowerCase()] ?? 99
+  const probas = new Set<string>()
+  const gravites = new Set<string>()
+  for (const p of ['1', '2', '3', '4', '5']) {
+    for (const g of ['A', 'B', 'C', 'D', 'E']) {
+      if ((ORDRE_NIVEAU_RISQUE[getRiskLevelFromCell5(`${p}${g}`)] ?? 99) < ini) {
+        probas.add(p)
+        gravites.add(g)
+      }
+    }
+  }
+  return { probas: [...probas].sort(), gravites: [...gravites].sort() }
+}
+
+/**
+ * Résiduel STRICTEMENT inférieur à l'initial (échelle 5 niveaux) ?
+ * L'initial 4-niveaux (gravité événement) se place sur la même échelle.
+ */
+export function estResiduelCoherent(niveauInitial: string, celluleResiduelle: string | undefined | null): boolean {
+  const res = niveauDepuisCellule(celluleResiduelle)
+  if (!res) return false
+  const ini = (niveauInitial || '').toLowerCase()
+  return (ORDRE_NIVEAU_RISQUE[res] ?? -1) < (ORDRE_NIVEAU_RISQUE[ini] ?? 99)
+}
+
 export function normaliserGravite(gravite: string | undefined | null): NiveauGraviteEvenement {
   const g = (gravite || '').trim().toLowerCase()
   if (g === 'critique' || g === 'eleve' || g === 'moyen' || g === 'faible') return g

@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react'
 import { ProfilRisque, EvenementSecurite, Ecart, Surveillance } from '@/lib/store'
+import type { Aerodrome } from '@/lib/store/aerodromesSlice'
 import { getSgsMaturiteLabel } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Target, Clock, BarChart3, CheckCircle2, Calendar } from 'lucide-react'
@@ -13,6 +14,7 @@ import { getRiskLevelBgVariant } from '@/lib/risque'
 import { recommendationEngine } from '@/lib/ia/engines/recommendationEngine'
 import RecommandationDuJourCard from './RecommandationDuJourCard'
 import DecisionLangageClair from './DecisionLangageClair'
+import FicheAerodromeLangageClair from './FicheAerodromeLangageClair'
 
 interface Props {
   profil: ProfilRisque
@@ -25,9 +27,11 @@ interface Props {
   ecartsActifs?: Ecart[]
   evenements?: EvenementSecurite[]
   sgsNonApplicable?: boolean
+  /** Fiche aérodrome (formulaire) pour la section langage clair (optionnel). */
+  aerodrome?: Aerodrome | null
 }
 
-export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [], evenements = [], sgsNonApplicable = false }: Props) {
+export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques, userRole, onRecalculate, prochainesSurveillances = [], ecartsActifs = [], evenements = [], sgsNonApplicable = false, aerodrome = null }: Props) {
   const isDG = userRole === 'dg_anacim' || userRole === 'dg_operator' || userRole === 'focal_operator'
 
   const recommandationDuJour = useMemo(() => {
@@ -88,6 +92,9 @@ export default function DecisionTab({ profil, aerodromeCode, aerodromeName, nbEc
         prochainesSurveillances={prochainesSurveillances}
         evenements={evenements}
       />
+
+      {/* Fiche de l'aérodrome en langage clair (données du formulaire) */}
+      {aerodrome && <FicheAerodromeLangageClair aerodrome={aerodrome} />}
 
       {/* Carte score principal */}
       <div className={`rounded-2xl border-2 ${config.border} ${config.bg} p-6`}>

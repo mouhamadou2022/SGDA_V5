@@ -50,7 +50,7 @@ seul `registerStoreSubscriptions()` (bas de `lib/store.ts`) S'ABONNE.
 
 | Événement | Émetteurs | Abonné (propriétaire) |
 |---|---|---|
-| `risque:recalcul-demande` | aerodromes, amdec, certification, ecarts, evenements, homologation | profils (recalcul) |
+| `risque:recalcul-demande` | aerodromes, amdec, certification, ecarts, enquetes (réponses → C1), evenements, exemptions (clés C3 seules, anti-boucle), homologation, surveillances (statut/score → C3) | profils (recalcul) |
 | `planning:mission-terminee` | workflow (transmission, archivage) | plannings (`marquerMissionTerminee`) |
 | `planning:mission-annulee` | surveillances (suppression) | plannings (`restaurerMissionAnnulee`) |
 | `notification:envoyer` | ~66 sites (tous les slices) | notifications (`addNotification`) |

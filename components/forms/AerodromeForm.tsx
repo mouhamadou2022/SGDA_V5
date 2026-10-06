@@ -100,7 +100,7 @@ function getStep5Fields(te: TypeEntiteAerodrome): string[] {
 interface AiSuggestionField {
   value: string | number;
   confidence: number;
-  source: 'training' | 'websearch' | 'nominatim' | 'estimate' | '';
+  source: 'training' | 'websearch' | 'nominatim' | 'aip_asecna' | 'estimate' | '';
 }
 
 interface AiSuggestion {
@@ -174,63 +174,29 @@ interface OurAirportsRecord {
   altitude: number | null;
 }
 
-const WEST_AFRICA_ICAO = /^(DB|DG|DI|DN|DR|DX|GA|GB|GG|GL|GO|GU|GV|GX)/i;
-let ourAirportsCache: OurAirportsRecord[] | null = null;
-
-async function loadOurAirports(): Promise<OurAirportsRecord[]> {
-  if (ourAirportsCache) return ourAirportsCache;
+// Lookup OurAirports via la route serveur (le CSV fait ~30 Mo : jamais côté
+// navigateur, jamais de CORS). Matching : code exact, nom insensible aux
+// accents départagé par proximité, rayon progressif (lib/ia/ourAirports.ts).
+async function chercherOurAirports(params: { code?: string; nom?: string; lat?: number; lon?: number }): Promise<OurAirportsRecord | null> {
   try {
-    const res = await fetch('https://ourairports.com/data/airports.csv');
-    if (!res.ok) return [];
-    const csv = await res.text();
-    const rows: OurAirportsRecord[] = [];
-    for (const line of csv.split('\n')) {
-      const cols = line.split(',');
-      const oaci = (cols[1]?.replace(/"/g, '') || '').trim();
-      if (!WEST_AFRICA_ICAO.test(oaci)) continue;
-      rows.push({
-        oaci,
-        type: cols[2]?.replace(/"/g, '') || '',
-        nom: cols[3]?.replace(/"/g, '') || '',
-        municipality: cols[10]?.replace(/"/g, '') || '',
-        region_iso: cols[9]?.replace(/"/g, '') || '',
-        latitude: parseFloat(cols[4]) || null,
-        longitude: parseFloat(cols[5]) || null,
-        altitude: parseFloat(cols[8]) || null,
-      });
-    }
-    ourAirportsCache = rows;
-    return rows;
-  } catch { return []; }
+    const q = new URLSearchParams();
+    if (params.code) q.set('code', params.code);
+    if (params.nom) q.set('nom', params.nom);
+    if (params.lat != null) q.set('lat', String(params.lat));
+    if (params.lon != null) q.set('lon', String(params.lon));
+    const res = await fetch(`/api/ia/aerodromes-ourairports?${q.toString()}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.match as OurAirportsRecord | null) || null;
+  } catch { return null; }
 }
 
 async function searchOurAirportsByCode(codeOACI: string): Promise<OurAirportsRecord | null> {
-  const rows = await loadOurAirports();
-  const code = codeOACI.toUpperCase();
-  return rows.find(r => r.oaci === code) || null;
+  return chercherOurAirports({ code: codeOACI });
 }
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// Recherche par nom / municipalité, sinon aérodrome le plus proche des coordonnées (rayon 20 km)
-async function searchOurAirportsByName(nom: string, lat: number, lon: number): Promise<OurAirportsRecord | null> {
-  const rows = await loadOurAirports();
-  const q = nom.toLowerCase().trim();
-  const byName = rows.filter(r => r.nom.toLowerCase().includes(q) || r.municipality.toLowerCase().includes(q));
-  if (byName.length > 0) return byName[0];
-  const nearest = rows
-    .filter(r => r.latitude != null && r.longitude != null)
-    .map(r => ({ r, d: haversineKm(lat, lon, r.latitude as number, r.longitude as number) }))
-    .filter(x => x.d <= 20)
-    .sort((a, b) => a.d - b.d);
-  return nearest[0]?.r || null;
+export async function searchOurAirportsByName(nom: string, lat: number, lon: number): Promise<OurAirportsRecord | null> {
+  return chercherOurAirports({ nom, lat, lon });
 }
 
 // ── WebSearch Wikipédia (résumé de l'article) ───────────────────────────────
@@ -283,13 +249,18 @@ function enregistrerFeedbackEnrichissement(opts: { aerodromeId?: string; coordon
   }
 }
 
+/** Détecte un code OACI ouest-africain dans un texte libre (mêmes préfixes que le filtre CSV). */
+export function detectCodeOaci(texte: string): string {
+  const m = (texte || '').match(/\b(DB|DG|DI|DN|DR|DX|GA|GB|GG|GL|GO|GU|GV|GX)[A-Z]{2}\b/i);
+  return m ? m[0].toUpperCase() : '';
+}
+
 async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>, nomSaisi?: string, regionHint?: string): Promise<AiSuggestion | null | 'LLM_UNAVAILABLE'> {
   try {
     // Nom : priorité au nom saisi dans le formulaire, sinon au reverse geocoding
     const searchName = (nomSaisi || nom || '').trim();
     // Code OACI : détecté dans le nom saisi puis dans le nom du reverse geocoding
-    const oaciMatch = (searchName + ' ' + nom).match(/\bGO[A-Z]{2}\b/i);
-    const codeOACI = oaciMatch ? oaciMatch[0].toUpperCase() : '';
+    const codeOACI = detectCodeOaci(searchName + ' ' + nom);
 
     // Recherches sur le net : OurAirports (code OACI → nom → plus proche des coordonnées)
     let ourAirports = codeOACI ? await searchOurAirportsByCode(codeOACI) : null;
@@ -297,6 +268,21 @@ async function suggestAerodrome(nom: string, lat: number, lon: number, existingD
     const oaciFinal = codeOACI || ourAirports?.oaci || '';
     // Wikipédia : résumé de l'article fourni à l'IA
     const wiki = await searchWikipedia(searchName || ourAirports?.nom || oaciFinal);
+    // Recherche web autorités (ASECNA eAIP, ANACIM…) : l'IA cherche elle-même
+    // sur le net au lieu d'un parser sur mesure (résistant aux refontes de sites).
+    // Best-effort : un échec n'empêche jamais la suggestion.
+    let blocWeb = '';
+    try {
+      const { rechercherAutorite, formaterSourcesWeb } = await import('@/lib/ia/rag/rechercheWeb');
+      const requete = oaciFinal
+        ? `AD-2 ${oaciFinal} ${searchName || ourAirports?.nom || ''}`.trim()
+        : `aérodrome ${searchName || nom}`;
+      const resultats = await rechercherAutorite(requete, {
+        max: 3,
+        sites: ['site:aim.asecna.aero', 'site:anacim.sn'],
+      });
+      blocWeb = formaterSourcesWeb(resultats, 3);
+    } catch { /* recherche web indisponible : on continue sans */ }
 
     const prompt = `Tu es un expert ICAO spécialiste des aérodromes d'Afrique de l'Ouest.
 Aérodrome recherché : "${searchName || nom}"
@@ -306,6 +292,7 @@ Région (reverse geocoding) : ${regionHint || 'inconnue'}
 Code OACI : ${oaciFinal || 'non détecté'}
 ${ourAirports ? `Données OurAirports trouvées (source web) : ${JSON.stringify(ourAirports)}` : 'Aucune donnée OurAirports trouvée'}
 ${wiki ? `Résumé Wikipédia trouvé (source web) : ${wiki}` : 'Aucun article Wikipédia trouvé'}
+${blocWeb || 'Aucune source autorité (ASECNA/ANACIM) trouvée en ligne'}
 ${existingData ? `Données déjà renseignées (ne suggère que les champs vides ou à améliorer) :\n${JSON.stringify(existingData, null, 2)}` : ''}
 
 Retourne UNIQUEMENT un objet JSON valide, sans texte avant ni après.
@@ -316,6 +303,8 @@ Pour chaque champ, estime ta confiance (0-100) :
 - 50-69 : estimation raisonnable
 - 20-49 : supposition
 - 0-19 : inconnu (mets value="" et confidence=0)
+
+Priorités : pour piste (longueur/largeur/orientation/revêtement), altitude et catégorie SSLIA, fie-toi d'abord aux sources AIP ASECNA ci-dessus quand présentes (mets source "aip_asecna") ; à défaut OurAirports (source "websearch"), sinon ton training. Cite la source réelle utilisée dans chaque champ.
 
 Format de réponse :
 {
@@ -910,7 +899,7 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
   if (!suggestion) return (
     <div className="flex flex-col items-center justify-center py-20 gap-4 text-center text-muted-foreground">
       <MapPin className="w-14 h-14 opacity-20"/>
-      <div><p className="font-medium text-foreground">Aucune suggestion AERORISQ</p><p className="text-sm mt-1">Analyse impossible pour ces coordonnées.</p></div>
+      <div><p className="font-medium text-foreground">Aucune suggestion AERORISQ</p><p className="text-sm mt-1">Aucune donnée trouvée (ni en ligne, ni dans la base). Vérifiez le nom, le code OACI ou les coordonnées, puis réessayez.</p></div>
       <div className="flex gap-2">
         {onRetry && <button onClick={onRetry} className="btn btn-primary mt-2 gap-2"><Sparkles className="w-4 h-4"/>Réessayer</button>}
         <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans AERORISQ</button>
@@ -1269,8 +1258,12 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
   const enrichedKey = useRef<string>('')
   const requestSeq = useRef(0)
   const handleRunAnalysis = useCallback(async (lat: number, lon: number) => {
-    if (!lat||!lon||isNaN(lat)||isNaN(lon)) return;
-    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
+    // Garde typée (saisie manuelle = string possible) + clé incluant le NOM :
+    // corriger le nom relance l'analyse (l'ancien garde coords-seules l'ignorait).
+    const la = Number(lat)
+    const lo = Number(lon)
+    if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
+    const key = `${la.toFixed(4)},${lo.toFixed(4)}|${(form.getValues('nom') || '').trim().toLowerCase()}`
     if (enrichedKey.current === key) return;
     if (assistantAgent.isLLMAvailable() === false) {
       setLlmError('L\'assistant AERORISQ n\'est pas disponible — démarrez Ollama (ollama serve) ou configurez une clé cloud dans .env.local')
@@ -1280,14 +1273,24 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     setIsEnriching(true);
     const mySeq = ++requestSeq.current
     try {
-      const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=fr&namedetails=1&zoom=14`);
+      // Nominatim isolé : timeout + try/catch dédiés — un reverse qui échoue
+      // (quota 1 req/s, 403/429) continue avec le nom saisi seul au lieu de
+      // tuer toute l'analyse (suggestAerodrome le priorise déjà).
+      let name = ''
+      let regionHint = ''
+      try {
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${la}&lon=${lo}&accept-language=fr&namedetails=1&zoom=14`, { signal: AbortSignal.timeout(8000) });
+        if (!geoRes.ok) throw new Error(`Nominatim HTTP ${geoRes.status}`);
+        const geoData = await geoRes.json();
+        const address = geoData.address || {};
+        name = geoData.namedetails?.name || address.aerodrome || address.airport || geoData.display_name?.split(',')[0]?.trim() || '';
+        regionHint = address.state ? mapNominatimToRegion(String(address.state)) : '';
+      } catch (errGeo) {
+        console.warn('[AerodromeForm] Reverse geocoding indisponible, suite avec le nom saisi :', (errGeo as Error)?.message);
+      }
       if (mySeq !== requestSeq.current) return;
-      const geoData = await geoRes.json();
-      const address = geoData.address || {};
-      const name = geoData.namedetails?.name || address.aerodrome || address.airport || geoData.display_name?.split(',')[0]?.trim() || '';
-      const regionHint = address.state ? mapNominatimToRegion(String(address.state)) : '';
       const result = await suggestAerodrome(
-        name, lat, lon,
+        name, la, lo,
         aerodrome ? {
           nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, region: aerodrome.region,
           type: aerodrome.type, type_entite: aerodrome.type_entite,
@@ -1311,7 +1314,11 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         if (result) enrichedKey.current = key
       }
     } catch {
-      if (mySeq === requestSeq.current) setAiSuggestion(null);
+      // Échec visible (plus jamais silencieux) : le panneau affiche la cause.
+      if (mySeq === requestSeq.current) {
+        setAiSuggestion(null);
+        setLlmError('Enrichissement impossible (réseau ou IA indisponible) — renseignez les champs manuellement ou réessayez.');
+      }
     }
     if (mySeq === requestSeq.current) setIsEnriching(false);
   }, [aerodrome, form]);
@@ -1414,7 +1421,10 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     if (isSubmitting) return;
     // Étape 1 → 2 : déclencher l'analyse IA
     if (currentStep === 1) {
-      if (!currentLatitude||!currentLongitude||isNaN(currentLatitude)||isNaN(currentLongitude)) return;
+      if (!Number.isFinite(Number(currentLatitude)) || !Number.isFinite(Number(currentLongitude))) {
+        setLlmError('Coordonnées invalides — renseignez une latitude et une longitude valides avant de continuer.');
+        return;
+      }
       setCompletedSteps(prev => new Set([...prev, 1]));
       setCurrentStep(2);
       handleRunAnalysis(currentLatitude, currentLongitude);
@@ -1498,8 +1508,9 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         const newId = crypto.randomUUID();
         const newAero = { id:newId, ...cleanData, lat:data.latitude, lon:data.longitude, created_at:now, updated_at:now } as unknown as Aerodrome;
         await addAerodrome(newAero);
-        const { calculerProfilInitial, resumeRisqueInitial } = await import('@/lib/risque/initialProfile');
-        const ri = calculerProfilInitial(newAero);
+        const { calculerProfilInitial, resumeRisqueInitial, construireRefsFlotte } = await import('@/lib/risque/initialProfile');
+        const etat = useAppStore.getState();
+        const ri = calculerProfilInitial(newAero, construireRefsFlotte(etat.aerodromes || [], (etat.profilsRisque || {}) as Record<string, { c3?: number | null }>));
         await setProfilRisque(newId, ri.profil);
         const entityLabel = data.type_entite==='helistation' ? 'Hélistation' : data.type_entite==='mixte' ? 'Site mixte' : 'Aérodrome';
         addNotification({ user_id:user?.id||'', type:ri.profil.niveau==='critique'||ri.profil.niveau==='eleve'?'warning':'success', title:`${entityLabel} créé — Profil initialisé`, message:`${data.code_oaci || data.nom} — ${data.nom} · ${resumeRisqueInitial(ri)}`, canal:'in_app' });

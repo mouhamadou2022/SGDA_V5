@@ -668,7 +668,7 @@ export default function DetailsModal({
         <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
       }
     >
-      <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+      <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: 'Référence', value: d?.reference },

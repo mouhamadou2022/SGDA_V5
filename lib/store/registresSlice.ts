@@ -85,6 +85,17 @@ export const createRegistresSlice: StateCreator<AppStore, [], [], RegistreSlice>
   setRegistreEntries: (entries) => set({ registreEntries: entries }),
 
   addRegistreEntry: async (entry) => {
+    // Dédup auto-générés : même source déjà archivée → réutilisée, pas de
+    // doublon (re-transmission, double finalisation, double clic).
+    if (entry.source_id && entry.source_type) {
+      const existant = get().registreEntries.find(
+        e => e.source_id === entry.source_id && e.source_type === entry.source_type,
+      )
+      if (existant) {
+        console.info('[store] Entrée registre déjà archivée pour cette source — réutilisée.')
+        return
+      }
+    }
     const result = await datastore.saveRegistreEntry(entry)
     if (result.error) {
       console.error('[store] Erreur sauvegarde registre Supabase:', result.error)

@@ -83,6 +83,20 @@ export function buildFicheBriefingFilename(aerodromeCode?: string): string {
   return `fiche_briefing_${base}_${today}.pdf`
 }
 
+/** Source unique : lib/pdfText.ts (importable côté serveur aussi). */
+import { textePdf } from '@/lib/pdfText'
+export { textePdf }
+
+/**
+ * Normalise le type de mission pour le gabarit « mission de surveillance X »
+ * (évite « mission de surveillance Surveillance de maintien »).
+ */
+export function normaliserTypeMission(typeMission?: string): string {
+  const t = (typeMission || '').trim()
+  if (!t) return 'non précisé'
+  return t.replace(/^surveillance\s+/i, '').trim() || 'non précisé'
+}
+
 async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Blob }> {
   const { default: jsPDF } = await import('jspdf')
   const { applyPlugin } = await import('jspdf-autotable')
@@ -100,11 +114,16 @@ async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Bl
     }
   }
 
-  const wrapped = (text: string, size: number, maxWidth = CONTENT_W): string[] =>
-    doc.splitTextToSize(text, maxWidth).map(String)
+  // Mesure TOUJOURS avec la police/taille réelle de rendu : sinon les lignes
+  // calculées trop longues débordent dans la marge droite.
+  const wrapped = (text: string, size: number, maxWidth = CONTENT_W, bold = false): string[] => {
+    doc.setFont('times', bold ? 'bold' : 'normal')
+    doc.setFontSize(size)
+    return doc.splitTextToSize(textePdf(text), maxWidth).map(String)
+  }
 
   const paragraph = (text: string, size: number, opts: { color?: [number, number, number]; bold?: boolean; indent?: number; maxWidth?: number } = {}) => {
-    const lines = wrapped(text, size, opts.maxWidth ?? CONTENT_W - (opts.indent || 0))
+    const lines = wrapped(text, size, opts.maxWidth ?? CONTENT_W - (opts.indent || 0), !!opts.bold)
     const lineH = size * 0.45
     for (const line of lines) {
       ensure(lineH)
@@ -139,7 +158,7 @@ async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Bl
     doc.setFont('times', 'bold')
     doc.setFontSize(13)
     doc.setTextColor(...PRIMARY)
-    doc.text(text, MARGIN, y)
+    doc.text(textePdf(text), MARGIN, y)
     y += 2
     doc.setDrawColor(...PRIMARY)
     doc.setLineWidth(0.4)
@@ -158,7 +177,14 @@ async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Bl
     }
   }
 
-  const { fiche, planning, aerodrome } = data
+  // Assainissement global : tout texte IA ou utilisateur est normalisé pour
+  // les polices standard (sinon glyphes corrompus type « !’ » et débordements).
+  const fiche = JSON.parse(JSON.stringify(data.fiche, (_k, v) => (typeof v === 'string' ? textePdf(v) : v))) as FicheBriefing
+  const { planning } = data
+  const aerodrome = data.aerodrome
+    ? { ...data.aerodrome, nom: textePdf(data.aerodrome.nom) }
+    : undefined
+  const redacteur = textePdf(data.redacteur)
   const codeAero = aerodrome?.code_oaci || fiche.aerodrome || 'AÉRODROME'
 
   // ── Page de garde ──────────────────────────────────────────
@@ -189,8 +215,8 @@ async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Bl
   doc.setTextColor(0x47, 0x55, 0x69)
   const dateGenere = fiche.genere_le ? new Date(fiche.genere_le).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
   doc.text(`Émis le ${dateGenere}`, PAGE_W / 2, 138, { align: 'center' })
-  if (data.redacteur) {
-    doc.text(`Rédacteur : ${data.redacteur}`, PAGE_W / 2, 145, { align: 'center' })
+  if (redacteur) {
+    doc.text(`Rédacteur : ${redacteur}`, PAGE_W / 2, 145, { align: 'center' })
   }
 
   doc.setFontSize(9)
@@ -203,11 +229,11 @@ async function buildBriefingPDF(data: FicheBriefingPDFInput): Promise<{ blob: Bl
 
   // ── 1. Récapitulatif de la mission ─────────────────────────
   sectionTitle('1. RÉCAPITULATIF DE LA MISSION')
-  paragraph(`Fiche de briefing établie pour la mission de surveillance ${fiche.type_mission || 'non précisé'} de l'aérodrome ${codeAero}, couvrant la période du ${fiche.periode || '—'}. Elle consolide le profil de risque, l'historique des surveillances, les écarts actifs et les PAC en cours de l'aérodrome.`, 10.5)
+  paragraph(`Fiche de briefing établie pour la mission de surveillance ${normaliserTypeMission(fiche.type_mission)} de l'aérodrome ${codeAero}, couvrant la période ${fiche.periode || '—'}. Elle consolide le profil de risque, l'historique des surveillances, les écarts actifs et les PAC en cours de l'aérodrome.`, 10.5)
 
   // KPI boxes
   const kpis = [
-    { value: fiche.reference || '—', label: 'Référence', color: PRIMARY },
+    { value: (fiche.reference || '—').slice(0, 20), label: 'Référence', color: PRIMARY },
     { value: `${fiche.confiance || 0}%`, label: 'Confiance IA', color: confianceColor(fiche.confiance ?? 0) },
     { value: String(fiche.objectifs?.length || 0), label: 'Objectifs', color: BLUE },
     { value: String(fiche.portee?.length || 0), label: 'Domaines', color: AMBER },

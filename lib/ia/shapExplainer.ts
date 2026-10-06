@@ -12,7 +12,7 @@
 
 import type { ProfilRisque, ScoreHistoryPoint } from '@/lib/store'
 import { calculateGlobalScore } from '@/lib/risque'
-import { DEFAULT_WEIGHTS } from './weightController'
+import { DEFAULT_WEIGHTS, type WeightMap } from './weightController'
 
 export type ModeBaselineShap = 'neutre' | 'moyenne' | 'precedent'
 
@@ -123,14 +123,17 @@ function referencesParMode(
  * @param historique  points d'historique (pour les modes moyenne / précédent)
  * @param mode  baseline : neutre (50), moyenne historique ou mois précédent
  * @param statutSgs  statut SGS de l'aérodrome — C1 exclu de la décomposition si « non_applicable »
+ * @param poids  poids C1-C5 effectifs (appris) — repli défauts. DOIT être les
+ * mêmes que le moteur de score, sinon base + Σφ ≠ score (exactitude rompue).
  */
 export function calculerExplicationShap(
   profil: ProfilRisque,
   historique: ScoreHistoryPoint[] = [],
   mode: ModeBaselineShap = 'moyenne',
   statutSgs?: string,
+  poids?: WeightMap,
 ): ExplicationShap {
-  const w = DEFAULT_WEIGHTS
+  const w: Record<CleCritere, number> = { ...DEFAULT_WEIGHTS, ...poids } as Record<CleCritere, number>
   const criteres = criteresEffectifs(statutSgs)
   const wEff = poidsEffectifs(criteres, w)
   const { base, refs, libelle } = referencesParMode(mode, profil, historique, criteres, wEff)
@@ -143,7 +146,7 @@ export function calculerExplicationShap(
     somme += phi
   }
 
-  const score = calculateGlobalScore({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }, undefined, statutSgs === 'non_applicable')
+  const score = calculateGlobalScore({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }, w, statutSgs === 'non_applicable')
   const ecart = score - somme
 
   const sommeAbs = criteres.reduce((s, k) => s + Math.abs(phiRaw[k]), 0) || 1

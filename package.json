@@ -14,7 +14,9 @@
     "ci": "npm run typecheck && npm run lint && npm run test",
     "migrate:inspecteurs": "ts-node --project tsconfig.json scripts/migrate-inspecteurs.ts",
     "aerorisq:modelfile": "node scripts/build-aerorisq-modelfile.mjs",
-    "aerorisq:create": "ollama create aerorisq -f Modelfile.aerorisq"
+    "aerorisq:create": "ollama create aerorisq -f Modelfile.aerorisq",
+    "eval:aerorisq": "cross-env SGDA_EVAL_LIVE=1 jest lib/__tests__/evalsLive --runInBand --forceExit",
+    "eval:agents": "cross-env SGDA_EVAL_LIVE=1 jest lib/__tests__/agentsBench --runInBand --forceExit"
   },
   "jest": {
     "testEnvironment": "jsdom",

@@ -8,7 +8,7 @@ import { ChargerRedigerRapportModal } from '@/components/modules/surveillance/Ch
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { canEditSurveillanceContent } from '@/lib/config';
-import { getDomaineCode, expandDomaines, type DomaineCode } from '@/lib/domaines';
+import { getDomaineCode, expandDomaines, peutRecevoirDelegation, type DomaineCode } from '@/lib/domaines';
 
 // Extrait le code domaine depuis un élément de checklist_hierarchy.
 // Les id sont de la forme `kit_<surveillance>_<CODE>` ; le nom peut être le label
@@ -102,11 +102,13 @@ export default function SurveillanceDetailPage() {
   // membres éditent (l'admin ANACIM et les autres inspecteurs consultent).
   const equipeReadOnly = !canEditSurveillanceContent(surveillance?.chef_id, surveillance?.equipe_ids || [], user?.id);
 
-  // Vrais inspecteurs (membres de l'équipe de surveillance uniquement) pour la zone de délégation
+  // Inspecteurs délégables (membres de l'équipe, titulaires/principaux
+  // uniquement — observateurs exclus, règle peutRecevoirDelegation).
+  const fichesInspecteurs = useAppStore(s => s.inspecteurs);
   const inspecteursDisponibles: InspecteurDisponible[] = React.useMemo(() => {
     const equipeIds = new Set(surveillance?.equipe_ids || []);
     return utilisateurs
-      .filter(u => u.role === 'inspector' && u.statut !== 'inactif' && equipeIds.has(u.id))
+      .filter(u => equipeIds.has(u.id) && peutRecevoirDelegation(fichesInspecteurs, u))
       .map(u => {
         const comps = new Set<string>();
         (u.competences || []).forEach((c: { domaine?: string } | string) => {
@@ -133,7 +135,7 @@ export default function SurveillanceDetailPage() {
           derniereActivite: u.last_login,
         };
       });
-  }, [utilisateurs, surveillance?.chef_id, surveillance?.equipe_ids]);
+  }, [utilisateurs, fichesInspecteurs, surveillance?.chef_id, surveillance?.equipe_ids]);
 
   // Codes de la portée de la surveillance (étendue si AGA/AGA-xxx) pour filtrer
   // les domaines proposés dans la zone de délégation.

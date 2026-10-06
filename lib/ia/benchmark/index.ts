@@ -18,4 +18,9 @@ export {
   lireDernierOutcome,
   toBenchmarkSamples,
   MODELE_LABELS,
+  MIN_BENCHMARK_SAMPLES,
+  MIN_AUTO_SELECT_SAMPLES,
+  MIN_TEST_SIZE_FOR_AUTO_SELECT,
+  isSelectionReliable,
+  selectionBlockedMessage,
 } from './benchmarkEngine'

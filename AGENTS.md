@@ -19,7 +19,8 @@
 - Fichiers de référence : `lib/risque.ts`, `lib/risque/bowTieEngine.ts`, `lib/ia/weightController.ts`.
 
 ### Niveaux de risque
-- Utiliser `getRiskLevel(score)` (minuscules : `critique`, `eleve`, `moyen`, `faible`).
+- `getRiskLevel(score)` retourne des **MAJUSCULES** (`FAIBLE`, `MOYEN`, `ELEVE`, `CRITIQUE`) — clés de `RISK_LEVELS` (`lib/risque.ts`), utilisées pour l'indexation (ex. `RISK_LEVELS[niveau]`).
+- Pour des minuscules (`critique`, `eleve`, `moyen`, `faible`, type `NiveauRisque`), utiliser `mapScoreToRiskLevel(score)` (`lib/risque.ts`).
 - Mapper vers les classes CSS via `RISK_LEVELS` (`lib/risque.ts`).
 
 ### Maturité SGS

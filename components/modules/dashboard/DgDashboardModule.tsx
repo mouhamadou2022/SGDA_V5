@@ -459,6 +459,7 @@ export default function DgDashboardModule({ user: _user }: { user: any }) {
                 profil={profil}
                 aerodromeCode={aero.code_oaci}
                 aerodromeName={aero.nom}
+                aerodrome={aero}
                 nbEcartsCritiques={(ecarts || []).filter(e => e.aerodrome_id === aero.id && e.niveau_risque === 'critique' && e.statut !== 'cloture').length}
                 userRole={user?.role || 'dg_anacim'}
                 onRecalculate={() => recalculerProfilRisque(aero.id)}

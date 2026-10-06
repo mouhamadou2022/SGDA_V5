@@ -3,6 +3,7 @@
 
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
+import { storeEvents } from './eventBus'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -180,6 +181,11 @@ export const createEnquetesSlice: StateCreator<AppStore, [], [], EnqueteSlice> =
     set((state) => ({
       reponsesEnquetes: [...state.reponsesEnquetes, nouvelle]
     }))
+    // Dynamisme C1 (maturité SGS via score_c1) : toute réponse, quel que soit
+    // le point d'entrée (module enquêtes, portail exploitant, import).
+    if (nouvelle.aerodrome_id) {
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: nouvelle.aerodrome_id })
+    }
     import('../datastore').then(({ createReponseEnquete }) => {
       createReponseEnquete(nouvelle).then(r => {
         if (r.error) console.error('[enquetes] Sync réponse échouée:', r.error)

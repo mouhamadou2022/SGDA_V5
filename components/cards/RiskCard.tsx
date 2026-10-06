@@ -20,11 +20,11 @@ interface Props {
 
 export function RiskCard({ profil, aerodromeCode, aerodromeName, nbEcartsCritiques = 0, onView, compact = false, sgsNonApplicable = false }: Props) {
   const score = profil.score_global
-  const getScoreClr = (s: number) => s >= 80 ? 'text-success' : s >= 60 ? 'text-primary' : s >= 30 ? 'text-warning' : 'text-danger'
+  const getScoreClr = (s: number) => s >= 80 ? 'text-success' : s >= 60 ? 'text-moyen' : s >= 30 ? 'text-eleve' : 'text-danger'
   const getNiveauBadge = () => {
     if (score >= 80) return 'badge success'
-    if (score >= 60) return 'badge primary'
-    if (score >= 30) return 'badge warning'
+    if (score >= 60) return 'badge moyen'
+    if (score >= 30) return 'badge eleve'
     return 'badge danger'
   }
   const getBorderClr = () => {

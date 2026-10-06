@@ -25,7 +25,20 @@ export interface InspecteurFeedbackRecord {
   aerodromeId?: string
   surveillanceId?: string
   confiance?: number
+  /** Inspecteur auteur du retour (objectivité individuelle). */
+  inspecteurId?: string
 }
+
+export interface ObjectiviteInspecteur {
+  inspecteurId: string
+  volume: number
+  tauxAcceptation: number
+  /** Confiance aveugle : tout accepté sans jamais corriger ni rejeter. */
+  aveugle: boolean
+}
+
+/** Seuils de confiance aveugle : volume minimal + taux d'acceptation. */
+export const SEUIL_OBJECTIVITE = { volumeMin: 10, tauxAveugle: 90 }
 
 export interface CapaciteStats {
   total: number
@@ -194,6 +207,34 @@ class InspecteurMonitoringStore {
     }
 
     return serie
+  }
+
+  /**
+   * Objectivité par inspecteur : un taux d'acceptation ≥ 90 % avec un volume
+   * suffisant signale une confiance aveugle (jamais corrigé ni rejeté) — à
+   * signaler au chef, pas à sanctionner automatiquement.
+   */
+  objectiviteParInspecteur(retours?: InspecteurFeedbackRecord[]): ObjectiviteInspecteur[] {
+    const source = retours ?? this.retours
+    const parInspecteur = new Map<string, InspecteurFeedbackRecord[]>()
+    for (const r of source) {
+      if (!r.inspecteurId) continue
+      const liste = parInspecteur.get(r.inspecteurId) ?? []
+      liste.push(r)
+      parInspecteur.set(r.inspecteurId, liste)
+    }
+    const resultat: ObjectiviteInspecteur[] = []
+    for (const [inspecteurId, liste] of parInspecteur) {
+      const acceptees = liste.filter(r => r.action === 'acceptee').length
+      const tauxAcceptation = liste.length > 0 ? Math.round((acceptees / liste.length) * 100) : 0
+      resultat.push({
+        inspecteurId,
+        volume: liste.length,
+        tauxAcceptation,
+        aveugle: liste.length >= SEUIL_OBJECTIVITE.volumeMin && tauxAcceptation >= SEUIL_OBJECTIVITE.tauxAveugle,
+      })
+    }
+    return resultat.sort((a, b) => b.tauxAcceptation - a.tauxAcceptation)
   }
 
   getStats(): InspecteurMonitoringStats {

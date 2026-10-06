@@ -77,6 +77,72 @@ export function declarativeNiveauVersNombre(niveau: string | number): number {
 }
 
 /**
+ * Normalise un domaine de compétence hérité de données sales.
+ * Certains enregistrements historiques stockent le domaine sous forme de
+ * JSON sérialisé ('{"domaine":"COP","niveau":3}') ou d'objet imbriqué
+ * ({ domaine: 'COP', ... }) au lieu du code brut ('COP') — ce qui affichait
+ * du JSON brut sur les cartes. Retourne '' si inexploitable.
+ */
+export function normaliserDomaineCompetence(domaine: unknown): string {
+  if (typeof domaine === 'string') {
+    const t = domaine.trim()
+    if (!t) return ''
+    if (t.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(t) as any
+        const inner = parsed?.domaine ?? parsed?.code ?? parsed?.id
+        return typeof inner === 'string' ? inner.trim() : ''
+      } catch {
+        return t
+      }
+    }
+    return t
+  }
+  if (domaine && typeof domaine === 'object') {
+    const inner = (domaine as any).domaine ?? (domaine as any).code ?? (domaine as any).id
+    return typeof inner === 'string' ? inner.trim() : ''
+  }
+  return ''
+}
+
+/** Normalise un niveau de compétence vers l'échelle 1-5 (défaut 1 si illisible). */
+export function normaliserNiveauCompetence(niveau: unknown): number {
+  if (typeof niveau === 'number' && Number.isFinite(niveau)) return Math.min(5, Math.max(1, Math.round(niveau)))
+  if (typeof niveau === 'string') {
+    const t = niveau.trim()
+    if (!t) return 1
+    const n = parseInt(t, 10)
+    if (!isNaN(n)) return Math.min(5, Math.max(1, n))
+    return declarativeNiveauVersNombre(t)
+  }
+  return 1
+}
+
+/**
+ * Répare une entrée de compétence sale (domaine JSON/objet imbriqué,
+ * niveau textuel). Retourne null si le domaine reste inexploitable
+ * (entrée à écarter plutôt qu'à afficher en JSON brut).
+ */
+export function reparerCompetence(c: any, inspecteurId: string, now?: string): Competence | null {
+  const item = typeof c === 'string' && c.trim().startsWith('{')
+    ? (() => { try { return JSON.parse(c) } catch { return null } })()
+    : c
+  if (!item || typeof item !== 'object') return null
+  const domaine = normaliserDomaineCompetence((item as any).domaine ?? (item as any).code)
+  if (!domaine) return null
+  return {
+    id: (item as any).id || crypto.randomUUID(),
+    inspecteur_id: inspecteurId,
+    domaine,
+    niveau: normaliserNiveauCompetence((item as any).niveau),
+    date_obtention: (item as any).date_obtention || now || new Date().toISOString(),
+    source: (item as any).source || 'auto',
+    source_id: (item as any).source_id,
+    expire_le: (item as any).expire_le,
+  }
+}
+
+/**
  * Convertit des compétences déclaratives (Utilisateur) en entités Competence
  * (Inspecteur). Remplace l'affectation directe qui mélangeait les deux
  * échelles — un niveau 'expert' textuel était ensuite comparé
@@ -88,14 +154,9 @@ export function declarativesVersCompetences(
 ): Competence[] {
   if (!declaratives || declaratives.length === 0) return []
   const now = new Date().toISOString()
-  return declaratives.map(d => ({
-    id: crypto.randomUUID(),
-    inspecteur_id: inspecteurId,
-    domaine: d.domaine,
-    niveau: declarativeNiveauVersNombre(d.niveau),
-    date_obtention: now,
-    source: 'auto' as const,
-  }))
+  return declaratives
+    .map(d => reparerCompetence(d, inspecteurId, now))
+    .filter((c): c is Competence => c !== null)
 }
 
 export interface Inspecteur {
@@ -141,6 +202,12 @@ export interface FormationSlice {
   getFormationsByInspecteur: (inspecteurId: string) => Formation[]
   mettreAJourCompetences: (inspecteurId: string, formationId: string) => void
   incrementerVersion: () => void
+  /**
+   * Migration corrective : normalise les compétences sales (domaine stocké en
+   * JSON sérialisé / objet imbriqué) et déduplique par domaine (niveau max
+   * conservé). Retourne le nombre d'inspecteurs réparés. Idempotent.
+   */
+  reparerCompetencesInspecteurs: () => Promise<number>
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -487,4 +554,29 @@ export const createFormationsSlice: StateCreator<AppStore, [], [], FormationSlic
   },
 
   incrementerVersion: () => set((s) => ({ competencesVersion: s.competencesVersion + 1 })),
+
+  reparerCompetencesInspecteurs: async () => {
+    const now = new Date().toISOString()
+    let repares = 0
+    for (const ins of get().inspecteurs) {
+      const raw = ins.competences || []
+      if (raw.length === 0) continue
+      // Déduplique par domaine normalisé (niveau max conservé).
+      const parDomaine = new Map<string, Competence>()
+      for (const c of raw) {
+        const reparee = reparerCompetence(c, ins.id, now)
+        if (!reparee) continue
+        const existante = parDomaine.get(reparee.domaine)
+        if (!existante || reparee.niveau > existante.niveau) parDomaine.set(reparee.domaine, reparee)
+      }
+      const nettoyees = Array.from(parDomaine.values())
+      const sale = nettoyees.length !== raw.length ||
+        raw.some(c => normaliserDomaineCompetence((c as any)?.domaine) !== (c as any)?.domaine || typeof (c as any)?.niveau !== 'number')
+      if (sale) {
+        await get().updateInspecteur(ins.id, { competences: nettoyees as any })
+        repares++
+      }
+    }
+    return repares
+  },
 })

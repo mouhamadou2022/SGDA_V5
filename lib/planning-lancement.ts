@@ -6,6 +6,15 @@
 // vit dans components/modules/planning/useLancerSurveillance.ts.
 
 import { normalizePlanningType } from './planning';
+import {
+  releveChecklistPAC,
+  peutRecevoirDelegation,
+  nomCompteDelegable,
+  qualiteCompte,
+  type EcartAvecPac,
+  type SourceQualite,
+  type CompteDelegable,
+} from './domaines';
 import { checklistMemory, type TypeInspection } from './checklistMemory';
 import { Planning, Surveillance, Delegation, Utilisateur, DomaineChecklist, ChecklistItem } from './store'
 
@@ -221,6 +230,70 @@ export function peutLancer(userId: string | undefined, chefId: string | undefine
   return !!userId && !!chefId && chefId === userId
 }
 
+/**
+ * Écarts à PAC accepté d'un site (retard-accepté inclus) : seuls éligibles
+ * à la checklist PAC. Règle canonique : releveChecklistPAC (lib/domaines.ts).
+ */
+export function ecartsPACAcceptes<T extends EcartAvecPac>(ecarts: T[] | undefined, aerodromeId: string): T[] {
+  return (ecarts || []).filter(e =>
+    e.aerodrome_id === aerodromeId && releveChecklistPAC(e),
+  )
+}
+
+/** Identité minimale pour la résolution compte ↔ fiche inspecteur. */
+export interface IdentiteMission {
+  id?: string
+  inspecteur_id?: string
+}
+export interface FicheInspecteurLien {
+  id: string
+  user_id?: string
+}
+
+/**
+ * Toutes les identités d'un utilisateur : compte + fiche inspecteur liée
+ * (dans les deux sens). Source unique — les gardes ci-dessous l'utilisent
+ * tous, pour ne jamais perdre ce correctif (chef stocké tantôt en id
+ * utilisateur, tantôt en id inspecteur selon le chemin de création).
+ */
+export function identitesUtilisateur(
+  user: IdentiteMission | null | undefined,
+  inspecteurs: FicheInspecteurLien[] | undefined,
+): string[] {
+  const ids = new Set<string>()
+  if (user?.id) ids.add(user.id)
+  if (user?.inspecteur_id) ids.add(user.inspecteur_id)
+  const lie = (inspecteurs || []).find(i => i.user_id === user?.id)
+  if (lie) ids.add(lie.id)
+  return [...ids]
+}
+
+/**
+ * Garde UNIQUE « est chef du planning » : accepte le compte comme la fiche
+ * inspecteur liée. Remplace les comparaisons brutes `chef_id === user.id`
+ * dispersées (tableau, cartes, modal, lancement).
+ */
+export function estChefDePlanning(
+  user: IdentiteMission | null | undefined,
+  inspecteurs: FicheInspecteurLien[] | undefined,
+  planning: { chef_id?: string },
+): boolean {
+  const chefId = planning.chef_id
+  if (!user?.id || !chefId) return false
+  return identitesUtilisateur(user, inspecteurs).includes(chefId)
+}
+
+/** Garde UNIQUE « membre de l'équipe » (même résolution d'identité). */
+export function estMembreEquipePlanning(
+  user: IdentiteMission | null | undefined,
+  inspecteurs: FicheInspecteurLien[] | undefined,
+  planning: { chef_id?: string; equipe_ids?: string[] },
+): boolean {
+  if (!user?.id || !planning.chef_id) return false
+  const ids = identitesUtilisateur(user, inspecteurs)
+  return (planning.equipe_ids || []).some(id => ids.includes(id))
+}
+
 function estCritique(niveauAlerte: string | undefined | null, prioriteDecision: string | undefined | null): boolean {
   return niveauAlerte === 'critique' || prioriteDecision === 'critique'
 }
@@ -302,6 +375,53 @@ export function buildPlanningFromSuggestion(
     created_at: now,
     updated_at: now,
   }
+}
+
+/**
+ * Délégations du planning dont le délégué n'a pas qualité signataire
+ * (observateur) : à réassigner avant lancement. Règle verrouillée.
+ */
+export function validerQualiteDelegations<
+  TFiche extends { id?: string; user_id?: string } & SourceQualite,
+  TCpte extends CompteDelegable,
+>(
+  mapping: Record<string, string> | undefined,
+  fiches: readonly TFiche[] | undefined,
+  comptes: readonly TCpte[] | undefined,
+): Array<{ domaine: string; inspecteurId: string; nom: string }> {
+  if (!mapping) return []
+  return Object.entries(mapping)
+    .filter(([, inspecteurId]) => !!inspecteurId)
+    .filter(([, inspecteurId]) => {
+      const compte = (comptes || []).find(c => c.id === inspecteurId)
+      return !peutRecevoirDelegation(fiches, compte)
+    })
+    .map(([domaine, inspecteurId]) => ({
+      domaine: String(domaine).toUpperCase(),
+      inspecteurId,
+      nom: nomCompteDelegable((comptes || []).find(c => c.id === inspecteurId)),
+    }))
+}
+
+/**
+ * Garde mission-sans-signataire : l'équipe (chef compris) doit compter au
+ * moins un titulaire ou principal — sinon personne ne peut signer.
+ */
+export function equipeASignataire<
+  TFiche extends { id?: string; user_id?: string } & SourceQualite,
+  TCpte extends CompteDelegable,
+>(
+  equipeIds: string[] | undefined,
+  chefId: string | undefined,
+  fiches: readonly TFiche[] | undefined,
+  comptes: readonly TCpte[] | undefined,
+): boolean {
+  const ids = new Set([...(equipeIds || []), ...(chefId ? [chefId] : [])])
+  for (const id of ids) {
+    const compte = (comptes || []).find(c => c.id === id)
+    if (qualiteCompte(fiches, compte) !== 'observateur') return true
+  }
+  return false
 }
 
 /** Ligne CSV d'export (en-têtes + lignes depuis les plannings enrichis). */

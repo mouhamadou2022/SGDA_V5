@@ -81,6 +81,18 @@ describe('ecartsSlice', () => {
     expect(ko.couleur).toBe('rouge')
   })
 
+  test('verifierRappelsEcarts : pac_soumis sans evaluation_pac ne plante pas', () => {
+    const s = isolated<EcartSlice>(createEcartsSlice)
+    s.setState({
+      user: null, utilisateurs: [], aerodromes: [],
+      getUtilisateur: () => undefined, addNotification: () => {},
+    } as unknown as Partial<EcartSlice>)
+    s.getState().setEcarts([
+      { ...base, id: 'e9', statut: 'pac_soumis' },
+    ])
+    expect(() => s.getState().verifierRappelsEcarts()).not.toThrow()
+  })
+
   test('marquerEcartEnRetard + statistiques', () => {
     const s = isolated<EcartSlice>(createEcartsSlice)
     // Doubles : marquage notifie l'inspecteur référent (store composé en prod).

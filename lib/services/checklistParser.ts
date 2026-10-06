@@ -1,10 +1,11 @@
 import type { DomaineChecklist, ChecklistItem } from '@/lib/store'
 import type { SGSQuestion, SGSDirectives, SGSGuideEtape } from '@/types/checklist'
+import { retirerDiacritiques } from '@/lib/domaines'
 
 export type ChecklistParseType = 'IT' | 'SOP' | 'QSC' | 'SGS' | 'VALIDATION_SITE' | 'HMG' | 'COP' | 'AUT'
 
 function detectTemplateType(filename: string, text: string): { type: ChecklistParseType; code: string } {
-  const upper = text.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const upper = retirerDiacritiques(text.toUpperCase())
   const fn = filename.toUpperCase()
 
   // SGS doit être vérifié avant QSC : un fichier SGS peut contenir le mot
@@ -596,7 +597,7 @@ function extractGlobalPAOEDefinitions(paragraphs: string[]): SGSGlobalDefinition
     if (/^Approprié\s*\(A\)\s*:/i.test(p)) { result.approprie = p.replace(/^Approprié\s*\(A\)\s*:\s*/i, '').trim(); inDirectives = false; continue }
     if (/^Opérationnel\s*\(O\)\s*:/i.test(p)) { result.operationnel = p.replace(/^Opérationnel\s*\(O\)\s*:\s*/i, '').trim(); inDirectives = false; continue }
     if (/^Efficace\s*\(E\)\s*:/i.test(p)) { result.efficace = p.replace(/^Efficace\s*\(E\)\s*:\s*/i, '').trim(); inDirectives = false; continue }
-    const pNorm = p.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const pNorm = retirerDiacritiques(p).toLowerCase()
     if (pNorm.includes('directives') && pNorm.includes('examen')) { inDirectives = true; continue }
     if (inDirectives && p.length > 10) result.directives += (result.directives ? '\n' : '') + p
   }

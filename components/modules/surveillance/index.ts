@@ -4,6 +4,7 @@
 export { SurveillanceChecklistStandard } from './SurveillanceChecklistStandard';
 export { SurveillanceChecklistSuiviEcarts, EcartEvaluationCard } from './SurveillanceChecklistSuiviEcarts';
 export { SurveillanceChecklistPAC } from './SurveillanceChecklistPAC';
+export { EquipeNoms } from './EquipeNoms';
 export { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 export { FileUploader } from '@/components/ui/FileUploader';
 

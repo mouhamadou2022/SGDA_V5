@@ -401,6 +401,10 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
       // Déterminer le type réel de la surveillance
       const surv = store.surveillances.find(s => s.id === surveillanceId)
       const typeReel: TypeInspection = (surv?.type as TypeInspection) || 'programmee'
+      // Clé mémoire = AERODROME (pas la surveillance) : l'ancien code écrivait
+      // des clés <surveillanceId>_… injouables par les prédictions.
+      const aeroIdMemoire = surv?.aerodrome_id
+      let sansAeroSignale = false
 
       // Parcourir la hiérarchie offline et synchroniser les changements
       for (const domaine of offlineHierarchy) {
@@ -409,9 +413,17 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
           for (const sousSousDomaine of ssdList) {
             for (const item of sousSousDomaine.items || []) {
               if (item.resultat) {
-                // Mettre à jour dans checklistMemory
-                checklistMemory.upsertItemHistory(
-                  surveillanceId,
+                // Via le slice (set store + sync Supabase) — l'appel direct au
+                // singleton sautait les deux (données mortes, non synchronisées).
+                if (!aeroIdMemoire) {
+                  if (!sansAeroSignale) {
+                    sansAeroSignale = true
+                    errors.push(`Aérodrome introuvable pour la surveillance ${surveillanceId} — mémoire non alimentée`)
+                  }
+                  continue
+                }
+                useAppStore.getState().upsertItemHistory(
+                  aeroIdMemoire,
                   typeReel,
                   domaine.nom,
                   sousDomaine.nom,

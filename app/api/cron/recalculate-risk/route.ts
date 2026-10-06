@@ -81,6 +81,32 @@ export async function GET(request: Request) {
       amdecParAerodrome.set(a.aerodrome_id, liste)
     }
 
+    // Enquêtes C1 : MÊME moyenne que le store (profilsSlice : moyenne des
+    // score_c1 par aérodrome, undefined si aucune). Sans ça, cron et store
+    // divergent dès la première réponse d'enquête → oscillation artificielle
+    // dans score_history → bruit dans vélocité/CUSUM/HMM/prédictions.
+    // Table vide aujourd'hui (= undefined des deux côtés), convergé pour demain.
+    const { data: reponsesRows } = await supabaseAdmin
+      .from('reponses_enquetes')
+      .select('aerodrome_id,score_c1')
+    const scoreEnquetesParAerodrome = new Map<string, number>()
+    {
+      const parAero = new Map<string, number[]>()
+      for (const r of ((reponsesRows || []) as Array<{ aerodrome_id?: string | null; score_c1?: number | null }>)) {
+        if (!r.aerodrome_id) continue
+        const s = Number(r.score_c1)
+        if (!Number.isFinite(s)) continue
+        const liste = parAero.get(r.aerodrome_id) || []
+        liste.push(s)
+        parAero.set(r.aerodrome_id, liste)
+      }
+      for (const [id, scores] of parAero) {
+        if (scores.length > 0) {
+          scoreEnquetesParAerodrome.set(id, scores.reduce((a, b) => a + b, 0) / scores.length)
+        }
+      }
+    }
+
     // Exemptions : persistées serveur depuis la Phase 3 (même forme que le
     // store : getExemptionsActives — statut active + date_fin_prevue future).
     interface ExemptionRow {
@@ -129,15 +155,14 @@ export async function GET(request: Request) {
           date: e.date || e.created_at,
         }))
 
-        // 3. Calcul via le moteur partagé (identique au store).
-        // Limite serveur restante : enquêtes C1 (réponses stockées côté
-        // client uniquement) → undefined ici comme avant.
+        // 3. Calcul via le moteur partagé (identique au store, enquêtes
+        // comprises : même table, même moyenne — convergence garantie).
         const moteur = computeProfilScore({
           aerodrome,
           ecarts: ecartsTous,
           surveillances: surveillancesTous,
           evenements: evenementsPourPred,
-          scoreC1Enquetes: undefined,
+          scoreC1Enquetes: scoreEnquetesParAerodrome.get(aerodromeId),
           exemptionsActives: exemptionsParAerodrome.get(aerodromeId) || [],
           analysesAmdec: amdecParAerodrome.get(aerodromeId) || [],
           weights: learnedWeights,

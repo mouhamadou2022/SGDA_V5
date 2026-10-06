@@ -698,8 +698,11 @@ ${JSON.stringify(contextData, null, 2)}`,
       sourcesInfo = `Chapitres ${mapping.numerosTrouves.join(', ')} du document ${doc.reference_base || doc.nom}`
     }
 
+    // Plafond contexte : 35000 car. ≈ 13000 tokens → 503 partout (Groq refuse,
+    // local avorte). 12000 ≈ 4000 tokens + prompt ≈ 5000 : Groq retente
+    // (cap 6000), le local tient. Mesuré : 15000 car. + prompt = 6125 tokens.
     const contexteTexte = chapitresPertinents.length > 0
-      ? chapitresPertinents.join('\n\n').substring(0, 35000)
+      ? chapitresPertinents.join('\n\n').substring(0, 12000)
       : texte.substring(0, 8000)
 
     const aerodromeType = aerodrome?.type_entite === 'helistation' ? 'helistation' : 'aerodrome'

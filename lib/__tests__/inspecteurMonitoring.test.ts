@@ -59,6 +59,35 @@ describe('inspecteurMonitoring', () => {
     expect(stats.maturiteGlobale).toBe(stats.parCapacite.checklist.maturite)
   })
 
+  test("objectivité : aveugle si tout accepté (volume suffisant), sinon non", () => {
+    for (let i = 0; i < 10; i++) {
+      inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'checklist', action: 'acceptee', inspecteurId: 'aveugle-1' }))
+    }
+    for (let i = 0; i < 6; i++) {
+      inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'checklist', action: 'acceptee', inspecteurId: 'sain-1' }))
+    }
+    inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'checklist', action: 'corrigee', inspecteurId: 'sain-1' }))
+    const parInspecteur = inspecteurMonitoring.objectiviteParInspecteur()
+    const aveugle = parInspecteur.find(o => o.inspecteurId === 'aveugle-1')!
+    expect(aveugle.volume).toBe(10)
+    expect(aveugle.tauxAcceptation).toBe(100)
+    expect(aveugle.aveugle).toBe(true)
+    const sain = parInspecteur.find(o => o.inspecteurId === 'sain-1')!
+    expect(sain.aveugle).toBe(false)
+  })
+
+  test("objectivité : sans inspecteurId → ignoré, petit volume → non aveugle", () => {
+    for (let i = 0; i < 3; i++) {
+      inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'checklist', action: 'acceptee' }))
+    }
+    for (let i = 0; i < 3; i++) {
+      inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'checklist', action: 'acceptee', inspecteurId: 'petit-1' }))
+    }
+    const parInspecteur = inspecteurMonitoring.objectiviteParInspecteur()
+    expect(parInspecteur.find(o => o.inspecteurId === 'petit-1')!.aveugle).toBe(false)
+    expect(parInspecteur.every(o => o.inspecteurId !== undefined)).toBe(true)
+  })
+
   test('toutes les capacités sont présentes dans les stats', () => {
     inspecteurMonitoring.enregistrer(makeRetour({ capacite: 'evenement', action: 'rejetee' }))
     const stats = inspecteurMonitoring.getStats()

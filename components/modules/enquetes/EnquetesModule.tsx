@@ -6,9 +6,11 @@ import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore, type Enquete } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { TYPES_ENQUETE, canManageRole } from '@/lib/config'
-import { ClipboardList, BarChart3, TrendingUp, Users, Calendar, CheckCircle2, Plus, PenSquare, Send, Search, Filter, X, Star, MessageSquare, FileQuestion, UserCheck } from 'lucide-react'
+import { TYPES_ENQUETE, TYPE_ENQUETE_AUTRE, canManageRole } from '@/lib/config'
+import { isSGSApplicable } from '@/lib/risque'
+import { ClipboardList, ClipboardCheck, BarChart3, TrendingUp, Users, Calendar, CheckCircle2, Plus, PenSquare, Send, Search, Filter, X, Star, MessageSquare, FileQuestion, UserCheck, History, HeartHandshake, ShieldCheck, Leaf, GraduationCap, Building2 } from 'lucide-react'
 import { verifierEquipeInstruction } from '@/lib/instructionHabilitation'
+import { prioriteEnquete } from '@/lib/processusTri'
 import { Card } from '@/components/ui/card';
 import { EnqueteForm } from '@/components/forms/EnqueteForm';
 import { EnqueteBuilder } from './EnqueteBuilder';
@@ -177,10 +179,38 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
         return <BarChart3 className="w-4 h-4" />;
       case 'Suivi':
         return <TrendingUp className="w-4 h-4" />;
+      case 'Audit interne':
+        return <ClipboardCheck className="w-4 h-4" />;
+      case "Retour d'expérience (REX)":
+        return <History className="w-4 h-4" />;
+      case 'Climat social / QVT':
+        return <HeartHandshake className="w-4 h-4" />;
+      case 'Sécurité des opérations':
+        return <ShieldCheck className="w-4 h-4" />;
+      case 'Sûreté aéroportuaire':
+        return <ShieldCheck className="w-4 h-4" />;
+      case 'Environnement':
+        return <Leaf className="w-4 h-4" />;
+      case 'Formation / Compétences':
+        return <GraduationCap className="w-4 h-4" />;
+      case 'Infrastructures / Équipements':
+        return <Building2 className="w-4 h-4" />;
       default:
         return <ClipboardList className="w-4 h-4" />;
     }
   };
+
+  // Filtre « type » : référentiel + types saisis librement présents dans les données
+  // (la sentinelle « Autre (préciser…) » n'est jamais persistée, on l'exclut).
+  const typesDisponibles = (() => {
+    const referentiel = (TYPES_ENQUETE as readonly string[]).filter(t => t !== TYPE_ENQUETE_AUTRE);
+    const customs = new Set<string>();
+    enquetes.forEach(e => {
+      const t = (e as any).type_enquete as string | undefined;
+      if (t && !(referentiel as readonly string[]).includes(t)) customs.add(t);
+    });
+    return [...referentiel, ...Array.from(customs).sort((a, b) => a.localeCompare(b, 'fr'))];
+  })();
 
   const handleNewEnquete = () => {
     setEditingEnquete(null);
@@ -405,14 +435,26 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
       score_c1: scoreC1,
     });
 
-    // Recalculer le profil de risque si l'enquête impacte C1
-    if (scoreC1 !== undefined) {
-      const aerodromeCible = aerodromeId || enquete.aerodrome_ids[0]
+    // SGS non applicable → réponse archivée, sans effet C1 (C1 exclu du score global).
+    const aerodromeCible = aerodromeId || enquete.aerodrome_ids[0]
+    const aeroCible = aerodromes.find(a => a.id === aerodromeCible)
+    const sgsApplicable = isSGSApplicable(aeroCible as any)
+
+    // Recalculer le profil de risque si l'enquête impacte C1 (et SGS applicable)
+    if (scoreC1 !== undefined && sgsApplicable) {
       recalculerProfilRisque(aerodromeCible).catch(() => {})
     }
 
     // Notification si impact C1
-    if (scoreC1) {
+    if (scoreC1 && !sgsApplicable) {
+      addNotification({
+        user_id: 'system',
+        type: 'info',
+        title: 'Réponse archivée (SGS non applicable)',
+        message: `L'aérodrome ${aeroCible?.code_oaci || ''} est en SGS non applicable : réponse conservée sans effet sur le C1.`,
+        canal: 'in_app',
+      });
+    } else if (scoreC1) {
       addNotification({
         user_id: 'system',
         type: 'info',
@@ -625,7 +667,7 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
             style={selectStyle}
           >
             <option value="tous">Tous types</option>
-            {TYPES_ENQUETE.map((t) => (
+            {typesDisponibles.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -650,7 +692,10 @@ export function EnquetesModule({ user, aerodromeId }: EnquetesModuleProps) {
 
       {/* Liste des enquêtes */}
       <div className="space-y-4">
-        {filteredEnquetes.map((enquete) => {
+        {[...filteredEnquetes]
+          // Rangement unique : actives → brouillons → terminées.
+          .sort((a, b) => prioriteEnquete(a) - prioriteEnquete(b))
+          .map((enquete) => {
           const statsEnq = getStatistiquesEnquete(enquete.id);
           const badgeStatut = getBadgeStatut(enquete.statut);
           const dejaRepondu = reponsesEnquetes.some(

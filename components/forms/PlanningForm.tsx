@@ -32,7 +32,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative } from '@/lib/store';
+import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative, normaliserDomaineCompetence } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { isSGSApplicable } from '@/lib/risque'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
@@ -269,7 +269,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         const domainesExpandus = expandDomaines(domaines);
         
         return insp.competences.some((c: CompetenceDeclarative) => {
-          const domaineInsp = c.domaine;
+          const domaineInsp = normaliserDomaineCompetence(c.domaine);
           // Si c'est un code AGA/XXX, vérifier si ça correspond aux domaines expandus
           if (domaineInsp.startsWith('AGA/')) {
             const sousDomaine = ['AGA/EXPLOIT', 'AGA/GENIE_CIV', 'AGA/GENIE_ELEC', 'AGA/SLI_RA'].find(d => d === domaineInsp);
@@ -291,7 +291,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         // Calculer le score de correspondance
         const domainesExpandus = expandDomaines(domaines);
         const matchCount = (insp.competences || []).filter((c: CompetenceDeclarative) => {
-          const domaineInsp = c.domaine;
+          const domaineInsp = normaliserDomaineCompetence(c.domaine);
           if (domaineInsp.startsWith('AGA/')) {
             const mapping: Record<string, string[]> = {
               'AGA/EXPLOIT': ['SGS', 'COP', 'OPS'],
@@ -312,7 +312,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
           id: insp.id,
           nom: insp.nom,
           prenom: insp.prenom,
-          competences: (insp.competences || []).map((c: CompetenceDeclarative) => c.domaine),
+          competences: (insp.competences || []).map((c: CompetenceDeclarative) => normaliserDomaineCompetence(c.domaine) || '—'),
           matchScore: matchCount + (hasExpert ? 10 : 0),
           isExpert: hasExpert
         };

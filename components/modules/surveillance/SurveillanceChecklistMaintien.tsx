@@ -10,6 +10,8 @@ import { ChecklistStandardTable } from '@/components/modules/checklist/Checklist
 import type { DomaineChecklist, ChecklistItem, ProfilRisque } from '@/lib/store'
 import { Shield, RefreshCw, Info, Sparkles, TrendingUp } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { estResultatValide } from '@/lib/domaines'
+import { EquipeNoms } from './EquipeNoms'
 
 interface Props {
   surveillanceId: string
@@ -141,21 +143,48 @@ export default function SurveillanceChecklistMaintien({
     return filtres
   }, [derniereSurveillance, domainesActifs, surveillanceId])
 
-  // Sauvegarde
+  // Sauvegarde (+ R2 : tampon auteur — seul un changement de résultat restampe,
+  // pour que les brouillons observateurs restent visibles mais hors workflow).
   const handleUpdateItem = useCallback((updated: ChecklistItem) => {
-    const surv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
+    const st = useAppStore.getState()
+    const surv = st.surveillances.find(s => s.id === surveillanceId)
     const current = surv?.checklist_hierarchy || maintienHierarchy
+    const auteurId = st.user?.id || ''
+
+    const trouverAncien = (domaines: DomaineChecklist[]): ChecklistItem | undefined => {
+      for (const d of domaines || []) {
+        const direct = (d.items || []).find(i => i.id === updated.id)
+        if (direct) return direct
+        for (const sd of (d.sousDomaines || [])) {
+          const dansSd = (sd.items || []).find(i => i.id === updated.id)
+          if (dansSd) return dansSd
+          for (const ssd of (sd.sousSousDomaines || [])) {
+            const dansSsd = (ssd.items || []).find(i => i.id === updated.id)
+            if (dansSsd) return dansSsd
+          }
+        }
+      }
+      return undefined
+    }
+    const ancien = trouverAncien(current as DomaineChecklist[])
+    const stamped: ChecklistItem = {
+      ...updated,
+      modified_by: ancien && ancien.resultat === updated.resultat
+        ? (updated.modified_by || ancien.modified_by || '')
+        : (auteurId || updated.modified_by || ''),
+      last_modified: new Date().toISOString(),
+    }
 
     const updateInPlace = (domaines: DomaineChecklist[]): DomaineChecklist[] =>
       domaines.map(d => ({
         ...d,
-        items: (d.items || []).map(i => i.id === updated.id ? { ...i, ...updated } : i),
+        items: (d.items || []).map(i => i.id === updated.id ? { ...i, ...stamped } : i),
         sousDomaines: (d.sousDomaines || []).map(sd => ({
           ...sd,
-          items: (sd.items || []).map(i => i.id === updated.id ? { ...i, ...updated } : i),
+          items: (sd.items || []).map(i => i.id === updated.id ? { ...i, ...stamped } : i),
           sousSousDomaines: (sd.sousSousDomaines || []).map(ssd => ({
             ...ssd,
-            items: (ssd.items || []).map(i => i.id === updated.id ? { ...i, ...updated } : i),
+            items: (ssd.items || []).map(i => i.id === updated.id ? { ...i, ...stamped } : i),
           })),
         })),
       }))
@@ -190,6 +219,38 @@ export default function SurveillanceChecklistMaintien({
 
   const surv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
   const hierarchy = surv?.checklist_hierarchy || maintienHierarchy
+
+  // Carte « traités / restants » (même pattern que la checklist standard) :
+  // R2 — brouillons observateurs = restants à reprendre + saut direct.
+  const utilisateursMaintien = useOptimizedStore(s => s.utilisateurs)
+  const fichesMaintien = useOptimizedStore(s => s.inspecteurs)
+  const restants = useMemo(() => {
+    const liste: Array<{ id: string; ref: string; texte: string; domaine: string; brouillon: boolean }> = []
+    const visiter = (items: ChecklistItem[] | undefined, domaine: string) => {
+      for (const item of items || []) {
+        if (estResultatValide(item, fichesMaintien, utilisateursMaintien)) continue
+        liste.push({
+          id: item.id,
+          ref: (item as unknown as { numero?: string }).numero || item.reference_ras14 || item.id.slice(0, 8),
+          texte: ((item as unknown as { point_verification?: string }).point_verification || item.description || '').slice(0, 90),
+          domaine,
+          brouillon: !!item.resultat,
+        })
+      }
+    }
+    for (const d of hierarchy as DomaineChecklist[]) {
+      visiter(d.items, d.nom)
+      for (const sd of (d.sousDomaines || [])) {
+        visiter(sd.items, sd.nom)
+        for (const ssd of (sd.sousSousDomaines || [])) visiter(ssd.items, ssd.nom)
+      }
+    }
+    return liste
+  }, [hierarchy, fichesMaintien, utilisateursMaintien])
+
+  const allerAItem = useCallback((id: string) => {
+    document.getElementById(`std-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
   const totalItems = useMemo(() => {
     let count = 0
     for (const d of hierarchy) {
@@ -233,6 +294,7 @@ export default function SurveillanceChecklistMaintien({
                 <Sparkles className="w-3 h-3 inline mr-1 text-role-primary" />
                 {totalItems} items à vérifier • {itemsSA} déjà conformes
               </span>
+              <EquipeNoms surveillanceId={surveillanceId} />
               {domainesProfil.length > 0 && (
                 <span className="text-xs text-warning flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />
@@ -243,6 +305,33 @@ export default function SurveillanceChecklistMaintien({
           </div>
         </div>
       </Card>
+
+      {/* Traités / restants : saut direct à l'item (pattern checklist standard) */}
+      {restants.length > 0 && (
+        <Card className="overflow-hidden">
+          <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={restants.length <= 10}>
+            <summary className="text-xs font-semibold cursor-pointer">
+              ⚠ Restants à vérifier ({restants.length}) — cliquer pour aller à l’item
+            </summary>
+            <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+              {restants.slice(0, 50).map(r => (
+                <button key={r.id} onClick={() => allerAItem(r.id)} title="Aller à l’item"
+                  className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
+                  <span className="font-mono font-medium flex-shrink-0">{r.ref}</span>
+                  <span className="text-muted-foreground truncate flex-1">{r.texte}</span>
+                  {r.brouillon && (
+                    <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Brouillon</span>
+                  )}
+                  <span className="text-role-primary font-medium flex-shrink-0">{r.domaine} →</span>
+                </button>
+              ))}
+              {restants.length > 50 && (
+                <p className="text-[11px] text-muted-foreground px-2">+{restants.length - 50} autres…</p>
+              )}
+            </div>
+          </details>
+        </Card>
+      )}
 
       {/* Sélecteur de domaines additionnels */}
       {!readOnly && (

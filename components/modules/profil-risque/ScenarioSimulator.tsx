@@ -9,7 +9,7 @@ import { FlaskConical, RotateCcw, Save, Trash2, ChevronDown, ChevronUp, Sparkles
 import { useAppStore, ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { calculateGlobalScore } from '@/lib/risque'
-import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController'
+import { usePoidsAppris } from './usePoidsAppris'
 interface Props { profil: ProfilRisque; aerodromeName: string; userRole: string }
 
 interface CritereSimule { key: 'c1' | 'c2' | 'c3' | 'c4' | 'c5'; label: string; poids: number; description: string }
@@ -53,7 +53,19 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const simValues = { c1: simC1, c2: simC2, c3: simC3, c4: simC4, c5: simC5 }
   const setters: Record<string, (v: number) => void> = { c1: setSimC1, c2: setSimC2, c3: setSimC3, c4: setSimC4, c5: setSimC5 }
 
-  const scoreSimule = useMemo(() => calculateGlobalScore(simValues), [simC1, simC2, simC3, simC4, simC5])
+  // Poids appris par l'IA (mêmes que le moteur de score) — repli défauts.
+  // Sans ceci, le simulateur raisonnait en 20/25/20/20/15 fixe alors que le
+  // score réel utilise les poids appris : recommandations faussées.
+  const { poids: poidsBruts, personnalises: poidsPersonnalises } = usePoidsAppris();
+  const criteresPoids = useMemo(
+    () => CRITERES.map(c => {
+      const w = typeof poidsBruts[c.key] === 'number' ? poidsBruts[c.key] : 20
+      return { ...c, poids: Math.round(w * 10) / 10 }
+    }),
+    [poidsBruts],
+  );
+
+  const scoreSimule = useMemo(() => calculateGlobalScore(simValues, poidsBruts), [simC1, simC2, simC3, simC4, simC5, poidsBruts])
   const deltaScore = scoreSimule - profil.score_global
   const isReadOnly = userRole === 'guest'
 
@@ -61,8 +73,11 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
     const list: SmartSuggestion[] = []
     const current = { c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }
     const weights: Record<string, number> = {
-      c1: DEFAULT_WEIGHTS.c1 / 100, c2: DEFAULT_WEIGHTS.c2 / 100,
-      c3: DEFAULT_WEIGHTS.c3 / 100, c4: DEFAULT_WEIGHTS.c4 / 100, c5: DEFAULT_WEIGHTS.c5 / 100,
+      c1: (typeof poidsBruts.c1 === 'number' ? poidsBruts.c1 : 20) / 100,
+      c2: (typeof poidsBruts.c2 === 'number' ? poidsBruts.c2 : 25) / 100,
+      c3: (typeof poidsBruts.c3 === 'number' ? poidsBruts.c3 : 20) / 100,
+      c4: (typeof poidsBruts.c4 === 'number' ? poidsBruts.c4 : 20) / 100,
+      c5: (typeof poidsBruts.c5 === 'number' ? poidsBruts.c5 : 15) / 100,
     }
 
     if (profil.score_global < 80) {
@@ -80,9 +95,24 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
     }
     const weakest = Object.entries(current).sort((a, b) => a[1] - b[1])[0]
     if (weakest && weakest[1] < 70) { const k = weakest[0] as keyof ProfilRisque; const imp = Math.min(30, 100 - weakest[1]); list.push({ id: 'weakest', titre: `Renforcer ${k.toUpperCase()}`, description: `${CRITERES.find(c => c.key === k)?.label || ''} : ${weakest[1]} → ${weakest[1] + imp}`, actions: [{ critere: k, delta: imp }], gainEstime: Math.round(imp * (weights[k] || 0.2)), probabiliteSucces: 75, effort: imp > 20 ? 'eleve' : 'moyen', roi: 3.2 }) }
-    list.push({ id: 'roi', titre: 'Actions à fort ROI', description: 'Focus C2 + C4 pour gain maximal', actions: [{ critere: 'c2', delta: Math.min(20, 100 - current.c2) }, { critere: 'c4', delta: Math.min(15, 100 - current.c4) }], gainEstime: 12, probabiliteSucces: 80, effort: 'moyen', roi: 4.2 })
+    // ROI piloté par les poids appris (jamais C2+C4 en dur) : top-2 leviers.
+    const topLeviers = (Object.keys(weights) as (keyof ProfilRisque)[])
+      .sort((a, b) => (weights[b as string] || 0) - (weights[a as string] || 0))
+      .slice(0, 2)
+      .map(k => {
+        const cle = k as string
+        const courant = (current as Record<string, number>)[cle] ?? 50
+        const delta = Math.min(20, 100 - courant)
+        return { critere: k, delta, gain: Math.round(delta * (weights[cle] || 0.2)) }
+      })
+      .filter(a => a.delta > 0);
+    if (topLeviers.length > 0) {
+      const gainTotal = topLeviers.reduce((s, a) => s + a.gain, 0)
+      const noms = topLeviers.map(a => String(a.critere).toUpperCase()).join(' + ')
+      list.push({ id: 'roi', titre: 'Actions à fort ROI', description: `Focus ${noms} pour gain maximal (poids appris)`, actions: topLeviers.map(({ critere, delta }) => ({ critere, delta })), gainEstime: gainTotal, probabiliteSucces: 80, effort: 'moyen', roi: 4.2 })
+    }
     return list.sort((a, b) => b.roi - a.roi)
-  }, [profil])
+  }, [profil, poidsBruts])
 
   const handleApplySuggestion = (s: SmartSuggestion) => { for (const a of s.actions) { const cv = (simValues as Record<string, number>)[a.critere] ?? 0; (setters as Record<string, (v: number) => void>)[a.critere](Math.min(100, cv + a.delta)) } setShowSuggestions(false) }
   const handleLoad = (s: ScenarioSauvegarde) => { setSimC1(s.c1); setSimC2(s.c2); setSimC3(s.c3); setSimC4(s.c4); setSimC5(s.c5) }
@@ -95,7 +125,7 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold text-foreground">Simulateur de Scénarios</h2><p className="text-xs text-foreground">{aerodromeName} — Analyse what-if</p></div></div>
+        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold text-foreground">Simulateur de Scénarios</h2><p className="text-xs text-foreground">{aerodromeName} — Analyse what-if</p></div><span className={`badge text-[10px] ${poidsPersonnalises ? 'primary' : 'neutral'}`} title={poidsPersonnalises ? 'Mêmes poids que le moteur de score (appris par l’IA)' : 'Poids par défaut — identiques au moteur faute d’apprentissage'}>{poidsPersonnalises ? 'Poids IA appris' : 'Poids par défaut'}</span></div>
         <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions AERORISQ</button>
       </div>
 
@@ -128,11 +158,11 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
               <div className="mt-0.5"><span className={`badge text-xs ${getNiveauBadge(profil.score_global)}`}>{getNiveauLabel(profil.score_global)}</span></div>
             </div>
             <div className="space-y-0">
-              {CRITERES.map(c => { const v = profil[c.key]; return (
+              {criteresPoids.map(c => { const v = profil[c.key]; return (
                 <div key={c.key} className="flex items-center justify-between py-1.5 border-b border-border last:border-b-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-foreground">{c.label}</span>
-                    <span className="badge neutral text-[10px]">{c.poids}%</span>
+                    <span className="badge neutral text-[10px]" title={poidsPersonnalises ? 'Poids appris par l’IA (moteur de score)' : 'Poids par défaut (IA sans apprentissage)'}>{c.poids}%</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="progress w-24 h-2">

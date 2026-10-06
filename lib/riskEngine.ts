@@ -5,7 +5,7 @@
 
 import type { ProfilRisque, Ecart, SuggestionFeedback } from './store';
 import { normaliserScoreSgs } from './utils';
-import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes, getDomaineInfo } from './domaines';
+import { TypeSurveillanceContinue, DomaineCode, TypeChecklist, SuggestionMaintien, genererSuggestionsMaintien, getDomainesIndividuelsCodes, getDomaineInfo, aPACAccepte, releveChecklistPAC } from './domaines';
 import { suggestionMLAgent, type SurveillanceType, type EnsemblePrediction } from '@/lib/ia/agents/suggestionMLAgent';
 import { anomalyDetector } from '@/lib/ia/models/randomForest';
 
@@ -317,7 +317,8 @@ export function determineTypeSurveillanceContinue(
       priorite: 'haute',
       delaiRecommandation: ajusterDelai(14),
       domainesCibles: [...new Set(domainesEcarts)],
-      typesChecklist: ajusterChecklists(['suivi_ecarts', ...(ecartsActifs?.some(e => e.pac) ? ['pac'] as const : [])]),
+      // Règle verrouillée : brick PAC seulement si ≥1 PAC ACCEPTÉ.
+      typesChecklist: ajusterChecklists(['suivi_ecarts', ...(aPACAccepte(ecartsActifs) ? ['pac'] as const : [])]),
       suggestionsMaintien: genererSuggestionsMaintien({ ecartsActifs, evenementsSecurite, profilRisque: profil, domainesDerniereInspection, alertesLanceurs }),
     };
   }
@@ -983,6 +984,18 @@ export function getEcartTriggers(
         typeSurveillanceSuggere = mlEnsemble.type as EcartTrigger['typeSurveillanceSuggere'];
         predictionConfiance = mlEnsemble.confiance;
         justification += `\n🤖 ML: ${mlEnsemble.recommandation}`;
+      }
+
+      // Frontière dure verrouillée : l'acceptation du PAC décide suivi ↔
+      // mise en œuvre. Le ML module confiance/justification et peut
+      // escalader vers audit_complet — jamais franchir cette frontière.
+      const frontierePAC = releveChecklistPAC(ecart);
+      if (frontierePAC && typeSurveillanceSuggere === 'suivi_ecarts') {
+        typeSurveillanceSuggere = 'mise_oeuvre_pac';
+        justification += ' — ramené à la mise en œuvre PAC (PAC accepté, règle verrouillée)';
+      } else if (!frontierePAC && typeSurveillanceSuggere === 'mise_oeuvre_pac') {
+        typeSurveillanceSuggere = 'suivi_ecarts';
+        justification += ' — ramené au suivi des écarts (aucun PAC accepté, règle verrouillée)';
       }
 
       // Détection d'anomalies (RF Isolation Forest)

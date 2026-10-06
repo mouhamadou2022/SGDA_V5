@@ -13,6 +13,7 @@ import SurveillanceEcartsRedaction, {
   EcartRedaction,
 } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
 import { canEditSurveillanceContent } from '@/lib/config';
+import { qualiteCompte } from '@/lib/domaines';
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
 import { Card } from '@/components/ui/card';
 import type { EvaluationSGS, PAOELevel } from '@/types/checklist';
@@ -178,6 +179,10 @@ export default function SGSEcartsPage() {
     if (!chefId) return null;
     return utilisateurs.find(u => u.id === chefId) || null;
   }, [surveillance, utilisateurs, plannings]);
+
+  // R2 — observateurs : rédaction en lecture seule (actes réservés).
+  const stQualiteSgs = useAppStore.getState();
+  const observateurROSgs = qualiteCompte(stQualiteSgs.inspecteurs || [], utilisateurs.find(u => u.id === user?.id)) === 'observateur';
 
   // Chargement de l'évaluation PAOE depuis la surveillance
   const sgsEvaluation = useMemo<EvaluationSGS | null>(() => {
@@ -680,7 +685,7 @@ export default function SGSEcartsPage() {
             surveillanceType={surveillance?.type}
             aerodromeCode={aerodrome?.code_oaci}
             ecartPrefix="SGS"
-            readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
+            readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id) || observateurROSgs}
           />
         )}
       </div>

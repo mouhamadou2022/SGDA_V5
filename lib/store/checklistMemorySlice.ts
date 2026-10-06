@@ -89,16 +89,19 @@ recordCorrection: (aerodrome_id, type_inspection, domaine, sous_domaine, sous_so
     aerodrome_id, type_inspection, domaine, sous_domaine, sous_sous_domaine,
     item_id, prediction as ResultatChecklist, correction as ResultatChecklist, commentaire
   );
-  // Mettre à jour le store si nécessaire
-  const record = get().checklistMemoryRecords.find(r => r.item_id === item_id);
+  // Mettre à jour le store si nécessaire — clé COMPLÈTE (même item_id sur
+  // plusieurs sites/types : l'ancien find par item_id seul corrigeait
+  // potentiellement le mauvais record, synchronisé à tort).
+  const cle = `${aerodrome_id}_${type_inspection}_${domaine}_${sous_domaine}_${sous_sous_domaine}_${item_id}`;
+  const record = get().checklistMemoryRecords.find(r => r.id === cle);
   if (record) {
     set((state) => ({
       checklistMemoryRecords: state.checklistMemoryRecords.map(r =>
-        r.item_id === item_id ? { ...r, feedback_correction: correction as ResultatChecklist, dernier_feedback: new Date().toISOString() } :
+        r.id === cle ? { ...r, feedback_correction: correction as ResultatChecklist, dernier_feedback: new Date().toISOString() } :
         r
       )
     }));
-    const misAJour = get().checklistMemoryRecords.find(r => r.item_id === item_id);
+    const misAJour = get().checklistMemoryRecords.find(r => r.id === cle);
     if (misAJour) {
       import('../datastore').then(({ upsertChecklistMemory }) => {
         upsertChecklistMemory(misAJour).then(r => {

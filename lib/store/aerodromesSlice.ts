@@ -123,6 +123,8 @@ export const createAerodromesSlice: StateCreator<AppStore, [], [], AerodromeSlic
       if (result.error) throw new Error(result.error)
       const saved = result.data as Aerodrome
       set((state) => ({ aerodromes: state.aerodromes.map(a => a.id === tempId ? saved : a) }))
+      // Dynamisme : le profil de risque naît avec le site (maturité initiale).
+      storeEvents.emit('risque:recalcul-demande', { aerodrome_id: saved.id })
       return saved
     } catch (error) {
       set((state) => ({ aerodromes: state.aerodromes.filter(a => a.id !== tempId) }))

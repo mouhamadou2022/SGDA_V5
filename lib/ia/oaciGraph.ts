@@ -9,6 +9,7 @@
 import type { Ecart, EvenementSecurite, ProfilRisque, Surveillance } from '@/lib/store'
 import type { Barriere } from '@/lib/risque/types'
 import { generateBowTieModels } from '@/lib/risque/bowTieEngine'
+import { DEFAULT_WEIGHTS } from './weightController'
 
 export type CleCritereOaci = 'c1' | 'c2' | 'c3' | 'c4' | 'c5'
 
@@ -48,7 +49,6 @@ export interface ImpactOaci {
   chemin: string[]
 }
 
-const POIDS: Record<CleCritereOaci, number> = { c1: 20, c2: 25, c3: 20, c4: 20, c5: 15 }
 const LABELS: Record<CleCritereOaci, string> = {
   c1: 'Maturité & culture SGS', c2: 'Efficacité PAC', c3: 'Conformité technique',
   c4: 'Charge critique', c5: 'Résilience',
@@ -94,9 +94,9 @@ export function construireGrapheOaci(params: {
   }
 
   // ── Critères OACI (C1-C5) ──
-  for (const cle of Object.keys(POIDS) as CleCritereOaci[]) {
+  for (const cle of Object.keys(DEFAULT_WEIGHTS) as CleCritereOaci[]) {
     const valeur = (profil[cle] as number) ?? 50
-    ajouter({ id: `critere_${cle}`, type: 'critere', cle, label: LABELS[cle], valeur, poids: POIDS[cle], force: forceCritere(valeur) })
+    ajouter({ id: `critere_${cle}`, type: 'critere', cle, label: LABELS[cle], valeur, poids: DEFAULT_WEIGHTS[cle], force: forceCritere(valeur) })
   }
 
   // ── Domaines Bow-Tie, barrières et écarts ──

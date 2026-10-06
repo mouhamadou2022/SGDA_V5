@@ -10,9 +10,11 @@ import {
   Plus, Trash2, Keyboard, Type, Loader2, Sparkles, ArrowLeft, Activity, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { useAppStore } from '@/lib/store';
+import { EquipeNoms } from './EquipeNoms';
 import { SGSLearningPanel } from './SGSLearningPanel';
 import { uploadPreuveFile } from '@/lib/preuves';
-import { veillerSGSQuestions } from '@/lib/ia/watchdogEvaluation';
+import { veillerSGSQuestions, veillerCoherenceChecklist } from '@/lib/ia/watchdogEvaluation';
 import {
   SGS_COMPOSANTES,
   PAOE_LABELS,
@@ -997,6 +999,123 @@ interface SGSEvaluationModalProps {
   } | null>;
 }
 
+/**
+ * Second regard AERORISQ : questions restantes + points à revoir (temps
+ * réel). Partagé entre le Modal (préparation) et le Content (checklist
+ * terrain) — même carte, même comportement : liste + saut direct à l'élément.
+ */
+function SGSEvaluationVigilance({
+  questionsByElement,
+  elementNotes,
+  niveauRisqueSite,
+  onAllerElement,
+  onToutDeplier,
+}: {
+  questionsByElement: { [elementId: string]: SGSQuestion[] };
+  elementNotes: Record<string, SGSElementNotes>;
+  niveauRisqueSite?: string;
+  onAllerElement: (elementId: string) => void;
+  onToutDeplier: () => void;
+}) {
+  const restants: Array<{ elementId: string; label: string; refs: string[] }> = [];
+  const problemes: Array<{ elementId: string; label: string; titre: string; detail: string }> = [];
+  for (const compDef of SGS_COMPOSANTES) {
+    for (const elemDef of compDef.elements) {
+      const questions = questionsByElement[elemDef.id] || (elemDef as any).questions || [];
+      const notes = elementNotes[elemDef.id];
+      const v = veillerSGSQuestions(questions.map((q: any) => ({
+        ref: q.ref, texte: q.texte, niveau: q.niveau,
+        justification: q.justification || notes?.questions,
+        observation: q.observation, preuves: q.preuves, statutIA: q.statutIA,
+      })));
+      if (v.restants.length > 0) {
+        restants.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, refs: v.restants });
+      }
+      for (const a of v.alertes) {
+        problemes.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, titre: a.titre, detail: a.detail });
+      }
+    }
+  }
+  const nbRestants = restants.reduce((s, r) => s + r.refs.length, 0);
+  // Cohérence d'ensemble : copier-coller, jauge d'exigence, sans-énoncé.
+  const coherenceItems: Array<{ id: string; ref?: string; texte?: string; evalue: boolean; observation?: string; directives?: string[] }> = [];
+  for (const compDef of SGS_COMPOSANTES) {
+    for (const elemDef of compDef.elements) {
+      const questions = questionsByElement[elemDef.id] || (elemDef as any).questions || [];
+      for (const q of questions as any[]) {
+        coherenceItems.push({
+          id: q.id || q.ref,
+          ref: q.ref,
+          texte: q.texte,
+          evalue: !!q.niveau && q.niveau !== 'absent',
+          observation: q.justification || q.observation,
+          directives: [],
+        });
+      }
+    }
+  }
+  const coherence = veillerCoherenceChecklist({ items: coherenceItems, niveauRisqueSite });
+  if (nbRestants === 0 && problemes.length === 0 && coherence.alertes.length === 0 && coherence.nbEvalues === 0) return null;
+  return (
+    <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+      <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={nbRestants > 0 && nbRestants <= 10}>
+        <summary className="text-xs font-semibold cursor-pointer">
+          ⚠ Questions restantes ({nbRestants}) — cliquer pour aller à l’élément
+        </summary>
+        <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
+          {restants.map(r => (
+            <button key={r.elementId} type="button" onClick={() => onAllerElement(r.elementId)} title="Aller à l’élément"
+              className="w-full flex items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted/40">
+              <strong className="text-[11px]">{r.elementId}</strong>
+              <span className="text-[11px] text-foreground truncate flex-1">{r.label} — {r.refs.slice(0, 6).join(', ')}{r.refs.length > 6 ? ` (+${r.refs.length - 6})` : ''}</span>
+              <span className="text-[11px] text-role-primary font-medium flex-shrink-0">→</span>
+            </button>
+          ))}
+        </div>
+        {nbRestants > 0 && (
+          <button type="button" onClick={onToutDeplier} className="btn btn-sm btn-secondary mt-1.5">
+            Tout déplier
+          </button>
+        )}
+      </details>
+      <details className="rounded-lg border border-primary/20 bg-primary/5 p-2" open={problemes.length > 0 && problemes.length <= 5}>
+        <summary className="text-xs font-semibold cursor-pointer">
+          ✓ Points à revoir ({problemes.length})
+        </summary>
+        <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
+          {problemes.slice(0, 20).map((p, i) => (
+            <p key={i} className="text-[11px] text-foreground px-1">
+              <strong>{p.titre}.</strong> [{p.elementId}] {p.detail.slice(0, 140)}
+            </p>
+          ))}
+          {problemes.length === 0 && (
+            <p className="text-[11px] text-muted-foreground px-1">Rien à signaler — évaluation saine.</p>
+          )}
+        </div>
+      </details>
+      {coherence.nbEvalues > 0 && (
+        <div className="rounded-lg border border-border p-2 md:col-span-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold">Cohérence d’ensemble</span>
+            <span className="text-muted-foreground">
+              {coherence.nbEvalues} évaluée(s) • {coherence.tauxSansObservation}% sans justification
+            </span>
+          </div>
+          {coherence.alertes.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {coherence.alertes.map((a, i) => (
+                <p key={i} className="text-[11px] text-foreground px-1">
+                  <strong>{a.titre}.</strong> {a.detail.slice(0, 160)}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SGSEvaluationModal({
   isOpen, onClose, aerodromeId, surveillanceId, aerodromeNom, surveillanceType, surveillanceDate, equipeCount,
   inspecteurId, inspecteurNom, onSave, existingEvaluation, previousEvaluation, readOnly = false, structureReadOnly = false, riskTrend = 'stable',
@@ -1007,6 +1126,8 @@ export function SGSEvaluationModal({
   const [modeSaisieByElement, setModeSaisieByElement] = useState<{ [elementId: string]: ModeSaisie }>({});
   const [expandedComposantes, setExpandedComposantes] = useState<Set<number>>(new Set([1]));
   const [expandedElements, setExpandedElements] = useState<Set<string>>(new Set(['1.1']));
+  // Niveau du site pour la règle tout-SA suspect (cohérence d'ensemble).
+  const niveauRisqueSiteModal = useAppStore(s => s.profilsRisque)?.[aerodromeId]?.niveau;
   const [observations, setObservations] = useState('');
   const [elementNotes, setElementNotes] = useState<Record<string, SGSElementNotes>>({});
   const [iaGenerating, setIaGenerating] = useState<string | null>(null);
@@ -1298,7 +1419,7 @@ export function SGSEvaluationModal({
                 <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Aérodrome</p><p className="font-medium">{aerodromeNom || aerodromeId}</p></div></div>
                 <div className="flex items-center gap-2"><Shield className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Type</p><p className="font-medium">{surveillanceType || '—'}</p></div></div>
                 <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Date</p><p className="font-medium">{surveillanceDate ? new Date(surveillanceDate).toLocaleDateString('fr-FR') : '—'}</p></div></div>
-                <div className="flex items-center gap-2"><Users className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Équipe</p><p className="font-medium">{equipeCount ? `${equipeCount} inspecteurs` : inspecteurNom}</p></div></div>
+                <div className="flex items-center gap-2"><Users className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Équipe</p><EquipeNoms surveillanceId={surveillanceId} /></div></div>
               </div>
             </div>
 
@@ -1353,73 +1474,20 @@ export function SGSEvaluationModal({
             </div>
 
             {/* Second regard AERORISQ : restants + cohérence (temps réel) */}
-            {(() => {
-              const restants: Array<{ elementId: string; label: string; refs: string[] }> = []
-              const problemes: Array<{ elementId: string; label: string; titre: string; detail: string }> = []
-              for (const compDef of SGS_COMPOSANTES) {
-                for (const elemDef of compDef.elements) {
-                  const questions = questionsByElement[elemDef.id] || (elemDef as any).questions || []
-                  const notes = elementNotes[elemDef.id]
-                  const v = veillerSGSQuestions(questions.map((q: any) => ({
-                    ref: q.ref, texte: q.texte, niveau: q.niveau,
-                    justification: q.justification || notes?.questions,
-                    observation: q.observation, preuves: q.preuves, statutIA: q.statutIA,
-                  })))
-                  if (v.restants.length > 0) {
-                    restants.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, refs: v.restants })
-                  }
-                  for (const a of v.alertes) {
-                    problemes.push({ elementId: elemDef.id, label: (elemDef as any).label || elemDef.id, titre: a.titre, detail: a.detail })
-                  }
-                }
-              }
-              const nbRestants = restants.reduce((s, r) => s + r.refs.length, 0)
-              if (nbRestants === 0 && problemes.length === 0) return null
-              const toutDeplier = () => {
-                setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)))
-                setExpandedElements(prev => {
-                  const next = new Set(prev)
-                  for (const r of restants) next.add(r.elementId)
-                  return next
-                })
-              }
-              return (
-                <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={nbRestants > 0 && nbRestants <= 10}>
-                    <summary className="text-xs font-semibold cursor-pointer">
-                      ⚠ Questions restantes ({nbRestants}) — cliquer pour déplier
-                    </summary>
-                    <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
-                      {restants.map(r => (
-                        <p key={r.elementId} className="text-[11px] text-foreground px-1">
-                          <strong>{r.elementId}</strong> {r.label} — {r.refs.slice(0, 6).join(', ')}{r.refs.length > 6 ? ` (+${r.refs.length - 6})` : ''}
-                        </p>
-                      ))}
-                    </div>
-                    {nbRestants > 0 && (
-                      <button type="button" onClick={toutDeplier} className="btn btn-sm btn-secondary mt-1.5">
-                        Tout déplier
-                      </button>
-                    )}
-                  </details>
-                  <details className="rounded-lg border border-primary/20 bg-primary/5 p-2" open={problemes.length > 0 && problemes.length <= 5}>
-                    <summary className="text-xs font-semibold cursor-pointer">
-                      ✓ Points à revoir ({problemes.length})
-                    </summary>
-                    <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
-                      {problemes.slice(0, 20).map((p, i) => (
-                        <p key={i} className="text-[11px] text-foreground px-1">
-                          <strong>{p.titre}.</strong> [{p.elementId}] {p.detail.slice(0, 140)}
-                        </p>
-                      ))}
-                      {problemes.length === 0 && (
-                        <p className="text-[11px] text-muted-foreground px-1">Rien à signaler — évaluation saine.</p>
-                      )}
-                    </div>
-                  </details>
-                </div>
-              )
-            })()}
+            <SGSEvaluationVigilance
+              questionsByElement={questionsByElement}
+              elementNotes={elementNotes}
+              niveauRisqueSite={niveauRisqueSiteModal}
+              onAllerElement={(elementId) => {
+                setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)));
+                setExpandedElements(prev => new Set(prev).add(elementId));
+                document.getElementById(`sgs-elem-${elementId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+              onToutDeplier={() => {
+                setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)));
+                setExpandedElements(new Set(SGS_COMPOSANTES.flatMap(c => c.elements.map(e => e.id))));
+              }}
+            />
 
             {/* Composantes */}
             {SGS_COMPOSANTES.map(compDef => {
@@ -1459,7 +1527,8 @@ export function SGSEvaluationModal({
                         return (
                           <div key={elemDef.id} className="mb-2">
                             <div
-                              className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                              id={`sgs-elem-${elemDef.id}`}
+                              className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100 scroll-mt-32"
                               onClick={() => toggleElement(elemDef.id)}
                             >
                               <div className="flex items-center gap-2">
@@ -1591,6 +1660,8 @@ export function SGSEvaluationContent({
   const [editedDirectives, setEditedDirectives] = useState<Record<string, SGSDirectives>>({});
   const [editedGuideEtapes, setEditedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
   const [expandedComposantes, setExpandedComposantes] = useState<Set<number>>(new Set([1, 2, 3, 4, 5]));
+  // Niveau du site pour la règle tout-SA suspect (cohérence d'ensemble).
+  const niveauRisqueSiteContent = useAppStore(s => s.profilsRisque)?.[aerodromeId]?.niveau;
   const [expandedElements, setExpandedElements] = useState<Set<string>>(new Set(SGS_COMPOSANTES.flatMap(c => c.elements.map(e => e.id))));
   const [observations, setObservations] = useState('');
   const [elementNotes, setElementNotes] = useState<Record<string, SGSElementNotes>>({});
@@ -1599,6 +1670,7 @@ export function SGSEvaluationContent({
   const [iaGeneratedDirectives, setIaGeneratedDirectives] = useState<Record<string, SGSDirectives>>({});
   const [iaGeneratedGuideEtapes, setIaGeneratedGuideEtapes] = useState<Record<string, SGSGuideEtape[]>>({});
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
+  const [alerteSignature, setAlerteSignature] = useState<string | null>(null);
 
   // Dernier template appliqué — évite de réinitialiser les edits de l'inspecteur
   // quand sgsTemplate change d'identité (retour des modifications via onChange)
@@ -1987,7 +2059,7 @@ export function SGSEvaluationContent({
             <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Aérodrome</p><p className="font-medium">{aerodromeNom || aerodromeId}</p></div></div>
             <div className="flex items-center gap-2"><Shield className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Type</p><p className="font-medium">{surveillanceType || '—'}</p></div></div>
             <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Date</p><p className="font-medium">{surveillanceDate ? new Date(surveillanceDate).toLocaleDateString('fr-FR') : '—'}</p></div></div>
-            <div className="flex items-center gap-2"><Users className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Équipe</p><p className="font-medium">{equipeCount ? `${equipeCount} inspecteurs` : inspecteurNom}</p></div></div>
+            <div className="flex items-center gap-2"><Users className="w-4 h-4 text-role-primary" /><div><p className="text-[10px] text-muted-foreground">Équipe</p><EquipeNoms surveillanceId={surveillanceId} /></div></div>
           </div>
         </div>
 
@@ -2050,6 +2122,22 @@ export function SGSEvaluationContent({
           </div>
         </div>
 
+        {/* Second regard AERORISQ : restants + cohérence (temps réel) */}
+        <SGSEvaluationVigilance
+          questionsByElement={questionsByElement}
+          elementNotes={elementNotes}
+          niveauRisqueSite={niveauRisqueSiteContent}
+          onAllerElement={(elementId) => {
+            setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)));
+            setExpandedElements(prev => new Set(prev).add(elementId));
+            document.getElementById(`sgs-elem-${elementId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }}
+          onToutDeplier={() => {
+            setExpandedComposantes(new Set(SGS_COMPOSANTES.map(c => c.id)));
+            setExpandedElements(new Set(SGS_COMPOSANTES.flatMap(c => c.elements.map(e => e.id))));
+          }}
+        />
+
         {/* Composantes */}
         {SGS_COMPOSANTES.map(compDef => {
           const isExpanded = expandedComposantes.has(compDef.id);
@@ -2092,7 +2180,8 @@ export function SGSEvaluationContent({
                       <div key={elemDef.id} className="border-t border-blue-100">
                         {/* Élément header — fond bleu léger, police blanche */}
                         <div
-                          className="flex items-center justify-between px-4 py-2 bg-blue-500 text-white cursor-pointer hover:bg-blue-600"
+                          id={`sgs-elem-${elemDef.id}`}
+                          className="flex items-center justify-between px-4 py-2 bg-blue-500 text-white cursor-pointer hover:bg-blue-600 scroll-mt-32"
                           onClick={() => toggleElement(elemDef.id)}
                         >
            <div className="flex items-center gap-2">
@@ -2168,15 +2257,35 @@ export function SGSEvaluationContent({
           )}
           {!readOnly && !isSigned && showSaveButton && (
             <>
-              <button className="btn btn-secondary" onClick={() => onSave({ ...evaluation, observations, elementNotes })}>
+              <button className="btn btn-secondary" onClick={() => { setAlerteSignature(null); onSave({ ...evaluation, observations, elementNotes }); }}>
                 <Save className="w-4 h-4 mr-1" /> Enregistrer
               </button>
               {onSigner && (
-                <button className="btn btn-primary" onClick={() => setSignatureDialogOpen(true)}>
+                <button className="btn btn-primary" onClick={() => {
+                  // Pas de signature avec des questions non évaluées (niveau absent).
+                  let nonEvaluees = 0;
+                  for (const compDef of SGS_COMPOSANTES) {
+                    for (const elemDef of compDef.elements) {
+                      const questions = questionsByElement[elemDef.id] || (elemDef as any).questions || [];
+                      for (const q of questions as any[]) {
+                        if (!q.niveau || q.niveau === 'absent') nonEvaluees++;
+                      }
+                    }
+                  }
+                  if (nonEvaluees > 0) {
+                    setAlerteSignature(`${nonEvaluees} question(s) non évaluée(s) — évaluez chaque question avant de signer`);
+                    return;
+                  }
+                  setAlerteSignature(null);
+                  setSignatureDialogOpen(true);
+                }}>
                   <PenLine className="w-4 h-4 mr-1" /> Terminer et signer
                 </button>
               )}
             </>
+          )}
+          {alerteSignature && (
+            <p className="text-xs text-warning mt-2 text-right">{alerteSignature}</p>
           )}
           {isSigned && (
             <span className="badge success text-sm">

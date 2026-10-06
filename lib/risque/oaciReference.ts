@@ -20,6 +20,7 @@ export const OACI_URGENCY_MAP: Record<string, OACIEntry> = {
   '4B': { label: 'Intolérable', delaiJours: 7, urgence: 'critique' },
   '5C': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
   '5D': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
+  '5E': { label: 'Acceptable', delaiJours: 60, urgence: 'basse' },
   '4C': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
   '3A': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },
   '3B': { label: 'Inacceptable', delaiJours: 15, urgence: 'haute' },

@@ -15,6 +15,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { getProcessusActifs } from '@/lib/processus';
 import { canManageRole } from '@/lib/config';
 import { AccordionSection, AccordionGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
+import { prioriteSurveillance } from '@/lib/processusTri';
 
 // Composants du module
 import { SurveillanceCard } from '@/components/cards/SurveillanceCard';
@@ -127,7 +128,7 @@ function ArchiveView({
     return true;
   });
 
-  // Grouper par année
+  // Grouper par année — même rangement : transmises d'abord, puis par date récente.
   const groupedByYear = (() => {
     const groups: Record<string, Surveillance[]> = {};
     filteredSurveillances.forEach(s => {
@@ -135,6 +136,11 @@ function ArchiveView({
       if (!groups[year]) groups[year] = [];
       groups[year].push(s);
     });
+    for (const list of Object.values(groups)) {
+      list.sort((a, b) =>
+        prioriteSurveillance(a) - prioriteSurveillance(b) ||
+        new Date(b.date_debut).getTime() - new Date(a.date_debut).getTime());
+    }
     return Object.fromEntries(Object.entries(groups).sort((a, b) => parseInt(b[0]) - parseInt(a[0])));
   })();
 
@@ -210,6 +216,21 @@ function ArchiveView({
           <div className="kpi-value">{stats.archivees}</div>
         </div>
       </div>
+
+      {/* Bilan d'activité : exécutées dans l'année */}
+      {(() => {
+        const annee = selectedYear === 'all' ? new Date().getFullYear().toString() : selectedYear;
+        const deLAnnee = archiveSurveillances.filter(s => new Date(s.date_debut).getFullYear().toString() === annee);
+        const transmises = deLAnnee.filter(s => s.statut === 'transmise').length;
+        return (
+          <p className="text-xs text-muted-foreground -mt-3">
+            En {annee} : <strong className="text-foreground">{deLAnnee.length} surveillance(s) exécutée(s)</strong>
+            {transmises > 0 ? `, dont ${transmises} transmise(s)` : ', aucune transmise pour le moment'}.
+            Les missions en cours se pilotent depuis le Planning (triées : en retard, en cours, planifiées).
+            Rappel : la préparation revient au chef d&apos;équipe et aux membres, l&apos;exécution au seul chef d&apos;équipe désigné.
+          </p>
+        );
+      })()}
 
       {/* Filtres Archive */}
       <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres archive">
@@ -295,7 +316,12 @@ function ArchiveView({
                 key={year}
                 icon={<Calendar className="w-5 h-5 text-role-primary" />}
                 title={`Année ${year}`}
-                badges={<span className="badge outline">{yearSurveillances.length} surveillance(s)</span>}
+                badges={<>
+                  <span className="badge outline">{yearSurveillances.length} surveillance(s)</span>
+                  <span className="badge primary text-[10px]">
+                    {yearSurveillances.filter(s => s.statut === 'transmise').length} transmise(s)
+                  </span>
+                </>}
               >
                 {Object.entries(aerodromeGroups).map(([aerodromeId, aeroSurveillances]) => {
                   const aerodrome = aerodromes.find(a => a.id === aerodromeId);
@@ -398,6 +424,30 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Rattrapage one-shot (bug Saint-Louis) : signatures SGS déjà posées dont
+  // la maturité n'a jamais été reportée. Idempotent, une fois par session,
+  // ET seulement quand les données sont hydratées (sinon 0 candidat à tort).
+  const reparationSgsFaite = React.useRef(false);
+  const nbSurveillancesChargees = surveillances.length;
+  const nbAerodromesCharges = aerodromes.length;
+  useEffect(() => {
+    if (reparationSgsFaite.current || nbSurveillancesChargees === 0 || nbAerodromesCharges === 0) return;
+    reparationSgsFaite.current = true;
+    useAppStore.getState().reparerMaturiteSGSNonReportee()
+      .then(n => {
+        if (n > 0) {
+          useAppStore.getState().addNotification({
+            user_id: useAppStore.getState().user?.id || '',
+            type: 'success',
+            title: 'Maturité SGS resynchronisée',
+            message: `${n} aérodrome(s) mis à jour depuis les évaluations SGS signées.`,
+            canal: 'in_app',
+          });
+        }
+      })
+      .catch(() => {});
+  }, [nbSurveillancesChargees, nbAerodromesCharges]);
+
   // États UI
   const [ongletPrincipal, setOngletPrincipal] = useState<OngletPrincipal>('actives');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -406,9 +456,10 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
     type: 'all' as SurveillanceType | 'all',
     statut: 'all' as SurveillanceStatut | 'all',
     type_entite: 'all' as TypeEntiteAerodrome | 'all',
+    recherche: '',
   });
   const resetFilters = () => {
-    setFilters({ aerodrome: 'all', type: 'all', statut: 'all', type_entite: 'all' });
+    setFilters({ aerodrome: 'all', type: 'all', statut: 'all', type_entite: 'all', recherche: '' });
   };
 
   const handleViewDetails = (surveillance: Surveillance) => {
@@ -612,21 +663,29 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
      getProcessusActifs(certifications, homologations, surveillances, ecarts, aerodromes),
    [certifications, homologations, surveillances, ecarts, aerodromes]);
 
-   // Surveillances filtrées (actives, non archivées)
-   const filteredSurveillances = useMemo(() => {
-     return surveillances.filter(s => {
-        // Exclure les surveillances terminées/archivées de l'onglet actives
-        // Onglet actives : exclure les surveillances terminées/archivées
-        if (s.statut === 'transmise' || s.statut === 'archivee') return false;
-       if (filters.aerodrome !== 'all' && s.aerodrome_id !== filters.aerodrome) return false;
-       if (filters.statut !== 'all' && s.statut !== filters.statut) return false;
-       if (filters.type !== 'all' && s.type !== filters.type) return false;
+    // Surveillances filtrées (actives, non archivées + recherche plein texte).
+    const filteredSurveillances = useMemo(() => {
+      return surveillances.filter(s => {
+         // Exclure les surveillances terminées/archivées de l'onglet actives
+         // Onglet actives : exclure les surveillances terminées/archivées
+         if (s.statut === 'transmise' || s.statut === 'archivee') return false;
+        if (filters.aerodrome !== 'all' && s.aerodrome_id !== filters.aerodrome) return false;
+        if (filters.statut !== 'all' && s.statut !== filters.statut) return false;
+        if (filters.type !== 'all' && s.type !== filters.type) return false;
         if (filters.type_entite !== 'all') {
           const aero = aerodromesMap.get(s.aerodrome_id);
           if (aero?.type_entite !== filters.type_entite) return false;
         }
         // Exclure TOUTES les surveillances certification/homologation (affichées dans l'accordéon dédié)
         if (s.type === 'certification' || s.type === 'homologation') return false;
+        if (filters.recherche) {
+          const term = filters.recherche.toLowerCase();
+          const aero = aerodromesMap.get(s.aerodrome_id);
+          const matches = s.type.toLowerCase().includes(term) ||
+            (aero?.code_oaci || '').toLowerCase().includes(term) ||
+            (aero?.nom || '').toLowerCase().includes(term);
+          if (!matches) return false;
+        }
         return true;
       });
     }, [surveillances, filters, aerodromesMap]);
@@ -707,6 +766,28 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
         ))}
       </div>
 
+      {/* Bilan d'activité de l'année : programmées, exécutées, en cours (miroir planning) */}
+      {(() => {
+        const annee = new Date().getFullYear();
+        const deLAnnee = surveillances.filter(s => s.date_debut && new Date(s.date_debut).getFullYear() === annee);
+        const executees = deLAnnee.filter(s => s.statut === 'transmise' || s.statut === 'archivee').length;
+        const enCours = deLAnnee.filter(s => s.statut === 'en_cours').length;
+        return (
+          <div className="p-3 rounded-lg border border-primary/20 bg-primary-soft/20 flex items-start gap-2">
+            <Calendar className="w-4 h-4 text-role-primary shrink-0 mt-0.5" />
+            <p className="text-xs">
+              <span className="font-semibold text-foreground">
+                {annee} : {deLAnnee.length} surveillance(s) programmée(s), {executees} exécutée(s).
+              </span>{' '}
+              <span className="text-foreground">
+                {enCours > 0 ? `${enCours} en cours d’exécution. ` : ''}
+                La préparation revient au chef d&apos;équipe et aux membres, l&apos;exécution au seul chef d&apos;équipe désigné.
+              </span>
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Onglets principaux */}
       <div className="tabs border-b border-border">
         <button
@@ -729,9 +810,20 @@ export default function SurveillanceModule({ userRole }: SurveillanceModuleProps
       {/* Onglet Actives */}
       {ongletPrincipal === 'actives' && (
         <>
-          {/* Filtres */}
-          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres">
+          {/* Filtres & recherche (une seule ligne, comme Dossiers) */}
+          <Card className="border-primary/20 bg-primary-soft/30" icon={<Filter className="w-4 h-4 text-role-primary" />} title="Filtres & recherche">
             <div className="flex flex-wrap items-center gap-3">
+              {/* Recherche plein texte (type, OACI, nom) */}
+              <div className="flex-1 min-w-[240px] relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Rechercher (type, OACI, nom)..."
+                  value={filters.recherche}
+                  onChange={(e) => setFilters(f => ({ ...f, recherche: e.target.value }))}
+                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
+                />
+              </div>
                {/* Filtre Aérodrome */}
                <select
                  value={filters.aerodrome}

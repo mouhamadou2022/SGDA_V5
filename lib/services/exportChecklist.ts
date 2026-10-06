@@ -5,6 +5,7 @@ import { applyPlugin } from 'jspdf-autotable';
 applyPlugin(jsPDF);
 import type { DomaineChecklist, ChecklistItem } from '@/types/checklist';
 import type { ExportMeta, SGSTemplateEntry } from './documentTemplater';
+import { textePdf } from '@/lib/pdfText';
 
 const RESULTAT_LABELS: Record<string, string> = {
   SA: 'Satisfaisant', NS: 'Non Satisfaisant', NV: 'Non Validé', NA: 'Non Applicable',
@@ -72,6 +73,10 @@ async function buildChecklistDoc(
   const pageW = 297;
   const margin = 10;
   let y = margin;
+
+  // Assainissement global (glyphes PDF) des données checklist + méta.
+  domaines = JSON.parse(JSON.stringify(domaines, (_k, v) => (typeof v === 'string' ? textePdf(v) : v)));
+  meta = JSON.parse(JSON.stringify(meta, (_k, v) => (typeof v === 'string' ? textePdf(v) : v)));
 
   const isSGS = !!meta.sgsTemplate;
 

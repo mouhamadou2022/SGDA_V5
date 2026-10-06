@@ -10,6 +10,7 @@ import { BarChart3, ArrowRight, CheckCircle2, AlertTriangle, Sparkles } from 'lu
 import { useAppStore, type ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { calculerExplicationShap, construireNarrationShap, type ModeBaselineShap } from '@/lib/ia/shapExplainer'
+import { usePoidsAppris } from './usePoidsAppris'
 
 interface Props {
   profil: ProfilRisque
@@ -31,9 +32,13 @@ export default function ShapExplicationCard({ profil }: Props) {
     [profil.aerodrome_id, getHistoricalScoresForAerodrome],
   )
 
+  // Mêmes poids que le moteur de score (appris par l'IA) : sinon
+  // base + Σφ ≠ score stocké et l'exactitude affichée est rompue.
+  const { poids, personnalises } = usePoidsAppris()
+
   const explication = useMemo(
-    () => calculerExplicationShap(profil, historique, mode, aerodrome?.statut_sgs),
-    [profil, historique, mode, aerodrome?.statut_sgs],
+    () => calculerExplicationShap(profil, historique, mode, aerodrome?.statut_sgs, poids),
+    [profil, historique, mode, aerodrome?.statut_sgs, poids],
   )
 
   const tri = [...explication.contributions].sort((a, b) => Math.abs(b.phi) - Math.abs(a.phi))
@@ -45,6 +50,7 @@ export default function ShapExplicationCard({ profil }: Props) {
       <div className="flex items-center gap-1.5">
         <span className="badge text-xs">{explication.baseline.valeur} → {explication.score}</span>
         <span className="badge neutral text-xs">Σ exacte</span>
+        <span className={`badge text-[10px] ${personnalises ? 'primary' : 'neutral'}`} title={personnalises ? 'Attribution calculée avec les poids appris (moteur de score)' : 'Attribution avec les poids par défaut'}>{personnalises ? 'Poids IA' : 'Poids std'}</span>
       </div>
     }>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">

@@ -4,7 +4,8 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Card } from '@/components/ui/card'
-import { Enquete, QuestionEnquete } from '@/lib/store'
+import { Enquete, QuestionEnquete, useAppStore } from '@/lib/store'
+import { isSGSApplicable } from '@/lib/risque'
 import { Plus, Trash2, ArrowUp, ArrowDown, Eye, Save, Send, Star, Shield, Target, TrendingUp, X, Calendar, ClipboardList } from 'lucide-react'
 
 type QuestionType = 'choix_unique' | 'likert_5' | 'texte_libre' | 'oui_non' | 'note_10'
@@ -58,6 +59,13 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
   const [questions, setQuestions] = useState<QuestionEnquete[]>(enquete.questions ?? [])
   const [preview, setPreview] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  // SGS non applicable → les réponses restent archivées, sans effet sur le C1.
+  const aerodromes = useAppStore(s => s.aerodromes)
+  const ciblesIds = (enquete as any).aerodrome_ids as string[] | undefined
+  const aerosCibles = ciblesIds && ciblesIds.length > 0
+    ? aerodromes.filter(a => ciblesIds.includes(a.id))
+    : []
+  const tousSgsNonApplicable = aerosCibles.length > 0 && aerosCibles.every(a => !isSGSApplicable(a))
   const [showPublishConfirm, setShowPublishConfirm] = useState(false)
 
   const addQuestion = (type: QuestionType) => {
@@ -219,8 +227,12 @@ export function EnqueteBuilder({ enquete, onSave, onClose }: EnqueteBuilderProps
                     <span className="text-sm font-medium">Impact sur le profil de risque</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Les réponses à cette enquête impacteront le score C1 (Maturité SGS) de votre profil de risque.
-                    Répondez sincèrement pour une évaluation précise.
+                    {tousSgsNonApplicable ? (
+                      <>SGS non applicable pour le(s) aérodrome(s) ciblé(s) : vos réponses sont conservées, sans effet sur le score C1.</>
+                    ) : (
+                      <>Les réponses à cette enquête impacteront le score C1 (Maturité SGS) de votre profil de risque (hors SGS non applicable).
+                      Répondez sincèrement pour une évaluation précise.</>
+                    )}
                   </p>
                 </div>
               </div>

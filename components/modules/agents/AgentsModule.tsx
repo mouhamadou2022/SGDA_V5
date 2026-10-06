@@ -18,6 +18,8 @@ import {
   Brain,
   Sparkles,
   Play,
+  RotateCcw,
+  Send,
   ThumbsUp,
   ThumbsDown,
   History,
@@ -30,6 +32,8 @@ import {
 } from 'lucide-react'
 import { taskRunner } from '@/lib/ia/registry/taskRunner'
 import { AGENT_REGISTRY } from '@/lib/ia/registry/agentRegistry'
+import { assistantAgent } from '@/lib/ia/agents/assistantAgent'
+import { Markdown } from '@/components/ui/markdown'
 import CopiloteInspecteur from './CopiloteInspecteur'
 import type {
   TaskExecutionRecord,
@@ -170,31 +174,22 @@ export function AgentsModule({ user }: Props) {
       )}
 
       {tab === 'entrainement' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div>
             <Card
               variant="role"
               title="Créer une tâche personnalisée"
               subtitle="Définissez votre propre demande à un agent : elle enrichira son entraînement."
               icon={<Plus className="w-5 h-5 text-role-primary" />}
             >
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label className="block">
                   <span className="text-sm font-medium text-foreground">Nom de la tâche</span>
                   <input
                     value={customForm.nom}
                     onChange={(e) => setCustomForm({ ...customForm, nom: e.target.value })}
                     placeholder="ex : Vérifier la conformité SSLIA"
-                    className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-foreground">Description</span>
-                  <textarea
-                    value={customForm.description}
-                    onChange={(e) => setCustomForm({ ...customForm, description: e.target.value })}
-                    placeholder="Précisez le contexte et la demande."
-                    rows={3}
                     className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
                   />
                 </label>
@@ -212,6 +207,16 @@ export function AgentsModule({ user }: Props) {
                   </select>
                 </label>
                 <label className="block">
+                  <span className="text-sm font-medium text-foreground">Description</span>
+                  <textarea
+                    value={customForm.description}
+                    onChange={(e) => setCustomForm({ ...customForm, description: e.target.value })}
+                    placeholder="Précisez le contexte et la demande."
+                    rows={2}
+                    className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+                  />
+                </label>
+                <label className="block">
                   <span className="text-sm font-medium text-foreground">Demande complémentaire (optionnel)</span>
                   <textarea
                     value={customForm.prompt}
@@ -221,14 +226,13 @@ export function AgentsModule({ user }: Props) {
                     className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
                   />
                 </label>
-                <button onClick={creerCustom} className="btn btn-primary h-9 px-4 gap-2 text-sm w-full">
+                <button onClick={creerCustom} className="btn btn-primary h-9 px-4 gap-2 text-sm w-full md:col-span-2">
                   <Plus className="w-4 h-4" /> Créer la tâche
                 </button>
               </div>
             </Card>
           </div>
-
-          <div className="lg:col-span-7 space-y-6">
+          <div>
             <Card
               variant="role"
               title={`Tâches personnalisées (${customTasks.length})`}
@@ -270,13 +274,15 @@ export function AgentsModule({ user }: Props) {
                 </div>
               )}
             </Card>
+          </div>
+          </div>
 
-            {error && (
-              <div className="flex items-center gap-2 rounded-lg bg-danger-soft border border-danger/20 px-3 py-2 text-sm text-foreground">
-                <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
-                {error}
-              </div>
-            )}
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg bg-danger-soft border border-danger/20 px-3 py-2 text-sm text-foreground">
+              <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
+              {error}
+            </div>
+          )}
 
             {result && (
               <ResultCard
@@ -285,9 +291,17 @@ export function AgentsModule({ user }: Props) {
                 setCorrection={setCorrection}
                 onVote={vote}
                 onCorriger={submitCorrection}
+                onRelancer={() => {
+                  const tache = customTasks.find(t => t.id === result.taskId)
+                  if (tache) runCustom(tache)
+                }}
+                relanceEnCours={running}
+                agentId={customTasks.find(t => t.id === result.taskId)?.agentId || result.agentId}
+                taskNom={customTasks.find(t => t.id === result.taskId)?.nom || result.agentNom}
+                userRole={user?.role}
               />
             )}
-          </div>
+
         </div>
       )}
 
@@ -306,13 +320,48 @@ function ResultCard({
   setCorrection,
   onVote,
   onCorriger,
+  onRelancer,
+  relanceEnCours,
+  agentId,
+  taskNom,
+  userRole,
 }: {
   result: TaskExecutionRecord
   correction: string
   setCorrection: (v: string) => void
   onVote: (id: string, vote: TaskVote) => void
   onCorriger: () => void
+  onRelancer: () => void
+  relanceEnCours: boolean
+  agentId: string
+  taskNom: string
+  userRole?: string
 }) {
+  // Dialogue de suivi : question sur CETTE réponse, même agent, sans recréer
+  // de tâche. L'historique interne de l'agent (par module) assure la continuité.
+  const [question, setQuestion] = useState('')
+  const [echanges, setEchanges] = useState<Array<{ q: string; r: string }>>([])
+  const [envoi, setEnvoi] = useState(false)
+  const [erreurSuivi, setErreurSuivi] = useState<string | null>(null)
+  const envoyerSuivi = async () => {
+    const q = question.trim()
+    if (!q || envoi) return
+    setEnvoi(true)
+    setErreurSuivi(null)
+    try {
+      const res = await assistantAgent.chat({
+        message: `Suite à ta réponse sur « ${taskNom} » : ${q}`,
+        contexte: { module: `agent-${agentId}` },
+        userRole: userRole || 'inspector',
+      })
+      setEchanges(prev => [...prev, { q, r: res.message }])
+      setQuestion('')
+    } catch (err) {
+      setErreurSuivi((err as Error)?.message || 'Réponse indisponible.')
+    } finally {
+      setEnvoi(false)
+    }
+  };
   return (
     <Card
       variant="level"
@@ -326,9 +375,9 @@ function ResultCard({
         ) : undefined
       }
     >
-      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground mb-4">
-        {result.output}
-      </pre>
+      <div className="mb-4 rounded-lg border border-border/60 bg-card px-4 py-3">
+        <Markdown texte={result.output} className="text-sm leading-relaxed" />
+      </div>
 
       {result.vote === 'down' && (
         <div className="mb-4 rounded-lg bg-warning-soft border border-warning/20 p-3 space-y-2">
@@ -346,7 +395,18 @@ function ResultCard({
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={onRelancer}
+          disabled={relanceEnCours}
+          className="h-8 px-3 text-xs gap-1.5 btn btn-primary"
+          title="Relancer l'IA sur cette tâche"
+        >
+          {relanceEnCours
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <RotateCcw className="w-3.5 h-3.5" />}
+          Relancer l'IA
+        </button>
         <span className="text-xs text-foreground/50 mr-1">Résultat :</span>
         <button
           onClick={() => onVote(result.id, 'up')}
@@ -375,6 +435,42 @@ function ResultCard({
             {result.vote === 'up' ? 'Enregistré comme utile' : 'Correction demandée'}
           </span>
         )}
+      </div>
+
+      {/* Dialogue de suivi : questionner / relancer l'IA sur cette réponse */}
+      <div className="mt-4 rounded-lg border border-border/60 bg-card/50 p-3">
+        <p className="text-xs font-semibold text-foreground/70 mb-2">Poser une question sur cette réponse</p>
+        {echanges.map((e, i) => (
+          <div key={i} className="mb-3 space-y-1.5">
+            <div className="flex justify-end">
+              <p className="max-w-[85%] rounded-lg bg-role-primary px-3 py-1.5 text-xs text-white">{e.q}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+              <Markdown texte={e.r} className="text-xs leading-relaxed" />
+            </div>
+          </div>
+        ))}
+        {erreurSuivi && (
+          <p className="mb-2 text-xs text-danger">{erreurSuivi}</p>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') envoyerSuivi() }}
+            placeholder="Ex : détaille le point 2, ou reformule pour un DG…"
+            className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground"
+          />
+          <button
+            onClick={envoyerSuivi}
+            disabled={envoi || !question.trim()}
+            className="btn btn-secondary h-8 px-3 text-xs gap-1.5"
+            title="Envoyer à l'IA"
+          >
+            {envoi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            Envoyer
+          </button>
+        </div>
       </div>
     </Card>
   )

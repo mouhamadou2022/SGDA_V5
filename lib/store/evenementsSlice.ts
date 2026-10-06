@@ -8,6 +8,7 @@ import type { StateCreator } from 'zustand'
 import type { AppStore, Ecart } from '../store'
 import * as datastore from '../datastore'
 import { storeEvents } from './eventBus'
+import { calculerDelaisEcart } from '../flux'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -19,6 +20,14 @@ export interface EvenementSecurite {
   reference: string
   type: string
   gravite: 'critique' | 'eleve' | 'moyen' | 'faible'
+  /** Indice de risque OACI déclaré (ex. 2A) — la gravité en est dérivée, l'inspecteur valide. */
+  cellule_oaci?: string
+  /** Justification de l'indice par le déclarant (obligatoire si cellule renseignée). */
+  cellule_justification?: string
+  /** Risque résiduel après actions immédiates (indice OACI, strictement < initial). */
+  cellule_residuelle?: string
+  /** Justification du résiduel (obligatoire). */
+  cellule_residuelle_justification?: string
   date: string
   heure: string
   localisation: string
@@ -254,6 +263,9 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
   creerEcartLie: async (evenementId, ecartData) => {
     const now = new Date().toISOString()
     const ecartId = crypto.randomUUID()
+    // Barème unique par risque (lib/flux.ts) en repli — un délai explicite
+    // (convenu) reste prioritaire s'il est fourni.
+    const delaisDefaut = calculerDelaisEcart(ecartData.niveau_risque || 'moyen')
     const newEcart: Ecart = {
       id: ecartId,
       aerodrome_id: ecartData.aerodrome_id || '',
@@ -264,8 +276,8 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
       libelle: ecartData.libelle || '',
       niveau_risque: ecartData.niveau_risque || 'moyen',
       statut: 'ouvert',
-      delai_pac: ecartData.delai_pac || new Date(Date.now() + 15 * 86400000).toISOString(),
-      delai_regularisation: ecartData.delai_regularisation || new Date(Date.now() + 90 * 86400000).toISOString(),
+      delai_pac: ecartData.delai_pac || delaisDefaut.delai_pac,
+      delai_regularisation: ecartData.delai_regularisation || delaisDefaut.delai_regularisation,
       inspecteur_ref_id: ecartData.inspecteur_ref_id || '',
       created_at: now,
       updated_at: now,

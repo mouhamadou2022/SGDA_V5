@@ -16,6 +16,7 @@ import { useAppStore, type Dossier } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import { dossierUtils } from '@/lib/dossierUtils';
 import { canManageRole } from '@/lib/config';
+import { prioriteDossierItem } from '@/lib/processusTri';
 import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import { DossierForm } from '@/components/forms/DossierForm';
@@ -175,7 +176,10 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
   const paginatedEntries = useMemo(() => {
     const result: Record<string, Dossier[]> = {}
     CATEGORIES_DOSSIERS.forEach(cat => {
-      const entries = dossiersParCategorie[cat.id] || []
+      // Rangement unique : en retard → en cours → en attente → terminés.
+      const entries = [...(dossiersParCategorie[cat.id] || [])].sort((a, b) =>
+        prioriteDossierItem({ statut: a.statut, joursRestants: dossierUtils.getDelaiRestant(a.date_limite).jours }) -
+        prioriteDossierItem({ statut: b.statut, joursRestants: dossierUtils.getDelaiRestant(b.date_limite).jours }))
       const page = currentPage[cat.id] || 1
       const start = (page - 1) * PAGE_SIZE
       result[cat.id] = entries.slice(start, start + PAGE_SIZE)
@@ -612,10 +616,20 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
             </AccordionGroup>
           )}
 
+          {/* Bilan d'activité : en cours, en retard, terminés */}
+          <p className="text-xs text-muted-foreground">
+            <strong className="text-foreground">{stats.enCours + stats.enAttente} dossier(s) actif(s)</strong>
+            {stats.urgents > 0 ? `, dont ${stats.urgents} urgent(s)` : ', aucun urgent'}
+            {stats.termines > 0 ? ` — ${stats.termines} terminé(s)` : ''}.
+          </p>
+
           {/* Vue Grille */}
           {viewMode === 'grille' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredDossiers.map(d => {
+              {[...filteredDossiers].sort((a, b) =>
+                prioriteDossierItem({ statut: a.statut, joursRestants: dossierUtils.getDelaiRestant(a.date_limite).jours }) -
+                prioriteDossierItem({ statut: b.statut, joursRestants: dossierUtils.getDelaiRestant(b.date_limite).jours })
+              ).map(d => {
                 const aerodrome = aerodromes.find(a => a.id === d.aerodrome_id);
                 return (
                   <DossierCard

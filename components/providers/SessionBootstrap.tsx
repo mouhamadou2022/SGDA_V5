@@ -40,7 +40,19 @@ export function SessionBootstrap() {
     }
   }, [user, setUser]);
 
-  // 2) Poser data-role sur <body> de façon idempotente dès que le rôle est connu.
+  // 2) Préchauffer Ollama en arrière-plan (une fois par session) : charge le
+  //    modèle en RAM pour que le premier appel IA ne paie pas le chargement
+  //    à froid (~16s). Silencieux : Ollama éteint = no-op.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      import('@/lib/ia/ollamaWarmup').then(({ prechaufferOllama }) => {
+        prechaufferOllama().catch(() => {});
+      }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 3) Poser data-role sur <body> de façon idempotente dès que le rôle est connu.
   //    Exécuté après CHAQUE rendu (sans tableau de dép) : certaines pages retirent
   //    l'attribut via un cleanup dans leur propre useEffect ; ici on le ré-applique
   //    systématiquement pour que les couleurs ne disparaissent jamais de façon durable.

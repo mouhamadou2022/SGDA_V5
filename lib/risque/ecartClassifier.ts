@@ -1,7 +1,8 @@
 // lib/risque/ecartClassifier.ts
 // Classification de texte pour écarts — version légère (keywords + Weighted TF)
 // Sans @xenova/transformers. Upgrade possible vers transformers plus tard.
-// 0 dépendance, 0 API, 100% local
+// 0 API, 100% local (seule dépendance : feuille lib/domaines, sans imports).
+import { retirerDiacritiques } from '../domaines';
 
 interface ClassifierResult {
   domaine: string
@@ -28,8 +29,7 @@ const DOMAINES = Object.keys(DOMAIN_KEYWORDS)
  * Nettoie et normalise un texte pour la classification.
  */
 function normalize(text: string): string {
-  return text.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // enlève accents
+  return retirerDiacritiques(text.toLowerCase())
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

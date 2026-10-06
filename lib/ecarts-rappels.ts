@@ -4,6 +4,7 @@
 // Testé : lib/__tests__/ecartsRappels.test.ts.
 
 import type { Ecart } from './store/ecartsTypes';
+import { STATUTS_PAC_ACCEPTES } from './domaines';
 
 /** Jours restants (ceil) entre une échéance ISO et maintenant. NaN-safe par propagation (comparaisons fausses, comme avant). */
 export function joursRestants(dateISO: string, maintenant: Date): number {
@@ -25,11 +26,23 @@ export interface DecisionRappelsEcart {
   rappels: TypeRappelEcart[];
 }
 
-/** Retard + rappels d'échéance PAC/régularisation (écarts non clôturés). */
+/**
+ * Retard + rappels d'échéance, PHASE-AWARE (règle verrouillée) :
+ * - avant acceptation (ouvert, attendu, refusé) : seul delai_pac compte ;
+ * - en attente inspecteur (soumis) ou arbitrage chef : jamais de flip, la
+ *   balle n'est pas chez l'exploitant (délais inspecteur suivis à part) ;
+ * - après acceptation : seul delai_regularisation compte (delai_pac est
+ *   forcément dépassé — sinon tout PAC accepté basculerait en retard).
+ */
 export function evaluerRappelsEcart(ecart: Ecart, maintenant: Date): DecisionRappelsEcart {
   if (ecart.statut === 'cloture') return { passerEnRetard: false, rappels: [] }
-  const joursAvantPAC = joursRestants(ecart.delai_pac, maintenant)
-  const joursAvantReg = joursRestants(ecart.delai_regularisation, maintenant)
+  if (ecart.statut === 'en_attente_validation_chef') return { passerEnRetard: false, rappels: [] }
+  if (ecart.statut === 'pac_soumis' || ecart.statut === 'preuves_soumises') {
+    return { passerEnRetard: false, rappels: [] }
+  }
+  const estAccepteOuAval = (STATUTS_PAC_ACCEPTES as readonly string[]).includes(ecart.statut)
+  const joursAvantPAC = estAccepteOuAval ? Number.POSITIVE_INFINITY : joursRestants(ecart.delai_pac, maintenant)
+  const joursAvantReg = estAccepteOuAval ? joursRestants(ecart.delai_regularisation, maintenant) : Number.POSITIVE_INFINITY
   const passerEnRetard =
     (joursAvantPAC < 0 || joursAvantReg < 0) && ecart.statut !== 'en_retard'
   const rappels = SEUILS_RAPPEL

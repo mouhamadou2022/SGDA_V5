@@ -6,10 +6,12 @@ import { FileText, CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
 import type { TypeDocumentOACI, FormatDocument } from '@/lib/store'
 
 // Types de documents (catégorie)
+// 'checklist' : conservé pour l'affichage/filtrage des existants, mais exclu
+// du formulaire de création — les checklists vivent dans les templates.
 export const TYPES_DOCUMENTS = [
   { id: 'reglementation', label: 'Réglementation', icon: FileText, color: 'primary' },
   { id: 'procedure', label: 'Procédure', icon: FileText, color: 'primary' },
-  { id: 'checklist', label: 'Checklist', icon: FileText, color: 'success' },
+  { id: 'checklist', label: 'Checklist', icon: FileText, color: 'success', retireCreation: true },
   { id: 'modele_rapport', label: 'Modèle de rapport', icon: FileText, color: 'info' },
   { id: 'guide', label: 'Guide', icon: FileText, color: 'warning' },
   { id: 'autre', label: 'Autre', icon: FileText, color: 'neutral' },

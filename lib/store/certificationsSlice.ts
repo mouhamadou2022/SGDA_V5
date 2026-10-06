@@ -235,6 +235,13 @@ export const createCertificationsSlice: StateCreator<AppStore, [], [], Certifica
       ),
       currentCertification: state.currentCertification?.id === id ? null : state.currentCertification,
     }));
+    // Persistance réelle (sinon l'archive disparaît au rechargement côté
+    // exploitant) — même canal service_role que updateCertification.
+    import('@/lib/api/certifications').then(({ updateCertification }) => {
+      updateCertification(id, { statut_global: 'archive', archived_at: now } as never).then(res => {
+        if (res.error) console.error('[store] archiverCertification error:', res.error)
+      }).catch(() => {})
+    }).catch(err => console.error('[store] archiverCertification import error:', err));
     const aerodrome = get().aerodromes.find(a => a.id === cert.aerodrome_id);
     const entry = registreUtils.toRegistreEntryFromCertification(cert, aerodrome);
     // Journal via événement (tranche registres propriétaire).
@@ -246,11 +253,18 @@ export const createCertificationsSlice: StateCreator<AppStore, [], [], Certifica
     });
   },
 
-  restaurerCertification: (id) => set((state) => ({
-    certifications: state.certifications.map((c) =>
-      c.id === id ? { ...c, statut_global: 'en_cours' as const, archived_at: null } : c
-    ),
-  })),
+  restaurerCertification: (id) => {
+    set((state) => ({
+      certifications: state.certifications.map((c) =>
+        c.id === id ? { ...c, statut_global: 'en_cours' as const, archived_at: null } : c
+      ),
+    }));
+    import('@/lib/api/certifications').then(({ updateCertification }) => {
+      updateCertification(id, { statut_global: 'en_cours', archived_at: null } as never).then(res => {
+        if (res.error) console.error('[store] restaurerCertification error:', res.error)
+      }).catch(() => {})
+    }).catch(err => console.error('[store] restaurerCertification import error:', err));
+  },
 
   nettoyerLienSurveillanceCertification: (aerodrome_id, surveillance_id) => {
     const cert = get().certifications.find(c =>

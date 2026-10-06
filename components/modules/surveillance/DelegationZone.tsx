@@ -16,6 +16,7 @@ import {
   getTypeSurveillanceInfo,
   getTypeSurveillanceLabel,
   expandDomaines,
+  peutRecevoirDelegation,
 } from '@/lib/domaines';
 
 // Types
@@ -100,13 +101,16 @@ const AGA_COMPETENCES_MAP: Record<string, string[]> = {
   'AGA/SLI_RA': ['SLI', 'RA'],
 };
 
-// Construit la liste d'inspecteurs disponibles depuis les vrais utilisateurs du store
+// Construit la liste d'inspecteurs disponibles depuis les vrais utilisateurs
+// du store — seuls les titulaires et principaux (observateurs exclus : règle
+// peutRecevoirDelegation, lib/domaines.ts).
 function buildInspecteursFromUtilisateurs(
   utilisateurs: Utilisateur[],
-  chefId: string
+  chefId: string,
+  fichesInspecteurs?: { id?: string; user_id?: string; type?: string }[],
 ): InspecteurDisponible[] {
   return utilisateurs
-    .filter(u => u.role === 'inspector' && u.statut !== 'inactif')
+    .filter(u => peutRecevoirDelegation(fichesInspecteurs, u))
     .map(u => {
       const comps = new Set<string>();
       (u.competences || []).forEach((c: { domaine?: string } | string) => {
@@ -470,10 +474,12 @@ export function DelegationZone({
     if (inspecteursProp.length > 0) {
       return inspecteursProp.filter(i => equipeIds.has(i.id));
     }
-    const utilisateurs = useAppStore.getState().utilisateurs || [];
+    const st = useAppStore.getState();
+    const utilisateurs = st.utilisateurs || [];
     return buildInspecteursFromUtilisateurs(
       utilisateurs.filter(u => equipeIds.has(u.id)),
-      chefId
+      chefId,
+      st.inspecteurs || [],
     );
   }, [inspecteursProp, surveillance?.equipe_ids, chefId]);
 

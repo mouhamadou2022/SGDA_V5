@@ -38,6 +38,7 @@ export function NotificationCenter() {
   const notifications = useAppStore(s => s.notifications)
   const markAsRead = useAppStore(s => s.markAsRead)
   const markAllAsRead = useAppStore(s => s.markAllAsRead)
+  const accuserReceptionNotification = useAppStore(s => s.accuserReceptionNotification)
   const nonLues = notifications.filter(n => !n.read_at).length
 
   useEffect(() => {
@@ -105,9 +106,24 @@ export function NotificationCenter() {
                     <div className="flex-1 min-w-0">
                       {n.title && <p className="font-medium text-foreground truncate">{n.title}</p>}
                       <p className="text-muted-foreground text-xs line-clamp-2">{n.message}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-[10px] text-muted-foreground">{timeAgo(n.sent_at)}</span>
                         {n.link && <ExternalLink className="w-2.5 h-2.5 text-role-primary" />}
+                        {n.exige_accuse && !n.accuse_reception && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); accuserReceptionNotification(n.id); }}
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-warning text-white hover:opacity-90"
+                            title="Confirmer la prise en compte (vaut accusé de réception)"
+                          >
+                            ✓ Pris en compte
+                          </button>
+                        )}
+                        {n.exige_accuse && n.accuse_reception && (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-success/15 text-success">
+                            Accusé le {new Date(n.accuse_reception.le).toLocaleDateString('fr-FR')}
+                          </span>
+                        )}
                       </div>
                     </div>
                     {!n.read_at && <span className="w-2 h-2 rounded-full bg-role-primary shrink-0 mt-1.5" />}

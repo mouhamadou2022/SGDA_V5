@@ -430,6 +430,8 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
       userMessage,
       temperature: 0.2,
       maxTokens: 700,
+      // Tâche dure (combinaison d'items, formulation réglementaire) : réflexion rentable.
+      think: true,
     })
 
     // Parser la réponse LLM

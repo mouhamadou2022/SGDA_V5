@@ -12,6 +12,7 @@ export interface AnalyzeRequest {
   temperature?: number
   maxTokens?: number
   responseFormat?: 'text' | 'json_object'
+  think?: boolean
 }
 
 // Inférence locale possible (Ollama) : laisser jusqu'à 5 min à la requête
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       temperature: body.temperature ?? 0.3,
       max_tokens: body.maxTokens ?? 2048,
       top_p: 0.9,
+      think: body.think ?? false,
       ...(body.responseFormat === 'json_object' ? { response_format: { type: 'json_object' as const } } : {}),
     }
 

@@ -4,12 +4,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui/card';
-import { Save, FileText, CheckCircle, XCircle, AlertCircle, PenLine, Eye, Calendar, MapPin, Edit3, Check, X, ChevronDown, Trash2, Info, Brain, Wifi, WifiOff, ClipboardList, Shield, TrendingUp, AlertTriangle, Zap, Upload } from 'lucide-react'
+import { Save, FileText, CheckCircle, XCircle, AlertCircle, PenLine, Eye, Calendar, MapPin, Edit3, Check, X, ChevronDown, Trash2, Info, Brain, Wifi, WifiOff, ClipboardList, Shield, TrendingUp, AlertTriangle, Zap, Upload, Users } from 'lucide-react'
+import { EquipeNoms } from './EquipeNoms';
 import { FileUploader } from '@/components/ui/FileUploader';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
-import { DomaineCode, getDomaineInfo, getDomaineLabel, getDomaineCode, grouperParDomaine, DomaineItems } from '@/lib/domaines';
+import { DomaineCode, getDomaineInfo, getDomaineLabel, getDomaineCode, grouperParDomaine, DomaineItems, releveChecklistPAC, estEcheanceVerifiable, estResultatValide, estItemTermine, PRIORITE_RISQUE } from '@/lib/domaines';
+import { veillerCoherenceChecklist, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation';
+import { nomActeur } from '@/lib/acteurs';
 import { EvaluationAction, computeEvaluationActionScore, EcartClosureStatus, computeEcartClosureStatus } from '@/types/checklist';
 import { getCellColor } from '@/lib/risque';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
@@ -20,7 +23,7 @@ const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primar
 
 // Types unifiés
 export type ResultatItem = 'SA' | 'NS' | 'NV';
-export type ItemType = 'action_pac' | 'mesure_atténuation';
+export type ItemType = 'action_pac' | 'verification_preuve' | 'mesure_atténuation';
 
 export interface Preuve {
   id: string;
@@ -49,6 +52,8 @@ export interface ItemVerification {
   observation?: string;
   preuves?: Preuve[];
   ordre: number;
+  // R2 — auteur du résultat (brouillon observateur jusqu'à reprise).
+  modified_by?: string;
   
   // Pour PAC : prédiction SA/NS
   prediction?: 'SA' | 'NS' | 'NV';
@@ -305,7 +310,12 @@ function ItemCard({
   });
   
   const isPAC = item.type === 'action_pac';
+  const isPreuve = item.type === 'verification_preuve';
   const isMesure = item.type === 'mesure_atténuation';
+  // R2 — brouillon observateur : visible, à reprendre par un signataire.
+  const utilisateursItem = useOptimizedStore(s => s.utilisateurs);
+  const fichesItem = useOptimizedStore(s => s.inspecteurs);
+  const estBrouillon = !!item.resultat && !estResultatValide(item, fichesItem, utilisateursItem);
   const hasPrediction = isPAC && item.prediction && !item.resultat;
   const isPrefilled = item.prefill === true;
   const isAlerte = item.alerte === true;
@@ -385,7 +395,7 @@ function ItemCard({
   const ResultatIcon = resultatConfig.icon;
   
   return (
-    <div className={`card border-border mb-3 overflow-hidden ${isAlerte ? 'border-l-4 border-l-danger' : 'border-l-4 border-l-role-primary'}`}>
+    <div id={`pac-item-${item.id}`} className={`card border-border mb-3 overflow-hidden ${isAlerte ? 'border-l-4 border-l-danger' : 'border-l-4 border-l-role-primary'}`}>
       {/* En-tête */}
       <div
         className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-role-primary/5 to-transparent cursor-pointer hover:bg-role-primary-soft transition-colors"
@@ -400,7 +410,12 @@ function ItemCard({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-muted-foreground">{isPAC ? `Action ${index + 1}` : `Mesure ${index + 1}`}</span>
+          <span className="text-[12px] text-muted-foreground">{isPAC ? `Action ${index + 1}` : isPreuve ? `Preuve ${index + 1}` : `Mesure ${index + 1}`}</span>
+          {estBrouillon && (
+            <span className="text-[10px] font-semibold text-amber-600" title={`Brouillon de ${nomActeur(item.modified_by, [...utilisateursItem, ...fichesItem])} — à reprendre par un titulaire ou principal`}>
+              Brouillon
+            </span>
+          )}
           {isPAC && item.evaluation_action && item.evaluation_action.decision !== 'non_evaluee' && (
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${item.evaluation_action.decision === 'validee' ? 'bg-success/20 text-success border-success' : item.evaluation_action.decision === 'partielle' ? 'bg-warning/20 text-warning border-warning' : 'bg-danger/20 text-danger border-danger'}`}>
               {item.evaluation_action.score}%
@@ -410,8 +425,8 @@ function ItemCard({
         </div>
       </div>
 
-      {/* Rappel écart source : libellé + risque + OACI */}
-      {isPAC && item.ecart_libelle && (
+      {/* Rappel écart source : libellé + risque + OACI (actions et preuves) */}
+      {(isPAC || isPreuve) && item.ecart_libelle && (
         <div className={`px-3 py-1.5 ${item.ecart_niveau_risque === 'critique' ? 'bg-gradient-to-r from-red-50 to-red-100 border-red-200' : item.ecart_niveau_risque === 'eleve' ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200' : item.ecart_niveau_risque === 'moyen' ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200' : 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200'} border-b flex items-center gap-3 flex-wrap`}>
           <span className={`text-[12px] font-medium ${item.ecart_niveau_risque === 'critique' ? 'text-red-900' : item.ecart_niveau_risque === 'eleve' ? 'text-amber-900' : item.ecart_niveau_risque === 'moyen' ? 'text-blue-900' : 'text-emerald-900'}`}>Écart : {item.ecart_libelle}</span>
           {item.ecart_niveau_risque && (
@@ -1064,13 +1079,13 @@ export function SurveillanceChecklistPAC({
     };
   }, []);
   
-  // Trouver les écarts avec PAC accepté sans preuves validées (pas encore clôturé)
-  // Exclut les écarts issus de certification/homologation non terminée
+  // Écarts à PAC accepté (retard-accepté inclus — règle canonique
+  // releveChecklistPAC). Exclut les écarts de certification/homologation
+  // non terminée.
   const ecartsPACAcceptes = useMemo(() => {
     return ecarts.filter(e =>
       e.aerodrome_id === aerodromeId &&
-      e.pac && e.pac.actions && e.pac.actions.length > 0 &&
-      ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'].includes(e.statut) &&
+      releveChecklistPAC(e) &&
       !isEcartProcessusActif(e.surveillance_id, aerodromeId, certifications, homologations)
     )
   }, [ecarts, aerodromeId, certifications, homologations])
@@ -1091,13 +1106,12 @@ export function SurveillanceChecklistPAC({
     const items: ItemVerification[] = [];
     let itemCounter = 0
 
-    // 1. Ajouter les actions PAC pour tous les écarts avec PAC accepté (sans preuves validées)
+    // 1. Actions PAC à échéance vérifiable (échue ou dans la fenêtre
+    // d'anticipation du risque — lib/domaines.ts, pas de 30 j en dur).
     for (const ec of ecartsPACAcceptes) {
       if (!ec.pac?.actions) continue
       ec.pac.actions.forEach((action: any, idx: number) => {
-        const datePrevue = new Date(action.date_prevue)
-        const estApprocheOuDepasse = !isNaN(datePrevue.getTime()) && datePrevue.getTime() < Date.now() + 30 * 24 * 60 * 60 * 1000
-        if (!estApprocheOuDepasse) return
+        if (!estEcheanceVerifiable(action.date_prevue, ec.niveau_risque)) return
 
         items.push({
           id: `pac-${Date.now()}-${itemCounter}`,
@@ -1121,6 +1135,31 @@ export function SurveillanceChecklistPAC({
       });
     }
     
+    // 1b. Preuves soumises en attente : à vérifier sur site en priorité
+    // (le cas le plus important — l'exploitant affirme que c'est fait).
+    for (const ec of ecartsPACAcceptes) {
+      if (ec.statut !== 'preuves_soumises') continue
+      const fichiers = ec.preuves?.fichiers || []
+      const depotLe = ec.preuves?.soumis_le ? new Date(ec.preuves.soumis_le).toLocaleDateString('fr-FR') : 'date inconnue'
+      items.push({
+        id: `preuve-${Date.now()}-${itemCounter}`,
+        type: 'verification_preuve',
+        domaine: (ec as any).domaine as DomaineCode | undefined,
+        source_id: `preuves-${ec.id}`,
+        reference: ec.reference,
+        description: `Vérifier sur site les preuves déposées le ${depotLe} (${fichiers.length} fichier(s) : ${fichiers.slice(0, 3).map(f => f.nom).join(', ') || 'sans détail'})`,
+        responsable: ec.preuves?.soumis_par || '',
+        date_prevue: ec.validation_preuves?.deadline || ec.delai_regularisation,
+        statut_origine: 'preuves_soumises',
+        ordre: itemCounter++,
+        ecart_libelle: ec.libelle,
+        ecart_niveau_risque: ec.niveau_risque,
+        ecart_cellule_oaci: ec.cellule_risque_oaci,
+        justification: 'Preuves en attente de validation — vérification terrain requise avant clôture',
+        confiance: 90,
+      });
+    }
+
     // 2. Ajouter les mesures d'atténuation des exemptions actives
     let mesureIdx = 0;
     for (const exemption of exemptionsActives) {
@@ -1149,8 +1188,26 @@ export function SurveillanceChecklistPAC({
       }
     }
     
-    // Trier par ordre
-    items.sort((a, b) => a.ordre - b.ordre);
+    // Tri : le retard prime toujours, le risque tranche, puis l'échéance.
+    // Les mesures d'exemptions (autre famille) restent après les items PAC.
+    const estMesureExemption = (i: ItemVerification) => i.type === 'mesure_atténuation'
+    const estEnRetardItem = (i: ItemVerification) => {
+      const t = new Date(i.date_prevue || '').getTime()
+      return !isNaN(t) && t < Date.now()
+    }
+    const echeanceOuInfini = (i: ItemVerification) => {
+      const t = new Date(i.date_prevue || '').getTime()
+      return isNaN(t) ? Number.POSITIVE_INFINITY : t
+    }
+    items.sort((a, b) => {
+      if (estMesureExemption(a) !== estMesureExemption(b)) return estMesureExemption(a) ? 1 : -1
+      const retard = Number(estEnRetardItem(b)) - Number(estEnRetardItem(a))
+      if (retard !== 0) return retard
+      const risque = (PRIORITE_RISQUE[b.ecart_niveau_risque || ''] ?? 0) - (PRIORITE_RISQUE[a.ecart_niveau_risque || ''] ?? 0)
+      if (risque !== 0) return risque
+      return echeanceOuInfini(a) - echeanceOuInfini(b)
+    })
+    items.forEach((item, idx) => { item.ordre = idx })
 
     setChecklistData(prev => {
       // Restaure les résultats persistés (surveillance.checklist_pac) et préserve la saisie courante.
@@ -1171,6 +1228,7 @@ export function SurveillanceChecklistPAC({
           resultat: prevItem.resultat,
           observation: prevItem.observation,
           preuves: prevItem.preuves,
+          modified_by: (prevItem as ItemVerification).modified_by,
           evaluation_action: prevItem.evaluation_action,
           risque_residuel: prevItem.risque_residuel,
           risque_residuel_oaci: prevItem.risque_residuel_oaci,
@@ -1185,7 +1243,9 @@ export function SurveillanceChecklistPAC({
       });
 
       const totalItems = merged.length;
-      const itemsVerifies = merged.filter(i => i.resultat).length;
+      // Terminés : valides OU NV motivés (lecture store directe : effet à closure figée).
+      const stInit = useAppStore.getState();
+      const itemsVerifies = merged.filter(i => estItemTermine(i, stInit.inspecteurs || [], stInit.utilisateurs || [])).length;
       const progression = totalItems > 0 ? Math.round((itemsVerifies / totalItems) * 100) : 0;
 
       return {
@@ -1230,22 +1290,37 @@ export function SurveillanceChecklistPAC({
   }, [checklistData, readOnly, isSigned]);
   
   // Mettre à jour la progression
+  // R2 — validité des résultats (brouillons observateurs exclus des comptes).
+  const fichesInspecteursPAC = useOptimizedStore(s => s.inspecteurs);
+  const utilisateursPAC = useOptimizedStore(s => s.utilisateurs);
+  const profilRisquePAC = useOptimizedStore(s => s.profilsRisque)?.[aerodromeId];
+  const estValidePAC = useCallback((item: ItemVerification) =>
+    estResultatValide(item, fichesInspecteursPAC, utilisateursPAC),
+  [fichesInspecteursPAC, utilisateursPAC]);
+
   const updateProgression = useCallback((items: ItemVerification[]) => {
     const total = items.length;
-    const verifies = items.filter(i => i.resultat).length;
+    // Terminé = valide OU NV motivé. Brouillon et NV muet = travail restant.
+    const verifies = items.filter(i => estItemTermine(i, fichesInspecteursPAC, utilisateursPAC)).length;
     const progression = total > 0 ? Math.round((verifies / total) * 100) : 0;
     setChecklistData(prev => prev ? { ...prev, items, progression } : null);
-  }, []);
-  
+  }, [fichesInspecteursPAC, utilisateursPAC]);
+
   // Handlers
   const handleUpdateItem = useCallback((updatedItem: ItemVerification) => {
     setChecklistData(prev => {
       if (!prev) return prev;
-      const newItems = prev.items.map(i => i.id === updatedItem.id ? updatedItem : i);
+      // R2 — seul un changement de résultat restampe l'auteur.
+      const ancien = prev.items.find(i => i.id === updatedItem.id);
+      const auteur = ancien && ancien.resultat === updatedItem.resultat
+        ? (updatedItem.modified_by || ancien.modified_by || '')
+        : (user?.id || updatedItem.modified_by || '');
+      const stamped = { ...updatedItem, modified_by: auteur };
+      const newItems = prev.items.map(i => i.id === updatedItem.id ? stamped : i);
       updateProgression(newItems);
       return { ...prev, items: newItems };
     });
-  }, [updateProgression]);
+  }, [updateProgression, user?.id]);
   
   const handleAddFile = useCallback((itemId: string, file: Preuve) => {
     setChecklistData(prev => {
@@ -1319,7 +1394,7 @@ export function SurveillanceChecklistPAC({
       return { ...prev, items: newItems };
     });
     for (const s of suggestionsPAC) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestionsPAC([]);
     addNotification({
@@ -1346,7 +1421,7 @@ export function SurveillanceChecklistPAC({
       return { ...prev, items: newItems };
     });
     for (const s of suggestionsMesures) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'acceptee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestionsMesures([]);
     addNotification({
@@ -1360,26 +1435,26 @@ export function SurveillanceChecklistPAC({
   
   const handleIgnoreSuggestionsPAC = () => {
     for (const s of suggestionsPAC) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestionsPAC([]);
   };
   
   const handleIgnoreSuggestionsMesures = () => {
     for (const s of suggestionsMesures) {
-      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance })
+      inspecteurMonitoring.enregistrer({ capacite: 'ecart', action: 'rejetee', aerodromeId, surveillanceId, confiance: s.confiance, inspecteurId: user?.id })
     }
     setSuggestionsMesures([]);
   };
   
-  // Calcul du statut de clôture de l'écart
+  // Calcul du statut de clôture de l'écart (R2 : évaluations brouillons exclues).
   const ecartClosureStatus = useMemo((): EcartClosureStatus | null => {
     if (!checklistData) return null;
-    const pacItems = checklistData.items.filter(i => i.type === 'action_pac');
+    const pacItems = checklistData.items.filter(i => i.type === 'action_pac' && estValidePAC(i));
     if (pacItems.length === 0) return null;
     const evaluations = pacItems.map(i => i.evaluation_action);
     return computeEcartClosureStatus(evaluations);
-  }, [checklistData]);
+  }, [checklistData, estValidePAC]);
   
   // Signature
   const handleSign = () => {
@@ -1392,6 +1467,22 @@ export function SurveillanceChecklistPAC({
         canal: 'in_app',
       });
       return;
+    }
+    // NV sans motif : on ne signe pas sans savoir pourquoi ce n'est pas vérifié.
+    if (checklistData) {
+      const nvSansMotif = checklistData.items.filter(i =>
+        (i.resultat || '').toUpperCase() === 'NV' &&
+        !(i.observation || '').trim()).length;
+      if (nvSansMotif > 0) {
+        addNotification({
+          user_id: user?.id || '',
+          type: 'warning',
+          title: 'Motifs manquants',
+          message: `${nvSansMotif} item(s) NV sans motif — dites pourquoi chaque item n'est pas vérifié avant de signer`,
+          canal: 'in_app',
+        });
+        return;
+      }
     }
     
     if (ecartClosureStatus && ecartClosureStatus.decision !== 'cloturable') {
@@ -1412,7 +1503,9 @@ export function SurveillanceChecklistPAC({
     setIsSigned(true);
     setSignatureDialogOpen(false);
 
-    const pacItems = checklistData?.items.filter(i => i.type === 'action_pac') || [];
+    // R2 : évaluations brouillons exclues du score.
+    const stSign = useAppStore.getState();
+    const pacItems = checklistData?.items.filter(i => i.type === 'action_pac' && estResultatValide(i, stSign.inspecteurs || [], stSign.utilisateurs || [])) || [];
     const evaluees = pacItems.filter(i => i.evaluation_action && i.evaluation_action.decision !== 'non_evaluee');
     const scorePAC = evaluees.length > 0
       ? Math.round(evaluees.reduce((sum, i) => sum + i.evaluation_action!.score, 0) / evaluees.length)
@@ -1439,17 +1532,42 @@ export function SurveillanceChecklistPAC({
     });
   };
   
-  // Calcul des stats
+  // Calcul des stats : terminés = valides OU NV motivés ; le reste = à vérifier.
   const stats = useMemo(() => {
     if (!checklistData) return { total: 0, sa: 0, ns: 0, nv: 0, progression: 0 };
-    
+
     const total = checklistData.items.length;
-    const sa = checklistData.items.filter(i => i.resultat === 'SA').length;
-    const ns = checklistData.items.filter(i => i.resultat === 'NS').length;
-    const nv = checklistData.items.filter(i => !i.resultat || i.resultat === 'NV').length;
-    
+    const valides = checklistData.items.filter(i => estValidePAC(i));
+    const sa = valides.filter(i => i.resultat === 'SA').length;
+    const ns = valides.filter(i => i.resultat === 'NS').length;
+    const nv = checklistData.items.filter(i => !estItemTermine(i, fichesInspecteursPAC, utilisateursPAC)).length;
+
     return { total, sa, ns, nv, progression: checklistData.progression };
-  }, [checklistData]);
+  }, [checklistData, estValidePAC, fichesInspecteursPAC, utilisateursPAC]);
+
+  // Carte « traités / restants » (même pattern que la checklist standard) :
+  // l'inspecteur voit ce qui reste et saute direct à l'item.
+  const restants = useMemo(() => {
+    if (!checklistData) return [];
+    // Restant = non terminé : ni valide, ni NV motivé.
+    return checklistData.items
+      .filter(i => !estItemTermine(i, fichesInspecteursPAC, utilisateursPAC))
+      .map(i => {
+        const estNvMuet = (i.resultat || '').toUpperCase() === 'NV';
+        return {
+          id: i.id,
+          ref: i.reference,
+          texte: (i.description || ''),
+          famille: i.type === 'action_pac' ? 'Action' : i.type === 'verification_preuve' ? 'Preuve' : 'Mesure',
+          brouillon: !estNvMuet && !!i.resultat,
+          aMotiver: estNvMuet,
+        };
+      });
+  }, [checklistData, fichesInspecteursPAC, utilisateursPAC]);
+
+  const allerAItem = useCallback((id: string) => {
+    document.getElementById(`pac-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
   
   if (!checklistData) {
     return (
@@ -1463,7 +1581,8 @@ export function SurveillanceChecklistPAC({
     );
   }
   
-  const hasPACItems = checklistData.items.some(i => i.type === 'action_pac');
+  // Famille PAC : actions + vérifications de preuves (même mission terrain).
+  const hasPACItems = checklistData.items.some(i => i.type === 'action_pac' || i.type === 'verification_preuve');
   const hasMesureItems = checklistData.items.some(i => i.type === 'mesure_atténuation');
   
   return (
@@ -1547,6 +1666,13 @@ export function SurveillanceChecklistPAC({
             </div>
           </div>
         </div>
+        <div className="flex items-center gap-2 mt-3">
+          <Users className="w-5 h-5 text-success" />
+          <div>
+            <p className="text-xs text-muted-foreground">Équipe</p>
+            <EquipeNoms surveillanceId={surveillanceId} />
+          </div>
+        </div>
         
         {/* Info écart si présent */}
         {checklistData.ecart_concerne && (
@@ -1593,7 +1719,80 @@ export function SurveillanceChecklistPAC({
           </div>
         </div>
       </Card>
-      
+
+      {/* Traités / restants : saut direct à l'item (pattern checklist standard) */}
+      {restants.length > 0 && (
+        <Card className="overflow-hidden">
+          <details className="rounded-lg border border-warning/30 bg-warning/5 p-2" open={restants.length <= 10}>
+            <summary className="text-xs font-semibold cursor-pointer">
+              ⚠ Restants à vérifier ({restants.length}) — cliquer pour aller à l’item
+            </summary>
+            <div className="mt-1 space-y-0.5 max-h-56 overflow-y-auto">
+              {restants.slice(0, 50).map(r => (
+                <button key={r.id} onClick={() => allerAItem(r.id)} title={`${r.texte} — Aller à l’item`}
+                  className="w-full flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/40">
+                  <span className="font-mono font-medium flex-shrink-0">{r.ref}</span>
+                  <span className="text-muted-foreground truncate flex-1">{r.texte}</span>
+                  {r.brouillon && (
+                    <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Brouillon</span>
+                  )}
+                  {r.aMotiver && (
+                    <span className="text-[10px] font-semibold text-warning flex-shrink-0">Motif requis</span>
+                  )}
+                  <span className="text-role-primary font-medium flex-shrink-0">{r.famille} →</span>
+                </button>
+              ))}
+              {restants.length > 50 && (
+                <p className="text-[11px] text-muted-foreground px-2">+{restants.length - 50} autres…</p>
+              )}
+            </div>
+          </details>
+        </Card>
+      )}
+
+      {/* Cohérence d'ensemble : jauge d'exigence + contradictions + copier-coller */}
+      {(() => {
+        if (!checklistData || checklistData.items.length === 0) return null;
+        const itemsPlats = checklistData.items.map(i => ({
+          id: i.id,
+          ref: i.reference,
+          texte: i.description,
+          resultat: i.resultat,
+          evalue: estValidePAC(i),
+          observation: i.observation,
+          directives: [],
+        }));
+        const coherence = veillerCoherenceChecklist({
+          items: itemsPlats,
+          niveauRisqueSite: profilRisquePAC?.niveau,
+        });
+        // Qualité des questions (doublons, sans réf, vagues) — mêmes items.
+        coherence.alertes.push(...veillerQuestionsChecklist(itemsPlats));
+        if (coherence.nbEvalues === 0 && coherence.alertes.length === 0) return null;
+        return (
+          <Card className="overflow-hidden">
+            <div className="p-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold">Cohérence d’ensemble</span>
+                <span className="text-muted-foreground">
+                  {coherence.nbEvalues} vérifié(s) • {coherence.tauxSansObservation}% sans observation
+                </span>
+              </div>
+              {coherence.alertes.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {coherence.alertes.map((a, i) => (
+                    <div key={i} className="flex items-start gap-1.5 rounded px-2 py-1 text-left text-xs">
+                      <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0 text-amber-600" />
+                      <span><strong>{a.titre}.</strong> {a.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Statut de clôture de l'écart */}
       {ecartClosureStatus && ecartClosureStatus.totalActions > 0 && (
         <Card className={`border-2 ${ecartClosureStatus.decision === 'cloturable' ? 'border-success bg-success/5' : ecartClosureStatus.decision === 'non_cloturable' ? 'border-danger bg-danger/5' : ecartClosureStatus.decision === 'conditionnelle' ? 'border-warning bg-warning/5' : 'border-gray-300 bg-gray-50'}`}>

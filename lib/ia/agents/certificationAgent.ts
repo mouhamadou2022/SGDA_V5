@@ -16,6 +16,7 @@ import { useAppStore, Certification, Homologation, Aerodrome, ProfilRisque, Util
 import { aiClient } from '@/lib/ia/aiClient'
 import { CERT_SYSTEM_PROMPT } from '@/lib/ia/prompts'
 import { construireContexteReglementaire, recupererExtraitsReglementaires, type ExtraitCite } from '@/lib/ia/rag/reglementaireRagClient'
+import { retirerDiacritiques } from '@/lib/domaines'
 
 // ============================================================
 // TYPES
@@ -1258,10 +1259,7 @@ ${signataire}`
   }
 
   private normalizeDocName(docName: string): string {
-    return docName
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+    return retirerDiacritiques(docName.toLowerCase())
       .replace(/[^a-z0-9]/g, '_')
   }
 

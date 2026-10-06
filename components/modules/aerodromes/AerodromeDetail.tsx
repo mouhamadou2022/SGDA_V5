@@ -121,8 +121,12 @@ export default function AerodromeDetail({ aerodrome, onClose, onEdit, userRole: 
     if (profilRisque) return;
     (async () => {
       try {
-        const { calculerProfilInitial } = await import('@/lib/risque/initialProfile');
-        const profil = calculerProfilInitial(aerodrome);
+        const { calculerProfilInitial, construireRefsFlotte } = await import('@/lib/risque/initialProfile');
+        const etat = useAppStore.getState();
+        const profil = calculerProfilInitial(
+          aerodrome,
+          construireRefsFlotte(etat.aerodromes || [], (etat.profilsRisque || {}) as Record<string, { c3?: number | null }>),
+        );
         await setProfilRisque(aerodrome.id, profil.profil);
       } catch (err) {
         console.error('[AerodromeDetail] Échec init profil risque:', err);

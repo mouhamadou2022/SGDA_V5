@@ -117,17 +117,23 @@ export const createSurveillancesSlice: StateCreator<AppStore, [], [], Surveillan
     // Vérifier que le planning_id référence bien un planning existant (FK Supabase).
     // On interroge toujours Supabase en priorité (source de vérité), et on ne se
     // rabat sur le store local qu'en cas d'échec réseau de la requête elle-même.
+    // Timeout impératif : sans lui, une requête figée = lancement silencieusement
+    // bloqué (ni notification, ni erreur console).
     if (surveillanceData.planning_id) {
       let planningExiste = false
       try {
-        const { data: planning, error } = await supabase
+        const requete = supabase
           .from('plannings')
           .select('id')
           .eq('id', surveillanceData.planning_id)
           .maybeSingle()
+        const timeout = new Promise<never>((_, rejeter) =>
+          setTimeout(() => rejeter(new Error('Vérification planning expirée (8 s)')), 8000))
+        const { data: planning, error } = await Promise.race([requete, timeout]) as { data: { id: string } | null, error: unknown }
         if (error) throw error
         planningExiste = !!planning
-      } catch {
+      } catch (err) {
+        console.warn('[Surveillances] Vérification planning impossible, repli local :', err instanceof Error ? err.message : err)
         planningExiste = !!get().plannings?.some(p => p.id === surveillanceData.planning_id)
       }
       if (!planningExiste) {
@@ -197,6 +203,9 @@ export const createSurveillancesSlice: StateCreator<AppStore, [], [], Surveillan
       canal: 'in_app'
     })
     get().incrementerVersion()
+    // Dynamisme risque : toute surveillance (même planifiée) entre dans le
+    // périmètre C3 / planification / IA — recalcul via bus (pas d'appel direct).
+    storeEvents.emit('risque:recalcul-demande', { aerodrome_id: savedSurveillance.aerodrome_id })
     return savedSurveillance
   },
 
@@ -223,7 +232,15 @@ export const createSurveillancesSlice: StateCreator<AppStore, [], [], Surveillan
       return
     }
 
-    if (!oldSurveillance || !data.statut || data.statut === oldSurveillance.statut) return
+    // Dynamisme risque : changement de statut (signatures checklist/écarts,
+    // transmission, archivage…) ou de score → C3 et profil à jour via bus.
+    if (!oldSurveillance || !data.statut || data.statut === oldSurveillance.statut) {
+      if (oldSurveillance && data.score_global !== undefined && data.score_global !== oldSurveillance.score_global) {
+        storeEvents.emit('risque:recalcul-demande', { aerodrome_id: oldSurveillance.aerodrome_id })
+      }
+      return
+    }
+    storeEvents.emit('risque:recalcul-demande', { aerodrome_id: oldSurveillance.aerodrome_id })
     const _aerodrome = get().aerodromes.find(a => a.id === oldSurveillance.aerodrome_id)
     const _codeOaci = _aerodrome?.code_oaci ?? oldSurveillance.aerodrome_id
     const _typeLabel = (oldSurveillance.type as string)?.replace(/_/g, ' ') ?? 'surveillance'
@@ -301,6 +318,8 @@ export const createSurveillancesSlice: StateCreator<AppStore, [], [], Surveillan
       return
     }
 
+    // Le pool C3 change → risque à jour via bus.
+    storeEvents.emit('risque:recalcul-demande', { aerodrome_id: surveillance.aerodrome_id })
     // Purger les délégations orphelines liées à la surveillance supprimée
     set((s) => ({ delegations: s.delegations.filter(d => d.surveillance_id !== id) }))
     const equipeIds = surveillance.equipe_ids || []

@@ -9,6 +9,12 @@ import type { AppStore } from '../store'
 // Types (source unique — réexportés par lib/store.ts)
 // ─────────────────────────────────────────────────────────────
 
+export interface AccuseReception {
+  par: string
+  le: string
+  commentaire?: string
+}
+
 export interface Notification {
   id: string
   user_id: string
@@ -20,6 +26,13 @@ export interface Notification {
   sent_at: string
   read_at?: string
   data?: Record<string, unknown>
+  /**
+   * R4 — alerte exigeante (ex. signalement critique délégué → chef) : « lu »
+   * ne suffit pas, le destinataire doit accuser réception (pris en compte).
+   * Sans accusé sous délai → escalade au chef SNA (verifierEscaladesNotifications).
+   */
+  exige_accuse?: boolean
+  accuse_reception?: AccuseReception
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -33,6 +46,13 @@ export interface NotificationSlice {
   addNotification: (notification: Omit<Notification, 'id' | 'sent_at'>) => void
   markAsRead: (id: string) => void
   markAllAsRead: () => void
+  /** Accuse réception d'une alerte exigeante (vaut lecture + prise en compte). */
+  accuserReceptionNotification: (id: string, commentaire?: string) => void
+  /**
+   * Vigie horaire : alertes exigeantes non accusées sous délai
+   * (critique 24 h, élevé 72 h, défaut 72 h) → escalade au chef SNA, une fois.
+   */
+  verifierEscaladesNotifications: () => void
   envoyerNotificationMultiCanal: (userId: string, notification: Omit<Notification, 'id' | 'sent_at' | 'user_id'>, canaux: Notification['canal'][]) => Promise<void>
 }
 
@@ -141,5 +161,57 @@ export const createNotificationsSlice: StateCreator<AppStore, [], [], Notificati
     import('@/lib/datastore').then(({ markNotificationRead }) => {
       unreadIds.forEach((id) => markNotificationRead(id).catch(() => {}))
     }).catch(() => {})
+  },
+
+  accuserReceptionNotification: (id, commentaire) => {
+    const state = get()
+    const notif = state.notifications.find(n => n.id === id)
+    if (!notif || notif.accuse_reception) return
+    const accuse: AccuseReception = {
+      par: state.user?.id || 'system',
+      le: new Date().toISOString(),
+      commentaire,
+    }
+    set((s) => {
+      const updated = s.notifications.map((n) =>
+        n.id === id ? { ...n, accuse_reception: accuse, read_at: n.read_at || accuse.le } : n
+      )
+      return {
+        notifications: updated,
+        unreadCount: updated.filter((n) => !n.read_at).length,
+      }
+    })
+    import('@/lib/datastore').then(({ accuseNotification }) => {
+      accuseNotification(id, accuse).catch(() => {})
+    }).catch(() => {})
+  },
+
+  verifierEscaladesNotifications: () => {
+    const state = get()
+    const maintenant = Date.now()
+    const delaiParNiveau: Record<string, number> = { critique: 24, eleve: 72 }
+    for (const notif of state.notifications) {
+      if (!notif.exige_accuse || notif.accuse_reception) continue
+      if ((notif.data as { escaladee?: boolean } | undefined)?.escaladee) continue
+      const niveau = String((notif.data as { niveau?: string } | undefined)?.niveau || 'eleve')
+      const delaiH = delaiParNiveau[niveau] ?? 72
+      const ageH = (maintenant - new Date(notif.sent_at).getTime()) / 3600000
+      if (!(ageH >= delaiH)) continue
+      const chefSna = state.utilisateurs.find(u => u.poste === 'chef_sna')
+      if (!chefSna) continue
+      set((s) => ({
+        notifications: s.notifications.map((n) =>
+          n.id === notif.id ? { ...n, data: { ...(n.data || {}), escaladee: true } } : n
+        ),
+      }))
+      state.addNotification({
+        user_id: chefSna.id,
+        type: 'danger',
+        title: 'Alerte critique sans accusé — escalade',
+        message: `« ${notif.title || notif.message.slice(0, 80)} » non pris en compte sous ${delaiH} h. Intervention requise.`,
+        link: notif.link,
+        canal: 'in_app',
+      })
+    }
   },
 })

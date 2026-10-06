@@ -24,9 +24,11 @@ import {
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import DetectionCombinaisonsProactive, { ProactiveItem } from './DetectionCombinaisonsProactive';
 import { Card } from '@/components/ui/card';
+import { Markdown } from '@/components/ui/markdown';
 import { AccordionSection, AccordionGroup } from '@/components/ui/AccordionSection';
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer';
 import { useAppStore } from '@/lib/store';
+import { qualiteCompte } from '@/lib/domaines';
 import { ecartAgent } from '@/lib/ia/agents/ecartAgent';
 import { mergeArrayById } from '@/lib/persistence/iaStorage';
 import { libelleMemory } from '@/lib/ia/libelleMemory';
@@ -35,7 +37,7 @@ import { recordRiskIndexFeedback, getRiskLevelFromCellIdx } from '@/lib/riskInde
 import { getRiskLevelFromCell, getCellColor, getRiskLevelVariant } from '@/lib/risque';
 import { classifyEcartTexte, suggestGraviteFromTexte } from '@/lib/risque/ecartClassifier';
 import { generateEcartReference, computeNextEcartCounter, getTypeAbbr } from '@/lib/surveillanceUtils';
-import { ressemblance } from '@/lib/ia/watchdogEvaluation';
+import { ressemblance, veillerRedactionEcart } from '@/lib/ia/watchdogEvaluation';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 
 // Styles + helpers : voir ./ecartsRedactionUtils.ts (importés ci-dessous).
@@ -499,6 +501,7 @@ useState<Record<string, string>>({});
       aerodromeId,
       surveillanceId,
       confiance: iaSuggestion.confiance,
+      inspecteurId: user?.id,
     })
 
     // Boucle d'apprentissage textuelle : mémoriser le libellé final (réajusté ou accepté)
@@ -584,6 +587,7 @@ useState<Record<string, string>>({});
       aerodromeId,
       surveillanceId,
       confiance: iaSuggestion?.confiance,
+      inspecteurId: user?.id,
     })
     if (iaSuggestion?.libelle) {
       const isSGS = isAllSGSDomain || selectedItems.some(id => itemsNSNV.find(i => i.id === id)?.domaine === 'SGS');
@@ -914,7 +918,20 @@ useState<Record<string, string>>({});
   };
 
   const onSignatureSave = (signatureUrl: string) => {
-    const fullSurv = useAppStore.getState().surveillances.find(s => s.id === surveillanceId)
+    const st = useAppStore.getState()
+    // R3 — observateurs ne signent pas les écarts.
+    if (qualiteCompte(st.inspecteurs || [], st.utilisateurs.find(u => u.id === user?.id)) === 'observateur') {
+      addNotification({
+        user_id: user?.id || '',
+        type: 'danger',
+        title: 'Signature réservée',
+        message: 'Seuls les inspecteurs titulaires et principaux signent les écarts (observateurs exclus).',
+        canal: 'in_app',
+      });
+      setSignatureDialogOpen(false);
+      return;
+    }
+    const fullSurv = st.surveillances.find(s => s.id === surveillanceId)
     const existingSigs = fullSurv?.signatures_ecarts || []
     const newSig = {
       signataire_id: user?.id || '',
@@ -924,14 +941,18 @@ useState<Record<string, string>>({});
     }
     const allSigs = [...existingSigs.filter(s => s.signataire_id !== user?.id), newSig]
 
-    // Vérifier si TOUS les délégués ont signé
+    // TOUS les délégués QUALIFIÉS ont signé (observateurs jamais délégables).
     let allDelegatedSigned = true
     const planningObj = fullSurv?.planning_id
-      ? useAppStore.getState().plannings.find(p => p.id === fullSurv.planning_id)
+      ? st.plannings.find(p => p.id === fullSurv.planning_id)
       : undefined
     const delegations: Record<string, string> = planningObj?.delegations || {}
     if (Object.keys(delegations).length > 0) {
-      const delegatedIds = new Set(Object.values(delegations).filter(Boolean))
+      const delegatedIds = new Set(
+        Object.values(delegations)
+          .filter(Boolean)
+          .filter(id => qualiteCompte(st.inspecteurs || [], st.utilisateurs.find(u => u.id === id)) !== 'observateur'),
+      )
       const signedIds = new Set(allSigs.map(s => s.signataire_id))
       allDelegatedSigned = delegatedIds.size === 0 || [...delegatedIds].every(id => signedIds.has(id))
     }
@@ -1086,7 +1107,7 @@ useState<Record<string, string>>({});
           <Brain className="alert-icon w-4 h-4" />
           <div className="alert-content flex-1">
             <div className="alert-title">🤖 Réponse de l'assistant</div>
-            <div className="alert-description">{iaAnswer}</div>
+            <div className="alert-description"><Markdown texte={iaAnswer} className="text-sm" /></div>
           </div>
           <button onClick={() => setIaAnswer(null)} className="btn btn-sm px-3 py-1 btn-ghost">
             <X className="w-3 h-3" />
@@ -1564,13 +1585,40 @@ useState<Record<string, string>>({});
       </Card>
       )}
 
-      {/* Note info — masquée en lecture seule */}
+      {/* Second regard AERORISQ sur le brouillon : ref, cellule/niveau, délais (non bloquant) */}
+      {!readOnly && !!formEcart.libelle?.trim() && (() => {
+        const alertes = veillerRedactionEcart({
+          libelle: formEcart.libelle || '',
+          ref_reglementaire: formEcart.ref_reglementaire,
+          niveau: formEcart.niveau || 'moyen',
+          cellule_oaci: formEcart.cellule_risque_oaci,
+          delai_pac_jours: formEcart.delai_pac,
+          delai_regularisation_jours: formEcart.delai_regularisation,
+          isSGS: ecartPrefix === 'SGS',
+        });
+        if (alertes.length === 0) return null;
+        return (
+          <div className="rounded-xl border border-warning/30 bg-warning/5 p-2.5 space-y-1">
+            <p className="text-xs font-semibold">Second regard AERORISQ — avant sauvegarde :</p>
+            {alertes.map((a, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <AlertCircle className={`w-3 h-3 mt-0.5 flex-shrink-0 ${a.niveau === 'danger' ? 'text-danger' : a.niveau === 'warning' ? 'text-amber-600' : 'text-primary'}`} />
+                <span className="text-[11px] text-foreground"><strong>{a.titre}.</strong> {a.detail}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Note info — masquée en lecture seule.
+          SGS : ce sont les niveaux absent / présent / approprié qui font
+          l'objet d'écarts (pas NS/NV). */}
       {!readOnly && (
       <div className="alert alert-info">
         <AlertCircle className="alert-icon h-4 w-4" />
         <span>
-          Les écarts sont sauvegardés automatiquement. La signature est disponible uniquement 
-          lorsque tous les items NS/NV sont traités.
+          Les écarts sont sauvegardés automatiquement. La signature est disponible uniquement
+          lorsque tous les items {ecartPrefix === 'SGS' ? 'absent, présent et approprié' : 'NS/NV'} sont traités.
         </span>
       </div>
       )}

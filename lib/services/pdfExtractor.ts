@@ -51,21 +51,40 @@ async function chargerPdf(blobUrl: string): Promise<{ pdf: any }> {
 }
 
 /**
- * Rend les premières pages en images PNG pour lecture par l'IA de vision.
+ * Rend des pages en images PNG pour lecture par l'IA de vision.
  * Rapide (quelques secondes) : c'est le remplacement de l'OCR navigateur.
+ * `debut` (1-based) permet l'OCR paginé des gros documents scannés :
+ * on transcrit par tranches et on reprend où on s'était arrêté.
  */
-export async function rendrePagesPng(blobUrl: string, maxPages = 5): Promise<{
+export async function rendrePagesPng(blobUrl: string, maxPages = 5, debut = 1): Promise<{
   images: string[]
   nb_pages: number
+  premiere_page: number
 }> {
   const { pdf } = await chargerPdf(blobUrl)
-  const nb = Math.min(pdf.numPages, Math.max(1, maxPages))
+  const depart = Math.min(pdf.numPages, Math.max(1, Math.floor(debut) || 1))
+  const nb = Math.min(pdf.numPages - depart + 1, Math.max(1, maxPages))
   const images: string[] = []
-  for (let i = 1; i <= nb; i++) {
-    const page = await pdf.getPage(i)
+  for (let i = 0; i < nb; i++) {
+    const page = await pdf.getPage(depart + i)
     images.push(await rendrePagePng(page))
   }
-  return { images, nb_pages: pdf.numPages }
+  return { images, nb_pages: pdf.numPages, premiere_page: depart }
+}
+
+/**
+ * Dernière page transcrite dans un texte assemblé (« --- Page N --- »),
+ * 0 si aucune. Pur et testé — sert la reprise de l'OCR vision intégral.
+ */
+export function dernierePageLue(texte: string): number {
+  let max = 0
+  const re = /---\s*Page\s+(\d+)\s*---/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(texte || '')) !== null) {
+    const n = Number(m[1])
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return max
 }
 
 export async function extractTextFromPDF(blobUrl: string): Promise<{

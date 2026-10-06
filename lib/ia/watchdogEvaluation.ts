@@ -5,6 +5,13 @@
 // (récidive) — et on lève des alertes ciblées s'il semble mal évaluer.
 // Complète les alertes de cohérence notes-vs-notes du formulaire (qui ne
 // voient pas le monde extérieur). 100 % déterministe : rapide, testé, sans LLM.
+// Couvre aussi la SOUMISSION (veillerSoumissionPAC, côté exploitant : plan
+// hors-sujet, famélique ou vague détecté AVANT envoi) et les ÉVÉNEMENTS
+// (veillerEvenement).
+
+import { getRiskLevelFromCell } from '../risque/matrix';
+import { DELAI_PAR_NIVEAU } from '../flux';
+import { retirerDiacritiques } from '../domaines';
 
 export interface AlerteWatchdog {
   niveau: 'danger' | 'warning' | 'info'
@@ -36,10 +43,7 @@ const MOTS_VIDES = new Set([
 
 function motsSignificatifs(texte: string): Set<string> {
   return new Set(
-    (texte || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+    retirerDiacritiques((texte || '').toLowerCase())
       .split(/[^a-z0-9]+/)
       .filter(m => m.length > 2 && !MOTS_VIDES.has(m)),
   )
@@ -165,6 +169,332 @@ export function veillerEvaluationPAC(ctx: ContexteWatchdog): AlerteWatchdog[] {
       niveau: 'warning',
       titre: 'Une seule action pour un écart grave',
       detail: `Exhaustivité notée ${n('exhaustivite')}/4 avec une unique action sur un écart ${niveau} — un plan sérieux en comporte généralement plusieurs (cause, correction, prévention).`,
+    })
+  }
+
+  return alertes
+}
+
+// ── SOUMISSION du PAC (côté exploitant, avant envoi) ────────
+
+export interface ContexteSoumissionPAC {
+  libelleEcart: string
+  domaine?: string
+  niveauRisque: string
+  actions: Array<{ description?: string; responsable?: string; date_prevue?: string }>
+}
+
+/**
+ * Second regard sur le plan AVANT envoi : évite l'aller-retour
+ * soumission → refus pour un plan hors-sujet, famélique ou vague.
+ * Non bloquant (avertissements), la validation dure reste au formulaire.
+ */
+export function veillerSoumissionPAC(ctx: ContexteSoumissionPAC): AlerteWatchdog[] {
+  const alertes: AlerteWatchdog[] = []
+  const niveau = (ctx.niveauRisque || '').toLowerCase()
+  const renseignees = (ctx.actions || []).filter(a => (a.description || '').trim())
+  if (renseignees.length === 0) return alertes
+
+  // 1. Hors-sujet : les actions ne reprennent pas le vocabulaire du constat.
+  const rec = recouvrementConstat(ctx.libelleEcart, renseignees)
+  if (rec < 0.25) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Plan possiblement hors sujet',
+      detail: `Vos actions reprennent presque aucun mot-clé du constat (« ${(ctx.libelleEcart || '').slice(0, 80)}… ») — vérifiez qu'elles traitent bien la cause, sinon l'inspecteur refusera.`,
+    })
+  }
+
+  // 2. Plan famélique : une seule action pour un écart grave.
+  if (renseignees.length === 1 && (niveau === 'critique' || niveau === 'eleve')) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Une seule action pour un écart grave',
+      detail: `Un plan sérieux comporte généralement plusieurs actions (cause, correction, prévention) — avec une seule, le refus est probable.`,
+    })
+  }
+
+  // 3. Descriptions vagues (< 20 caractères) : inexploitables à l'évaluation.
+  const vagues = renseignees.filter(a => (a.description || '').trim().length < 20)
+  if (vagues.length > 0) {
+    alertes.push({
+      niveau: 'info',
+      titre: `Description(s) trop vague(s) (${vagues.length})`,
+      detail: 'Précisez quoi, où et comment — une action inexploitable sera refusée.',
+    })
+  }
+
+  // 4. Tout tient sur une seule date : pas de phasage cause/correction/prévention.
+  const dates = [...new Set(renseignees.map(a => a.date_prevue).filter(Boolean))]
+  if (renseignees.length >= 2 && dates.length === 1) {
+    alertes.push({
+      niveau: 'info',
+      titre: 'Échéances identiques',
+      detail: 'Toutes vos actions finissent le même jour — phasez si possible (correction immédiate, prévention ensuite).',
+    })
+  }
+
+  return alertes
+}
+
+// ── COHÉRENCE D'ENSEMBLE d'une checklist ────────────────────
+
+export interface ItemCoherence {
+  id: string
+  /** Référence réglementaire ou numéro (contradictions). */
+  ref?: string
+  /** Énoncé de la question / libellé. */
+  texte?: string
+  /** Résultat standard/Suivi/PAC (SA/NS/NV/NA) — absent pour SGS. */
+  resultat?: string
+  /** Vrai si évalué (standard/PAC/suivi : résultat valide ; SGS : niveau ≠ absent). */
+  evalue: boolean
+  observation?: string
+  observation_stylus_data?: string
+  /** Critères/directives affichés pour juger (cohérence technique). */
+  directives?: string[]
+}
+
+export interface ContexteCoherenceChecklist {
+  items: ItemCoherence[]
+  /** Niveau du profil du site (tout-SA suspect sur site à risque). */
+  niveauRisqueSite?: string
+  /** Antécédents NS (tout-SA suspect si site déjà non conforme). */
+  aDesAntecedentsNS?: boolean
+}
+
+export interface BilanCoherence {
+  alertes: AlerteWatchdog[]
+  /** % d'items évalués sans observation (miroir d'exigence). */
+  tauxSansObservation: number
+  nbEvalues: number
+}
+
+const normRef = (ref?: string): string => (ref || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+
+/**
+ * Œil de regard d'ensemble : contradictions sur une même exigence,
+ * tout-SA suspect, copier-coller d'observations, cohérence technique
+ * (base réglementaire, énoncé). L'inspecteur tranche toujours (avis).
+ */
+export function veillerCoherenceChecklist(ctx: ContexteCoherenceChecklist): BilanCoherence {
+  const alertes: AlerteWatchdog[] = []
+  const items = ctx.items || []
+  const evalues = items.filter(i => i.evalue)
+  const obsDe = (i: ItemCoherence): string =>
+    ((i.observation || '') + '\n' + (i.observation_stylus_data || '')).trim()
+
+  // 1. Contradiction : même exigence jugée SA et NS.
+  const parRef = new Map<string, ItemCoherence[]>()
+  for (const item of evalues) {
+    const ref = normRef(item.ref)
+    if (!ref || !item.resultat) continue
+    const liste = parRef.get(ref) ?? []
+    liste.push(item)
+    parRef.set(ref, liste)
+  }
+  let contradictions = 0
+  for (const [ref, liste] of parRef) {
+    const resultats = new Set(liste.map(i => (i.resultat || '').toUpperCase()))
+    if (resultats.has('SA') && resultats.has('NS') && contradictions < 5) {
+      contradictions++
+      alertes.push({
+        niveau: 'warning',
+        titre: `Exigence contradictoire (${ref || 'sans réf'})`,
+        detail: `La même exigence est jugée Satisfaisante ici et Non satisfaisante là (${liste.length} items) — tranchez, les deux ne peuvent être vrais.`,
+      })
+    }
+  }
+
+  // 2. Tout-SA suspect : aucun écart sur site à risque ou avec antécédents.
+  const niveauSite = (ctx.niveauRisqueSite || '').toLowerCase()
+  if (evalues.length >= 3 && evalues.every(i => !i.resultat || (i.resultat || '').toUpperCase() === 'SA') &&
+    (niveauSite === 'eleve' || niveauSite === 'critique' || ctx.aDesAntecedentsNS)) {
+    alertes.push({
+      niveau: 'info',
+      titre: 'Aucune non-conformité relevée',
+      detail: `100 % Satisfaisant sur un site ${niveauSite || 'avec antécédents'} — tout est-il couvert ? Second regard renforcé, sans remettre en cause un bon travail.`,
+    })
+  }
+
+  // 3. Copier-coller : même observation (≥15 car.) sur ≥3 items.
+  const parObs = new Map<string, number>()
+  for (const item of evalues) {
+    const obs = obsDe(item)
+    if (obs.length >= 15) parObs.set(obs, (parObs.get(obs) || 0) + 1)
+  }
+  for (const [obs, n] of parObs) {
+    if (n >= 3) {
+      alertes.push({
+        niveau: 'warning',
+        titre: `Observation dupliquée (${n} items)`,
+        detail: `« ${obs.slice(0, 80)}… » recopié sur ${n} items — personnalisez chaque constat, sinon l'évaluation semble bâclée.`,
+      })
+      break
+    }
+  }
+
+  // 4. Technique : NS sans base réglementaire (écart fragile en instruction).
+  const nsSansRef = evalues.filter(i =>
+    (i.resultat || '').toUpperCase() === 'NS' && !normRef(i.ref))
+  if (nsSansRef.length > 0) {
+    alertes.push({
+      niveau: 'warning',
+      titre: `NS sans référence réglementaire (${nsSansRef.length})`,
+      detail: 'Une non-conformité sans ancrage RAS/OACI est fragile — les écarts qui en découleront aussi.',
+    })
+  }
+
+  // 5. Technique : item évalué sans énoncé ni critères affichés.
+  const sansEnonce = evalues.filter(i =>
+    !(i.texte || '').trim() && (i.directives || []).filter(d => (d || '').trim()).length === 0)
+  if (sansEnonce.length > 0) {
+    alertes.push({
+      niveau: 'info',
+      titre: `Évalué sans énoncé ni critères (${sansEnonce.length})`,
+      detail: 'On ne sait pas ce qui a été vérifié — complétez l’énoncé ou les critères avant de signer.',
+    })
+  }
+
+  // 6. Jauge d'exigence : % d'évalués sans observation.
+  const sansObs = evalues.filter(i => !obsDe(i)).length
+  const tauxSansObservation = evalues.length > 0 ? Math.round((sansObs / evalues.length) * 100) : 0
+
+  return { alertes, tauxSansObservation, nbEvalues: evalues.length }
+}
+
+// ── RÉDACTION d'écart (brouillon, avant sauvegarde) ─────────
+
+export interface ContexteRedactionEcart {
+  libelle: string
+  ref_reglementaire?: string
+  niveau: string
+  cellule_oaci?: string
+  /** Délais saisis en jours (formulaire) — comparés au barème du niveau. */
+  delai_pac_jours?: number
+  delai_regularisation_jours?: number
+  isSGS?: boolean
+}
+
+/**
+ * Second regard sur le brouillon d'écart : référence manquante, cellule
+ * incohérente avec le niveau, délais incohérents avec le niveau.
+ * Non bloquant (le garde anti-doublon reste dans le composant).
+ */
+export function veillerRedactionEcart(ctx: ContexteRedactionEcart): AlerteWatchdog[] {
+  const alertes: AlerteWatchdog[] = []
+  if (!(ctx.libelle || '').trim()) return alertes
+
+  // 1. Sans référence réglementaire : écart faible juridiquement.
+  if (!(ctx.ref_reglementaire || '').trim()) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Sans référence réglementaire',
+      detail: 'Un écart sans ancrage RAS/OACI est fragile en instruction — reprenez la référence proposée par l\u2019IA ou saisissez-la.',
+    })
+  }
+
+  // 2. Cellule OACI incohérente avec le niveau (hors SGS : pas de matrice).
+  if (!ctx.isSGS && ctx.cellule_oaci && /^[1-5][A-E]$/i.test(ctx.cellule_oaci)) {
+    try {
+      const attendu = String(getRiskLevelFromCell(ctx.cellule_oaci.toUpperCase())).toLowerCase()
+      const declare = (ctx.niveau || '').toLowerCase()
+      if (attendu && declare && attendu !== declare) {
+        alertes.push({
+          niveau: 'danger',
+          titre: 'Cellule / niveau incohérents',
+          detail: `La cellule ${ctx.cellule_oaci.toUpperCase()} correspond à un niveau « ${attendu} », pas « ${declare} » — alignez les deux.`,
+        })
+      }
+    } catch { /* matrice indisponible : pas d'alerte */ }
+  }
+
+  // 3. Délais incohérents avec le niveau (barème unique lib/flux.ts).
+  const bareme = DELAI_PAR_NIVEAU[(ctx.niveau || '').toLowerCase() as keyof typeof DELAI_PAR_NIVEAU]
+  if (bareme && typeof ctx.delai_pac_jours === 'number' && ctx.delai_pac_jours > bareme.pac * 3) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Délai PAC incohérent avec le niveau',
+      detail: `Délai d'envoi de ${ctx.delai_pac_jours} j pour un écart ${ctx.niveau} (barème : ${bareme.pac} j) — resserrez ou justifiez.`,
+    })
+  }
+  if (bareme && typeof ctx.delai_regularisation_jours === 'number' && ctx.delai_regularisation_jours > bareme.regularisation * 3) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Délai de régularisation incohérent avec le niveau',
+      detail: `Régularisation en ${ctx.delai_regularisation_jours} j pour un écart ${ctx.niveau} (barème : ${bareme.regularisation} j) — resserrez ou justifiez.`,
+    })
+  }
+
+  return alertes
+}
+
+// ── ÉVÉNEMENTS de sécurité (déclaration) ────────────────────
+
+export interface ContexteEvenement {
+  type: string
+  gravite: string
+  description: string
+  actions_immediates?: string
+  services_alertes?: string[]
+  blesses_mortels?: number
+  blesses_graves?: number
+  dommages_desc?: string
+  date?: string
+  /** Événements récents du même site (doublon / série). */
+  recents: Array<{ type?: string; description?: string; date?: string }>
+  maintenant?: number
+}
+
+/**
+ * Second regard à la déclaration : gravité sous-évaluée, alerte grave sans
+ * services prévenus, doublon probable. Non bloquant.
+ */
+export function veillerEvenement(ctx: ContexteEvenement): AlerteWatchdog[] {
+  const alertes: AlerteWatchdog[] = []
+  const gravite = (ctx.gravite || 'faible').toLowerCase()
+  const victimes = (ctx.blesses_mortels || 0) + (ctx.blesses_graves || 0)
+
+  // 1. Sous-évaluation : des morts/blessés graves mais gravité faible/moyenne.
+  if (victimes > 0 && (gravite === 'faible' || gravite === 'moyen')) {
+    alertes.push({
+      niveau: 'danger',
+      titre: 'Gravité sous-évaluée ?',
+      detail: `${ctx.blesses_mortels || 0} mort(s) / ${ctx.blesses_graves || 0} blessé(s) grave(s) avec une gravité « ${gravite} » — relevez la gravité, cela change les délais de notification.`,
+    })
+  }
+
+  // 2. Grave sans services prévenus.
+  if ((gravite === 'critique' || gravite === 'eleve') && (ctx.services_alertes || []).length === 0) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Aucun service alerté',
+      detail: `Événement ${gravite} sans aucun service prévenu — Pompiers, SAMU, Gendarmerie selon le cas.`,
+    })
+  }
+
+  // 3. Actions immédiates vagues sur événement grave.
+  if ((gravite === 'critique' || gravite === 'eleve') && (ctx.actions_immediates || '').trim().length < 30) {
+    alertes.push({
+      niveau: 'warning',
+      titre: 'Actions immédiates trop vagues',
+      detail: 'Décrivez concrètement ce qui a été fait sur le champ (périmètre, évacuation, fermeture…) — 30 caractères minimum pour un événement grave.',
+    })
+  }
+
+  // 4. Doublon probable : événement très proche sur le même site (30 j).
+  const maintenant = ctx.maintenant ?? Date.now()
+  const trenteJours = 30 * 86400000
+  const doublons = (ctx.recents || []).filter(r => {
+    const t = new Date(r.date || '').getTime()
+    if (isNaN(t) || maintenant - t > trenteJours) return false
+    return ressemblance(r.description || '', ctx.description) >= 0.6
+  })
+  if (doublons.length > 0) {
+    alertes.push({
+      niveau: 'info',
+      titre: `Doublon probable (${doublons.length})`,
+      detail: 'Un événement très proche a été déclaré sur ce site ces 30 derniers jours — même cause ? Lier plutôt que dupliquer.',
     })
   }
 
@@ -488,4 +818,145 @@ export function veillerItemPACAction(item: ItemPACVue): AlerteWatchdog[] {
     })
   }
   return alertes
+}
+
+// ── QUALITÉ DES QUESTIONS (lecture + génération) ─────────────────────
+// Second regard sur la STRUCTURE des questions : doublons (la même exigence
+// posée deux fois, y compris entre deux domaines), questions sans ancrage
+// réglementaire, énoncés trop vagues. 100 % déterministe, sans LLM.
+
+/** Seuil de ressemblance au-delà duquel deux questions sont doublons. */
+export const SEUIL_DOUBLON_QUESTION = 0.7
+/** Longueur minimale d'un énoncé (caractères significatifs) pour ne pas être vague. */
+export const LONGUEUR_MIN_QUESTION = 20
+
+export interface QuestionVue {
+  id?: string
+  ref?: string
+  texte?: string
+  domaine?: string
+}
+
+export interface QuestionVue {
+  id?: string
+  ref?: string
+  texte?: string
+  domaine?: string
+}
+
+/**
+ * Doublons + qualité des énoncés sur une checklist (tous domaines confondus) :
+ * accepte le même ItemCoherence que les 3 vues construisent déjà pour
+ * veillerCoherenceChecklist (champs id/ref/texte compatibles) comme les
+ * questions générées { id, ref, texte } — aucun nouveau câblage de données.
+ */
+export function veillerQuestionsChecklist(items: QuestionVue[]): AlerteWatchdog[] {
+  const alertes: AlerteWatchdog[] = []
+  const qs = (items || [])
+    .map((q, idx) => ({ q, texte: (q.texte || '').trim(), idx }))
+    .filter(e => e.texte.length > 0)
+  if (qs.length < 1) return alertes
+
+  // 1. Doublons de questions (ressemblance >= 0.7), intra + inter-domaines.
+  let doublons = 0
+  const signales = new Set<number>()
+  for (let i = 0; i < qs.length && doublons < 5; i++) {
+    if (signales.has(i)) continue
+    for (let j = i + 1; j < qs.length && doublons < 5; j++) {
+      if (signales.has(j)) continue
+      const score = ressemblance(qs[i].texte, qs[j].texte)
+      if (score >= SEUIL_DOUBLON_QUESTION) {
+        doublons++
+        signales.add(j)
+        const a = qs[i].q.ref || qs[i].q.id || `#${i + 1}`
+        const b = qs[j].q.ref || qs[j].q.id || `#${j + 1}`
+        alertes.push({
+          niveau: 'warning',
+          titre: `Question en double (${a} ≈ ${b})`,
+          detail: `« ${qs[i].texte.slice(0, 90)} » ressemble à « ${qs[j].texte.slice(0, 90)} » (score ${Math.round(score * 100)} %) — fusionnez ou supprimez l'une des deux.`,
+        })
+      }
+    }
+  }
+
+  // 2. Questions sans référence réglementaire (fragiles juridiquement).
+  const sansRef = qs.filter(e => !normRef(e.q.ref))
+  if (sansRef.length > 0) {
+    alertes.push({
+      niveau: 'warning',
+      titre: `Question(s) sans référence réglementaire (${sansRef.length})`,
+      detail: `Ex : ${sansRef.slice(0, 3).map(e => `« ${e.texte.slice(0, 60)} »`).join(' ; ')} — un constat dessus sera fragile en instruction.`,
+    })
+  }
+
+  // 3. Énoncés trop courts (vagues, invérifiables).
+  const vagues = qs.filter(e =>
+    e.texte.replace(/[^a-zA-Z0-9àâäéèêëîïôöùûüç]/gi, '').length < LONGUEUR_MIN_QUESTION,
+  )
+  if (vagues.length > 0) {
+    alertes.push({
+      niveau: 'info',
+      titre: `Énoncé(s) trop vague(s) (${vagues.length})`,
+      detail: `Ex : ${vagues.slice(0, 3).map(e => `« ${e.texte.slice(0, 60)} »`).join(' ; ')} — précisez l'objet vérifié et le critère attendu.`,
+    })
+  }
+  return alertes
+}
+
+/**
+ * Contrôle structuré des directives SA/NS à la GÉNÉRATION (items Kit) :
+ * critères vides ou identiques = critère inutile (l'inspecteur ne peut pas
+ * trancher). Appelé par kitDocAgent après génération — journalisé, jamais
+ * de suppression silencieuse.
+ */
+export function controlerDirectivesItems(
+  items: Array<{ numero?: string; directive_sa?: string; directive_ns?: string }>,
+): AlerteWatchdog[] {
+  const alertes: AlerteWatchdog[] = []
+  const norm = (t?: string) =>
+    retirerDiacritiques((t || '').toLowerCase()).replace(/[^a-z0-9]+/g, ' ').trim()
+  for (const item of items || []) {
+    const sa = norm(item.directive_sa)
+    const ns = norm(item.directive_ns)
+    const num = item.numero || '?'
+    if (!sa || !ns) {
+      alertes.push({
+        niveau: 'info',
+        titre: `Directives incomplètes (${num})`,
+        detail: `Item ${num} : directive SA ou NS vide — l'inspecteur n'a pas de critère objectif pour trancher.`,
+      })
+    } else if (sa === ns) {
+      alertes.push({
+        niveau: 'warning',
+        titre: `Critères SA/NS identiques (${num})`,
+        detail: `Item ${num} : le critère Satisfaisant et Non Satisfaisant disent la même chose — distinguez-les (seuil, état, présence/absence).`,
+      })
+    }
+  }
+  return alertes
+}
+
+const LIBELLES_RETOUCHES: Record<string, string> = {
+  directive_ns: 'critères Non Satisfaisant',
+  directive_sa: 'critères Satisfaisant',
+  directive_preuve: 'guides de preuve étape par étape',
+  directive_nv: 'critères Non Vérifiable',
+  directive_na: 'critères Non Applicable',
+  point_verification: 'formulation des questions',
+  reference_reglementaire: 'références §',
+  sous_domaine: 'rattachement aux sous-domaines',
+}
+
+/**
+ * P2 — la boucle formulation se referme ici : les champs que les inspecteurs
+ * recorrigent le plus (getTextDeltaStats) deviennent une exigence explicite
+ * injectée dans le prompt de génération des items.
+ */
+export function formulerConsigneRetouches(
+  topFields: Array<{ field: string; count: number }>,
+): string {
+  const tops = (topFields || []).filter(f => f && f.count > 0).slice(0, 3)
+  if (tops.length === 0) return ''
+  const cites = tops.map(t => `« ${LIBELLES_RETOUCHES[t.field] || t.field} » (${t.count}×)`)
+  return `EXIGENCE QUALITÉ — les inspecteurs recorrigent souvent ${cites.join(', ')} : soigne particulièrement ces champs (critères chiffrés, SA≠NS discriminants, jamais vides).`
 }

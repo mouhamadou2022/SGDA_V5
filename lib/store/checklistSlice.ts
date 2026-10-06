@@ -6,6 +6,7 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
 import { dedupeHierarchyItems } from '../checklistNormalize'
+import { estItemTermine } from '../domaines'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -244,14 +245,19 @@ export const createChecklistSlice: StateCreator<AppStore, [], [], ChecklistSlice
   },
 
   calculerProgression: (surveillanceId) => {
-    const surv = get().surveillances.find(s => s.id === surveillanceId)
+    const st = get()
+    const surv = st.surveillances.find(s => s.id === surveillanceId)
     // Source de vérité : hiérarchie persistée sur la surveillance (survit au rechargement)
     const itemsPersistes = flattenHierarchyItems(surv?.checklist_hierarchy)
     const items = itemsPersistes.length > 0
       ? itemsPersistes
-      : (get().checklistItems?.[surveillanceId] || [])
+      : (st.checklistItems?.[surveillanceId] || [])
     if (items.length === 0) return 0
-    const renseignes = items.filter(i => i.resultat).length
-    return Math.round((renseignes / items.length) * 100)
+    // Terminé = valide (signataire) OU NV motivé — même règle que l'UI
+    // (estItemTermine) : brouillon et NV muet = travail restant.
+    const fiches = st.inspecteurs || []
+    const comptes = st.utilisateurs || []
+    const termines = items.filter(i => estItemTermine(i, fiches, comptes)).length
+    return Math.round((termines / items.length) * 100)
   },
 })

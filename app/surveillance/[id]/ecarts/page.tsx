@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store';
 import { upsertEcartsRedaction, fetchEcartsRedactionBySurveillance } from '@/lib/datastore';
 import { canEditSurveillanceContent } from '@/lib/config';
+import { qualiteCompte } from '@/lib/domaines';
 import { getSurveillanceEquipeIds, getSurveillanceChefId } from '@/lib/surveillanceTeam';
 import SurveillanceEcartsRedaction, { QuestionNSNV, EcartRedaction } from '@/components/modules/surveillance/SurveillanceEcartsRedaction';
 import {
@@ -78,6 +79,16 @@ export default function EcartsPage() {
     if (!chefId) return null;
     return utilisateurs.find(u => u.id === chefId) || null;
   }, [surveillance, utilisateurs, plannings]);
+
+  // R2 — observateurs (stagiaires, cadres) : rédaction en lecture seule
+  // (les écarts sont des actes ; la reprise se fait par un signataire).
+  const stQualite = useAppStore.getState();
+  const observateurRO = qualiteCompte(stQualite.inspecteurs || [], utilisateurs.find(u => u.id === user?.id)) === 'observateur';
+  const redactionReadOnly = surveillance
+    ? (['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut)
+      || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)
+      || observateurRO)
+    : true;
 
   const itemsNSNV = useMemo<QuestionNSNV[]>(() => {
     const raw = getItemsNSNVFromHierarchy(surveillanceId) as any[];
@@ -510,7 +521,7 @@ export default function EcartsPage() {
           surveillanceType={surveillance?.type}
           aerodromeCode={aerodrome?.code_oaci}
           ecartPrefix="SDT"
-          readOnly={['ecarts_signes', 'rapport_signe', 'lettre_signee', 'transmise', 'archivee'].includes(surveillance.statut) || !canEditSurveillanceContent(surveillance.chef_id, surveillance.equipe_ids || [], user?.id)}
+          readOnly={redactionReadOnly}
         />
       </div>
     </div>

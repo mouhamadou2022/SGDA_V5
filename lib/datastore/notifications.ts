@@ -27,6 +27,17 @@ export async function markNotificationRead(id: string): Promise<DatastoreResult<
   return { data: null, error: error?.message ?? null }
 }
 
+export async function accuseNotification(
+  id: string,
+  accuse: { par: string; le: string; commentaire?: string },
+): Promise<DatastoreResult<null>> {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ accuse_reception: accuse, read_at: new Date().toISOString() })
+    .eq('id', id)
+  return { data: null, error: error?.message ?? null }
+}
+
 export async function sendNotification(payload: Omit<Notification, 'id' | 'sent_at' | 'read_at'>): Promise<DatastoreResult<Notification>> {
   const { data, error } = await supabase
     .from('notifications')

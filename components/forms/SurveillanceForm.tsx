@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Save, X, Calendar, Users, FileText, AlertCircle, TrendingUp, TrendingDown, Shield, Zap, Target } from 'lucide-react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, normaliserDomaineCompetence } from '@/lib/store'
 import { SPECIALITES_INSPECTEUR } from '@/lib/domaines'
 import { SURVEILLANCE_TYPES, SURVEILLANCE_DOMAINS } from '@/lib/config'
 import { useFormProgress } from '@/hooks/useFormProgress'
@@ -562,7 +562,7 @@ export const SurveillanceForm = memo(function SurveillanceForm({
               </span>
               {(insp as any).competences?.length > 0 && (
                 <span className="text-xs text-muted-foreground">
-                  [{ (insp as any).competences.map((c: any) => c.domaine).join(', ') }]
+                  [{ (insp as any).competences.map((c: any) => normaliserDomaineCompetence(c.domaine) || '—').join(', ') }]
                 </span>
               )}
             </label>

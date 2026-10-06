@@ -26,6 +26,7 @@ import {
   Send,
 } from 'lucide-react'
 import { useAppStore, Planning, Aerodrome } from '@/lib/store'
+import { estChefDePlanning, estMembreEquipePlanning } from '@/lib/planning-lancement'
 import { getDomaineLabel, expandDomaines } from '@/lib/domaines'
 import { getBadgeClassFromScore, canManageRole } from '@/lib/config'
 
@@ -98,14 +99,15 @@ export function PlanningCard({
 }: PlanningCardProps) {
   const router = useRouter()
   const utilisateurs = useAppStore(s => s.utilisateurs)
+  const inspecteurs = useAppStore(s => s.inspecteurs)
   const currentUser = useAppStore(s => s.user)
   const isManager = canManageRole(userRole)
 
-  // Contrôle d'accès mission : une fois l'équipe désignée, seul le chef
-  // d'équipe exécute, le chef + les membres préparent, l'admin passe en
-  // lecture seule stricte (il corrige uniquement avant désignation).
-  const isChefEquipe = !!currentUser?.id && !!planning.chef_id && planning.chef_id === currentUser.id;
-  const isMembreEquipe = !!currentUser?.id && !!planning.chef_id && (planning.equipe_ids || []).includes(currentUser.id);
+  // Contrôle d'accès mission (source unique lib/planning-lancement) : une fois
+  // l'équipe désignée, seul le chef d'équipe exécute, le chef + les membres
+  // préparent, l'admin passe en lecture seule stricte.
+  const isChefEquipe = estChefDePlanning(currentUser, inspecteurs, planning);
+  const isMembreEquipe = estMembreEquipePlanning(currentUser, inspecteurs, planning);
   const equipeDesignee = !!planning.chef_id && (planning.equipe_ids?.length ?? 0) > 0;
   const canExecute = isChefEquipe;
   const canPrepare = isChefEquipe || isMembreEquipe || (isManager && !equipeDesignee);

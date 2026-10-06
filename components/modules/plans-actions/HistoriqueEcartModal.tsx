@@ -23,8 +23,13 @@ import {
   Bell,
   AlertCircle,
   Merge,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { getRiskLevelClass } from '@/lib/risque';
+import { construireRecitEcart } from '@/lib/ia/recitEcart';
+import type { HistoriqueEcart } from '@/lib/store/ecartsTypes';
+import { nomActeur, labelRoleActeur } from '@/lib/acteurs';
 
 interface HistoriqueEcartModalProps {
   isOpen: boolean;
@@ -35,7 +40,8 @@ interface HistoriqueEcartModalProps {
 
 interface TimelineStep {
   id: string;
-  type: 'creation' | 'notification' | 'soumission_pac' | 'evaluation_pac' | 'soumission_preuves' | 'validation_preuves' | 'cloture' | 'reconciliation' | 'rappel' | 'retard';
+  // Union alignée sur HistoriqueEcart (lib/store/ecartsTypes.ts) — source unique.
+  type: HistoriqueEcart['type'];
   date: string;
   acteur: string;
   role_acteur: string;
@@ -46,14 +52,46 @@ interface TimelineStep {
   color: string;
 }
 
+// Libellés des types d'événements (module scope : statique).
+const LABEL_TYPE_HISTORIQUE: Record<string, string> = {
+  creation: 'Création de l\u2019écart',
+  notification: 'Notification envoyée',
+  soumission_pac: 'PAC soumis',
+  evaluation_pac: 'PAC évalué',
+  validation_chef: 'Validation du chef',
+  soumission_preuves: 'Preuves soumises',
+  validation_preuves: 'Preuves évaluées',
+  cloture: 'Écart clôturé',
+  rappel: 'Rappel automatique',
+  retard: 'Écart en retard — délai dépassé',
+  reconciliation: 'Réconciliation',
+  ajustement_delais: 'Échéances réajustées',
+};
+
+// Phases du parcours d'un écart (module scope : statique).
+const PHASES_PARCOURS: { id: string; label: string; types: string[] }[] = [
+  { id: 'constat', label: 'Constat', types: ['creation', 'notification'] },
+  { id: 'plan', label: 'Plan d\u2019actions', types: ['soumission_pac'] },
+  { id: 'evaluation', label: 'Évaluation', types: ['evaluation_pac'] },
+  { id: 'preuves', label: 'Preuves', types: ['soumission_preuves', 'validation_preuves'] },
+  { id: 'cloture', label: 'Clôture', types: ['cloture'] },
+  { id: 'pilotage', label: 'Pilotage (délais)', types: ['rappel', 'retard', 'reconciliation', 'ajustement_delais'] },
+];
+
 export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: HistoriqueEcartModalProps) {
   const ecarts = useOptimizedStore(s => s.ecarts);
+  const utilisateurs = useOptimizedStore(s => s.utilisateurs);
+  const inspecteurs = useOptimizedStore(s => s.inspecteurs);
   const getHistoriqueEcart = useAppStore(s => s.getHistoriqueEcart);
   const addNotification = useAppStore(s => s.addNotification);
   const ecart = ecarts.find(e => e.id === ecartId);
   const { refs: questionRefs } = useEcartQuestionRefs(ecart);
   const historique = getHistoriqueEcart(ecartId);
   const [mounted, setMounted] = useState(false);
+  // Reformulation IA du récit (faits pré-calculés — l'IA ne fait que rédiger).
+  const [resumeIA, setResumeIA] = useState<string | null>(null);
+  const [resumeIALoading, setResumeIALoading] = useState(false);
+  const [resumeIAErreur, setResumeIAErreur] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -62,20 +100,23 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
 
   if (!ecart || !isOpen) return null;
 
-  // Construire la timeline depuis les données réelles de l'écart (source Supabase)
-  // évite les entrées fantômes de l'IndexedDB qui pourraient être désynchronisées
+  // Cartes d'état : situation actuelle depuis les données réelles de l'écart
+  // (source Supabase) — évite les entrées fantômes désynchronisées.
+  // La création vient de l'historique quand il existe (vrai acteur), sinon repli.
   const derivedTimeline: TimelineStep[] = [];
 
-  derivedTimeline.push({
-    id: `creation-${ecart.id}`,
-    type: 'creation',
-    date: ecart.created_at,
-    acteur: ecart.inspecteur_ref_id,
-    role_acteur: 'inspector',
-    description: `Écart constaté — référence ${ecart.reference}`,
-    icon: FileText,
-    color: 'bg-blue-100 text-blue-600',
-  });
+  if (!historique.some(h => h.type === 'creation')) {
+    derivedTimeline.push({
+      id: `creation-${ecart.id}`,
+      type: 'creation',
+      date: ecart.created_at,
+      acteur: ecart.inspecteur_ref_id,
+      role_acteur: 'inspector',
+      description: `Écart constaté — référence ${ecart.reference}`,
+      icon: FileText,
+      color: 'bg-blue-100 text-blue-600',
+    });
+  }
 
   if (ecart.pac) {
     derivedTimeline.push({
@@ -156,27 +197,80 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
     });
   }
 
-  // Ajouter les événements système (rappels, retards) depuis l'IndexedDB — ces
-  // types ne sont pas stockés dans l'écart lui-même
-  const systemEvents: TimelineStep[] = historique
-    .filter(entry => entry.type === 'rappel' || entry.type === 'retard' || entry.type === 'reconciliation')
-    .map(entry => ({
-      id: entry.id,
-      type: entry.type,
-      date: entry.date,
-      acteur: entry.acteur,
-      role_acteur: entry.role_acteur,
-      description: entry.description,
-      details: entry.details,
-      fichiers: (entry.fichiers || []).map(url => ({ url, nom: url.split('/').pop() || url.split('\\').pop() || 'fichier' })),
-      icon: entry.type === 'rappel' ? Bell : entry.type === 'retard' ? AlertCircle : Merge,
-      color: entry.type === 'rappel' ? 'bg-amber-100 text-amber-600' : entry.type === 'retard' ? 'bg-rose-100 text-rose-600' : 'bg-purple-100 text-purple-600',
-    }));
+  // Entrées d'historique : versions passées (PAC v1 refusé…), décisions du
+  // chef, pilotage (rappels, retards, délais). Déduplication : une entrée est
+  // couverte par une carte d'état si même type ET même date (même action).
+  const CONFIG_ENTREE_HISTORIQUE: Record<HistoriqueEcart['type'], { icon: React.ElementType; couleur: (e: HistoriqueEcart) => string }> = {
+    creation: { icon: FileText, couleur: () => 'bg-blue-100 text-blue-600' },
+    notification: { icon: Send, couleur: () => 'bg-amber-100 text-amber-600' },
+    soumission_pac: { icon: Send, couleur: () => 'bg-green-100 text-green-600' },
+    evaluation_pac: { icon: CheckCircle2, couleur: e => (e.details as { decision?: string } | undefined)?.decision === 'refuse' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600' },
+    validation_chef: { icon: ShieldCheck, couleur: () => 'bg-purple-100 text-purple-600' },
+    soumission_preuves: { icon: Upload, couleur: () => 'bg-cyan-100 text-cyan-600' },
+    validation_preuves: { icon: CheckCircle2, couleur: e => (e.details as { decision?: string } | undefined)?.decision === 'valide' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600' },
+    cloture: { icon: CheckCircle2, couleur: () => 'bg-emerald-100 text-emerald-600' },
+    rappel: { icon: Bell, couleur: () => 'bg-amber-100 text-amber-600' },
+    retard: { icon: AlertCircle, couleur: () => 'bg-rose-100 text-rose-600' },
+    reconciliation: { icon: Merge, couleur: () => 'bg-purple-100 text-purple-600' },
+    ajustement_delais: { icon: Calendar, couleur: () => 'bg-blue-100 text-blue-600' },
+  };
+  const clesEtat = new Set(derivedTimeline.map(d => `${d.type}::${d.date}`));
+  const entreesHistorique: TimelineStep[] = historique
+    .filter(entry => entry.type in CONFIG_ENTREE_HISTORIQUE && !clesEtat.has(`${entry.type}::${entry.date}`))
+    .map(entry => {
+      const config = CONFIG_ENTREE_HISTORIQUE[entry.type];
+      return {
+        id: entry.id,
+        type: entry.type,
+        date: entry.date,
+        acteur: entry.acteur,
+        role_acteur: entry.role_acteur,
+        description: entry.description,
+        details: entry.details,
+        fichiers: (entry.fichiers || []).map(url => ({ url, nom: url.split('/').pop() || url.split('\\').pop() || 'fichier' })),
+        icon: config.icon,
+        color: config.couleur(entry),
+      };
+    });
 
   // Trier par date décroissante (les plus récents en premier)
-  const sortedTimeline = [...derivedTimeline, ...systemEvents].sort((a, b) => 
+  const sortedTimeline = [...derivedTimeline, ...entreesHistorique].sort((a, b) =>
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
+
+  // Récit calculé depuis les faits (synthèse + situation + anomalies).
+  const recit = ecart ? construireRecitEcart(ecart, historique) : null;
+
+  // Regroupement par phase : le lecteur voit « vous êtes ici ».
+  // Phase courante = dernière phase métier (hors pilotage) atteinte.
+  const timelineParPhase = PHASES_PARCOURS
+    .map(phase => ({ ...phase, entrees: sortedTimeline.filter(e => phase.types.includes(e.type)) }))
+    .filter(groupe => groupe.entrees.length > 0);
+  const phaseCouranteId = (() => {
+    const metier = timelineParPhase.filter(g => g.id !== 'pilotage');
+    return metier.length > 0 ? metier[0].id : null;
+  })();
+
+  const genererResumeIA = async () => {
+    if (resumeIALoading || !recit) return;
+    setResumeIALoading(true);
+    setResumeIAErreur(false);
+    try {
+      const prompt = `Tu es AERORISQ. Reformule fidèlement ce parcours d'écart en 5 à 8 lignes claires pour un inspecteur. RÈGLE ABSOLUE : n'invente aucun fait — dates, nombres et décisions uniquement depuis les FAITS ci-dessous. Termine par la prochaine action attendue.\nFAITS :\n${recit.phrases.map(p => `- ${p}`).join('\n')}`;
+      const res = await fetch('/api/ia/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: prompt, contexte: { module: 'plans-actions', ecart_id: ecartId } }),
+      });
+      if (!res.ok) throw new Error('IA indisponible');
+      const data = await res.json();
+      setResumeIA(typeof data.message === 'string' ? data.message : null);
+    } catch {
+      setResumeIAErreur(true);
+    } finally {
+      setResumeIALoading(false);
+    }
+  };
 
   const getStatutBadge = (statut: string) => {
     const statuts: Record<string, { label: string; className: string }> = {
@@ -245,15 +339,108 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
               )}
           </Card>
 
-          {/* Timeline visuelle */}
+          {/* Situation : où en est le dossier, qui doit jouer */}
+          {recit && (
+            <Card className="bg-gradient-to-r from-role-primary/5 to-transparent">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Situation</p>
+                <span className={statutBadge.className}>{statutBadge.label}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">En attente</p>
+                  <p className="font-medium text-foreground">
+                    {recit.situation.attente === 'exploitant' ? "De l'exploitant" : recit.situation.attente === 'inspecteur' ? "De l'inspecteur" : recit.situation.attente === 'chef' ? "Du chef d'équipe" : '—'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{recit.situation.action}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Échéance</p>
+                  <p className="font-medium text-foreground">{recit.situation.echeance}</p>
+                  <p className="text-xs text-muted-foreground">{recit.situation.joursDepuisConstat} jour(s) depuis le constat</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Étape du parcours</p>
+                  <p className="font-medium text-foreground">
+                    {PHASES_PARCOURS.find(p => p.id === phaseCouranteId)?.label || '—'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Niveau {recit.situation.niveau}</p>
+                </div>
+              </div>
+              {recit.anomalies.length > 0 && (
+                <div className="mt-3 space-y-1.5">
+                  {recit.anomalies.map((a, i) => (
+                    <div key={i} className={`flex items-start gap-1.5 text-xs p-2 rounded-lg border ${a.niveau === 'danger' ? 'bg-danger/5 border-danger/20 text-danger-700' : 'bg-warning/5 border-warning/20 text-warning-700'}`}>
+                      <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span><strong>{a.titre}.</strong> {a.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Synthèse : récit calculé + reformulation IA */}
+          {recit && (
+            <Card>
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Synthèse du parcours</p>
+                <button
+                  type="button"
+                  onClick={genererResumeIA}
+                  disabled={resumeIALoading}
+                  className="btn btn-sm btn-ghost gap-1 text-[11px]"
+                  title="AERORISQ reformule les faits ci-dessous, sans rien inventer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {resumeIALoading ? 'Rédaction…' : resumeIA ? 'Régénérer avec AERORISQ' : 'Reformuler avec AERORISQ'}
+                </button>
+              </div>
+              {resumeIA ? (
+                <div>
+                  <p className="inline-flex items-center gap-1 text-[10px] px-1.5 py-px rounded-full bg-primary/10 text-primary mb-1.5">
+                    <Sparkles className="w-3 h-3" /> Rédigé par AERORISQ à partir des faits ci-dessous
+                  </p>
+                  <p className="text-sm text-foreground whitespace-pre-line">{resumeIA}</p>
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {recit.phrases.map((phrase, i) => (
+                    <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
+                      <span className="text-muted-foreground mt-0.5">•</span>
+                      <span>{phrase}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {resumeIAErreur && (
+                <p className="text-xs text-warning mt-1.5">IA indisponible — synthèse calculée affichée.</p>
+              )}
+            </Card>
+          )}
+
+          {/* Timeline visuelle, regroupée par phase */}
           <div className="space-y-4">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <Clock className="w-4 h-4 text-role-primary" />
               Chronologie des événements
             </h3>
 
-            <div className="space-y-3">
-              {sortedTimeline.map((entry, idx) => {
+            <div className="space-y-4">
+              {timelineParPhase.map(groupe => (
+                <div key={groupe.id}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${groupe.id === phaseCouranteId ? 'bg-success animate-pulse' : 'bg-muted-foreground/40'}`} />
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {groupe.label}
+                      {groupe.id === phaseCouranteId && groupe.id !== 'pilotage' && (
+                        <span className="ml-1.5 normal-case font-medium text-success">— vous êtes ici</span>
+                      )}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">({groupe.entrees.length})</span>
+                  </div>
+                  <div className="space-y-3 ml-1 pl-3 border-l-2 border-border">
+                    {groupe.entrees.map((entry) => {
                 const date = new Date(entry.date);
                 const dateFormatted = date.toLocaleDateString('fr-FR');
                 const timeFormatted = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -268,28 +455,43 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium text-foreground">
-                              {entry.type === 'creation' ? 'Création de l\'écart' :
-                               entry.type === 'notification' ? 'Notification envoyée' :
-                               entry.type === 'soumission_pac' ? 'PAC soumis' :
-                               entry.type === 'evaluation_pac' ? `PAC ${entry.details?.note_globale ? `évalué (${entry.details.note_globale}/5)` : 'évalué'}` :
-                               entry.type === 'soumission_preuves' ? 'Preuves soumises' :
-                               entry.type === 'validation_preuves' ? `Preuves ${entry.details?.decision === 'valide' ? 'validées' : 'refusées'}` :
-                               entry.type === 'cloture' ? 'Écart clôturé' :
-                               entry.type === 'rappel' ? 'Rappel automatique' :
-                                entry.type === 'retard' ? 'Écart en retard - délai dépassé' :
-                                entry.type === 'reconciliation' ? 'Réconciliation' :
-                                entry.type}
+                              {entry.type === 'evaluation_pac' && entry.details?.note_globale
+                                ? `PAC évalué (${entry.details.note_globale}/5)`
+                                : entry.type === 'validation_preuves'
+                                  ? `Preuves ${entry.details?.decision === 'valide' ? 'validées' : entry.details?.decision === 'reserve' ? 'acceptées avec réserves' : 'refusées'}`
+                                  : LABEL_TYPE_HISTORIQUE[entry.type] ?? entry.type}
                             </span>
+                            {entry.type === 'soumission_pac' && entry.details?.version != null && (
+                              <span className="badge primary text-[10px]">
+                                v{entry.details.version}
+                              </span>
+                            )}
                             {entry.type === 'evaluation_pac' && entry.details?.note_globale && (
                               <span className="badge primary text-[10px]">
                                 Note: {entry.details.note_globale}/5
                               </span>
                             )}
-                            {isRappel && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
-                                J-3
+                            {entry.type === 'evaluation_pac' && entry.details?.decision && (
+                              <span className={`badge text-[10px] ${entry.details.decision === 'refuse' ? 'danger' : entry.details.decision === 'reserve' ? 'warning' : 'success'}`}>
+                                {entry.details.decision === 'accepte' ? 'Accepté' : entry.details.decision === 'reserve' ? 'Réserves' : 'Refusé'}
                               </span>
                             )}
+                            {entry.type === 'validation_chef' && entry.details?.decision && (
+                              <span className={`badge text-[10px] ${entry.details.decision === 'refuse' ? 'danger' : entry.details.decision === 'reserve' ? 'warning' : 'success'}`}>
+                                {entry.details.decision === 'accepte' ? 'Accepté' : entry.details.decision === 'reserve' ? 'Réserves' : entry.details.decision === 'valide' ? 'Validé' : 'Refusé'}
+                              </span>
+                            )}
+                            {entry.type === 'validation_chef' && entry.details?.action === 'revision' && (
+                              <span className="badge warning text-[10px]">Révision demandée</span>
+                            )}
+                            {isRappel && (() => {
+                              const seuil = /J-(7|3|1)/.exec(entry.description || '')?.[0];
+                              return (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                                  {seuil || 'Rappel'}
+                                </span>
+                              );
+                            })()}
                             {isRetard && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-700 animate-pulse">
                                 ⚠️ Alerte
@@ -300,10 +502,22 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                             <span className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
                               {dateFormatted} à {timeFormatted}
+                              {(() => {
+                                const jours = Math.floor((Date.now() - date.getTime()) / 86400000);
+                                if (jours <= 0) return null;
+                                return (
+                                  <span className="text-[10px]">· il y a {jours} j</span>
+                                );
+                              })()}
                             </span>
                             <span className="flex items-center gap-1">
                               <User className="w-3 h-3" />
-                              {entry.acteur === 'system' ? 'Système' : entry.acteur}
+                              {nomActeur(entry.acteur, [...utilisateurs, ...inspecteurs])}
+                              {labelRoleActeur(entry.role_acteur) && (
+                                <span className="text-[10px] px-1.5 py-px rounded-full bg-muted text-muted-foreground">
+                                  {labelRoleActeur(entry.role_acteur)}
+                                </span>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -326,10 +540,10 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                               <tbody>
                                 {entry.details.actions.map((a: any, i: number) => (
                                   <tr key={i} className={i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}>
-                                    <td className="p-2 max-w-[200px] truncate">{a.description}</td>
-                                    <td className="p-2">{a.responsable}</td>
-                                    <td className="p-2 whitespace-nowrap">{a.date_prevue ? new Date(a.date_prevue).toLocaleDateString('fr-FR') : '-'}</td>
-                                    <td className="p-2">{(a.livrables || []).join(', ') || '-'}</td>
+                                    <td className="p-2 align-top break-words">{a.description}</td>
+                                    <td className="p-2 align-top">{a.responsable}</td>
+                                    <td className="p-2 whitespace-nowrap align-top">{a.date_prevue ? new Date(a.date_prevue).toLocaleDateString('fr-FR') : '-'}</td>
+                                    <td className="p-2 align-top break-words">{(a.livrables || []).join(', ') || '-'}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -344,20 +558,70 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                         </div>
                       )}
 
-                      {entry.type === 'evaluation_pac' && entry.details && (
-                        <div className="mt-2 p-2 bg-background rounded border border-border grid grid-cols-2 gap-2 text-sm">
-                          <div>Pertinence: {entry.details.note_pertinence}/5</div>
-                          <div>Exhaustivité: {entry.details.note_exhaustivite}/5</div>
-                          <div>Précision: {entry.details.note_precision}/5</div>
-                          <div>Spécificité: {entry.details.note_specificite}/5</div>
-                          <div>Cohérence: {entry.details.note_coherence}/5</div>
-                          <div>Réalisme: {entry.details.note_realisme ?? entry.details.note_tracabilite}/5</div>
-                          {entry.details.commentaire_refus && (
-                            <div className="col-span-2 p-2 bg-danger/10 rounded-lg text-danger-700">
-                              <p className="text-xs font-medium">Commentaire:</p>
-                              <p className="text-xs">{entry.details.commentaire_refus}</p>
-                            </div>
+                      {(entry.type === 'evaluation_pac' || entry.type === 'validation_preuves') && (() => {
+                        // Respect du délai inspecteur : date d'évaluation vs deadline.
+                        const details = entry.details || {};
+                        const faitLe = details.evalue_le || details.valide_le;
+                        const deadline = details.deadline;
+                        if (!faitLe || !deadline) return null;
+                        const jours = Math.ceil((new Date(faitLe).getTime() - new Date(deadline).getTime()) / 86400000);
+                        const dansLesTemps = jours <= 0;
+                        return (
+                          <div className="mt-2">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${dansLesTemps ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                              <Clock className="w-3 h-3" />
+                              {dansLesTemps ? 'Dans les temps' : `En retard de ${jours} j`}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {entry.type === 'evaluation_pac' && entry.details && (() => {
+                        // Notes affichées seulement si présentes (anciennes entrées
+                        // sans instantané : note globale + commentaire uniquement).
+                        const notes = [
+                          ['Pertinence', entry.details.note_pertinence],
+                          ['Exhaustivité', entry.details.note_exhaustivite],
+                          ['Précision', entry.details.note_precision],
+                          ['Spécificité', entry.details.note_specificite],
+                          ['Cohérence', entry.details.note_coherence],
+                          ['Réalisme', entry.details.note_realisme ?? entry.details.note_tracabilite],
+                        ].filter(([, v]) => typeof v === 'number') as [string, number][];
+                        if (notes.length === 0 && !entry.details.commentaire_refus) return null;
+                        return (
+                          <div className="mt-2 p-2 bg-background rounded border border-border grid grid-cols-2 gap-2 text-sm">
+                            {notes.map(([label, note]) => (
+                              <div key={label}>{label}: {note}/5</div>
+                            ))}
+                            {entry.details.commentaire_refus && (
+                              <div className="col-span-2 p-2 bg-danger/10 rounded-lg text-danger-700">
+                                <p className="text-xs font-medium">Commentaire:</p>
+                                <p className="text-xs">{entry.details.commentaire_refus}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {entry.type === 'validation_chef' && entry.details && (
+                        <div className="mt-2 p-2 bg-background rounded border border-border text-xs space-y-1">
+                          <p>
+                            <span className="font-medium">Objet : </span>
+                            {entry.details.objet === 'evaluation_pac' ? 'Évaluation du PAC' : 'Validation des preuves'}
+                          </p>
+                          {entry.details.commentaire && (
+                            <p className="p-1.5 bg-muted/30 rounded">
+                              <span className="font-medium">Motif : </span>
+                              {entry.details.commentaire}
+                            </p>
                           )}
+                        </div>
+                      )}
+
+                      {entry.type === 'soumission_preuves' && entry.details?.commentaire && (
+                        <div className="mt-2 p-2 bg-background rounded border border-border text-xs">
+                          <span className="font-medium text-muted-foreground">Commentaire : </span>
+                          {entry.details.commentaire}
                         </div>
                       )}
 
@@ -396,6 +660,9 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                   </div>
                 );
               })}
+                  </div>
+                </div>
+              ))}
 
               {sortedTimeline.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">

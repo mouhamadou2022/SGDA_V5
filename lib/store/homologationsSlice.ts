@@ -148,9 +148,19 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
 
   setCurrentHomologation: (homologation) => set({ currentHomologation: homologation }),
 
-  addHomologation: (homologation) => set((state) => ({
-    homologations: [...state.homologations, homologation],
-  })),
+  addHomologation: (homologation) => {
+    set((state) => ({
+      homologations: [...state.homologations, homologation],
+    }))
+    // Persister via API (service_role, contourne RLS) — miroir certifications.
+    // Sans cela, les demandes du portail exploitant restaient locales et
+    // n'arrivaient jamais sur le portail admin.
+    import('@/lib/api/homologations').then(({ createHomologation }) => {
+      createHomologation(homologation).then(res => {
+        if (res.error) console.error('[store] addHomologation error:', res.error)
+      }).catch(() => {})
+    }).catch(err => console.error('[store] addHomologation import error:', err))
+  },
 
   updateHomologation: (id, data) => {
     const oldHomo = get().homologations.find(h => h.id === id)
@@ -160,13 +170,13 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
         ? { ...state.currentHomologation, ...data }
         : state.currentHomologation,
     }))
-    // Persistance best-effort (la tranche était locale seule : les assignations
-    // seraient perdues au rechargement). N'échoue jamais le flux local.
-    import('@/lib/datastore').then(({ updateHomologation }) => {
+    // Persister via API (service_role, contourne RLS) — miroir certifications :
+    // le focal point soumet/révise aussi (phases 1-2), pas seulement l'admin.
+    import('@/lib/api/homologations').then(({ updateHomologation }) => {
       updateHomologation(id, data).then(res => {
         if (res.error) console.error('[store] updateHomologation error:', res.error)
       }).catch(() => {})
-    }).catch(() => {})
+    }).catch(err => console.error('[store] updateHomologation import error:', err))
     if (data.statut_global && data.statut_global !== oldHomo?.statut_global && oldHomo?.aerodrome_id) {
       storeEvents.emit('risque:recalcul-demande', { aerodrome_id: oldHomo.aerodrome_id })
     }
@@ -187,6 +197,13 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
       ),
       currentHomologation: state.currentHomologation?.id === id ? null : state.currentHomologation,
     }));
+    // Persistance réelle (sinon l'archive disparaît au rechargement côté
+    // exploitant) — même canal service_role que updateHomologation.
+    import('@/lib/api/homologations').then(({ updateHomologation }) => {
+      updateHomologation(id, { statut_global: 'archive', archived_at: now } as never).then(res => {
+        if (res.error) console.error('[store] archiverHomologation error:', res.error)
+      }).catch(() => {})
+    }).catch(err => console.error('[store] archiverHomologation import error:', err));
     const aerodrome = get().aerodromes.find(a => a.id === homo.aerodrome_id);
     const entry = registreUtils.toRegistreEntryFromHomologation(homo, aerodrome);
     // Journal via événement (tranche registres propriétaire).
@@ -198,11 +215,18 @@ export const createHomologationsSlice: StateCreator<AppStore, [], [], Homologati
     });
   },
 
-  restaurerHomologation: (id) => set((state) => ({
-    homologations: state.homologations.map((h) =>
-      h.id === id ? { ...h, statut_global: 'en_cours' as const, archived_at: null } : h
-    ),
-  })),
+  restaurerHomologation: (id) => {
+    set((state) => ({
+      homologations: state.homologations.map((h) =>
+        h.id === id ? { ...h, statut_global: 'en_cours' as const, archived_at: null } : h
+      ),
+    }));
+    import('@/lib/api/homologations').then(({ updateHomologation }) => {
+      updateHomologation(id, { statut_global: 'en_cours', archived_at: null } as never).then(res => {
+        if (res.error) console.error('[store] restaurerHomologation error:', res.error)
+      }).catch(() => {})
+    }).catch(err => console.error('[store] restaurerHomologation import error:', err));
+  },
 
   nettoyerLienSurveillanceHomologation: (aerodrome_id, surveillance_id) => {
     const homo = get().homologations.find((h: any) =>

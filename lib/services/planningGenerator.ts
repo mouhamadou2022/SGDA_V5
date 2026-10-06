@@ -5,6 +5,7 @@
 import type { Planning, ProfilRisque, Ecart, Certification, Homologation } from '@/lib/store'
 import { computeFinalFrequency, suggestMissionType } from '@/lib/risque/frequency'
 import { normalizePlanningType } from '@/lib/planning'
+import { releveChecklistPAC, releveChecklistEcarts, prochaineEcheanceActions } from '@/lib/domaines'
 import { modelCache } from '@/lib/risque/modelCache'
 
 export interface PlanningSource {
@@ -201,7 +202,9 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
   }
 
   // ── SOURCE 2 : Carry-over écarts → suivi_ecarts ──
-  const ecartsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && ['ouvert', 'pac_attendu', 'pac_soumis', 'pac_refuse', 'en_retard'].includes(e.statut))
+  // Règle canonique : pré-acceptation + retards SANS acceptation (les
+  // retards-acceptés vont en SOURCE 3 — l'accord existe, c'est du suivi PAC).
+  const ecartsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && releveChecklistEcarts(e))
   if (ecartsASuivre.length > 0) {
     const debut = new Date(annee, 0, 15)
     const fin = new Date(annee, 0, 16)
@@ -219,10 +222,20 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
   }
 
   // ── SOURCE 3 : Carry-over PAC → mise_oeuvre_pac ──
-  const pacsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && e.pac && ['pac_accepte', 'preuves_soumises', 'preuves_evaluees'].includes(e.statut))
+  // Règle canonique releveChecklistPAC (acceptés + retards-acceptés).
+  // Dates calées sur la plus proche échéance d'action (jamais de 1er
+  // février arbitraire) : planifier tôt, déclencher à temps — la garde de
+  // lancement (justifierSurveillancePAC) fera respecter les échéances.
+  const pacsASuivre = ecartsActifs.filter(e => e.statut !== 'cloture' && releveChecklistPAC(e))
   if (pacsASuivre.length > 0) {
-    const debut = new Date(annee, 1, 1)
-    const fin = new Date(annee, 1, 2)
+    const echeances = pacsASuivre
+      .map(e => prochaineEcheanceActions(e.pac))
+      .filter((d): d is string => !!d)
+      .sort()
+    const cible = echeances.length > 0 ? new Date(echeances[0]) : new Date(annee, 1, 1)
+    const debutAnnee = new Date(annee, 0, 1)
+    const debut = new Date(Math.max(cible.getTime(), debutAnnee.getTime()))
+    const fin = new Date(debut.getTime() + 86400000)
     const pacDetails = pacsASuivre.map(e => {
       const actions = (e.pac?.actions || []).map(a => `  → ${a.description?.substring(0, 60)} (resp: ${a.responsable})`).join('\n')
       return `Écart ${e.reference} — PAC v${e.pac?.version || '?'} :\n${actions}`

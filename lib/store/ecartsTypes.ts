@@ -208,7 +208,7 @@ export interface ValidationPreuves {
 
 export interface HistoriqueEcart {
   id: string
-  type: 'creation' | 'notification' | 'soumission_pac' | 'evaluation_pac' | 'soumission_preuves' | 'validation_preuves' | 'cloture' | 'reconciliation' | 'rappel' | 'retard'
+  type: 'creation' | 'notification' | 'soumission_pac' | 'evaluation_pac' | 'validation_chef' | 'soumission_preuves' | 'validation_preuves' | 'cloture' | 'reconciliation' | 'rappel' | 'retard' | 'ajustement_delais'
   date: string
   acteur: string
   role_acteur: string

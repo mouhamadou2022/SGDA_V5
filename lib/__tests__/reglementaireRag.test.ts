@@ -7,6 +7,7 @@ import {
   formaterContexteReglementaire,
   construireContexteReglementaire,
 } from '../ia/rag/reglementaireRagClient'
+import { extraitsDepuisChapitres } from '../ia/rag/reglementaireRag'
 
 function makeDoc(overrides: Partial<KitDocument> = {}): KitDocument {
   return {
@@ -58,6 +59,23 @@ describe('recupererExtraitsReglementaires', () => {
     expect(result[0].reference).toBe('RAS 14 I §9.2.1')
   })
 
+  test('AGA global répond à tout domaine demandé (comme expandDomaines)', () => {
+    useAppStore.setState({
+      kitDocuments: [
+        makeDoc({
+          id: 'doc-aga',
+          domaines: ['AGA'],
+          extraits: [{ reference: 'RAS 14 I §3.1.2', titre: 'Longueur de piste', contenu_resume: 'La longueur de piste déclarée doit être conforme.', statut: 'ACTIF', domaines: ['AGA'], type_entite_cible: 'tous', source_document_id: 'doc-aga', detecte_le: '2024-01-01' }],
+        }),
+      ],
+    })
+
+    const result = recupererExtraitsReglementaires({ domaines: ['PHY'] })
+    expect(result.length).toBe(1)
+    expect(result[0].document_id).toBe('doc-aga')
+    expect(result[0].domaine).toBe('PHY')
+  })
+
   test('exclut les documents obsolètes', () => {
     useAppStore.setState({
       kitDocuments: [
@@ -105,6 +123,22 @@ describe('recupererExtraitsReglementaires', () => {
     expect(result[0].contenu).toContain('temps d\'intervention')
   })
 
+  test('extraits larges (pas coupés à 700 car.)', () => {
+    useAppStore.setState({
+      kitDocuments: [
+        makeDoc({
+          id: 'doc-large',
+          domaines: ['PHY'],
+          contenu_complet: `Exigence réglementaire détaillée : ${'la longueur de piste déclarée doit être conforme aux performances des avions critiques. '.repeat(30)}`,
+        }),
+      ],
+    })
+    const result = recupererExtraitsReglementaires({ domaines: ['PHY'], maxChars: 5000 })
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0].contenu.length).toBeGreaterThan(700)
+    expect(result[0].contenu.length).toBeLessThanOrEqual(1100)
+  })
+
   test('limite le nombre de caractères injectés', () => {
     useAppStore.setState({
       kitDocuments: [
@@ -120,6 +154,31 @@ describe('recupererExtraitsReglementaires', () => {
     expect(total).toBeLessThanOrEqual(300)
   })
 })
+
+describe('extraitsDepuisChapitres', () => {
+  const DOC = { id: 'doc-ras', nom: 'RAS 14 Vol I', reference_base: 'RAS 14 Vol I', domaines: ['PHY', 'ELEC'] };
+  test('un extrait citable par chapitre substantiel', () => {
+    const out = extraitsDepuisChapitres(DOC, [
+      { titre: 'CHAPITRE 3 — Pistes', contenu: 'La longueur de piste déclarée doit être conforme aux performances. '.repeat(4) },
+      { titre: '', contenu: 'court' },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].reference).toContain('RAS 14 Vol I');
+    expect(out[0].reference).toContain('CHAPITRE 3');
+    expect(out[0].domaines).toEqual(['PHY', 'ELEC']);
+    expect(out[0].statut).toBe('ACTIF');
+    expect(out[0].contenu_resume.length).toBeLessThanOrEqual(400);
+  });
+  test('plafond 10 et domaines AGA par défaut', () => {
+    const chapitres = Array.from({ length: 15 }, (_, i) => ({ titre: `CHAPITRE ${i}`, contenu: 'x'.repeat(200) }));
+    const out = extraitsDepuisChapitres({ id: 'd', nom: 'Doc', domaines: [] }, chapitres);
+    expect(out).toHaveLength(10);
+    expect(out[0].domaines).toEqual(['AGA']);
+  });
+  test('vide : rien', () => {
+    expect(extraitsDepuisChapitres(DOC, [])).toEqual([]);
+  });
+});
 
 describe('formaterContexteReglementaire', () => {
   test('cite référence + source + contenu avec la règle anti-fabrication', () => {

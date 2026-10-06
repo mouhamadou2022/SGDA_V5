@@ -11,6 +11,9 @@ import {
   nomsEquipe,
   appliquerPredictionsPrefill,
   peutLancer,
+  identitesUtilisateur,
+  estChefDePlanning,
+  estMembreEquipePlanning,
   buildPlanningFromSuggestion,
   buildExportCSV,
   filtresTemplatesParType,
@@ -18,7 +21,11 @@ import {
   porteeHomologation,
   delaisSuggestionIA,
   exigencesEquipe,
+  ecartsPACAcceptes,
+  validerQualiteDelegations,
+  equipeASignataire,
 } from '../planning-lancement'
+import { aPACAccepte, STATUTS_PAC_ACCEPTES } from '../domaines'
 
 const PLANNING = {
   id: 'p1',
@@ -167,9 +174,89 @@ describe('divers', () => {
     expect(peutLancer('x', 'c')).toBe(false)
     expect(peutLancer(undefined, 'c')).toBe(false)
   })
+  test('identitesUtilisateur : compte + fiche liée', () => {
+    const inspecteurs = [{ id: 'insp-1', user_id: 'u1' }]
+    expect(identitesUtilisateur({ id: 'u1' }, inspecteurs)).toEqual(['u1', 'insp-1'])
+    expect(identitesUtilisateur({ id: 'u9' }, inspecteurs)).toEqual(['u9'])
+    expect(identitesUtilisateur({ id: 'u1', inspecteur_id: 'insp-2' }, [])).toEqual(['u1', 'insp-2'])
+    expect(identitesUtilisateur(null, inspecteurs)).toEqual([])
+  })
+  test('estChefDePlanning : compte OU fiche liée (jamais verrouillé à tort)', () => {
+    const inspecteurs = [{ id: 'insp-1', user_id: 'u1' }]
+    // chef stocké en id utilisateur
+    expect(estChefDePlanning({ id: 'u1' }, [], { chef_id: 'u1' })).toBe(true)
+    // chef stocké en id inspecteur, user lié par user_id
+    expect(estChefDePlanning({ id: 'u1' }, inspecteurs, { chef_id: 'insp-1' })).toBe(true)
+    // chef stocké en id inspecteur, user lié par inspecteur_id
+    expect(estChefDePlanning({ id: 'u9', inspecteur_id: 'insp-1' }, [], { chef_id: 'insp-1' })).toBe(true)
+    // vraiment pas chef
+    expect(estChefDePlanning({ id: 'u2' }, inspecteurs, { chef_id: 'insp-1' })).toBe(false)
+    expect(estChefDePlanning({ id: 'u1' }, inspecteurs, {})).toBe(false)
+    expect(estChefDePlanning(null, inspecteurs, { chef_id: 'insp-1' })).toBe(false)
+  })
+  test('estMembreEquipePlanning : compte OU fiche liée', () => {
+    const inspecteurs = [{ id: 'insp-1', user_id: 'u1' }]
+    const planning = { chef_id: 'c', equipe_ids: ['insp-1'] }
+    expect(estMembreEquipePlanning({ id: 'u1' }, inspecteurs, planning)).toBe(true)
+    expect(estMembreEquipePlanning({ id: 'u2' }, inspecteurs, planning)).toBe(false)
+    expect(estMembreEquipePlanning({ id: 'u1' }, inspecteurs, { chef_id: '' })).toBe(false)
+  })
   test('appliquerPredictionsPrefill : hiérarchie vide → false, sans crash', () => {
     expect(appliquerPredictionsPrefill([], {
       aerodromeId: 'a1', typeSurv: 'periodique',
     })).toBe(false)
+  })
+})
+
+describe('règle verrouillée checklist PAC vs écarts', () => {
+  const pac = { actions: [{ description: 'a', responsable: 'r', date_prevue: '2026-04-01', livrables: [] }] }
+  const E = (statut: string, site = 'a1', avecPac = true) => ({
+    aerodrome_id: site, statut, pac: avecPac ? pac : undefined,
+  })
+  test('STATUTS_PAC_ACCEPTES : accepté + aval preuves, jamais le reste', () => {
+    expect([...STATUTS_PAC_ACCEPTES]).toEqual(['pac_accepte', 'preuves_soumises', 'preuves_evaluees'])
+  })
+  test('aPACAccepte : soumis/refusé/ouvert → false, accepté → true', () => {
+    expect(aPACAccepte([E('pac_soumis'), E('pac_refuse'), E('ouvert'), E('pac_attendu')])).toBe(false)
+    expect(aPACAccepte([E('pac_soumis'), E('pac_accepte')])).toBe(true)
+    expect(aPACAccepte([E('preuves_soumises'), E('preuves_evaluees')])).toBe(true)
+    expect(aPACAccepte([E('pac_accepte', 'a1', false)])).toBe(false) // accepté sans actions → inéligible
+    expect(aPACAccepte([])).toBe(false)
+    expect(aPACAccepte(undefined)).toBe(false)
+    // en_retard : côté PAC seulement si le PAC était accepté
+    expect(aPACAccepte([{ ...E('en_retard'), evaluation_pac: { decision: 'accepte' } }])).toBe(true)
+    expect(aPACAccepte([{ ...E('en_retard'), evaluation_pac: { decision: 'reserve' } }])).toBe(true)
+    expect(aPACAccepte([E('en_retard')])).toBe(false)
+  })
+  test('ecartsPACAcceptes : filtre site + statut + actions', () => {
+    const ecarts = [E('pac_accepte', 'a1'), E('pac_soumis', 'a1'), E('pac_accepte', 'a2')]
+    const res = ecartsPACAcceptes(ecarts, 'a1')
+    expect(res).toHaveLength(1)
+    expect(res[0].statut).toBe('pac_accepte')
+  })
+})
+
+describe('qualité délégation et signataire (R1)', () => {
+  const fiches = [
+    { id: 'f-tit', user_id: 'u-tit', type: 'inspecteur_titulaire' },
+    { id: 'f-sta', user_id: 'u-sta', type: 'inspecteur_stagiaire' },
+  ]
+  const comptes = [
+    { id: 'u-tit', role: 'inspector', statut: 'actif', prenom: 'A', nom: 'Titulaire' },
+    { id: 'u-sta', role: 'inspector', statut: 'actif', prenom: 'B', nom: 'Stagiaire' },
+    { id: 'u-cadre', role: 'inspector', statut: 'actif', prenom: 'C', nom: 'Cadre', type_inspecteur: 'cadre_technique' },
+  ]
+  test('validerQualiteDelegations : stagiaire/cadre signalés, titulaire OK', () => {
+    expect(validerQualiteDelegations({ PHY: 'u-tit' }, fiches, comptes)).toEqual([])
+    expect(validerQualiteDelegations(undefined, fiches, comptes)).toEqual([])
+    const invalides = validerQualiteDelegations({ PHY: 'u-sta', SLI: 'u-cadre', OPS: '' }, fiches, comptes)
+    expect(invalides.map(i => i.domaine).sort()).toEqual(['PHY', 'SLI'])
+    expect(invalides[0].nom).toMatch(/Stagiaire|Cadre/)
+  })
+  test('equipeASignataire : chef compris, observateurs seuls → false', () => {
+    expect(equipeASignataire(['u-sta'], 'u-sta', fiches, comptes)).toBe(false)
+    expect(equipeASignataire(['u-sta'], 'u-tit', fiches, comptes)).toBe(true)
+    expect(equipeASignataire(['u-cadre'], 'u-cadre', fiches, comptes)).toBe(false)
+    expect(equipeASignataire([], undefined, fiches, comptes)).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-// lib/checklistMemory.ts
+﻿// lib/checklistMemory.ts
 // VERSION CORRIGÉE - Connectée au store Zustand
 // ✅ Stockage persistant via le store (plus de mémoire volatile)
 // ✅ Limite d'historique (MAX_HISTORY = 20)
@@ -11,14 +11,16 @@
 import { ResultatChecklist } from '@/types/surveillance';
 import type { AppStore } from './store';
 
-let _storeState: AppStore | null = null
-function getStoreState() {
-  if (!_storeState) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { useAppStore } = require('./store')
-    _storeState = useAppStore.getState()
-  }
-  return _storeState!
+/**
+ * État FRAIS à chaque appel (jamais de cache) : avec Zustand, chaque set()
+ * crée un nouvel objet — un snapshot conservé raterait toutes les écritures
+ * de la session (prédictions aveugles, historique qui ne s'accumule pas).
+ * Le require paresseux est conservé (anti-cycle store ↔ mémoire).
+ */
+function getStoreState(): AppStore {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { useAppStore } = require('./store')
+  return useAppStore.getState()
 }
 
 // ============================================================
@@ -259,6 +261,45 @@ export function calculateConfiance(record: ItemHistoryRecord): number {
   
   // ✅ Normalisation à 100 max
   return Math.min(100, Math.max(0, score));
+}
+
+/**
+ * Appariement flou d'un point de vérification à l'historique (même
+ * aérodrome + domaine) : l'égalité stricte rate dès qu'une question est
+ * reformulée entre deux surveillances. Score = recouvrement de tokens
+ * (insensible casse/accents, mots > 2 lettres), seuil 0.6, départage par
+ * nb_occurrences. Pur et testé (utilisé par la simulation planning).
+ */
+export function trouverRecordSimilaire(
+  records: ItemHistoryRecord[],
+  params: { aerodrome_id: string; domaine: string; texte: string },
+  seuil = 0.6,
+): ItemHistoryRecord | null {
+  const normes = (t: string) =>
+    (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const tokens = (t: string) => normes(t).split(' ').filter(w => w.length > 2);
+  const req = tokens(params.texte);
+  if (req.length === 0) return null;
+  const dom = (params.domaine || '').toUpperCase();
+  let meilleur: ItemHistoryRecord | null = null;
+  let meilleurScore = 0;
+  let meilleurOcc = -1;
+  for (const r of records || []) {
+    if (r.aerodrome_id !== params.aerodrome_id) continue;
+    if ((r.domaine || '').toUpperCase() !== dom) continue;
+    const corpus = new Set(tokens(r.item_description || ''));
+    if (corpus.size === 0) continue;
+    let hits = 0;
+    for (const t of req) if (corpus.has(t)) hits++;
+    const score = hits / req.length;
+    const occ = r.nb_occurrences || 0;
+    if (score >= seuil && (score > meilleurScore || (score === meilleurScore && occ > meilleurOcc))) {
+      meilleur = r;
+      meilleurScore = score;
+      meilleurOcc = occ;
+    }
+  }
+  return meilleur;
 }
 
 /**

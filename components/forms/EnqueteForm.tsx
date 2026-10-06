@@ -7,7 +7,8 @@ import {
   Plane, Target, Shield, TrendingUp, Sparkles, Users,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { TYPES_ENQUETE } from '@/lib/config';
+import { TYPES_ENQUETE, TYPE_ENQUETE_AUTRE } from '@/lib/config';
+import { isSGSApplicable } from '@/lib/risque';
 import { useFormProgress } from '@/hooks/useFormProgress';
 import { FormProgressContext } from '@/components/ui/FormShell';
 import { riskAgent } from '@/lib/ia/agents/riskAgent';
@@ -78,6 +79,7 @@ export function EnqueteForm({
     objectif_strategique_personnalise: '',
     criticite: 'moyenne' as 'basse' | 'moyenne' | 'haute' | 'critique',
     type_enquete: TYPES_ENQUETE[0] as string,
+    type_enquete_personnalise: '',
     aerodrome_ids: aerodromeId ? [aerodromeId] : [] as string[],
     date_debut: '',
     date_fin: '',
@@ -99,13 +101,21 @@ export function EnqueteForm({
   onProgressRef.current = onProgressChange;
   useEffect(() => { onProgressRef.current?.(progress); }, [progress]);
 
-  // Analyse IA des aérodromes ciblés
+  // Aérodromes ciblés + applicabilité SGS (statut_sgs / type_entite).
+  const aerosCibles = aerodromes?.filter(a => formData.aerodrome_ids.includes(a.id)) || [];
+  const aerosSgsNonApplicable = aerosCibles.filter(a => !isSGSApplicable(a));
+  const tousSgsNonApplicable = aerosCibles.length > 0 && aerosSgsNonApplicable.length === aerosCibles.length;
+
+  // Analyse IA des aérodromes ciblés (SGS applicable uniquement :
+  // un C1 à 0 sur SGS non applicable n'est pas un signal faible).
   useEffect(() => {
     const loadIaAnalysis = async () => {
       if (formData.aerodrome_ids.length > 0 && mode === 'creation') {
         setIsLoadingIA(true);
         try {
           const firstAerodromeId = formData.aerodrome_ids[0];
+          const aero = aerodromes?.find(a => a.id === firstAerodromeId);
+          if (aero && !isSGSApplicable(aero)) return;
           const profil = getProfilRisque(firstAerodromeId);
           if (profil && profil.c1 < 60) {
             const analysis = await riskAgent.analyzeRisk({
@@ -130,7 +140,7 @@ export function EnqueteForm({
       }
     };
     loadIaAnalysis();
-  }, [formData.aerodrome_ids, mode, getProfilRisque]);
+  }, [formData.aerodrome_ids, mode, getProfilRisque, aerodromes]);
 
   useEffect(() => {
     if (mode === 'modification' && enqueteId) {
@@ -150,6 +160,8 @@ export function EnqueteForm({
           objectifValue = 'personnalise';
         }
 
+        const typeStocke = enquete.type_enquete || TYPES_ENQUETE[0];
+        const typeConnu = (TYPES_ENQUETE as readonly string[]).includes(typeStocke);
         setFormData({
           titre: enquete.titre || '',
           description: enquete.description || '',
@@ -159,7 +171,8 @@ export function EnqueteForm({
           objectif_strategique: objectifValue,
           objectif_strategique_personnalise: objectifPersonnalise,
           criticite: (enquete as any).criticite || 'moyenne',
-          type_enquete: enquete.type_enquete || TYPES_ENQUETE[0],
+          type_enquete: typeConnu ? typeStocke : TYPE_ENQUETE_AUTRE,
+          type_enquete_personnalise: typeConnu ? '' : typeStocke,
           aerodrome_ids: enquete.aerodrome_ids || [],
           date_debut: (enquete as any).date_debut?.split('T')[0] || '',
           date_fin: enquete.deadline?.split('T')[0] || '',
@@ -169,6 +182,11 @@ export function EnqueteForm({
     }
   }, [mode, enqueteId, enquetes]);
 
+  const getTypeValue = () => {
+    if (formData.type_enquete === TYPE_ENQUETE_AUTRE) return formData.type_enquete_personnalise.trim();
+    return formData.type_enquete;
+  };
+
   const validerFormulaire = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!formData.titre.trim())       newErrors.titre       = "Le titre est requis";
@@ -176,6 +194,8 @@ export function EnqueteForm({
     if (!formData.date_debut)         newErrors.date_debut  = "La date de début est requise";
     if (!formData.date_fin)           newErrors.date_fin    = "La date de fin est requise";
     if (formData.aerodrome_ids.length === 0) newErrors.aerodrome_ids = "Au moins un aérodrome doit être ciblé";
+    if (formData.type_enquete === TYPE_ENQUETE_AUTRE && !formData.type_enquete_personnalise.trim())
+      newErrors.type_enquete = "Précisez le type d'enquête en saisie libre";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -216,7 +236,7 @@ export function EnqueteForm({
         impact_securite: getImpactValue(),
         objectif_strategique: getObjectifValue(),
         criticite: formData.criticite,
-        type_enquete: formData.type_enquete,
+        type_enquete: getTypeValue(),
         aerodrome_ids: formData.aerodrome_ids,
         date_debut: formData.date_debut,
         deadline: formData.date_fin,
@@ -316,15 +336,30 @@ export function EnqueteForm({
             <div className="form-field">
               <label className={labelClass}>Type d'enquête</label>
               <select
-                value={formData.type_enquete}
+                value={(TYPES_ENQUETE as readonly string[]).includes(formData.type_enquete) ? formData.type_enquete : TYPE_ENQUETE_AUTRE}
                 onChange={e => setFormData({ ...formData, type_enquete: e.target.value })}
-                className={`form-select w-full ${focusClass}`}
+                className={`form-select w-full ${focusClass}${errors.type_enquete ? ' border-danger' : ''}`}
                 style={selectStyle}
               >
                 {TYPES_ENQUETE.map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
+              {formData.type_enquete === TYPE_ENQUETE_AUTRE && (
+                <input
+                  type="text"
+                  value={formData.type_enquete_personnalise}
+                  onChange={e => setFormData({ ...formData, type_enquete_personnalise: e.target.value })}
+                  placeholder="Saisissez le type d'enquête à mener…"
+                  maxLength={80}
+                  className={`form-input w-full mt-2 ${focusClass}${errors.type_enquete ? ' border-danger' : ''}`}
+                />
+              )}
+              {errors.type_enquete && (
+                <p className="field-error flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />{errors.type_enquete}
+                </p>
+              )}
             </div>
 
             <div className="form-field">
@@ -469,30 +504,50 @@ export function EnqueteForm({
               <option value="">-- Sélectionner un aérodrome --</option>
               {aerodromes?.map(a => {
                 const profil = getProfilRisque(a.id);
+                const sgsNA = !isSGSApplicable(a);
                 return (
                   <option key={a.id} value={a.id}>
                     {a.code_oaci} - {a.nom}
-                    {profil && profil.c1 < 50 && ' ⚠️ C1 faible'}
+                    {sgsNA ? ' · SGS non applicable' : a.statut_sgs === 'simplifie' ? ' · SGS simplifié' : ''}
+                    {!sgsNA && profil && profil.c1 < 50 && ' ⚠️ C1 faible'}
                   </option>
                 );
               })}
             </select>
 
+            {aerosSgsNonApplicable.length > 0 && (
+              <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-3 mt-3">
+                <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-foreground">
+                  <strong>SGS non applicable</strong> pour {aerosSgsNonApplicable.map(a => a.code_oaci).join(', ')} —
+                  les réponses y sont conservées mais <strong>sans effet sur le score C1</strong> (exclu du score global).
+                  {getTypeValue().toLowerCase().includes('sgs') && (
+                    <> Ce type d'enquête « SGS » n'est pas pertinent pour ces plateformes.</>
+                  )}
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2 mt-3">
               {formData.aerodrome_ids.map(id => {
                 const aerodrome = aerodromes?.find(a => a.id === id);
                 const profil = getProfilRisque(id);
+                const sgsNA = aerodrome ? !isSGSApplicable(aerodrome) : false;
                 return (
                   <div
                     key={id}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
-                      profil && profil.c1 < 50 ? 'bg-warning/20' : 'bg-role-primary-soft'
+                      sgsNA ? 'bg-muted/30' : profil && profil.c1 < 50 ? 'bg-warning/20' : 'bg-role-primary-soft'
                     }`}
                   >
                     <Plane className="w-3 h-3 text-role-primary" />
                     <span className="text-sm">{aerodrome?.code_oaci} - {aerodrome?.nom}</span>
-                    {profil && profil.c1 < 50 && (
-                      <span className="text-xs text-warning">⚠️ C1={profil.c1}</span>
+                    {sgsNA ? (
+                      <span className="text-xs text-muted-foreground">SGS N/A</span>
+                    ) : (
+                      profil && profil.c1 < 50 && (
+                        <span className="text-xs text-warning">⚠️ C1={profil.c1}</span>
+                      )
                     )}
                     <button
                       type="button"
@@ -533,9 +588,14 @@ export function EnqueteForm({
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Les réponses à cette enquête pourront impacter le score C1 des aérodromes ciblés.
-            {formData.criticite === 'haute'    && " La criticité haute amplifie l'impact."}
-            {formData.criticite === 'critique' && " La criticité critique amplifie significativement l'impact."}
+            {tousSgsNonApplicable ? (
+              <>SGS non applicable pour le(s) aérodrome(s) ciblé(s) : réponses conservées, <strong>sans effet sur le score C1</strong> ni le score global.</>
+            ) : (
+              <>Les réponses à cette enquête pourront impacter le score C1 des aérodromes ciblés (hors SGS non applicable).
+              {aerosSgsNonApplicable.length > 0 && <> {aerosSgsNonApplicable.map(a => a.code_oaci).join(', ')} exclu(s) du C1.</>}
+              {formData.criticite === 'haute'    && " La criticité haute amplifie l'impact."}
+              {formData.criticite === 'critique' && " La criticité critique amplifie significativement l'impact."}</>
+            )}
           </p>
         </div>
 

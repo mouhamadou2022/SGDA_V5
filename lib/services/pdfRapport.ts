@@ -8,6 +8,8 @@
 
 'use client'
 
+import { textePdf } from '@/lib/pdfText'
+
 export type RGB = [number, number, number]
 
 export const PDF_COLORS: Record<string, RGB> = {
@@ -96,8 +98,12 @@ export async function creerRapportPdf(options: PdfRapportOptions = {}) {
       }
     },
 
-    wrapped(text: string, size: number, maxWidth = contentW): string[] {
-      return doc.splitTextToSize(text, maxWidth).map(String)
+    wrapped(text: string, size: number, maxWidth = contentW, bold = false): string[] {
+      // Mesure avec la police/taille réelle + texte assaini (sinon débordements
+      // marge droite et glyphes corrompus — cf. fiche briefing GOTT).
+      doc.setFont('times', bold ? 'bold' : 'normal')
+      doc.setFontSize(size)
+      return doc.splitTextToSize(textePdf(text), maxWidth).map(String)
     },
 
     paragraph(text: string, size = 10.5, opts: ParagraphOptions = {}) {
@@ -184,10 +190,12 @@ export async function creerRapportPdf(options: PdfRapportOptions = {}) {
 
     table(opts: TableOptions): number {
       api.ensure(8)
+      // Cellules assainies (glyphes PDF) à la source — tous les rapports en héritent.
+      const corpsSain = opts.body.map((ligne) => ligne.map((c) => (typeof c === 'string' ? textePdf(c) : c)))
       ;(doc as any).autoTable({
         startY: y,
-        head: opts.head ?? [],
-        body: opts.body,
+        head: (opts.head ?? []).map((ligne) => ligne.map((c) => (typeof c === 'string' ? textePdf(c) : c))),
+        body: corpsSain,
         theme: 'grid',
         styles: { font: 'times', fontSize: opts.fontSize ?? 8, cellPadding: 2 },
         headStyles: {
@@ -225,7 +233,7 @@ export async function creerRapportPdf(options: PdfRapportOptions = {}) {
         doc.setFont('times', 'bold')
         doc.setFontSize(17)
         doc.setTextColor(...item.color)
-        doc.text(item.value, x + boxW / 2, y + 12, { align: 'center' })
+        doc.text(textePdf(item.value), x + boxW / 2, y + 12, { align: 'center' })
         doc.setFont('times', 'normal')
         doc.setFontSize(7.5)
         doc.setTextColor(...PDF_COLORS.gray)
@@ -313,7 +321,7 @@ export async function creerRapportPdf(options: PdfRapportOptions = {}) {
         doc.setFont('times', 'normal')
         doc.setFontSize(9)
         doc.setTextColor(...PDF_COLORS.gray)
-        doc.text(`Référence : ${opts.ref}`, pageW / 2, pageH - 36, { align: 'center' })
+        doc.text(`Référence : ${textePdf(opts.ref).slice(0, 24)}`, pageW / 2, pageH - 36, { align: 'center' })
       }
       doc.setFontSize(9)
       doc.setTextColor(...PDF_COLORS.gray)
@@ -351,12 +359,13 @@ export async function creerRapportPdf(options: PdfRapportOptions = {}) {
     },
 
     drawFooter(prefix: string) {
+      const prefixSain = textePdf(prefix)
       for (let i = 1; i <= page; i++) {
         doc.setPage(i)
         doc.setFont('times', 'normal')
         doc.setFontSize(8)
         doc.setTextColor(...PDF_COLORS.gray)
-        doc.text(prefix, margin, footerY)
+        doc.text(prefixSain, margin, footerY)
         doc.text(`Page ${i}/${page}`, pageW - margin, footerY, { align: 'right' })
       }
     },
