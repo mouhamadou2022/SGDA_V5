@@ -8,6 +8,7 @@ import { useAppStore } from '@/lib/store'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
 import { ChecklistStandardTable } from '@/components/modules/checklist/ChecklistStandardTable'
 import type { DomaineChecklist, ChecklistItem, ProfilRisque } from '@/lib/store'
+import type { ModeSaisie } from '@/types/checklist'
 import { Shield, RefreshCw, Info, Sparkles, TrendingUp } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { estResultatValide } from '@/lib/domaines'
@@ -22,6 +23,8 @@ interface Props {
   userRole?: string
   domainesAdditionnels?: string[]
   onDomainesChange?: (domaines: string[]) => void
+  /** Mode de saisie des observations — piloté depuis la page checklist. */
+  modeSaisie?: ModeSaisie
 }
 
 const DOMAINES_DISPONIBLES = [
@@ -33,7 +36,7 @@ const DOMAINES_DISPONIBLES = [
 
 export default function SurveillanceChecklistMaintien({
   surveillanceId, aerodromeId, onSave, onComplete, readOnly = false, userRole = 'inspector',
-  domainesAdditionnels = [], onDomainesChange,
+  domainesAdditionnels = [], onDomainesChange, modeSaisie = 'clavier',
 }: Props) {
   const surveillances = useOptimizedStore(s => s.surveillances)
   const profilsRisque = useOptimizedStore(s => s.profilsRisque)
@@ -371,6 +374,7 @@ export default function SurveillanceChecklistMaintien({
           domaines={hierarchy as any}
           onUpdateItem={handleUpdateItem as any}
           readOnly={readOnly}
+          modeSaisie={modeSaisie}
         />
       ) : (
         <Card className="text-center">

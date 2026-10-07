@@ -10,7 +10,7 @@ import { SurveillanceChecklistSuiviEcarts } from '@/components/modules/surveilla
 import { SurveillanceChecklistPAC } from '@/components/modules/surveillance';
 import SurveillanceChecklistMaintien from '@/components/modules/surveillance/SurveillanceChecklistMaintien';
 import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation';
-import type { DomaineChecklist, EvaluationSGS } from '@/types/checklist';
+import type { DomaineChecklist, EvaluationSGS, ModeSaisie } from '@/types/checklist';
 import type { TypeChecklist } from '@/lib/domaines';
 import { qualiteCompte } from '@/lib/domaines';
 import { ArrowLeft, Wifi, WifiOff, ClipboardList, AlertTriangle, CheckCircle2, LayoutGrid, FileText, Shield, Users, Keyboard, PenLine, Type, RefreshCw } from 'lucide-react';
@@ -29,6 +29,7 @@ function ChecklistMixte({
   userRole,
   initialTab,
   readOnly,
+  modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
   aerodromeId: string;
@@ -39,6 +40,8 @@ function ChecklistMixte({
   userRole: string;
   initialTab?: 'standard' | 'suivi' | 'pac' | 'maintien';
   readOnly?: boolean;
+  /** Mode de saisie des observations — transmis aux 4 onglets. */
+  modeSaisie?: ModeSaisie;
 }) {
   const [activeTab, setActiveTab] = useState<'standard' | 'suivi' | 'pac' | 'maintien'>(initialTab || 'standard');
   const surveillances = useAppStore(s => s.surveillances);
@@ -104,6 +107,7 @@ function ChecklistMixte({
             userRole={userRole}
             readOnly={readOnly}
             excludeDomaines={isMixedWithSGS ? ['SGS'] : []}
+            modeSaisie={modeSaisie}
           />
         )}
         {activeTab === 'suivi' && (
@@ -114,6 +118,7 @@ function ChecklistMixte({
             onComplete={onComplete}
             userRole={userRole}
             readOnly={readOnly}
+            modeSaisie={modeSaisie}
           />
         )}
         {activeTab === 'pac' && (
@@ -124,6 +129,7 @@ function ChecklistMixte({
             onComplete={onComplete}
             userRole={userRole}
             readOnly={readOnly}
+            modeSaisie={modeSaisie}
           />
         )}
         {activeTab === 'maintien' && (
@@ -134,6 +140,7 @@ function ChecklistMixte({
             onComplete={onComplete}
             userRole={userRole}
             readOnly={readOnly}
+            modeSaisie={modeSaisie}
           />
         )}
       </div>
@@ -292,6 +299,7 @@ export default function ChecklistPage() {
             aerodromeId={surveillance?.aerodrome_id || ''}
             initialTab={profileDerivedInitialTab}
             readOnly={checklistReadOnly}
+            modeSaisie={modeSaisie}
             onSave={handleSaveChecklist}
             onSaveSuivi={handleSaveSuivi}
             onSavePAC={handleSavePAC}
@@ -362,6 +370,7 @@ export default function ChecklistPage() {
             onSave={handleSaveChecklist}
             onSaveSuivi={handleSaveSuivi}
             onSavePAC={handleSavePAC}
+            modeSaisie={modeSaisie}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -481,6 +490,7 @@ component: (
             onSave={handleSaveChecklist}
             onSaveSuivi={handleSaveSuivi}
             onSavePAC={handleSavePAC}
+            modeSaisie={modeSaisie}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);
             }}
@@ -504,6 +514,7 @@ component: (
               }}
               readOnly={checklistReadOnly}
               userRole={user?.role || 'inspector'}
+              modeSaisie={modeSaisie}
             />
           ),
           title: 'Suivi des écarts',
@@ -522,6 +533,7 @@ component: (
               }}
               readOnly={checklistReadOnly}
               userRole={user?.role || 'inspector'}
+              modeSaisie={modeSaisie}
             />
           ),
           title: 'Mise en œuvre PAC',
@@ -534,16 +546,17 @@ component: (
     if (surveillance?.type === 'suivi_ecarts') {
       return {
         component: (
-          <SurveillanceChecklistSuiviEcarts
-            surveillanceId={surveillanceId}
-            aerodromeId={surveillance.aerodrome_id}
-            onSave={handleSaveSuivi}
-            onComplete={() => {
-              router.push(`/surveillance/${surveillanceId}`);
-            }}
-            readOnly={checklistReadOnly}
-            userRole={user?.role || 'inspector'}
-          />
+            <SurveillanceChecklistSuiviEcarts
+              surveillanceId={surveillanceId}
+              aerodromeId={surveillance.aerodrome_id}
+              onSave={handleSaveSuivi}
+              onComplete={() => {
+                router.push(`/surveillance/${surveillanceId}`);
+              }}
+              readOnly={checklistReadOnly}
+              userRole={user?.role || 'inspector'}
+              modeSaisie={modeSaisie}
+            />
         ),
         title: 'Suivi des écarts',
         icon: AlertTriangle,
@@ -553,16 +566,17 @@ component: (
     if (surveillance?.type === 'mise_oeuvre_pac') {
       return {
         component: (
-          <SurveillanceChecklistPAC
-            surveillanceId={surveillanceId}
-            aerodromeId={surveillance.aerodrome_id}
-            onSave={handleSavePAC}
-            onComplete={() => {
-              router.push(`/surveillance/${surveillanceId}`);
-            }}
-            readOnly={checklistReadOnly}
-            userRole={user?.role || 'inspector'}
-          />
+            <SurveillanceChecklistPAC
+              surveillanceId={surveillanceId}
+              aerodromeId={surveillance.aerodrome_id}
+              onSave={handleSavePAC}
+              onComplete={() => {
+                router.push(`/surveillance/${surveillanceId}`);
+              }}
+              readOnly={checklistReadOnly}
+              userRole={user?.role || 'inspector'}
+              modeSaisie={modeSaisie}
+            />
         ),
         title: 'Mise en œuvre PAC',
         icon: CheckCircle2,

@@ -22,24 +22,16 @@ export async function fetchLearnedWeights(force = false): Promise<WeightMap> {
   if (!force && cachedLearnedWeights && Date.now() - learnedWeightsAt < WEIGHTS_TTL_MS) {
     return { ...cachedLearnedWeights }
   }
-  const weights: WeightMap = { ...DEFAULT_WEIGHTS }
+  let weights: WeightMap = { ...DEFAULT_WEIGHTS }
   try {
     const res = await fetchThresholds()
     if (res.data && res.data.length > 0) {
-      for (const r of res.data) {
-        if (r.parametre.startsWith('weight_')) {
-          const dim = r.parametre.replace('weight_', '')
-          if (dim in DEFAULT_WEIGHTS) weights[dim] = r.valeur
-        }
-      }
+      weights = extrairePoidsLus(res.data).poids
     }
   } catch { /* ia_thresholds indisponible → poids par défaut */ }
-  // Lignes partielles possibles (un seul weight_* en base) : re-normaliser
-  // pour garantir l'invariant « somme = 100 » consommé partout.
-  const normalises = normaliserPoidsSomme100(weights)
-  cachedLearnedWeights = normalises
+  cachedLearnedWeights = weights
   learnedWeightsAt = Date.now()
-  return { ...normalises }
+  return { ...weights }
 }
 
 /**
@@ -67,6 +59,63 @@ export function normaliserPoidsSomme100(poids: WeightMap, cible = 100): WeightMa
   return resultat
 }
 
+/** Valide et normalise une carte de poids C1-C5 : seules les clés c1..c5 sont
+ *  conservées, les valeurs manquantes (null/undefined/NaN) tombent sur les
+ *  poids par défaut, les valeurs hors [0,100] sont clippées, et la somme est
+ *  ramenée exactement à 100 (plus grands restes). */
+export function qualifierPoids(poids: WeightMap): WeightMap {
+  const cles = Object.keys(DEFAULT_WEIGHTS)
+  const valeurs: number[] = cles.map((cle) => {
+    const raw = poids[cle]
+    // null, undefined et NaN (ou non numériques) → valeur par défaut
+    if (raw == null || typeof raw !== 'number' || !Number.isFinite(raw)) {
+      return DEFAULT_WEIGHTS[cle as keyof typeof DEFAULT_WEIGHTS]
+    }
+    return Math.max(0, Math.min(100, Math.round(raw)))
+  })
+  return normaliserPoidsSomme100(
+    Object.fromEntries(cles.map((cle, i) => [cle, valeurs[i]])) as WeightMap
+  )
+}
+
+/** Décalage adaptatif du poids d'une dimension.
+ *  ratio 0.5 → 0 (aucun décalage), >0.5 renforce, <0.5 affaiblit, avec une
+ *  pente douce (ADAPTIVE_GAIN) ; le déplacement réel est borné à ±3
+ *  (gain 6 sur un ratio dans [0,1]), le clamp ±WEIGHT_MAX ne mord jamais. */
+export function computeAdaptiveWeightDelta(ratioEfficacite: number): number {
+  const brut = (ratioEfficacite - 0.5) * ADAPTIVE_GAIN
+  return Math.max(-WEIGHT_MAX, Math.min(WEIGHT_MAX, Math.round(brut)))
+}
+
+/** Ligne ia_thresholds lue depuis Supabase (engine présent côté cron quand
+ *  le select l'inclut, absent côté certaines requêtes historiques). */
+export interface LignePoidsLue {
+  parametre: string
+  valeur: number
+  engine?: string | null
+}
+
+/**
+ * Extrait les poids C1-C5 depuis des lignes ia_thresholds (client ou cron).
+ * Préfère les lignes engine='recommendation' quand il y en a, avec repli sur
+ * n'importe quel weight_* (compatibilité historique) ; le résultat est
+ * toujours qualifié (clés c1..c5, défauts, clip [0,100], somme 100).
+ * `trouves` = nombre de dimensions renseignées (0 → rien en base).
+ */
+export function extrairePoidsLus(
+  rows: Array<LignePoidsLue> | null | undefined,
+): { poids: WeightMap; trouves: number } {
+  const lignes = (rows || []).filter(r => typeof r?.parametre === 'string' && r.parametre.startsWith('weight_'))
+  const reco = lignes.filter(r => r.engine === 'recommendation')
+  const retenues = reco.length > 0 ? reco : lignes
+  const partiels: WeightMap = {}
+  for (const r of retenues) {
+    const dim = r.parametre.replace('weight_', '')
+    if (dim in DEFAULT_WEIGHTS) partiels[dim] = r.valeur
+  }
+  return { poids: qualifierPoids(partiels), trouves: Object.keys(partiels).length }
+}
+
 export interface WeightAdjustment {
   id: string
   dim: string
@@ -78,6 +127,14 @@ export interface WeightAdjustment {
 export type WeightMap = Record<string, number>
 
 type SyncWeightCallback = (dim: string, weight: number, raison: string) => void
+
+// Bornes de sécurité des poids (min/max après ajustement)
+const WEIGHT_MIN = 10
+const WEIGHT_MAX = 40
+// Nombre minimum d'outcomes par dimension avant calibration
+const MIN_SAMPLES_PER_DIM = 8
+// Gain en points de poids maximum par décision (ratio - 0.5) * gain
+const ADAPTIVE_GAIN = 6.0
 
 const STORAGE_KEY = 'sgda_weight_controller'
 const IDB_STORE = 'ml_weights' as const
@@ -94,7 +151,7 @@ export class WeightController {
   async initFromIDB(): Promise<void> {
     const stored = await iaStorage.get<{ weights: WeightMap; adjustments: WeightAdjustment[] }>(IDB_STORE, STORAGE_KEY)
     if (stored) {
-      this.weights = { ...DEFAULT_WEIGHTS, ...stored.weights }
+      this.weights = qualifierPoids({ ...DEFAULT_WEIGHTS, ...stored.weights })
       this.adjustments = mergeArrayById(this.adjustments, stored.adjustments ?? [])
     }
     this.ready = true
@@ -107,14 +164,10 @@ export class WeightController {
     if (this.ready) { fn() } else { this.pendingQueue.push(fn) }
   }
 
-  initFromSupabase(rows: Array<{ parametre: string; valeur: number }>) {
-    if (rows.length === 0) return
-    for (const r of rows) {
-      if (r.parametre.startsWith('weight_')) {
-        const dim = r.parametre.replace('weight_', '')
-        if (dim in DEFAULT_WEIGHTS) this.weights[dim] = r.valeur
-      }
-    }
+  initFromSupabase(rows: Array<{ parametre: string; valeur: number; engine?: string | null }>) {
+    const { poids, trouves } = extrairePoidsLus(rows)
+    if (trouves === 0) return
+    this.weights = qualifierPoids({ ...this.weights, ...poids })
     this.persist()
   }
 
@@ -173,22 +226,16 @@ export class WeightController {
     }
 
     for (const [dim, stats] of Object.entries(dimEffectiveness)) {
-      if (stats.total < 3) continue // Pas assez de données
+      if (stats.total < MIN_SAMPLES_PER_DIM) continue // Pas assez de données
 
       const ratioEfficacite = stats.efficace / stats.total
-      let delta = 0
-
-      if (ratioEfficacite < 0.3) {
-        // Moins de 30% d'efficacité → le poids de cette dimension est trop fort
-        delta = -3
-      } else if (ratioEfficacite > 0.7) {
-        // Plus de 70% d'efficacité → cette dimension est bien calibrée, on renforce
-        delta = 2
-      }
+      // Règle continue : un ratio de 0.5 ne change rien, >0.5 renforce, <0.5 affaiblit
+      // (déplacement réel borné à ±3, pas de seuil brut)
+      const delta = computeAdaptiveWeightDelta(ratioEfficacite)
 
       if (delta !== 0) {
         const oldWeight = this.weights[dim] ?? DEFAULT_WEIGHTS[dim as keyof typeof DEFAULT_WEIGHTS] ?? 20
-        const newWeight = Math.max(10, Math.min(40, oldWeight + delta))
+        const newWeight = Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, oldWeight + delta))
         const actualDelta = newWeight - oldWeight
 
         if (actualDelta !== 0) {

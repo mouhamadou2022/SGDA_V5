@@ -33,7 +33,8 @@ import { DomaineCode, releveChecklistEcarts, PRIORITE_RISQUE, campEnSuivi, estRe
 import { EquipeNoms } from './EquipeNoms';
 import { veillerCoherenceChecklist, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation';
 import { nomActeur } from '@/lib/acteurs';
-import type { PAOELevel, EvaluationSGS } from '@/types/checklist';
+import type { PAOELevel, EvaluationSGS, ModeSaisie } from '@/types/checklist';
+import { ChampObservationMixte } from '@/components/modules/checklist/ChampObservationMixte';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
 import { veillerItemSuivi } from '@/lib/ia/watchdogEvaluation';
@@ -90,6 +91,8 @@ export interface EcartEvaluation {
   criticite: CriticiteEvaluation;
 
   commentaire?: string;
+  /** Note manuscrite (PNG dataURL) — saisie stylet, jamais transcrite auto. */
+  commentaire_stylus_data?: string;
   conclusion?: ResultatSuivi;
   // R2 — auteur de la conclusion (brouillon observateur jusqu'à reprise).
   modified_by?: string;
@@ -286,12 +289,15 @@ export function EcartEvaluationCard({
   onUpdate,
   onAddFile,
   onDeleteFile,
+  modeSaisie = 'clavier',
 }: {
   item: EcartEvaluation;
   readOnly: boolean;
   onUpdate: (item: EcartEvaluation) => void;
   onAddFile: (itemId: string, file: Preuve) => void;
   onDeleteFile: (itemId: string, fileId: string) => void;
+  /** Mode de saisie des observations — piloté depuis la page checklist. */
+  modeSaisie?: ModeSaisie;
 }) {
   const [preuveOpen, setPreuveOpen] = useState(false);
   // R2 — brouillon observateur : visible, à reprendre par un signataire.
@@ -452,9 +458,15 @@ export function EcartEvaluationCard({
                     </button>
                   </td>
                   <td className="p-1 align-top">
-                    <textarea value={item.commentaire || ''} onChange={e => onUpdate({ ...item, commentaire: e.target.value })}
-                      placeholder="Observations terrain..." rows={2} disabled={readOnly}
-                      className="form-textarea w-full text-[13px] resize-none" />
+                    <ChampObservationMixte
+                      texte={item.commentaire || ''}
+                      stylusData={item.commentaire_stylus_data}
+                      onChange={(commentaire, commentaire_stylus_data) => onUpdate({ ...item, commentaire, commentaire_stylus_data })}
+                      mode={modeSaisie}
+                      readOnly={readOnly}
+                      placeholder="Observations terrain..."
+                      transcriptionLabel={`Suivi ecart ${item.reference || ''}`.trim()}
+                    />
                   </td>
                 </tr>
               </tbody>
@@ -665,6 +677,7 @@ export function SurveillanceChecklistSuiviEcarts({
   onComplete,
   readOnly = false,
   userRole = 'inspector',
+  modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
   aerodromeId: string;
@@ -672,6 +685,8 @@ export function SurveillanceChecklistSuiviEcarts({
   onComplete?: () => void;
   readOnly?: boolean;
   userRole?: string;
+  /** Mode de saisie des observations — piloté depuis la page checklist. */
+  modeSaisie?: ModeSaisie;
 }) {
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
@@ -769,6 +784,7 @@ export function SurveillanceChecklistSuiviEcarts({
           niveau_maturite_residuel: existing?.niveau_maturite_residuel ?? prevSaved?.niveau_maturite_residuel,
           criticite,
           commentaire: existing?.commentaire ?? prevSaved?.commentaire,
+          commentaire_stylus_data: existing?.commentaire_stylus_data ?? prevSaved?.commentaire_stylus_data,
           conclusion: existing?.conclusion ?? prevSaved?.conclusion,
           modified_by: existing?.modified_by ?? prevSaved?.modified_by,
           ordre: idx,
@@ -1098,6 +1114,7 @@ export function SurveillanceChecklistSuiviEcarts({
             onUpdate={handleUpdateItem}
             onAddFile={handleAddFile}
             onDeleteFile={handleDeleteFile}
+            modeSaisie={modeSaisie}
           />
         ))}
       </div>

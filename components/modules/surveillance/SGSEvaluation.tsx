@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import SignaturePad from 'signature_pad';
+import { StylusCanvas } from '@/components/modules/checklist/StylusCanvas';
 import { SignaturePadWithColor } from '@/components/modules/signatures/SignaturePadWithColor';
 import {
   Shield, ChevronDown, ChevronRight, CheckCircle, Info, FileText,
@@ -96,60 +96,6 @@ function getPAOEBadgeClass(level: PAOELevel): string {
     case 'present':      return 'badge muted';
     case 'absent':       return 'badge danger';
   }
-}
-
-// ── Stylus Canvas (uses .checklist-stylus-canvas, .stylus-hint, .checklist-stylus-clear) ──
-function StylusCanvas({ value, onChange, height = 80 }: { value: string; onChange: (data: string) => void; height?: number }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sigPadRef = useRef<SignaturePad | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const valueRef = useRef(value);
-  // Écriture du ref DANS un effet (react-hooks/refs) : l'assigner pendant le
-  // rendu est un anti-pattern. La valeur initiale vient du useRef ci-dessus,
-  // donc les gestionnaires SignaturePad lisent toujours la bonne valeur.
-  useEffect(() => { valueRef.current = value; }, [value]);
-
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ratio = Math.max(window.devicePixelRatio || 1, 2);
-    const width = canvas.parentElement?.clientWidth || 300;
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(ratio, ratio);
-    const sigPad = new SignaturePad(canvas, { penColor: 'rgb(0, 0, 0)', minWidth: 1, maxWidth: 2 });
-    sigPadRef.current = sigPad;
-    const onBegin = () => setIsDrawing(true);
-    const onEnd = () => { setIsDrawing(false); onChange(sigPad.toDataURL('image/png')); };
-    sigPad.addEventListener('beginStroke', onBegin);
-    sigPad.addEventListener('endStroke', onEnd);
-    if (valueRef.current) sigPad.fromDataURL(valueRef.current);
-    return () => { sigPad.removeEventListener('beginStroke', onBegin); sigPad.removeEventListener('endStroke', onEnd); };
-  }, [height, onChange]);
-
-  useEffect(() => {
-    if (value && sigPadRef.current && !isDrawing) {
-      sigPadRef.current.clear();
-      sigPadRef.current.fromDataURL(value);
-    }
-  }, [value]);
-
-  const handleClear = () => { sigPadRef.current?.clear(); onChange(''); };
-
-  return (
-    <div className="checklist-stylus-canvas">
-      <canvas ref={canvasRef} className="canvas-dynamic" style={{ height: `${height}px` } as React.CSSProperties} />
-      {!isDrawing && !value && <div className="stylus-hint">✍️ Écrire ici avec le stylet ou le doigt</div>}
-      {value && (
-        <button type="button" onClick={handleClear} className="checklist-stylus-clear" title="Effacer">
-          <X className="w-2.5 h-2.5" />
-        </button>
-      )}
-    </div>
-  );
 }
 
 // ── Preuve Modal (uses .modal-overlay, .modal-content, .modal-header, .modal-body, .modal-footer, .modal-title, .modal-close) ──

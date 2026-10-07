@@ -1,6 +1,8 @@
 // app/api/ia/lire-document/route.ts
 // L'IA locale LIT le document : transcription des pages (images PNG rendues
 // par le navigateur) via un modèle de vision Ollama (ex. qwen2.5vl:7b).
+// Mode 'manuscrit' : même moteur, consigne adaptée aux notes stylet
+// (ChampObservationMixte) — validation humaine côté client, jamais d'auto-insertion.
 // Les modèles texte (mistral, qwen3, ministral) ne savent pas lire d'images —
 // si le modèle de vision est absent, la route répond 503 MODELE_VISION_ABSENT
 // avec la commande d'installation exacte, au lieu d'échouer en silence.
@@ -10,6 +12,7 @@ import {
   MODELE_VISION_DEFAUT,
   MAX_PAGES_VISION,
   promptTranscription,
+  promptTranscriptionManuscrit,
   assemblerTranscriptions,
   extraireTexteReponseVision,
   estErreurModeleAbsent,
@@ -25,6 +28,8 @@ export interface LireDocumentRequest {
   nom: string
   /** Pages rendues en PNG (dataURL), max MAX_PAGES_VISION. */
   images: string[]
+  /** 'document' (defaut) ou 'manuscrit' (note stylet : consigne adaptee). */
+  mode?: 'document' | 'manuscrit'
 }
 
 export async function POST(request: Request) {
@@ -36,7 +41,11 @@ export async function POST(request: Request) {
     }
 
     const transcriptions: Array<{ page: number; texte: string }> = []
+    const manuscrit = body.mode === 'manuscrit'
     for (let i = 0; i < images.length; i++) {
+      const consigne = manuscrit
+        ? promptTranscriptionManuscrit(body.nom || 'note manuscrite')
+        : promptTranscription(body.nom || 'document', i + 1, images.length)
       const res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,7 +58,7 @@ export async function POST(request: Request) {
             {
               role: 'user',
               content: [
-                { type: 'text', text: promptTranscription(body.nom || 'document', i + 1, images.length) },
+                { type: 'text', text: consigne },
                 { type: 'image_url', image_url: { url: images[i] } },
               ],
             },

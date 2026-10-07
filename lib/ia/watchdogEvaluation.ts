@@ -629,6 +629,8 @@ export function veillerItemSuivi(item: ItemSuiviVue): AlerteWatchdog[] {
 export interface ItemPACVue {
   resultat?: string
   observation?: string
+  /** Note manuscrite (PNG) — vaut justification comme le texte. */
+  observation_stylus_data?: string
   preuves?: Array<unknown>
   efficacite?: number | null
   datePrevue?: string | null
@@ -771,7 +773,7 @@ export function veillerItemPACAction(item: ItemPACVue): AlerteWatchdog[] {
   const maintenant = item.maintenant ?? Date.now()
 
   if (resultat === 'SA') {
-    if (!(item.observation || '').trim()) {
+    if (!(item.observation || '').trim() && !(item.observation_stylus_data || '').trim()) {
       alertes.push({
         niveau: 'warning',
         titre: 'SA sans observation',

@@ -58,8 +58,9 @@ export async function GET(request: Request) {
     let learnedWeights: Record<string, number> | undefined
     const { data: savedWeights } = await supabaseAdmin
       .from('ia_thresholds')
-      .select('parametre, valeur')
+      .select('parametre, valeur, engine')
       .in('parametre', ['weight_c1', 'weight_c2', 'weight_c3', 'weight_c4', 'weight_c5'])
+      .eq('actif', true)
     if (savedWeights && savedWeights.length > 0) {
       weightController.initFromSupabase(savedWeights)
       learnedWeights = weightController.getCurrentWeights()

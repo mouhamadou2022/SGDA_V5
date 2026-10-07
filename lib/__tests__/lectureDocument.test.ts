@@ -1,5 +1,6 @@
 import {
   promptTranscription,
+  promptTranscriptionManuscrit,
   assemblerTranscriptions,
   extraireTexteReponseVision,
   estErreurModeleAbsent,
@@ -32,5 +33,15 @@ describe('lectureDocument', () => {
   test('détection modèle absent', () => {
     expect(estErreurModeleAbsent('model "qwen2.5vl:7b" not found')).toBe(true)
     expect(estErreurModeleAbsent('connection refused')).toBe(false)
+  })
+})
+
+describe('promptTranscriptionManuscrit', () => {
+  test('consigne manuscrit : contexte repris, [illisible], zero invention', () => {
+    const p = promptTranscriptionManuscrit('Observation PAC AV-001')
+    expect(p).toContain('Observation PAC AV-001')
+    expect(p).toContain('[illisible]')
+    expect(p).toMatch(/n'invente rien/)
+    expect(p).toMatch(/UNIQUEMENT/)
   })
 })

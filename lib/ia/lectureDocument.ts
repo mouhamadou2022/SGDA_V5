@@ -22,6 +22,18 @@ export function promptTranscription(nomFichier: string, page: number, total: num
     `réponds UNIQUEMENT avec la transcription.`
 }
 
+/** Consigne de transcription d'une note MANUSCRITE (canvas stylet) :
+ *  ecriture cursive hasardeuse, pas de mise en page — fidelite, pas
+ *  d'interpretation. Utilise par /api/ia/lire-document en mode 'manuscrit'. */
+export function promptTranscriptionManuscrit(contexte: string): string {
+  return `Tu es un lecteur de notes de terrain pour l'aviation civile senegalaise (ANACIM). ` +
+    `Transcris FIDELEMENT le texte manuscrit visible sur cette image (note d'inspection « ${contexte} »). ` +
+    `Regles : reproduis les mots tels quels, dans l'ordre de lecture ; ` +
+    `n'invente rien, n'ajoute aucun commentaire ni resume ; ` +
+    `si un mot est illisible, ecris [illisible] a son emplacement ; ` +
+    `reponds UNIQUEMENT avec la transcription.`
+}
+
 /** Assemble les transcriptions page par page en un texte unique. */
 export function assemblerTranscriptions(pages: Array<{ page: number; texte: string }>): string {
   return [...pages]

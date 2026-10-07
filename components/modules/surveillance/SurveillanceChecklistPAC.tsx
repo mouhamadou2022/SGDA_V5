@@ -13,7 +13,8 @@ import { useAppStore } from '@/lib/store';
 import { DomaineCode, getDomaineInfo, getDomaineLabel, getDomaineCode, grouperParDomaine, DomaineItems, releveChecklistPAC, estEcheanceVerifiable, estResultatValide, estItemTermine, PRIORITE_RISQUE } from '@/lib/domaines';
 import { veillerCoherenceChecklist, veillerQuestionsChecklist } from '@/lib/ia/watchdogEvaluation';
 import { nomActeur } from '@/lib/acteurs';
-import { EvaluationAction, computeEvaluationActionScore, EcartClosureStatus, computeEcartClosureStatus } from '@/types/checklist';
+import { EvaluationAction, computeEvaluationActionScore, EcartClosureStatus, computeEcartClosureStatus, type ModeSaisie } from '@/types/checklist';
+import { ChampObservationMixte } from '@/components/modules/checklist/ChampObservationMixte';
 import { getCellColor } from '@/lib/risque';
 import { isEcartProcessusActif } from '@/lib/processus/isEcartProcessusActif';
 import { inspecteurMonitoring } from '@/lib/ia/engines/inspecteurMonitoring';
@@ -50,6 +51,8 @@ export interface ItemVerification {
   // Évaluation terrain
   resultat?: ResultatItem;
   observation?: string;
+  /** Note manuscrite (PNG dataURL) — saisie stylet, jamais transcrite auto. */
+  observation_stylus_data?: string;
   preuves?: Preuve[];
   ordre: number;
   // R2 — auteur du résultat (brouillon observateur jusqu'à reprise).
@@ -279,6 +282,7 @@ function ItemCard({
   onAddFile,
   onDeleteFile,
   onValidateEfficacite,
+  modeSaisie = 'clavier',
 }: {
   item: ItemVerification;
   index: number;
@@ -287,9 +291,12 @@ function ItemCard({
   onAddFile: (itemId: string, file: Preuve) => void;
   onDeleteFile: (itemId: string, fileId: string) => void;
   onValidateEfficacite?: (itemId: string, efficacite: number) => void;
+  /** Mode de saisie des observations — piloté depuis la page checklist. */
+  modeSaisie?: ModeSaisie;
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [observation, setObservation] = useState(item.observation || '');
+  const [observationStylus, setObservationStylus] = useState(item.observation_stylus_data || '');
   const [selectedResultat, setSelectedResultat] = useState<ResultatItem>(item.resultat || 'NV');
   const [risqueResiduel, setRisqueResiduel] = useState(item.risque_residuel || '');
   const initialOACI = item.risque_residuel_oaci || item.ecart_cellule_oaci || '';
@@ -373,9 +380,10 @@ function ItemCard({
     : (criteriaScore.score < 75 && risqueResiduel === 'faible') ? false
     : true;
   
-  const handleObservationChange = (obs: string) => {
+  const handleObservationChange = (obs: string, stylusData?: string) => {
     setObservation(obs);
-    onUpdate({ ...item, observation: obs });
+    setObservationStylus(stylusData || '');
+    onUpdate({ ...item, observation: obs, observation_stylus_data: stylusData });
   };
   
   const handleEfficaciteChange = (value: number) => {
@@ -448,6 +456,7 @@ function ItemCard({
         const alertes = veillerItemPACAction({
           resultat: selectedResultat,
           observation,
+          observation_stylus_data: observationStylus || undefined,
           preuves: item.preuves || [],
           efficacite: item.efficacite_validee ?? efficaciteTemp ?? null,
           datePrevue: item.date_prevue || null,
@@ -539,9 +548,15 @@ function ItemCard({
                     </div>
                   </td>
                   <td className="p-1.5 align-top">
-                    <textarea value={observation} onChange={e => handleObservationChange(e.target.value)}
-                      placeholder="Observation terrain..." rows={2} disabled={readOnly}
-                      className="form-textarea w-full text-[13px] resize-none" />
+                    <ChampObservationMixte
+                      texte={observation}
+                      stylusData={observationStylus || undefined}
+                      onChange={handleObservationChange}
+                      mode={modeSaisie}
+                      readOnly={readOnly}
+                      placeholder="Observation terrain..."
+                      transcriptionLabel={`Observation PAC ${item.reference || item.description || ''}`.trim()}
+                    />
                   </td>
                 </tr>
               </tbody>
@@ -1037,6 +1052,7 @@ export function SurveillanceChecklistPAC({
   onComplete,
   readOnly = false,
   userRole = 'inspector',
+  modeSaisie = 'clavier',
 }: {
   surveillanceId: string;
   aerodromeId: string;
@@ -1044,6 +1060,8 @@ export function SurveillanceChecklistPAC({
   onComplete?: () => void;
   readOnly?: boolean;
   userRole?: string;
+  /** Mode de saisie des observations — piloté depuis la page checklist. */
+  modeSaisie?: ModeSaisie;
 }) {
   const user = useOptimizedStore(s => s.user);
   const addNotification = useAppStore(s => s.addNotification);
@@ -1227,6 +1245,7 @@ export function SurveillanceChecklistPAC({
           id: prevItem.id ?? i.id,
           resultat: prevItem.resultat,
           observation: prevItem.observation,
+          observation_stylus_data: prevItem.observation_stylus_data,
           preuves: prevItem.preuves,
           modified_by: (prevItem as ItemVerification).modified_by,
           evaluation_action: prevItem.evaluation_action,
@@ -1920,6 +1939,7 @@ export function SurveillanceChecklistPAC({
                       onAddFile={handleAddFile}
                       onDeleteFile={handleDeleteFile}
                       onValidateEfficacite={handleValidateEfficacite}
+                      modeSaisie={modeSaisie}
                     />
                   ))}
                 </div>

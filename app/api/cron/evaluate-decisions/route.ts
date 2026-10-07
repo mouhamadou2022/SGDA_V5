@@ -5,6 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { DEFAULT_WEIGHTS } from '@/lib/ia/weightController'
 import { runLearningCycle } from '@/lib/ia/evaluateOutcomes'
 import { weightController } from '@/lib/ia/weightController'
 import type { EffectivenessRating } from '@/lib/ia/types'
@@ -128,7 +129,22 @@ export async function GET(request: Request) {
       .not('effectiveness', 'is', null)
 
     let weightAdjustments: Array<{ dim: string; delta: number; raison: string; appliedAt: string }> = []
-    const poidsAvant = weightController.getCurrentWeights()
+
+    // Restaurer les poids précédemment persistés avant capture de la référence
+    // (sans ça, poidsAvant reflète l'état en mémoire, pas la source de vérité)
+    let poidsAvant: Record<string, number> = { ...DEFAULT_WEIGHTS }
+    if (allDecisions && allDecisions.length >= 5) {
+      const { data: savedWeights } = await supabaseAdmin
+        .from('ia_thresholds')
+        .select('parametre, valeur, engine')
+        .in('parametre', ['weight_c1', 'weight_c2', 'weight_c3', 'weight_c4', 'weight_c5'])
+        .eq('actif', true)
+      if (savedWeights && savedWeights.length > 0) {
+        weightController.initFromSupabase(savedWeights)
+        poidsAvant = weightController.getCurrentWeights()
+      }
+    }
+
     if (allDecisions && allDecisions.length >= 5) {
       const outcomes = allDecisions.map(d => ({
         decision_id: d.id,
@@ -141,16 +157,6 @@ export async function GET(request: Request) {
         auto_evaluated: d.auto_evaluated,
       }))
 
-      // Restaurer les poids précédemment persistés pour un apprentissage cumulatif
-      const { data: savedWeights } = await supabaseAdmin
-        .from('ia_thresholds')
-        .select('parametre, valeur')
-        .in('parametre', ['weight_c1', 'weight_c2', 'weight_c3', 'weight_c4', 'weight_c5'])
-      if (savedWeights && savedWeights.length > 0) {
-        weightController.initFromSupabase(savedWeights)
-      }
-
-      // Récupérer les dimensions actuelles par aérodrome (résolution granulaire)
       const aerodromeIds = [...new Set(outcomes.map(o => o.aerodrome_id))]
       const { data: currentProfils } = await supabaseAdmin
         .from('profils_risque')
