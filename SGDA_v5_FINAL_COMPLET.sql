@@ -1427,8 +1427,18 @@ CREATE POLICY "presence_select" ON presence_entries
   FOR SELECT USING (auth.uid() IS NOT NULL);
 
 DROP POLICY IF EXISTS "presence_write" ON presence_entries;
-CREATE POLICY "presence_write" ON presence_entries
-  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+-- 2026-10-08 — les points focaux remplissent aussi les fiches de présence :
+-- INSERT ouvert aux opérateurs, UPDATE/DELETE réservés admin/inspecteur.
+-- (À appliquer dans Supabase : ce fichier est la source de vérité, pas un runner.)
+CREATE POLICY "presence_insert_tous" ON presence_entries
+  FOR INSERT WITH CHECK (
+    auth.uid() IS NOT NULL
+    AND get_user_role() IN ('admin','inspector','dg_anacim','dg_operator','focal_operator','staff_operator')
+  );
+CREATE POLICY "presence_update_admin" ON presence_entries
+  FOR UPDATE USING (get_user_role() IN ('admin','inspector'));
+CREATE POLICY "presence_delete_admin" ON presence_entries
+  FOR DELETE USING (get_user_role() IN ('admin','inspector'));
 
 DROP POLICY IF EXISTS "notifications_select" ON notifications;
 CREATE POLICY "notifications_select" ON notifications

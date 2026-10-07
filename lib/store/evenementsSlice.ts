@@ -145,7 +145,9 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
       const result = await createEvenementAPI(newEvent)
       if (result.error) throw new Error(result.error)
       if (result.data?.id) {
-        set((state) => ({ evenements: state.evenements.map(e => e.id === id ? { ...e, id: result.data!.id } : e) }))
+        // Remapper id ET référence (le serveur peut régénérer la référence
+        // en cas de doublon — l'UI doit afficher la référence persistée).
+        set((state) => ({ evenements: state.evenements.map(e => e.id === id ? { ...e, id: result.data!.id, reference: (result.data as EvenementSecurite).reference ?? e.reference } : e) }))
       }
     } catch (error) {
       console.error('Erreur création événement Supabase, rollback:', error)

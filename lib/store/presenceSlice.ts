@@ -3,6 +3,7 @@
 
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
+import * as datastore from '../datastore'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -55,15 +56,23 @@ export const createPresenceSlice: StateCreator<AppStore, [], [], PresenceSlice> 
     set((state) => ({
       fichesPresence: [...state.fichesPresence, newFiche]
     }));
+    // Sync best-effort (ne bloque jamais la saisie terrain)
+    datastore.createPresence(newFiche).catch(() => {});
   },
 
-  updateFichePresence: (id, data) => set((state) => ({
-    fichesPresence: state.fichesPresence.map(f => f.id === id ? { ...f, ...data } : f)
-  })),
+  updateFichePresence: (id, data) => {
+    set((state) => ({
+      fichesPresence: state.fichesPresence.map(f => f.id === id ? { ...f, ...data } : f)
+    }));
+    datastore.updatePresence(id, data).catch(() => {});
+  },
 
-  deleteFichePresence: (id) => set((state) => ({
-    fichesPresence: state.fichesPresence.filter(f => f.id !== id)
-  })),
+  deleteFichePresence: (id) => {
+    set((state) => ({
+      fichesPresence: state.fichesPresence.filter(f => f.id !== id)
+    }));
+    datastore.deletePresence(id).catch(() => {});
+  },
 
   getFichesBySurveillance: (surveillanceId) => {
     return get().fichesPresence.filter(f => f.surveillance_id === surveillanceId);

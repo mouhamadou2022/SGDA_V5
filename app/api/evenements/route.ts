@@ -26,7 +26,27 @@ export async function POST(req: NextRequest) {
     // max réel en base et réessayer (borné). Ne touche jamais aux autres champs.
     for (let tentative = 0; tentative < 5; tentative++) {
       const { data, error } = await sb.from('evenements_securite').insert(payload).select().single()
-      if (!error) return NextResponse.json({ data })
+      if (!error) {
+        // Fan-out serveur (best-effort, jamais bloquant) : les notifications
+        // admin ne dépendent plus de la liste utilisateurs chargée côté client
+        // (vide = admin jamais prévenu, cas constaté en prod).
+        try {
+          const { data: admins } = await sb.from('utilisateurs').select('id').eq('role', 'admin')
+          const grave = (data as { gravite?: string }).gravite === 'critique'
+          for (const a of (admins || []) as Array<{ id: string }>) {
+            await sb.from('notifications').insert({
+              user_id: a.id,
+              type: grave ? 'danger' : 'warning',
+              title: `Nouvel événement (${(data as { gravite?: string }).gravite || ''}) — ${(data as { reference?: string }).reference || ''}`,
+              message: `${(data as { type?: string }).type || 'Événement'} déclaré — à assigner pour traitement.`,
+              canal: 'in_app',
+            })
+          }
+        } catch {
+          // La création a réussi : un fan-out manqué ne doit jamais l'annuler.
+        }
+        return NextResponse.json({ data })
+      }
       const doublon = (error as { code?: string; message?: string }).code === '23505'
         || (error.message || '').includes('evenements_securite_reference_key')
       if (!doublon || tentative === 4) {

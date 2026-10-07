@@ -31,7 +31,10 @@ import type {
   Enquete,
   ReponseEnquete,
   ChecklistMemoryRecord,
+  EvenementSecurite,
 } from './store'
+import type { PresenceEntry } from './store/presenceSlice'
+import type { AuditLog } from './store/auditSlice'
 import type { AmdecAnalyse } from './risque/amdecEngine'
 import type { ArbreFTA } from './risque/ftaEngine'
 import {
@@ -48,6 +51,9 @@ export interface InitialData {
   aerodromes: Aerodrome[]
   surveillances: Surveillance[]
   ecarts: Ecart[]
+  evenements: EvenementSecurite[]
+  fichesPresence: PresenceEntry[]
+  auditLogs: AuditLog[]
   dossiers: Dossier[]
   utilisateurs: Utilisateur[]
   plannings: Planning[]
@@ -79,6 +85,9 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       aerodromesRes,
       surveillancesRes,
       ecartsRes,
+      evenementsRes,
+      presenceRes,
+      auditRes,
       dossiersRes,
       utilisateursRes,
       planningsRes,
@@ -106,6 +115,14 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
       supabase.from('ecarts').select('*').order('created_at', { ascending: false }),
+      // Événements : chargement initial systématique (sinon seules la mémoire
+      // IDB locale et le realtime — s'il est live — les fournissent, et un autre
+      // poste ne voit jamais les déclarations). RLS restreint par rôle/aérodrome.
+      supabase.from('evenements_securite').select('*').order('date', { ascending: false }).limit(500),
+      // Présences + audit : mêmes orphelins que les événements (jamais chargés
+      // au démarrage). RLS restreint la lecture (audit : admin uniquement).
+      supabase.from('presence_entries').select('*').order('signature_date', { ascending: false }).limit(2000),
+      supabase.from('audit_logs').select('*').order('date', { ascending: false }).limit(200),
       supabase.from('dossiers').select('*').order('created_at', { ascending: false }),
       supabase.from('utilisateurs').select('*').order('nom'),
       supabase.from('plannings').select('*').order('date_debut', { ascending: false }),
@@ -139,6 +156,9 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       aerodromesRes.error,
       surveillancesRes.error,
       ecartsRes.error,
+      evenementsRes.error,
+      presenceRes.error,
+      auditRes.error,
       dossiersRes.error,
       utilisateursRes.error,
       planningsRes.error,
@@ -190,6 +210,9 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
         aerodromes: aerodromes,
         surveillances: (surveillancesRes.data ?? []) as Surveillance[],
         ecarts: ((ecartsRes.data ?? []) as Ecart[]).map(sanitizeEcart),
+        evenements: (evenementsRes.data ?? []) as EvenementSecurite[],
+        fichesPresence: (presenceRes.data ?? []) as PresenceEntry[],
+        auditLogs: (auditRes.data ?? []) as AuditLog[],
         dossiers: (dossiersRes.data ?? []) as Dossier[],
         utilisateurs: (utilisateursRes.data ?? []) as Utilisateur[],
         plannings: planningsAvecEquipe,
@@ -246,6 +269,8 @@ export * from './datastore/plannings';
 export * from './datastore/utilisateurs';
 export * from './datastore/kitDocuments';
 export * from './datastore/notifications';
+export * from './datastore/presence';
+export * from './datastore/audit';
 export * from './datastore/iaFeedbacks';
 export * from './datastore/iaModeles';
 export * from './datastore/profilsRisque';

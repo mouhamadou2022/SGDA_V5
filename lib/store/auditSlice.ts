@@ -3,6 +3,7 @@
 
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
+import * as datastore from '../datastore'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -47,9 +48,13 @@ export const createAuditSlice: StateCreator<AppStore, [], [], AuditSlice> = (set
 
   setAuditLogs: (logs) => set({ auditLogs: logs }),
 
-  addAuditLog: (log) => set((state) => ({
-    auditLogs: [...state.auditLogs, { ...log, id: crypto.randomUUID(), date: new Date().toISOString() } as AuditLog]
-  })),
+  addAuditLog: (log) => {
+    const entry = { ...log, id: crypto.randomUUID(), date: new Date().toISOString() } as AuditLog
+    set((state) => ({ auditLogs: [...state.auditLogs, entry] }))
+    // Write-through best-effort vers audit_logs (traçabilité inter-postes)
+    const { id: _id, date: _date, ...payload } = entry
+    datastore.createAuditLog(payload).catch(() => {})
+  },
 
   getLogsByUtilisateur: (utilisateurId) => get().auditLogs.filter(l => l.utilisateur_id === utilisateurId),
 

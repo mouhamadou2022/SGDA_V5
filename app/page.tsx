@@ -1072,6 +1072,16 @@ export default function Page() {
           const existingMessages = useAppStore.getState().messages || []
           const mergedDossiers = fusionnerParId(
             useAppStore.getState().dossiers, data.dossiers)
+          // Événements : le serveur fait foi pour l'exhaustivité (sinon un poste
+          // ne voit jamais les déclarations d'un autre), le local prime en cas
+          // de conflit sur une même ligne.
+          const mergedEvenements = fusionnerParId(
+            useAppStore.getState().evenements, data.evenements || [])
+          // Présences + audit : même règle (le serveur complète, le local prime).
+          const mergedPresence = fusionnerParId(
+            useAppStore.getState().fichesPresence, data.fichesPresence || [])
+          const mergedAudit = fusionnerParId(
+            useAppStore.getState().auditLogs, data.auditLogs || [])
           const mergedRegistre = fusionnerParId(
             useAppStore.getState().registreEntries, data.registreEntries)
           const mergedExemptions = fusionnerParId(
@@ -1097,6 +1107,9 @@ export default function Page() {
              checklistHierarchy: { ...hierarchyFromDb, ...existingHierarchy },
              checklistItems: { ...itemsFromDb, ...existingItems },
              ecarts: data.ecarts || [],
+            evenements: mergedEvenements,
+            fichesPresence: mergedPresence,
+            auditLogs: mergedAudit,
              dossiers: mergedDossiers,
              utilisateurs: mergedUtilisateurs,
            plannings: data.plannings || [],
@@ -1221,10 +1234,16 @@ export default function Page() {
     if (!user) return
     const channel = subscribeToNotifications(user.id, (payload: any) => {
       if (payload.eventType === 'INSERT' && payload.new) {
-        useAppStore.setState(state => ({
-          notifications: [...state.notifications, payload.new],
-          unreadCount: state.unreadCount + 1,
-        }))
+        useAppStore.setState(state => {
+          // Dédupliquer l'écho (la notif créée localement revient via realtime
+          // avec un autre id) et insérer en tête : le panneau n'affiche que
+          // les 50 premières, un append enterrait les arrivées en direct.
+          if (state.notifications.some(n => n.id === payload.new.id)) return state
+          return {
+            notifications: [payload.new, ...state.notifications],
+            unreadCount: state.unreadCount + 1,
+          }
+        })
       }
     })
     return () => { channel.unsubscribe() }
@@ -1235,9 +1254,10 @@ export default function Page() {
     if (!user) return
     const channel = subscribeToMessages(user.id, (payload: any) => {
       if (payload.eventType === 'INSERT' && payload.new) {
-        useAppStore.setState(state => ({
-          messages: [...state.messages, payload.new],
-        }))
+        useAppStore.setState(state => {
+          if (state.messages.some(m => m.id === payload.new.id)) return state
+          return { messages: [payload.new, ...state.messages] }
+        })
       }
     })
     return () => { channel.unsubscribe() }

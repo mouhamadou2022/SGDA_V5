@@ -6,10 +6,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ProfilRisque, ScoreHistoryPoint, EvenementSecurite } from '@/lib/store'
+import { ProfilRisque, ScoreHistoryPoint, EvenementSecurite, useAppStore, type Ecart } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { AlertTriangle, Brain, Target, Shield, Clock, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react'
 import ScenarioSimulator from './ScenarioSimulator'
+import JumeauNumeriqueCard from './JumeauNumeriqueCard'
 import { CollapseSection } from './CollapseSection'
 import type { ActionConcrete } from '@/lib/risque/recommendations'
 import { useActionsIAStore } from '@/lib/state/actionsIAStore'
@@ -66,6 +67,7 @@ function LangageClair({ texte, iaEnCours, iaActif }: { texte: string; iaEnCours:
 export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode, userRole }: AnticipationTabProps) {
   const actionsPartagees = useActionsIAStore((s) => s.parAerodrome[profil.aerodrome_id])
   const actions = actionsPartagees ?? []
+  const ecartsActifs = useAppStore((s) => s.ecarts).filter((e: Ecart) => e.aerodrome_id === profil.aerodrome_id && e.statut !== 'cloture')
 
   // Interprétation en langage clair — fallback déterministe affiché immédiatement
   const [predTexte, setPredTexte] = useState(() => fallbackPredictions(profil).texte)
@@ -207,6 +209,9 @@ export default function AnticipationTab({ profil, historicalScores, evenements, 
 
         {/* Ce qui pourrait arriver (What-if) */}
         <ScenarioSimulator profil={profil} aerodromeName={aerodromeCode || profil.aerodrome_id} userRole={userRole || 'inspector'} />
+
+        {/* Jumeau numérique : miroir prospectif du système de risque */}
+        <JumeauNumeriqueCard profil={profil} ecarts={ecartsActifs} />
 
         {/* Signalements contextuels */}
         {evenements && evenements.length > 0 && (
