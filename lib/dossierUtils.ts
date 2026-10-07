@@ -10,6 +10,26 @@ export const dossierUtils = {
   },
 
   /**
+   * Prochaine référence libre DOS-AAAA-NNNN : max+1 sur les références
+   * existantes (pur, testé) — remplace le compteur aléatoire 1-9999 qui
+   * collisionnait à ~1/10000 par création (birthday paradox : bien plus
+   * en pratique sur des centaines de dossiers).
+   */
+  prochaineReference(
+    references: Array<string | undefined | null>,
+    annee = new Date().getFullYear(),
+  ): string {
+    const tete = `DOS-${annee}-`
+    let max = 0
+    for (const ref of references || []) {
+      if (typeof ref !== 'string' || !ref.startsWith(tete)) continue
+      const n = Number(ref.slice(tete.length))
+      if (Number.isInteger(n) && n > max) max = n
+    }
+    return `DOS-${annee}-${String(max + 1).padStart(4, '0')}`
+  },
+
+  /**
    * Calcule le délai restant en jours
    */
   getDelaiRestant(dateLimite: string): { jours: number; couleur: 'vert' | 'orange' | 'rouge' } {

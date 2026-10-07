@@ -39,7 +39,7 @@ export function ApprentissageCard({ aerodromeId }: { aerodromeId?: string }) {
   const aerorisqLocal = (statut?.modelesLocaux || []).some(m => m.startsWith('aerorisq'))
 
   return (
-    <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="12. Apprentissage AERORISQ — données réelles">
+    <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="5. Apprentissage AERORISQ — données réelles">
       <EnClairNote
         module="ml-card-12"
         aerodromeId={aerodromeId}

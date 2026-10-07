@@ -27,6 +27,10 @@ export function BulletinMensuelButton() {
   const addNotification = useAppStore(s => s.addNotification)
   const user = useAppStore(s => s.user)
 
+  // Envoi par email réservé à l'admin : les autres rôles téléchargent
+  // uniquement (pas de section destinataires, pas de bouton d'envoi).
+  const estAdmin = user?.role === 'admin'
+
   const [open, setOpen] = useState(false)
   const [mois, setMois] = useState(() => new Date().getMonth() + 1)
   const [annee, setAnnee] = useState(() => new Date().getFullYear())
@@ -35,12 +39,12 @@ export function BulletinMensuelButton() {
   const [erreur, setErreur] = useState<string | null>(null)
 
   const inspecteurs = useMemo(
-    () => utilisateurs.filter(u => u.role === ROLE_INSPECTEUR && !u.deleted_at && !!emailDe(u)),
-    [utilisateurs],
+    () => utilisateurs.filter(u => u.role === ROLE_INSPECTEUR && u.id !== user?.id && !u.deleted_at && !!emailDe(u)),
+    [utilisateurs, user?.id],
   )
   const admins = useMemo(
-    () => utilisateurs.filter(u => ROLE_ADMINS.includes(u.role) && !u.deleted_at && !!emailDe(u)),
-    [utilisateurs],
+    () => utilisateurs.filter(u => ROLE_ADMINS.includes(u.role) && u.id !== user?.id && !u.deleted_at && !!emailDe(u)),
+    [utilisateurs, user?.id],
   )
 
   const nbSelectionnes = Object.values(selected).filter(Boolean).length
@@ -84,6 +88,7 @@ export function BulletinMensuelButton() {
   }
 
   const handleEmail = async () => {
+    if (!estAdmin) return; // Garde-fou : envoi réservé à l'admin (bouton masqué hors admin)
     const destinataires = [...inspecteurs, ...admins]
       .filter(u => selected[u.id])
       .map(emailDe)
@@ -168,7 +173,7 @@ export function BulletinMensuelButton() {
               </span>
               <div>
                 <span className="form-shell-title-text">Bulletin mensuel de sécurité</span>
-                <span className="form-shell-subtitle">Export PDF ou envoi par email</span>
+                <span className="form-shell-subtitle">{estAdmin ? 'Export PDF ou envoi par email' : 'Export PDF'}</span>
               </div>
             </div>
             <button className="modal-close" onClick={() => !busy && setOpen(false)} aria-label="Fermer">
@@ -188,6 +193,7 @@ export function BulletinMensuelButton() {
               </div>
             </div>
 
+            {estAdmin && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-xs font-semibold text-foreground">
@@ -242,6 +248,7 @@ export function BulletinMensuelButton() {
                 </div>
               )}
             </div>
+            )}
 
             {erreur && (
               <p className="text-xs text-danger bg-danger-soft/40 border border-danger/20 rounded-lg p-2.5">
@@ -256,10 +263,12 @@ export function BulletinMensuelButton() {
               {busy === 'download' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
               {busy === 'download' ? 'Génération...' : 'Télécharger PDF'}
             </button>
-            <button onClick={handleEmail} className="btn btn-secondary gap-1.5 text-role-primary border-role-primary/30" disabled={!!busy}>
-              {busy === 'email' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              {busy === 'email' ? 'Envoi...' : 'Envoyer par email'}
-            </button>
+            {estAdmin && (
+              <button onClick={handleEmail} className="btn btn-secondary gap-1.5 text-role-primary border-role-primary/30" disabled={!!busy}>
+                {busy === 'email' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {busy === 'email' ? 'Envoi...' : 'Envoyer par email'}
+              </button>
+            )}
           </div>
         </div>
       </div>

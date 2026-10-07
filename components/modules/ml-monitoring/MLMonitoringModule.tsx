@@ -1,11 +1,10 @@
 // components/modules/ml-monitoring/MLMonitoringModule.tsx
-// Monitoring ML — 6 grandes cartes :
+// Monitoring ML — 5 cartes (recentré strict : modèles et apprentissage uniquement) :
 // 1. Modèles ML (RF / XGBoost / LightGBM / CatBoost / MLP) : benchmark, maturité, calibrage, sélection du modèle actif
-// 2. Modèles de risques : précision, maturité, évolution, calibrage, simulation
-// 3. Modèles mathématiques : calibrage + simulation
-// 4. Agents IA : précision, maturité
-// 5. AERORISQ : simulation, entraînement, A/B testing
-// 6. Synthèse : données + langage clair
+// 2. Modèles de risques : corrélation ML/risque, précision, maturité, évolution
+// 3. Agents IA : précision, maturité
+// 4. AERORISQ : simulation, entraînement, A/B testing
+// 5. Apprentissage AERORISQ : données réelles, runs, compteurs
 
 'use client'
 
@@ -22,18 +21,10 @@ import { getABStats, clearABHistory } from '@/lib/ab_testing'
 import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engineFeedback'
 import { inspecteurMonitoring, type CapaciteInspecteur, CAPACITES_INSPECTEUR, type InspecteurMonitoringStats } from '@/lib/ia/engines/inspecteurMonitoring'
 import { statsCacheOutils } from '@/lib/ia/pilote/bouclePilote'
-import { thresholdController } from '@/lib/ia/thresholdController'
-import { synthetiserModeles, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
-import { pctBayes } from '@/lib/risque/bayesian'
+import { synthetiserModeles } from '@/lib/risque/modelSynthesis'
 import { EnClairNote } from './EnClairNote'
 import { CompteurPoidsAprentissage } from './CompteurPoidsAprentissage'
 import { recommanderModeleAnalyse } from '@/lib/ia/modelSelector'
-import { lancerDiagnosticOrchestrateur, lireDernierDiagnostic, historiqueOrchestrateur } from '@/lib/ia/orchestrateur'
-import type { ResultatOrchestrateur } from '@/lib/ia/orchestrateur'
-import DigitalTwinCard from './DigitalTwinCard'
-import ShapExplainerCard from './ShapExplainerCard'
-import OaciGraphCard from './OaciGraphCard'
-import SimulationSurveillanceCard from './SimulationSurveillanceCard'
 import ApprentissageCard from './ApprentissageCard'
 import type { ModeleBenchmarkId } from '@/lib/ia/benchmark'
 import { MODELE_LABELS, DEFAULT_BENCHMARK_CONFIG, MODEL_HYPERPARAMS, configEstPersonnalisee } from '@/lib/ia/benchmark'
@@ -45,8 +36,8 @@ import { creerRapportPdf, PDF_COLORS } from '@/lib/services/pdfRapport'
 import {
   Brain, Target, TrendingUp, AlertTriangle, CheckCircle2, RefreshCw,
   Database, Download, Upload, RotateCcw,
-  BookOpen, FlaskConical, Network, Users, Cpu, Calculator,
-  Play, Trophy, Sparkles, Settings, SlidersHorizontal, Workflow, History, FileText,
+  BookOpen, FlaskConical, Network, Users, Cpu,
+  Play, Trophy, Settings, SlidersHorizontal, FileText,
 } from 'lucide-react'
 
 interface Props { user: AuthUser }
@@ -291,7 +282,7 @@ export default function MLMonitoringModule({ user }: Props) {
           {isAdmin && <button onClick={handleImport} className="btn btn-sm btn-secondary gap-1.5"><Upload className="h-4 w-4" />Importer</button>}
         </div>} />
 
-      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Onze cartes : modèles ML, risques, mathématiques, agents, AERORISQ, synthèse, diagnostic multi-agents, jumeau numérique, explicabilité SHAP, graphe OACI, simulation de surveillance" sections={HELP_SECTIONS} />
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} title="Guide — Monitoring ML" subtitle="Cinq cartes : modèles ML, risques, agents, AERORISQ, apprentissage" sections={HELP_SECTIONS} />
 
       {importError && <div className="alert alert-danger animate-fade-up"><AlertTriangle className="alert-icon" /><div className="alert-content">{importError}</div></div>}
       {importSuccess && <div className="alert alert-success animate-fade-up"><CheckCircle2 className="alert-icon" /><div className="alert-content">{importSuccess}</div></div>}
@@ -336,13 +327,10 @@ export default function MLMonitoringModule({ user }: Props) {
         barColor={barColor}
       />
 
-      {/* ══════════════════ CARTE 3 : MODÈLES MATHÉMATIQUES ══════════════════ */}
-      <MathModelsCard profilsRisque={profilsRisque} />
-
-      {/* ══════════════════ CARTE 4 : AGENTS IA ══════════════════ */}
+      {/* ══════════════════ CARTE 3 : AGENTS IA ══════════════════ */}
       <AgentsCard engineStats={engineStats} inspecteurStats={inspecteurStats} aerodromeId={premierProfil?.aerodrome_id} />
 
-      {/* ══════════════════ CARTE 5 : AERORISQ ══════════════════ */}
+      {/* ══════════════════ CARTE 4 : AERORISQ ══════════════════ */}
       <AerorisqCard
         isAdmin={isAdmin}
         pacStats={pacStats}
@@ -365,55 +353,7 @@ export default function MLMonitoringModule({ user }: Props) {
         aerodromeId={premierProfil?.aerodrome_id}
       />
 
-      {/* ══════════════════ CARTE 6 : SYNTHÈSE ══════════════════ */}
-      <SynthesisCard
-        premierProfil={premierProfil}
-        stats={stats}
-        inspecteurStats={inspecteurStats}
-        benchmarkOutcome={benchmarkOutcome}
-        activeModelName={activeModelName}
-        rfModelInfo={rfModelInfo}
-        mlRiskCorrelation={mlRiskCorrelation}
-        engineStats={engineStats}
-      />
-
-      {/* ══════════════════ CARTE 7 : DIAGNOSTIC MULTI-AGENTS ══════════════════ */}
-      <DiagnosticAgentsCard
-        premierProfil={premierProfil}
-        ecarts={ecarts}
-        surveillances={surveillances}
-        rfModelInfo={rfModelInfo}
-        benchmarkOutcome={benchmarkOutcome}
-        activeModelName={activeModelName}
-      />
-
-      {/* ══════════════════ CARTE 8 : JUMEAU NUMÉRIQUE INTERACTIF ══════════════════ */}
-      <DigitalTwinCard
-        key={premierProfil?.aerodrome_id ?? 'none'}
-        profil={premierProfil}
-        ecarts={ecarts}
-        surveillances={surveillances}
-      />
-
-      {/* ══════════════════ CARTE 9 : EXPLICABILITÉ SHAP-LIKE ══════════════════ */}
-      <ShapExplainerCard profil={premierProfil} />
-
-      {/* ══════════════════ CARTE 10 : GRAPHE UNIFIÉ OACI ══════════════════ */}
-      <OaciGraphCard
-        profil={premierProfil}
-        ecarts={ecarts}
-        surveillances={surveillances}
-        evenements={evenementsSecurite}
-      />
-
-      {/* ══════════════════ CARTE 11 : SIMULATION DE SURVEILLANCE ══════════════════ */}
-      <SimulationSurveillanceCard
-        profilsRisque={profilsRisque}
-        ecarts={ecarts}
-        evenements={evenementsSecurite}
-      />
-
-      {/* ══════════════════ CARTE 12 : APPRENTISSAGE AERORISQ (DONNÉES RÉELLES) ══════════════════ */}
+      {/* ══════════════════ CARTE 5 : APPRENTISSAGE AERORISQ (DONNÉES RÉELLES) ══════════════════ */}
       <ApprentissageCard aerodromeId={premierProfil?.aerodrome_id} />
     </div>
   )
@@ -780,94 +720,7 @@ function RiskModelsCard({ profilsRisque, ecarts, surveillances, amdecAnalyses, f
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CARTE 3 — MODÈLES MATHÉMATIQUES : calibrage + simulation
-// ═══════════════════════════════════════════════════════════════
-
-function MathModelsCard({ profilsRisque }: { profilsRisque: Record<string, ProfilRisque> | null }) {
-  const premierProfil = profilsRisque ? Object.values(profilsRisque)[0] : null
-  const historiqueSeuils = thresholdController.getHistorique()
-  const dernierSeuil = historiqueSeuils[historiqueSeuils.length - 1] || null
-
-  const modules: Array<{ nom: string; valeur: string; detail?: string; niveau: 'success' | 'warning' | 'danger' | 'primary' }> = []
-  if (premierProfil) {
-    if (premierProfil.hmm_state) modules.push({ nom: 'HMM (Markov caché)', valeur: premierProfil.hmm_state.isTransitioning ? 'Transition détectée' : 'Stable', detail: `risque transition ${Math.round(premierProfil.hmm_state.transitionRisk ?? 0)}%`, niveau: premierProfil.hmm_state.isTransitioning ? 'warning' : 'success' })
-    if (premierProfil.survival_metrics) modules.push({ nom: 'Survie (Cox)', valeur: premierProfil.survival_metrics.medianDays ? `${premierProfil.survival_metrics.medianDays} j` : '—', detail: `hazard 90j ${Math.round((premierProfil.survival_metrics.hazard90d ?? 0) * 100)}%`, niveau: (premierProfil.survival_metrics.hazard90d ?? 0) > 0.5 ? 'danger' : 'primary' })
-    if (premierProfil.extreme_risk) modules.push({ nom: 'EVT (valeurs extrêmes)', valeur: premierProfil.extreme_risk.isHeavyTailed ? 'Queue lourde' : 'Queue légère', detail: `max 12m ${premierProfil.extreme_risk.maxExpected12m ?? 0}`, niveau: premierProfil.extreme_risk.isHeavyTailed ? 'warning' : 'success' })
-    if (premierProfil.copula_metrics) modules.push({ nom: 'Copules', valeur: `tail ${Math.round((premierProfil.copula_metrics.maxTailDependence ?? 0) * 100)}%`, detail: premierProfil.copula_metrics.worstCaseDescription ? 'scénario pire cas modélisé' : undefined, niveau: (premierProfil.copula_metrics.maxTailDependence ?? 0) > 0.6 ? 'warning' : 'primary' })
-    if (premierProfil.ts_metrics) modules.push({ nom: 'Thompson Sampling', valeur: premierProfil.ts_metrics.recommendedAction || '—', detail: `confiance ${Math.round(premierProfil.ts_metrics.bestProbability ?? 0)}%`, niveau: (premierProfil.ts_metrics.bestProbability ?? 0) > 60 ? 'success' : 'primary' })
-    if (premierProfil.bayesian_posterior != null) { const post = pctBayes(premierProfil.bayesian_posterior); if (post != null) modules.push({ nom: 'Bayésien', valeur: `post ${post}%`, detail: premierProfil.bayesian_black_swan ? 'cygne noir !' : undefined, niveau: premierProfil.bayesian_black_swan ? 'danger' : 'primary' }) }
-  }
-  const modulesAvances = ['HMM (Markov caché)', 'Survie (Cox)', 'EVT (valeurs extrêmes)', 'Copules', 'Thompson Sampling'].filter(nom => !modules.some(m => m.nom === nom))
-
-  return (
-    <Card icon={<Calculator className="h-4 w-4 text-role-primary" />} title="3. Modèles mathématiques — calibrage & simulation">
-      <EnClairNote module="ml-card-3" aerodromeId={premierProfil?.aerodrome_id} aQuoiCaSert="Affiche les modèles probabilistes (HMM, survie, EVT, copules, Thompson, bayésien) qui estiment le risque de façon avancée, et les seuils auto-ajustés appris par le système." commentLire="Chaque modèle donne un indicateur (stabilité, probabilité a posteriori, hazard...). Un « post » proche de 100% = forte probabilité de défaillance estimée. Les modèles avancés exigent au moins 3 points d'historique pour se calibrer ; le bayésien fonctionne dès le premier profil." />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-2">
-          <h4 className="text-sm mb-2">Statut des modèles probabilistes</h4>
-          {modules.length === 0 ? (
-            <p className="text-sm text-muted text-center py-6">Aucun modèle mathématique calculé pour le moment. Complétez un profil de risque pour activer HMM, survie, EVT, copules, Thompson et bayésien.</p>
-          ) : (
-            <>
-              {modules.map(m => (
-                <div key={m.nom} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/20">
-                  <div>
-                    <p className="text-sm font-medium">{m.nom}</p>
-                    {m.detail && <p className="text-xs text-muted-foreground">{m.detail}</p>}
-                  </div>
-                  <span className={`badge text-xs ${m.niveau === 'danger' ? 'danger' : m.niveau === 'warning' ? 'warning' : m.niveau === 'success' ? 'success' : 'primary'}`}>{m.valeur}</span>
-                </div>
-              ))}
-              {modulesAvances.length > 0 && (
-                <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-                  {modulesAvances.join(', ')} {modulesAvances.length > 1 ? 'ne sont' : 'n\'est'} pas encore calculé{modulesAvances.length > 1 ? 's' : ''} : il faut au moins 3 points d&apos;historique du profil pour les calibrer. Le bayésien reste disponible dès le premier profil.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="space-y-4">
-          <div className="rounded-lg border border-border p-3">
-            <h4 className="text-sm mb-2 flex items-center gap-1.5"><FlaskConical className="w-3.5 h-3.5" />Calibrage des seuils (auto-ajustés)</h4>
-            {historiqueSeuils.length === 0 ? (
-              <p className="text-xs text-muted">Aucun seuil ajusté automatiquement.</p>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {historiqueSeuils.slice(-8).reverse().map((h, i) => (
-                  <div key={i} className="p-2 rounded bg-role-primary-soft/50 text-xs">
-                    <span className="font-medium">{h.parametre}: {h.ancienneValeur} → {h.nouvelleValeur}</span>
-                    <p className="text-muted-foreground mt-0.5">{h.raison}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-border p-3">
-            <h4 className="text-sm mb-2 flex items-center gap-1.5"><Play className="w-3.5 h-3.5" />Simulation de scénario</h4>
-            {premierProfil ? (
-              <p className="text-xs text-muted-foreground">
-                Score global actuel : <span className="font-bold text-foreground">{premierProfil.score_global}/100</span> · Niveau : <span className="font-medium">{premierProfil.niveau}</span> · Tendance : <span className="font-medium">{premierProfil.tendance}</span>.
-                Un scénario de dégradation sur le critère le plus faible (min {Math.min(premierProfil.c1, premierProfil.c2, premierProfil.c3, premierProfil.c4, premierProfil.c5)}/100) ferait basculer la surveillance vers un type plus strict.
-              </p>
-            ) : <p className="text-xs text-muted">Aucun profil pour la simulation.</p>}
-          </div>
-
-          {dernierSeuil && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 border-t border-border">
-              <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-              Dernier ajustement : {dernierSeuil.parametre} → {dernierSeuil.nouvelleValeur}
-            </div>
-          )}
-        </div>
-      </div>
-    </Card>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CARTE 4 — AGENTS IA : précision & maturité
+// CARTE 3 — AGENTS IA : précision & maturité
 // ═══════════════════════════════════════════════════════════════
 
 function AgentsCard({ engineStats, inspecteurStats, aerodromeId }: {
@@ -876,7 +729,7 @@ function AgentsCard({ engineStats, inspecteurStats, aerodromeId }: {
   aerodromeId?: string
 }) {
   return (
-    <Card icon={<Users className="h-4 w-4 text-role-primary" />} title="4. Agents IA — précision & maturité">
+    <Card icon={<Users className="h-4 w-4 text-role-primary" />} title="3. Agents IA — précision & maturité">
       <EnClairNote module="ml-card-4" aerodromeId={aerodromeId} aQuoiCaSert="Montre la fiabilité des agents IA (AERORISQ et inspecteur virtuel) mesurée à partir de vos retours : accepter, corriger ou ignorer leurs suggestions." commentLire="Le taux de pertinence indique la part de suggestions jugées utiles (visé ≥ 60%). La maturité /100 par capacité (checklist, écarts, rapports...) suit votre taux d'acceptation. Plus vous validez, plus l'agent apprend et devient fiable." />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Agents décisionnels AERORISQ */}
@@ -995,7 +848,7 @@ function AgentsCard({ engineStats, inspecteurStats, aerodromeId }: {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CARTE 5 — AERORISQ : simulation, entraînement, A/B testing
+// CARTE 4 — AERORISQ : simulation, entraînement, A/B testing
 // ═══════════════════════════════════════════════════════════════
 
 function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, modelTrainingConfig, onRecalibrate, onReset, onExport, onImport, onSetAutoTrain, onSetInterval, onRefresh, onResetModels, getTrainingHistory, getTrainingStats, exportTrainingHistoryCSV, barColor, aerodromeId }: {
@@ -1020,7 +873,7 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
   aerodromeId?: string
 }) {
   return (
-    <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="5. AERORISQ — simulation, entraînement & expérimentation">
+    <Card icon={<Brain className="h-4 w-4 text-role-primary" />} title="4. AERORISQ — simulation, entraînement & expérimentation">
       <EnClairNote module="ml-card-5" aerodromeId={aerodromeId} aQuoiCaSert="Gère le moteur de décision global : calibration du modèle, tests A/B (formules vs réseaux de neurones), apprentissage PAC et configuration de l'auto-entraînement." commentLire="La précision globale et les taux de faux positifs/négatifs reflètent la qualité du modèle courant. Le test A/B montre quel moteur gagne le plus souvent : Neural Net ou Formules. « Recalibrer » ré-entraîne le modèle sur vos retours." />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Entraînement / modèle courant */}
@@ -1080,108 +933,6 @@ function AerorisqCard({ isAdmin, pacStats, detailedStats, stats, currentModel, m
       {/* Historique des entraînements */}
       <div className="mt-5 pt-4 border-t border-border">
         <HistorySection getTrainingHistory={getTrainingHistory} getTrainingStats={getTrainingStats} exportTrainingHistoryCSV={exportTrainingHistoryCSV} barColor={barColor} />
-      </div>
-    </Card>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CARTE 6 — SYNTHÈSE : données + langage clair
-// ═══════════════════════════════════════════════════════════════
-
-function SynthesisCard({ premierProfil, stats, inspecteurStats, benchmarkOutcome, activeModelName, rfModelInfo, mlRiskCorrelation, engineStats }: {
-  premierProfil: ProfilRisque | null
-  stats: ReturnType<ReturnType<typeof useAppStore.getState>['calculatePerformance']> | null
-  inspecteurStats: InspecteurMonitoringStats | null
-  benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
-  activeModelName: string | null
-  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
-  mlRiskCorrelation: MLRiskCorrelationData
-  engineStats: EngineLearningStats | null
-}) {
-  const diagnostic = premierProfil ? synthetiserModeles(premierProfil) : null
-
-  return (
-    <Card icon={<Sparkles className="h-4 w-4 text-role-primary" />} title="6. Synthèse — état des modèles en langage clair">
-      <EnClairNote module="ml-card-6" aerodromeId={premierProfil?.aerodrome_id} aQuoiCaSert="Résume en quelques lignes l'état global de tous les modèles : précision, modèle actif, maturité et diagnostic consolidé en langage clair." commentLire="Lisez d'abord le « Diagnostic AERORISQ » et sa recommandation : c'est la conclusion synthétique. Les KPIs en haut donnent un ordre de grandeur : précision ≥ 70%, maturité et pertinence visent ≥ 60%." />
-      <div className="space-y-5">
-        {/* KPIs synthèse */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Précision apprentissage</p>
-            <p className={`text-xl font-bold ${(stats?.precision_globale ?? 0) >= 70 ? 'text-success' : 'text-warning'}`}>{stats?.precision_globale ?? 0}%</p>
-          </div>
-          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Modèle ML actif</p>
-            <p className="text-lg font-bold truncate">{activeModelName ?? 'RF (défaut)'}</p>
-            <p className="text-[10px] text-muted-foreground">{rfModelInfo ? `${(rfModelInfo.accuracy * 100).toFixed(0)}% acc.` : 'non entraîné'}</p>
-          </div>
-          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Maturité inspecteur</p>
-            <p className="text-xl font-bold">{inspecteurStats?.maturiteGlobale ?? 0}/100</p>
-            <p className="text-[10px] text-role-primary">{inspecteurStats?.maturiteGlobaleLabel ?? 'N1 Absent'}</p>
-          </div>
-          <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Pertinence AERORISQ</p>
-            <p className={`text-xl font-bold ${(engineStats?.pertinenceRate ?? 0) >= 60 ? 'text-success' : 'text-warning'}`}>{engineStats?.pertinenceRate ?? 0}%</p>
-            <p className="text-[10px] text-muted-foreground">{engineStats?.totalFeedbacks ?? 0} feedbacks</p>
-          </div>
-        </div>
-
-        {/* Diagnostic en langage clair */}
-        {diagnostic ? (
-          <div className="rounded-lg border border-border p-4">
-            <div className="flex items-start justify-between mb-2">
-              <h4 className="text-sm flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-role-primary" />Diagnostic AERORISQ (synthèse de {NOMBRE_MAX_VOTES} modèles)</h4>
-              <span className="badge text-xs">{diagnostic.tendance.replace(/_/g, ' ')}</span>
-            </div>
-            <p className="text-sm font-medium text-foreground mb-3">{diagnostic.interpretation}</p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {diagnostic.elementsClefs.map((el, i) => (
-                <span key={i} className="badge badge-secondary text-xs">{el}</span>
-              ))}
-            </div>
-            <div className="rounded-lg bg-role-primary-soft/40 p-3 text-sm">
-              <p className="font-medium mb-1">Recommandation :</p>
-              <p className="text-muted-foreground">{diagnostic.recommandation}</p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted text-center py-4">Aucun profil de risque disponible pour la synthèse.</p>
-        )}
-
-        {/* Benchmark mini-résumé */}
-        {benchmarkOutcome && benchmarkOutcome.ranked.length > 0 && (
-          <div className="pt-3 border-t border-border">
-            <h4 className="text-xs uppercase text-muted-foreground mb-2">Benchmark ML — {benchmarkOutcome.datasetSize} échantillons</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="text-muted-foreground border-b border-border text-left"><th className="py-1.5 pr-3">Modèle</th><th className="py-1.5 pr-3">Acc.</th><th className="py-1.5 pr-3">F1</th><th className="py-1.5 pr-3">AUC</th><th className="py-1.5 pr-3">Score</th></tr></thead>
-                <tbody>
-                  {benchmarkOutcome.ranked.map(r => (
-                    <tr key={r.modelId} className="border-b border-border/40">
-                      <td className="py-1.5 pr-3 font-medium">{r.nom}{r.modelId === benchmarkOutcome.bestModelId && <Trophy className="w-3 h-3 inline ml-1 text-warning" />}</td>
-                      <td className="py-1.5 pr-3">{(r.accuracy * 100).toFixed(0)}%</td>
-                      <td className="py-1.5 pr-3">{(r.f1Score * 100).toFixed(0)}%</td>
-                      <td className="py-1.5 pr-3">{(r.rocAuc * 100).toFixed(0)}%</td>
-                      <td className="py-1.5 font-bold">{r.score}/100</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Aperçu distribution risques */}
-        <div className="pt-3 border-t border-border">
-          <h4 className="text-xs uppercase text-muted-foreground mb-2">Distribution des risques — {mlRiskCorrelation.aerodromeCount} aérodromes</h4>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.entries(mlRiskCorrelation.riskLevelDistribution).map(([level, count]) => (
-              <span key={level} className={`badge text-xs ${level === 'critique' ? 'danger' : level === 'eleve' ? 'warning' : level === 'moyen' ? 'primary' : 'success'}`}>{level} · {count}</span>
-            ))}
-          </div>
-        </div>
       </div>
     </Card>
   )
@@ -1267,155 +1018,10 @@ function ABTestingSection({ isAdmin }: { isAdmin: boolean }) {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CARTE 7 — DIAGNOSTIC MULTI-AGENTS (orchestrateur)
-// ═══════════════════════════════════════════════════════════════
-
-const NIVEAU_BADGE: Record<string, string> = {
-  critique: 'danger',
-  eleve: 'warning',
-  moyen: 'primary',
-  faible: 'success',
-}
-
-function DiagnosticAgentsCard({ premierProfil, ecarts, surveillances, rfModelInfo, benchmarkOutcome, activeModelName }: {
-  premierProfil: ProfilRisque | null
-  ecarts: Ecart[]
-  surveillances: Surveillance[]
-  rfModelInfo: ReturnType<typeof useAppStore.getState>['rfModelInfo']
-  benchmarkOutcome: ReturnType<typeof useAppStore.getState>['benchmarkOutcome']
-  activeModelName: string | null
-}) {
-  const aerodromeId = premierProfil?.aerodrome_id ?? null
-  const aerodromes = useAppStore(s => s.aerodromes)
-  const nomAerodrome = aerodromeId ? aerodromes.find(a => a.id === aerodromeId)?.nom ?? null : null
-  const [resultat, setResultat] = useState<ResultatOrchestrateur | null>(() =>
-    premierProfil ? lireDernierDiagnostic(premierProfil.aerodrome_id) : null,
-  )
-  const resultatActif = resultat && resultat.aerodromeId === aerodromeId ? resultat : null
-  const historique = aerodromeId ? historiqueOrchestrateur(aerodromeId) : []
-
-  const lancer = () => {
-    if (!premierProfil) return
-    const res = lancerDiagnosticOrchestrateur({
-      aerodromeId: premierProfil.aerodrome_id,
-      profil: premierProfil,
-      ecarts,
-      surveillances,
-      contexteML: {
-        rfAccuracy: rfModelInfo?.accuracy ?? 0,
-        benchmarkMeilleurScore: benchmarkOutcome?.ranked?.[0]?.score ?? 0,
-        modeleActifNom: activeModelName ?? undefined,
-      },
-    })
-    setResultat(res)
-  }
-
-  return (
-    <Card icon={<Workflow className="h-4 w-4 text-role-primary" />} title="7. Diagnostic multi-agents — orchestrateur AERORISQ" badge={
-      resultatActif ? <span className={`badge text-xs ${NIVEAU_BADGE[resultatActif.niveau] ?? 'primary'}`}>{resultatActif.niveau}</span> : undefined
-    }>
-      <EnClairNote module="ml-card-7" aerodromeId={aerodromeId ?? undefined} aQuoiCaSert="Enchaîne 5 agents d'analyse (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence) et fusionne leurs votes pour produire un verdict consolidé de dégradation." commentLire="L'« Indice de dégradation » /100 est le verdict : ≥ 65 = danger, 40-65 = préoccupant. Chaque vote d'agent affiche sa confiance et son support de données ; les votes trop incertains sont exclus de la fusion." />
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-muted-foreground">
-          Exécute une chaîne de {5} agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence), fusionne les votes pondérés par la confiance et journalise le raisonnement.
-        </p>
-        <button onClick={lancer} disabled={!premierProfil} className="btn btn-primary btn-sm gap-1.5 whitespace-nowrap">
-          <Play className="h-4 w-4" />Lancer le diagnostic multi-agents
-        </button>
-      </div>
-
-      {!premierProfil ? (
-        <p className="text-sm text-muted text-center py-6">Complétez un profil de risque pour lancer le diagnostic.</p>
-      ) : !resultatActif ? (
-        <p className="text-sm text-muted text-center py-6">Aucun diagnostic pour {nomAerodrome ?? aerodromeId}. Cliquez sur « Lancer le diagnostic ».</p>
-      ) : (
-        <div className="space-y-5">
-          {/* Verdict global */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Indice de dégradation</p>
-              <p className={`text-2xl font-bold ${resultatActif.indiceGlobal >= 65 ? 'text-danger' : resultatActif.indiceGlobal >= 40 ? 'text-warning' : resultatActif.indiceGlobal >= 15 ? 'text-role-primary' : 'text-success'}`}>{resultatActif.indiceGlobal}/100</p>
-            </div>
-            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Niveau</p>
-              <p className="text-2xl font-bold capitalize">{resultatActif.niveau}</p>
-            </div>
-            <div className="bg-role-primary-soft rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Confiance globale</p>
-              <p className="text-2xl font-bold">{resultatActif.confianceGlobale}%</p>
-            </div>
-          </div>
-
-          <p className="text-sm font-medium text-foreground">{resultatActif.interpretation}</p>
-
-          {/* Recommandation */}
-          <div className="rounded-lg bg-role-primary-soft/40 p-3 text-sm">
-            <p className="font-medium mb-1">Recommandation de l&apos;orchestrateur :</p>
-            <p className="text-muted-foreground">{resultatActif.recommandation}</p>
-          </div>
-
-          {/* Votes par agent */}
-          <div>
-            <h4 className="text-sm mb-2 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-role-primary" />Votes des agents (fusionnés, pondérés par confiance)</h4>
-            <div className="space-y-2">
-              {resultatActif.votes.map(v => (
-                <div key={v.agent} className="p-3 rounded-lg border border-border/60">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium">{v.label}</span>
-                    {v.statut === 'erreur'
-                      ? <span className="badge badge-secondary text-xs">Non applicable</span>
-                      : <span className="text-sm font-bold">{v.degradation}/100</span>}
-                  </div>
-                  <div className="progress h-1.5"><div className="progress-bar" style={{ width: `${v.degradation}%`, backgroundColor: v.statut === 'erreur' ? 'var(--muted)' : 'var(--role-primary)' }} /></div>
-                  <p className="text-xs text-foreground mt-1.5">{v.interpretation}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-muted-foreground">confiance {v.confiance}%</span>
-                    <span className="text-[10px] text-muted-foreground">· données {v.dataSupport}%</span>
-                    {v.statut === 'erreur' && <span className="text-[10px] text-muted-foreground">· exclu de la fusion</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Journal de raisonnement */}
-          <div>
-            <h4 className="text-sm mb-2 flex items-center gap-1.5"><History className="w-3.5 h-3.5 text-role-primary" />Journal du raisonnement</h4>
-            <div className="space-y-2">
-              {resultatActif.journal.map((etp, i) => (
-                <div key={i} className="flex gap-3 p-2.5 rounded-lg bg-muted/20 text-xs">
-                  <span className="font-mono text-muted-foreground w-12 shrink-0">{etp.dureeMs}ms</span>
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">{etp.etape}</p>
-                    <p className="text-muted-foreground truncate">{etp.sortie}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Historique */}
-          <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
-            <span className="text-muted-foreground">{historique.length} diagnostic(s) enregistré(s) pour {nomAerodrome ?? aerodromeId} – {new Date(resultatActif.horodatage).toLocaleString('fr-FR')}</span>
-          </div>
-        </div>
-      )}
-    </Card>
-  )
-}
-
 const HELP_SECTIONS: HelpSection[] = [
   { id: 'ml', title: '1. Modèles ML', content: 'Compare les 5 algorithmes (Random Forest, XGBoost, LightGBM, CatBoost, MLP) sur accuracy, precision, recall, F1, ROC-AUC et temps. Sélectionnez le modèle actif qui pilote les prédictions de risque. Via le bouton « Paramètres », ajustez les hyperparamètres de chaque modèle (arbres, profondeur, taux d\'apprentissage, époques...) puis relancez le benchmark pour comparer les performances avec ces valeurs.' },
   { id: 'risques', title: '2. Modèles de risques', content: 'Précision, maturité, convergence ML et simulation du modèle de risque recommandé (Bow-Tie, FTA, AMDEC, HMM, survie, EVT, copules...).' },
-  { id: 'math', title: '3. Modèles mathématiques', content: 'Calibrage des seuils auto-ajustés et simulation de scénarios sur les modèles probabilistes (HMM, Cox, EVT, copules, Thompson, bayésien).' },
-  { id: 'agents', title: '4. Agents IA', content: 'Pertinence des agents décisionnels AERORISQ et maturité par capacité de l\'inspecteur virtuel.' },
-  { id: 'aerorisq', title: '5. AERORISQ', content: 'Simulation, entraînement, A/B testing (neural vs formules), PAC Learning et configuration.' },
-  { id: 'synthese', title: '6. Synthèse', content: 'État global des modèles en langage clair : diagnostic AERORISQ, KPIs et classement du benchmark.' },
-  { id: 'orchestrateur', title: '7. Diagnostic multi-agents', content: 'Exécute une chaîne de 5 agents déterministes (risque, conformité OACI, modèles ML, inspecteur virtuel, pertinence décisionnelle), fusionne les votes pondérés par la confiance et journalise chaque étape. Le verdict est enregistré localement pour l\'aérodrome courant.' },
-  { id: 'jumeau', title: '8. Jumeau numérique interactif', content: 'Miroir interactif du système de risque : ajustez les critères C1-C5, l\'horizon, les facteurs aggravants, le cygne noir et les actions correctives. Le score projeté, les 4 scénarios, la trajectoire et la propagation des écarts dans le graphe se recalculent en temps réel. Lecture seule — aucune donnée n\'est modifiée.' },
-  { id: 'shap', title: '9. Explicabilité SHAP-like', content: 'Attribution additive exacte du score : chaque critère C1-C5 reçoit une contribution φ = poids × (valeur − référence)/100, et baseline + Σφ = score (exactitude vérifiée). Trois références possibles : neutre (50), moyenne historique ou mois précédent. Aucune approximation.' },
-  { id: 'oaci', title: '10. Graphe unifié OACI → risques → écarts', content: 'Chaîne causale Critère OACI (C1-C5) → Barrière Bow-Tie → Domaine → Écart. Sélectionnez un critère pour tracer la propagation de son impact (décroissante le long du graphe), et consultez par domaine l\'efficacité des barrières et les écarts rattachés.' },
-  { id: 'simulation', title: '11. Simulation de surveillance', content: 'Simule une surveillance sur un aérodrome à partir de ses données réelles : profil C1-C5, écarts ouverts, historique et items du Kit Inspecteur. Choisissez l\'aérodrome, le type de surveillance et la portée, puis lancez la simulation pour obtenir une checklist pré-remplie SA/NS/NA/NV avec confiance, les écarts probables et le rapport PDF (gabarit ANACIM existant). Lecture seule — aucune donnée créée ni modifiée.' },
-  { id: 'apprentissage', title: '12. Apprentissage AERORISQ', content: 'Précision réelle des prédictions (MAE, biais), dataset (écarts résolus, preuves transcrites, rapports, échantillons ML, prédictions suivies/vérifiées), derniers passages des 6 boucles et modèle local Ollama. Lecture seule.' },
+  { id: 'agents', title: '3. Agents IA', content: 'Pertinence des agents décisionnels AERORISQ et maturité par capacité de l\'inspecteur virtuel.' },
+  { id: 'aerorisq', title: '4. AERORISQ', content: 'Simulation, entraînement, A/B testing (neural vs formules), PAC Learning et configuration.' },
+  { id: 'apprentissage', title: '5. Apprentissage AERORISQ', content: 'Précision réelle des prédictions (MAE, biais), dataset (écarts résolus, preuves transcrites, rapports, échantillons ML, prédictions suivies/vérifiées), derniers passages des 6 boucles et modèle local Ollama. Lecture seule.' },
 ]

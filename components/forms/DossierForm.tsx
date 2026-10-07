@@ -190,7 +190,7 @@ export const DossierForm = memo(function DossierForm({
 
         const createdDossier = await addDossier({
           titre,
-          reference: dossierUtils.genererReference(new Date().getFullYear(), Math.floor(Math.random() * 9999)),
+          reference: dossierUtils.prochaineReference((useAppStore.getState().dossiers || []).map(d => d.reference)),
           categorie: categorie as any,
           aerodrome_id: aerodromeIdState || undefined,
           demandeur: demandeurNom ? { nom: demandeurNom, organisation: demandeurOrg, contact: demandeurContact } : undefined,

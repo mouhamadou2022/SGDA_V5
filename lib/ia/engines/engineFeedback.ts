@@ -63,6 +63,22 @@ class EngineFeedbackStore {
     this.syncCallback = callback
   }
 
+  /** Vrai une fois l'historique chargé (IDB) — les lectures avant sont ignorées. */
+  estPret(): boolean {
+    return this.ready
+  }
+
+  /**
+   * Dernier feedback d'enrichissement d'aérodrome pour un champ aux mêmes
+   * coordonnées (même site ≈ mêmes vraies valeurs). Sert à pré-appliquer
+   * les corrections de l'utilisateur et à marquer les suggestions rejetées.
+   * Pur via trouverDernierFeedbackEnrichissement (testé).
+   */
+  dernierFeedbackEnrichissement(champ: string, coordonnees: string): EngineFeedbackRecord | null {
+    if (!this.ready) return null
+    return trouverDernierFeedbackEnrichissement(this.feedbacks, champ, coordonnees)
+  }
+
   private persist(): void {
     // Conserve TOUT l'historique : getStats().totalFeedbacks et getConfiance()
     // reflètent l'apprentissage cumulé. Un slice(-200) ici écrase la clé à chaque
@@ -181,3 +197,23 @@ class EngineFeedbackStore {
 }
 
 export const engineFeedback = new EngineFeedbackStore()
+
+/**
+ * Dernier feedback d'enrichissement (engineType aerodromeEnrichment) pour un
+ * champ aux mêmes coordonnées — pur et testé. Les écritures utilisent les
+ * clés donnees.champ / donnees.coordonnees (formulaire aérodrome).
+ */
+export function trouverDernierFeedbackEnrichissement(
+  feedbacks: EngineFeedbackRecord[],
+  champ: string,
+  coordonnees: string,
+): EngineFeedbackRecord | null {
+  if (!champ || !coordonnees) return null
+  for (let i = feedbacks.length - 1; i >= 0; i--) {
+    const f = feedbacks[i]
+    if (f.engineType !== 'aerodromeEnrichment') continue
+    const d = (f.decision?.donnees || {}) as Record<string, unknown>
+    if (d.champ === champ && d.coordonnees === coordonnees) return f
+  }
+  return null
+}

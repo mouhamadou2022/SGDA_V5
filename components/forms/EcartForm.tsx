@@ -224,7 +224,7 @@ export const EcartForm = memo(function EcartForm({
     if (!validerFormulaire()) { setActiveTab('informations'); return }
     setIsSubmitting(true)
     try {
-      const reference = formData.reference || plansActionsUtils.genererReference(new Date().getFullYear(), (ecarts?.length || 0) + 1)
+      const reference = formData.reference || plansActionsUtils.prochaineReference((ecarts || []).map(e => e.reference))
       const data = {
         aerodrome_id: aerodromeId,
         surveillance_id: surveillanceId,

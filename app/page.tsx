@@ -1006,6 +1006,7 @@ export default function Page() {
   const user = useAppStore(s => s.user)
   const setUser = useAppStore(s => s.setUser)
   const activeModule = useAppStore(s => s.activeModule)
+  const setActiveModule = useAppStore(s => s.setActiveModule)
   const activeDepartement = useAppStore(s => s.activeDepartement)
   const [showWelcome, setShowWelcome] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -1327,6 +1328,11 @@ export default function Page() {
     return <LoginForm onLoginSuccess={(u) => {
       setUser(u)
       if (typeof window !== 'undefined') localStorage.setItem('sgda_user', JSON.stringify(u))
+      // Exploitants : toujours atterrir sur le tableau de bord à la connexion
+      // (sans ça, le dernier module visité persisté rouvre l'ancienne page).
+      if (['dg_operator', 'focal_operator', 'staff_operator'].includes(u.role)) {
+        setActiveModule('dashboard')
+      }
       setShowWelcome(true)
       handleSyncData(u)
     }} />

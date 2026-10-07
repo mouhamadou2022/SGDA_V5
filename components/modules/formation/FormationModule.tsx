@@ -368,7 +368,7 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
     e.preventDefault();
     if (!canManage) return;
     const nouvelleFormation: Omit<Formation, 'id' | 'created_at'> = {
-      reference: formationUtils.genererReference(new Date().getFullYear(), listeFormations.length + 1),
+      reference: formationUtils.prochaineReference(listeFormations.map(f => f.reference)),
       titre: formData.titre,
       type: formData.type,
       domaines: formData.domaines,
@@ -385,9 +385,14 @@ export default function FormationModule({ userRole }: FormationModuleProps) {
       created_by: user?.id || ''
     };
     try {
-      await addFormation(nouvelleFormation)
+      const creationOk = await addFormation(nouvelleFormation)
+      if (!creationOk) {
+        setFormErrors(prev => ({ ...prev, submit: "Enregistrement impossible — vérifiez votre connexion puis réessayez (vos données sont conservées)." }))
+        return
+      }
     } catch (err) {
       console.error('Erreur création formation:', err)
+      return
     }
     setShowForm(false);
     resetForm();

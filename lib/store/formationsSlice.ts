@@ -192,7 +192,7 @@ export interface FormationSlice {
   competencesVersion: number
   setFormations: (formations: Formation[]) => void
   setInspecteurs: (inspecteurs: Inspecteur[]) => void
-  addFormation: (formation: Omit<Formation, 'id' | 'created_at'>) => Promise<void>
+  addFormation: (formation: Omit<Formation, 'id' | 'created_at'>) => Promise<boolean>
   updateFormation: (id: string, data: Partial<Formation>) => Promise<void>
   deleteFormation: (id: string) => Promise<void>
   addInspecteur: (inspecteur: Omit<Inspecteur, 'id' | 'created_at'>) => Promise<void>
@@ -232,10 +232,11 @@ export const createFormationsSlice: StateCreator<AppStore, [], [], FormationSlic
     const result = await datastore.createFormation(payload as any)
     if (result.error) {
       console.error('Erreur création formation Supabase:', result.error)
-      return
+      return false
     }
     set((state) => ({ formations: [...state.formations, result.data as Formation] }))
     get().incrementerVersion()
+    return true
   },
 
   updateFormation: async (id, data) => {

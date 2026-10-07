@@ -275,6 +275,22 @@ export const getRiskLevel = (score: number): keyof typeof RISK_LEVELS => {
   return 'CRITIQUE';
 };
 
+/**
+ * Classe badge canonique d'un niveau de risque (vocabulaire minuscule des
+ * entités : critique/eleve/moyen/faible) — même convention que les cartes
+ * Écart/Événement et le profil de risque : critique→danger, eleve→eleve,
+ * moyen→moyen, faible→success. Source unique (pure, testée).
+ */
+export function badgeNiveauRisque(niveau: string | null | undefined): string {
+  switch ((niveau || '').toLowerCase()) {
+    case 'critique': return 'badge danger';
+    case 'eleve': return 'badge eleve';
+    case 'moyen': return 'badge moyen';
+    case 'faible': return 'badge success';
+    default: return 'badge neutral';
+  }
+}
+
 // Fonction de conversion score_global → NiveauRisque (vocabulaire frequency.ts / OACI 5×5 4-niveaux)
 // Centralisée pour éviter les mappings inline incohérents dans computeOptimalFrequency et ailleurs.
 // Seuils alignés sur RISK_LEVELS : <30 critique, <60 eleve, <80 moyen, ≥80 faible.

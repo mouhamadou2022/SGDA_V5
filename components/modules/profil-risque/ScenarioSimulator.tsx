@@ -9,6 +9,11 @@ import { FlaskConical, RotateCcw, Save, Trash2, ChevronDown, ChevronUp, Sparkles
 import { useAppStore, ProfilRisque } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { calculateGlobalScore } from '@/lib/risque'
+import { normaliserPoidsSomme100 } from '@/lib/ia/weightController'
+import {
+  niveauAvecSeuils, validerSeuils, calculerImpacts,
+  SEUILS_NIVEAUX_DEFAUT, type SeuilsNiveaux, type NiveauCle, type ImpactCalibrage,
+} from '@/lib/simulationCalibrage'
 import { usePoidsAppris } from './usePoidsAppris'
 interface Props { profil: ProfilRisque; aerodromeName: string; userRole: string }
 
@@ -50,6 +55,19 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const [scenarios, setScenarios] = useState<ScenarioSauvegarde[]>(() => { try { const r = localStorage.getItem(`${STORAGE_KEY}_${profil.aerodrome_id}`); return r ? JSON.parse(r) : [] } catch { return [] } })
   const [listOpen, setListOpen] = useState(false)
 
+  // ── Mode Règles (calibrage, admin uniquement) : mêmes cartes, pas d'onglet ──
+  const peutCalibrer = userRole === 'admin'
+  const [mode, setMode] = useState<'valeurs' | 'regles'>('valeurs')
+  // Poids simulés bruts (null = suivre les poids du moteur) ; seuils simulés.
+  const [poidsSim, setPoidsSim] = useState<Record<string, number> | null>(null)
+  const [seuilsSim, setSeuilsSim] = useState<SeuilsNiveaux>({ ...SEUILS_NIVEAUX_DEFAUT })
+  const [nomBrouillon, setNomBrouillon] = useState('')
+  const [brouillons, setBrouillons] = useState<Array<{ id: string; nom: string; poids: Record<string, number> | null; seuils: SeuilsNiveaux; createdAt: string }>>(() => {
+    try { const r = localStorage.getItem('sgda_calibrage_brouillons'); return r ? JSON.parse(r) : [] } catch { return [] }
+  })
+  const tousProfils = useAppStore(s => s.profilsRisque)
+  const tousAerodromes = useAppStore(s => s.aerodromes)
+
   const simValues = { c1: simC1, c2: simC2, c3: simC3, c4: simC4, c5: simC5 }
   const setters: Record<string, (v: number) => void> = { c1: setSimC1, c2: setSimC2, c3: setSimC3, c4: setSimC4, c5: setSimC5 }
 
@@ -68,6 +86,52 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
   const scoreSimule = useMemo(() => calculateGlobalScore(simValues, poidsBruts), [simC1, simC2, simC3, simC4, simC5, poidsBruts])
   const deltaScore = scoreSimule - profil.score_global
   const isReadOnly = userRole === 'guest'
+
+  // ── Dérivés du mode Règles (après poidsBruts : dépendance d'ordre) ──
+  const poidsBrutsSim = poidsSim ?? poidsBruts
+  const poidsNormSim = useMemo(() => normaliserPoidsSomme100(poidsBrutsSim), [poidsBrutsSim])
+  const erreurSeuils = validerSeuils(seuilsSim)
+  const scoreCalibre = useMemo(
+    () => calculateGlobalScore({ c1: profil.c1, c2: profil.c2, c3: profil.c3, c4: profil.c4, c5: profil.c5 }, poidsNormSim),
+    [profil, poidsNormSim],
+  )
+  const niveauCalibre: NiveauCle | null = erreurSeuils ? null : niveauAvecSeuils(scoreCalibre, seuilsSim)
+  const impacts: { total: number; changements: ImpactCalibrage[] } = useMemo(() => {
+    if (erreurSeuils) return { total: 0, changements: [] };
+    const liste = Object.values(tousProfils || {}) as Array<{ aerodrome_id: string; score_global?: number; c1?: number; c2?: number; c3?: number; c4?: number; c5?: number; niveau?: string }>;
+    return calculerImpacts(liste, poidsNormSim, seuilsSim);
+  }, [tousProfils, poidsNormSim, seuilsSim, erreurSeuils]);
+  const nomAero = (id: string): string => {
+    const a = (tousAerodromes || []).find((x: { id: string; code_oaci?: string; nom?: string }) => x.id === id);
+    return a?.code_oaci || a?.nom || id;
+  };
+  const NIVEAU_CALIBRE_TXT: Record<NiveauCle, { label: string; badge: string; color: string }> = {
+    FAIBLE: { label: 'Excellent', badge: 'badge success', color: 'text-success' },
+    MOYEN: { label: 'Bon', badge: 'badge primary', color: 'text-primary' },
+    ELEVE: { label: 'Modéré', badge: 'badge warning', color: 'text-warning' },
+    CRITIQUE: { label: 'Critique', badge: 'badge danger', color: 'text-danger' },
+  };
+  const reinitialiserCalibrage = () => { setPoidsSim(null); setSeuilsSim({ ...SEUILS_NIVEAUX_DEFAUT }); };
+  const sauvegarderBrouillon = () => {
+    const n = nomBrouillon.trim();
+    if (!n || brouillons.length >= 5) return;
+    const b = { id: Date.now().toString(), nom: n, poids: poidsSim, seuils: seuilsSim, createdAt: new Date().toISOString() };
+    const u = [b, ...brouillons];
+    setBrouillons(u);
+    try { localStorage.setItem('sgda_calibrage_brouillons', JSON.stringify(u)) } catch { /* stockage indisponible */ }
+    setNomBrouillon('');
+  };
+  const chargerBrouillon = (id: string) => {
+    const b = brouillons.find(x => x.id === id);
+    if (!b) return;
+    setPoidsSim(b.poids);
+    setSeuilsSim({ ...b.seuils });
+  };
+  const supprimerBrouillon = (id: string) => {
+    const u = brouillons.filter(x => x.id !== id);
+    setBrouillons(u);
+    try { localStorage.setItem('sgda_calibrage_brouillons', JSON.stringify(u)) } catch { /* stockage indisponible */ }
+  };
 
   const suggestions = useMemo((): SmartSuggestion[] => {
     const list: SmartSuggestion[] = []
@@ -126,10 +190,112 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-role-primary-soft flex items-center justify-center"><FlaskConical className="w-5 h-5 text-role-primary" /></div><div><h2 className="text-base font-semibold text-foreground">Simulateur de Scénarios</h2><p className="text-xs text-foreground">{aerodromeName} — Analyse what-if</p></div><span className={`badge text-[10px] ${poidsPersonnalises ? 'primary' : 'neutral'}`} title={poidsPersonnalises ? 'Mêmes poids que le moteur de score (appris par l’IA)' : 'Poids par défaut — identiques au moteur faute d’apprentissage'}>{poidsPersonnalises ? 'Poids IA appris' : 'Poids par défaut'}</span></div>
-        <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions AERORISQ</button>
+        <div className="flex items-center gap-2">
+          {peutCalibrer && (
+            <div className="inline-flex rounded-lg border border-border overflow-hidden" role="tablist" aria-label="Mode du simulateur">
+              {(['valeurs', 'regles'] as const).map(m => (
+                <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${mode === m ? 'bg-role-primary text-white' : 'text-muted-foreground hover:text-foreground'}`}>
+                  {m === 'valeurs' ? 'Valeurs C1-C5' : 'Règles (poids/seuils)'}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode === 'valeurs' && <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn btn-secondary btn-sm gap-2"><Lightbulb className="w-4 h-4" />Suggestions AERORISQ</button>}
+        </div>
       </div>
 
-      {showSuggestions && (
+      {mode === 'regles' && peutCalibrer ? (
+      <div className="space-y-6 animate-fade-up">
+        <Card variant="role" title="Règles simulées — rien n’est appliqué" subtitle="Poids C1-C5 et seuils de niveaux modifiables pour voir l’impact. La C1 reste dérivée du PAOE (méthodologie non modifiable ici)." icon={<FlaskConical className="w-4 h-4 text-role-primary" />} size="sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-foreground">Poids C1-C5 (normalisés à 100{poidsSim ? '' : ' — suit le moteur'})</p>
+              {CRITERES.map(c => {
+                const brut = typeof poidsBrutsSim[c.key] === 'number' ? poidsBrutsSim[c.key] : 20;
+                const effectif = (poidsNormSim as Record<string, number>)[c.key] ?? brut;
+                return (
+                  <div key={c.key} className="space-y-0.5 py-1 border-b border-border last:border-b-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">{c.label}</span>
+                      <span className="text-xs text-foreground">{brut} → <strong>{effectif}%</strong></span>
+                    </div>
+                    <input type="range" value={brut} onChange={e => setPoidsSim({ ...poidsBrutsSim, [c.key]: Number(e.target.value) })} min={5} max={60} step={1} className="w-full h-1.5 rounded-lg cursor-pointer accent-role-primary" disabled={isReadOnly} aria-label={`Poids ${c.label}`} />
+                  </div>
+                );
+              })}
+              <button onClick={reinitialiserCalibrage} className="btn btn-ghost btn-sm text-xs gap-1"><RotateCcw className="w-3 h-3" />Reprendre les poids du moteur</button>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-foreground">Seuils de niveaux (ordre strict requis)</p>
+              {(['faible', 'moyen', 'eleve'] as const).map(k => (
+                <label key={k} className="flex items-center justify-between gap-3 text-xs text-foreground">
+                  <span>Score ≥ {k === 'faible' ? 'FAIBLE' : k === 'moyen' ? 'MOYEN' : 'ÉLEVÉ'}</span>
+                  <input type="number" value={seuilsSim[k]} onChange={e => setSeuilsSim({ ...seuilsSim, [k]: Number(e.target.value) })} min={0} max={100} step={5} className="form-input w-24 py-1 px-2 text-sm text-right" disabled={isReadOnly} aria-label={`Seuil ${k}`} />
+                </label>
+              ))}
+              {erreurSeuils
+                ? <p className="text-xs text-danger font-medium">{erreurSeuils} — impact suspendu.</p>
+                : <p className="text-xs text-muted-foreground">Défauts moteur : 80 / 60 / 30.</p>}
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs font-semibold text-foreground mb-1">Impact — {aerodromeName}</p>
+                {niveauCalibre && (
+                  <p className="text-sm text-foreground">
+                    <span className={`text-2xl font-bold ${NIVEAU_CALIBRE_TXT[niveauCalibre].color}`}>{scoreCalibre}</span>
+                    <span className="text-xs">/100</span>{' '}
+                    <span className={`badge text-xs ${NIVEAU_CALIBRE_TXT[niveauCalibre].badge}`}>{NIVEAU_CALIBRE_TXT[niveauCalibre].label}</span>{' '}
+                    <span className="text-xs text-muted-foreground">(actuel : {profil.score_global})</span>
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card variant="role" title={`Impact multi-aérodromes — ${impacts.changements.length} changement(s) sur ${impacts.total}`} icon={<TrendingUp className="w-4 h-4 text-role-primary" />} size="sm">
+          {erreurSeuils ? (
+            <p className="text-sm text-foreground">Corrigez les seuils pour voir l’impact.</p>
+          ) : impacts.changements.length === 0 ? (
+            <p className="text-sm text-foreground">Aucun changement de niveau avec ce jeu de règles.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {impacts.changements.slice(0, 20).map(ch => (
+                <div key={ch.aerodrome_id} className="flex items-center justify-between gap-3 p-2 rounded-lg border border-border">
+                  <span className="text-sm font-medium text-foreground truncate">{nomAero(ch.aerodrome_id)}</span>
+                  <span className="text-xs text-foreground shrink-0">
+                    {ch.avantScore} ({ch.avantNiveau}) → <strong>{ch.apresScore} ({ch.apresNiveau})</strong>{' '}
+                    <span className={ch.delta >= 0 ? 'text-success' : 'text-danger'}>{ch.delta >= 0 ? '+' : ''}{ch.delta}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {!isReadOnly && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="text" value={nomBrouillon} onChange={e => setNomBrouillon(e.target.value)} placeholder="Nom du brouillon (ex : C2 renforcé)" maxLength={60} className="form-input flex-1 min-w-40 py-1.5 px-3 text-sm" aria-label="Nom du brouillon" />
+            <button onClick={sauvegarderBrouillon} disabled={!nomBrouillon.trim() || brouillons.length >= 5} className="btn btn-sm gap-2 bg-role-primary hover:bg-role-primary/80 text-white disabled:opacity-40"><Save className="w-4 h-4" />Enregistrer le brouillon</button>
+            <span className="text-[11px] text-muted-foreground">Local uniquement — rien n’est appliqué au moteur.</span>
+          </div>
+        )}
+        {brouillons.length > 0 && (
+          <Card variant="role" title={`Brouillons (${brouillons.length}/5)`} size="sm">
+            <div className="space-y-2">
+              {brouillons.map(b => (
+                <div key={b.id} className="flex items-center justify-between gap-3 p-2 rounded-lg border border-border hover:border-role-primary/30 cursor-pointer" onClick={() => chargerBrouillon(b.id)}>
+                  <div><p className="text-sm font-medium text-foreground">{b.nom}</p><p className="text-[11px] text-muted-foreground">{new Date(b.createdAt).toLocaleDateString('fr-FR')}</p></div>
+                  <button onClick={e => { e.stopPropagation(); supprimerBrouillon(b.id); }} className="btn btn-ghost btn-sm p-0 w-8 h-8 text-foreground hover:text-danger" aria-label={`Supprimer ${b.nom}`}><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+      ) : (
+      <>
+
+      {mode === 'valeurs' && showSuggestions && (
         <Card heading={<div className="flex items-center justify-between w-full"><div className="flex items-center gap-2"><Brain className="w-4 h-4 text-role-primary" />Scénarios AERORISQ</div><button className="btn btn-ghost btn-sm p-0 w-7 h-7" onClick={() => setShowSuggestions(false)}><X className="w-4 h-4" /></button></div>}>
           <div className="space-y-2">
             {suggestions.map(s => (
@@ -232,6 +398,8 @@ export default function ScenarioSimulator({ profil, aerodromeName, userRole }: P
 
       {/* Save dialog */}
       {dialogOpen && createPortal(<div className="modal-overlay" onClick={() => setDialogOpen(false)}><div className="modal-content max-w-md" onClick={e => e.stopPropagation()}><div className="bg-background rounded-2xl overflow-hidden border-t-4 border-t-role-primary"><div className="modal-header border-b border-border"><div className="modal-title flex items-center gap-2"><Save className="w-4 h-4 text-role-primary" />Nommer le scénario</div><button className="modal-close" onClick={() => setDialogOpen(false)}><X className="w-4 h-4" /></button></div><div className="modal-body space-y-4 py-4"><input type="text" value={nomScenario} onChange={e => { setNomScenario(e.target.value); setSaveError('') }} placeholder="Ex: Amélioration C2 et C4" className="form-input w-full" maxLength={60} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave() }} />{saveError && <p className="text-xs text-danger">{saveError}</p>}<div className={`rounded-xl p-3 ${scoreSimule >= 80 ? 'bg-success-soft' : scoreSimule >= 60 ? 'bg-primary-soft' : scoreSimule >= 30 ? 'bg-warning-soft' : 'bg-danger-soft'}`}><div className="flex justify-between"><span className="text-xs text-foreground">Score</span><span className={`text-lg font-bold ${getNiveauColor(scoreSimule)}`}>{scoreSimule}/100</span></div><div className="grid grid-cols-5 gap-1 mt-2 text-center text-xs font-mono text-foreground"><span>C1:{simC1}</span><span>C2:{simC2}</span><span>C3:{simC3}</span><span>C4:{simC4}</span><span>C5:{simC5}</span></div></div></div><div className="modal-footer border-t border-border gap-2"><button className="btn btn-secondary btn-sm" onClick={() => setDialogOpen(false)}>Annuler</button><button className="btn btn-sm bg-role-primary hover:bg-role-primary/80 text-white" onClick={handleSave}>Sauvegarder</button></div></div></div></div>, document.body)}
+      </>
+      )}
     </div>
   )
 }

@@ -30,6 +30,46 @@ export interface ChecklistFeedbackReport {
   processedAt: string
 }
 
+export interface ItemResultat {
+  resultat: string
+  domaine: string
+}
+
+/**
+ * Repli quand la mémoire checklist est vide : aplati la hiérarchie signée
+ * (persistée sur la surveillance à la signature) en couples
+ * {resultat, domaine}. Sans ce repli, aucune signature n'alimentait le
+ * dataset ML (mémoire vide en prod → échantillon jamais créé).
+ * Pur et testé.
+ */
+export function extraireItemsHierarchie(
+  hierarchie: Array<{
+    nom?: string
+    items?: Array<{ resultat?: string }>
+    sousDomaines?: Array<{
+      nom?: string
+      items?: Array<{ resultat?: string }>
+      sousSousDomaines?: Array<{ items?: Array<{ resultat?: string }> }>
+    }>
+  }> | null | undefined,
+): ItemResultat[] {
+  const items: ItemResultat[] = []
+  for (const d of hierarchie || []) {
+    const nom = d.nom || 'Sans domaine'
+    const ramasser = (liste?: Array<{ resultat?: string }>) => {
+      for (const i of liste || []) {
+        if (i.resultat) items.push({ resultat: i.resultat, domaine: nom })
+      }
+    }
+    ramasser(d.items)
+    for (const sd of d.sousDomaines || []) {
+      ramasser(sd.items)
+      for (const ssd of sd.sousSousDomaines || []) ramasser(ssd.items)
+    }
+  }
+  return items
+}
+
 export class ChecklistFeedbackEngine {
   private initialized = false
   private processedSurveillances = new Set<string>()
@@ -133,7 +173,7 @@ export class ChecklistFeedbackEngine {
 
     // 2) Persistance centrale (Supabase ml_samples) — best-effort, pour l'entraînement serveur futur
     try {
-      await fetch('/api/ia/ml-samples', {
+      const res = await fetch('/api/ia/ml-samples', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -152,9 +192,15 @@ export class ChecklistFeedbackEngine {
             qualite_redactionnelle: qualiteRedaction,
           },
         }),
-      }).catch(() => { /* réseau indisponible — l'échantillon reste en local */ })
+      }).catch((e) => {
+        console.warn(`[ChecklistFeedback] POST ml-samples impossible (${surveillanceId}) :`, (e as Error)?.message || e)
+        return null
+      })
+      if (res && !res.ok) {
+        console.warn(`[ChecklistFeedback] ml-samples HTTP ${res.status} (${surveillanceId}) — l'échantillon reste en local`)
+      }
     } catch {
-      // fetch indisponible — idem
+      console.warn(`[ChecklistFeedback] ml-samples indisponible (${surveillanceId}) — l'échantillon reste en local`)
     }
   }
 
@@ -176,18 +222,29 @@ export class ChecklistFeedbackEngine {
       r => r.dernier_resultat && r.historique_resultats.some(h => h.surveillance_id === surveillanceId)
     )
 
-    if (records.length === 0) {
-      console.log(`[ChecklistFeedback] Aucun résultat pour surveillance ${surveillanceId}`)
-      return null
-    }
-
-    const items = records.map(r => ({
+    let items: ItemResultat[] = records.map(r => ({
       resultat: r.dernier_resultat || 'NV',
       domaine: r.domaine,
     }))
 
+    // Repli hiérarchie : la mémoire peut être vide (pas encore synchronisée)
+    // alors que la checklist signée est persistée sur la surveillance.
+    if (items.length === 0) {
+      const hierarchie = (surveillance as { checklist_hierarchy?: unknown }).checklist_hierarchy
+        || (store.checklistHierarchy as Record<string, unknown> | undefined)?.[surveillanceId]
+      items = extraireItemsHierarchie(hierarchie as Parameters<typeof extraireItemsHierarchie>[0])
+      if (items.length > 0) {
+        console.log(`[ChecklistFeedback] ${surveillanceId}: mémoire vide — repli hiérarchie (${items.length} items)`)
+      }
+    }
+
+    if (items.length === 0) {
+      console.log(`[ChecklistFeedback] Aucun résultat pour surveillance ${surveillanceId}`)
+      return null
+    }
+
     const domaines = computeDomaineConformite(items)
-    console.log(`[ChecklistFeedback] ${surveillanceId}: ${records.length} items, ${domaines.length} domaines`)
+    console.log(`[ChecklistFeedback] ${surveillanceId}: ${items.length} items, ${domaines.length} domaines`)
 
     // ── Échantillon ML labellisé terrain ──
     // Profil AVANT prise en compte des résultats (prédiction de la formule)

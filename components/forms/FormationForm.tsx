@@ -181,8 +181,12 @@ export function FormationForm({ mode, formationId, onSuccess, onCancel, userRole
       };
 
       if (mode === 'creation') {
-        const reference = formationUtils.genererReference(new Date().getFullYear(), (formations?.length || 0) + 1);
-        await addFormation({ ...formationData, reference, created_at: new Date().toISOString(), created_by: user?.id || '' } as any);
+        const reference = formationUtils.prochaineReference((formations || []).map(f => f.reference));
+        const creationOk = await addFormation({ ...formationData, reference, created_at: new Date().toISOString(), created_by: user?.id || '' } as any);
+        if (!creationOk) {
+          alert("Enregistrement impossible — vérifiez votre connexion puis réessayez (vos données sont conservées).");
+          return;
+        }
       } else {
         await updateFormation(formationId!, formationData as any);
       }

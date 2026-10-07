@@ -135,12 +135,43 @@ export function getGraviteRisqueClasse(gravite: string): string {
   return getGraviteRisque(gravite).classe
 }
 
+/**
+ * Prochaine référence libre EVT-AAAA-NNN : max(NNN)+1 sur les références
+ * existantes de l'année (pur, testé). Ne JAMAIS utiliser length+1 : les
+ * suppressions, les listes filtrées (ex. portail exploitant par aérodrome)
+ * et les caches partiels produisent des doublons qui violent la contrainte
+ * unique evenements_securite_reference_key.
+ */
+export function prochaineReferenceEvenement(
+  references: Array<string | undefined | null>,
+  annee = new Date().getFullYear(),
+): string {
+  const prefixe = `EVT-${annee}-`
+  let max = 0
+  for (const ref of references) {
+    if (typeof ref !== 'string' || !ref.startsWith(prefixe)) continue
+    const n = Number(ref.slice(prefixe.length))
+    if (Number.isInteger(n) && n > max) max = n
+  }
+  return `EVT-${annee}-${String(max + 1).padStart(3, '0')}`
+}
+
 export const evenementUtils = {
   /**
    * Génère une référence unique pour un événement
    */
   genererReference(annee: number, compteur: number): string {
     return `EVT-${annee}-${String(compteur).padStart(3, '0')}`
+  },
+
+  /**
+   * Prochaine référence libre pour l'année : max(NNN)+1 sur les références
+   * existantes (jamais length+1 — suppressions, caches partiels/filtrés et
+   * créations parallèles faussaient le compteur et violaient la contrainte
+   * unique evenements_securite_reference_key).
+   */
+  prochaineReference(references: Array<string | undefined | null>, annee = new Date().getFullYear()): string {
+    return prochaineReferenceEvenement(references, annee)
   },
 
   /**

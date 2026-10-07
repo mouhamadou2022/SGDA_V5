@@ -203,9 +203,19 @@ export function EvenementForm({
       if (mode === 'declaration') {
         const data: Omit<EvenementSecurite, 'id' | 'created_at' | 'updated_at'> = {
           ...baseData,
-          reference: `EVT-${new Date().getFullYear()}-${String((evenements?.length || 0) + 1).padStart(3, '0')}`,
+          reference: evenementUtils.prochaineReference((evenements || []).map(e => e.reference)),
         }
-        await addEvenement(data)
+        const creationOk = await addEvenement(data)
+        if (!creationOk) {
+          addNotification({
+            user_id: userId,
+            type: 'danger',
+            title: 'Événement non enregistré',
+            message: `La déclaration n'a pas pu être enregistrée. Vérifiez votre connexion puis réessayez.`,
+            canal: 'in_app'
+          })
+          return
+        }
         addNotification({
           user_id: userId,
           type: gravite === 'critique' ? 'danger' : 'warning',

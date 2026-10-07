@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCard } from './AlertCard';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
 import {
   Users,
@@ -25,6 +24,8 @@ import {
 import { useAppStore, type ApiKey } from '@/lib/store';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FormShell } from '@/components/ui/FormShell';
+import { FileTraitement } from './FileTraitement';
+import { fileTraitementAdmin, alertesTriage, avecAlertes } from '@/lib/triage';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
 
@@ -34,8 +35,66 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
   const aerodromes = useAppStore(s => s.aerodromes);
   const ecarts = useAppStore(s => s.ecarts);
   const surveillances = useAppStore(s => s.surveillances);
+  const evenements = useAppStore(s => s.evenements);
+  const messages = useAppStore(s => s.messages);
+  const profilsRisque = useAppStore(s => s.profilsRisque);
+  const recalibrationAlerts = useAppStore(s => s.recalibrationAlerts);
   const codesAcces = useAppStore(s => s.codesAcces);
   const setActiveModule = useAppStore(s => s.setActiveModule);
+  const envoyerMessage = useAppStore(s => s.envoyerMessage);
+  const addNotification = useAppStore(s => s.addNotification);
+  // Relance automatique : l'admin orchestre (message + notification à
+  // l'inspecteur concerné) — il n'évalue jamais lui-même.
+  const handleRelancer = (item: { relance?: { destinataireId: string; objet: string; corps: string } }) => {
+    const relance = item.relance;
+    if (!relance) return;
+    if (!relance.destinataireId) {
+      addNotification({
+        user_id: user?.id || '', type: 'warning', title: 'Relance impossible',
+        message: 'Aucun inspecteur référent sur ce dossier — désignez-le dans le module écarts.',
+        canal: 'in_app',
+      });
+      return;
+    }
+    const nomAdmin = `${user?.prenom || ''} ${user?.nom || ''}`.trim() || 'Administration SGDA';
+    envoyerMessage({
+      canal: 'interne',
+      from_id: user?.id || 'admin',
+      from_nom: nomAdmin,
+      from_role: user?.role || 'admin',
+      to_id: relance.destinataireId,
+      subject: relance.objet,
+      body: relance.corps,
+    });
+    addNotification({
+      user_id: relance.destinataireId, type: 'warning', title: relance.objet,
+      message: `Rappel de ${nomAdmin} — voir messagerie.`,
+      canal: 'in_app',
+    });
+    addNotification({
+      user_id: user?.id || '', type: 'info', title: 'Rappel envoyé',
+      message: `${relance.objet} — envoyé à l'inspecteur.`,
+      canal: 'in_app',
+    });
+  };
+
+  // File de traitement dérivée (lib/triage.ts) : éléments unitaires + alertes
+  // agrégées fusionnés dans UNE seule carte (remplace l'AlertCard séparée).
+  const fileTraitement = useMemo(() => {
+    const nomsAerodromes: Record<string, string> = {};
+    for (const a of aerodromes || []) {
+      if (a.id) nomsAerodromes[a.id] = a.code_oaci || a.nom || a.id;
+    }
+    const entrees = {
+      evenements, ecarts, surveillances, messages, nomsAerodromes,
+      profils: Object.values(profilsRisque || {}),
+      mlRecalEnAttente: (recalibrationAlerts || []).filter(a => !a.traitee).length,
+    };
+    return avecAlertes(
+      fileTraitementAdmin(entrees, user?.id || ''),
+      alertesTriage(entrees, 'admin', { userId: user?.id || '' }),
+    );
+  }, [evenements, ecarts, surveillances, messages, aerodromes, profilsRisque, recalibrationAlerts, user]);
 
   const stats = useMemo(() => {
     const totalUsers = utilisateurs?.length || 0;
@@ -67,10 +126,15 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
         description={`Vue administrateur — ${stats.totalAerodromes} aérodromes, ${stats.totalUsers} utilisateurs, ${stats.ecartsOuverts} écarts ouverts`}
       />
 
-      {/* ==================== ALERTES ==================== */}
-      <AlertCard
-        role={user?.role || 'admin'}
-        onAction={(action) => setActiveModule?.(action)}
+      {/* ==================== À TRAITER (file + alertes fusionnées, non masquable) ==================== */}
+      <FileTraitement
+        titre="À traiter"
+        sousTitre="Ce qui attend une action admin — par urgence"
+        items={fileTraitement.items}
+        compteurs={fileTraitement.compteurs}
+        onOuvrir={(module) => setActiveModule?.(module)}
+        onRelancer={handleRelancer}
+        labelsCompteurs={{ aValider: 'En attente inspecteurs' }}
       />
 
       {/* ==================== KPIs ==================== */}

@@ -9,6 +9,7 @@ import type { AppStore, Ecart } from '../store'
 import * as datastore from '../datastore'
 import { storeEvents } from './eventBus'
 import { calculerDelaisEcart } from '../flux'
+import { plansActionsUtils } from '../plansActionsUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Types (source unique — réexportés par lib/store.ts)
@@ -91,7 +92,7 @@ export interface EvenementSlice {
   currentEvenement: EvenementSecurite | null
   setEvenements: (evenements: EvenementSecurite[]) => void
   setCurrentEvenement: (evenement: EvenementSecurite | null) => void
-  addEvenement: (evenement: Omit<EvenementSecurite, 'id' | 'created_at' | 'updated_at'>) => Promise<void>
+  addEvenement: (evenement: Omit<EvenementSecurite, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>
   updateEvenement: (id: string, data: Partial<EvenementSecurite>) => Promise<void>
   deleteEvenement: (id: string) => void
   assignerInspecteur: (evenementId: string, inspecteurId: string) => void
@@ -149,7 +150,7 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
     } catch (error) {
       console.error('Erreur création événement Supabase, rollback:', error)
       set((state) => ({ evenements: state.evenements.filter(e => e.id !== id) }))
-      return
+      return false
     }
     storeEvents.emit('risque:recalcul-demande', { aerodrome_id: newEvent.aerodrome_id })
     import('@/lib/risque/bayesian').then(({ updatePriorAfterIncident }) => {
@@ -159,6 +160,7 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
       const bayesianGravite = graviteMap[newEvent.gravite] ?? 'mineur'
       updatePriorAfterIncident(0.3, bayesianGravite)
     }).catch(() => {})
+    return true
   },
 
   updateEvenement: async (id, data) => {
@@ -271,7 +273,7 @@ export const createEvenementsSlice: StateCreator<AppStore, [], [], EvenementSlic
       aerodrome_id: ecartData.aerodrome_id || '',
       surveillance_id: ecartData.surveillance_id || '',
       domaine: ecartData.domaine || 'SGS',
-       reference: ecartData.reference || `${new Date().getFullYear()}-EVT-${String(get().ecarts.length + 1).padStart(2, '0')}`,
+       reference: ecartData.reference || plansActionsUtils.prochaineReference(get().ecarts.map(e => e.reference)),
       ref_reglementaire: ecartData.ref_reglementaire || '',
       libelle: ecartData.libelle || '',
       niveau_risque: ecartData.niveau_risque || 'moyen',

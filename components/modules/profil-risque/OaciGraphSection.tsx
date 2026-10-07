@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react'
 import { Network, Shield, CheckCircle2, AlertTriangle, Layers, GitBranch } from 'lucide-react'
 import { type Ecart, type EvenementSecurite, type ProfilRisque, type Surveillance, useAppStore } from '@/lib/store'
+import { badgeNiveauRisque } from '@/lib/risque'
 import { Card } from '@/components/ui/card'
 import { construireGrapheOaci, calculerImpactCritere, libelleNoeud, type CleCritereOaci } from '@/lib/ia/oaciGraph'
 
@@ -20,10 +21,6 @@ interface Props {
 }
 
 const CRITERES: CleCritereOaci[] = ['c1', 'c2', 'c3', 'c4', 'c5']
-
-const BADGE: Record<string, string> = {
-  critique: 'danger', eleve: 'warning', moyen: 'primary', faible: 'success',
-}
 
 const TYPE_LABEL: Record<string, string> = {
   critere: 'Critère', domaine: 'Domaine', barriere: 'Barrière', ecart: 'Écart',
@@ -45,13 +42,19 @@ export default function OaciGraphSection({ profil, ecarts, surveillances, evenem
 
   const domaines = graphe.noeuds.filter(n => n.type === 'domaine') as Extract<typeof graphe.noeuds[number], { type: 'domaine' }>[]
   const ecartsParDomaine = new Map<string, Extract<typeof graphe.noeuds[number], { type: 'ecart' }>[]>()
+  // Libellés humains par nœud (jamais d'UUID brut : référence métier sinon repli).
+  const libellesNoeuds = new Map<string, string>()
   graphe.noeuds.forEach(n => {
     if (n.type === 'ecart') {
+      libellesNoeuds.set(n.id, n.reference || libelleNoeud(n.id))
       const list = ecartsParDomaine.get(n.domaine ?? '') ?? []
       list.push(n)
       ecartsParDomaine.set(n.domaine ?? '', list)
+    } else {
+      libellesNoeuds.set(n.id, libelleNoeud(n.id))
     }
   })
+  const libelleNoeudAffichable = (id: string): string => libellesNoeuds.get(id) || libelleNoeud(id)
 
   return (
     <Card icon={<Network className="h-4 w-4 text-role-primary" />} title="Graphe unifié OACI → risques → écarts" badge={
@@ -85,7 +88,7 @@ export default function OaciGraphSection({ profil, ecarts, surveillances, evenem
                   onClick={() => setSelected(actif ? null : cle)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${actif ? 'border-role-primary bg-role-primary-soft' : 'border-border hover:border-role-primary/40'}`}
                 >
-                  <span className={`badge text-[10px] ${BADGE[n.force]}`}>{cle.toUpperCase()}</span>
+                  <span className={`badge text-[10px] ${badgeNiveauRisque(n.force)}`}>{cle.toUpperCase()}</span>
                   <span className="text-foreground font-medium">{n.valeur}</span>
                   <span className="text-muted-foreground">poids {n.poids}%</span>
                 </button>
@@ -103,7 +106,7 @@ export default function OaciGraphSection({ profil, ecarts, surveillances, evenem
                   {impact.map(i => (
                     <div key={i.id} className="flex items-center gap-2 text-xs">
                       <span className={`badge text-[10px] ${i.type === 'domaine' ? 'primary' : i.type === 'ecart' ? 'danger' : i.type === 'barriere' ? 'warning' : 'neutral'}`}>{TYPE_LABEL[i.type]}</span>
-                      <span className="text-foreground truncate">{libelleNoeud(i.id)}</span>
+                      <span className="text-foreground truncate">{libelleNoeudAffichable(i.id)}</span>
                       <div className="progress h-1 flex-1"><div className="progress-bar" style={{ width: `${i.impact * 100}%` }} /></div>
                       <span className="text-muted-foreground font-mono w-9 text-right">{Math.round(i.impact * 100)}%</span>
                     </div>
@@ -132,7 +135,7 @@ export default function OaciGraphSection({ profil, ecarts, surveillances, evenem
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium text-foreground">{d.code}</span>
                       <div className="flex items-center gap-2">
-                        <span className={`badge text-[10px] ${BADGE[d.niveauRisque]}`}>risque {d.niveauRisque}</span>
+                        <span className={`badge text-[10px] ${badgeNiveauRisque(d.niveauRisque)}`}>risque {d.niveauRisque}</span>
                         <span className="text-[10px] text-muted-foreground">prob. résiduelle {d.probabiliteResiduelle}%</span>
                       </div>
                     </div>
@@ -150,7 +153,7 @@ export default function OaciGraphSection({ profil, ecarts, surveillances, evenem
                       <div className="mt-2 pt-2 border-t border-border flex flex-wrap gap-1.5">
                         <span className="text-[10px] text-muted-foreground mr-1">Écarts :</span>
                         {ecartsDom.map(e => (
-                          <span key={e.id} className={`badge text-[10px] ${BADGE[e.niveau] ?? 'neutral'}`}>{e.ecartId} {e.statut}</span>
+                          <span key={e.id} className={`badge text-[10px] ${badgeNiveauRisque(e.niveau)}`}>{e.reference || e.ecartId} {e.statut}</span>
                         ))}
                       </div>
                     )}

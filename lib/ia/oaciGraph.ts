@@ -17,7 +17,7 @@ export type NoeudOaci =
   | { id: string; type: 'critere'; cle: CleCritereOaci; label: string; valeur: number; poids: number; force: 'critique' | 'eleve' | 'moyen' | 'faible' }
   | { id: string; type: 'domaine'; code: string; niveauRisque: string; probabiliteResiduelle: number; nbEcarts: number }
   | { id: string; type: 'barriere'; idBar: string; nom: string; typeBar: 'preventive' | 'corrective'; efficacite: number; domaine: string; cle: CleCritereOaci }
-  | { id: string; type: 'ecart'; ecartId: string; niveau: string; domaine: string | null; statut: string }
+  | { id: string; type: 'ecart'; ecartId: string; reference: string; niveau: string; domaine: string | null; statut: string }
 
 export type TypeAreteOaci = 'pilote' | 'porte' | 'rattache' | 'charge'
 
@@ -128,7 +128,7 @@ export function construireGrapheOaci(params: {
     // Écarts rattachés au domaine ; les critiques relèvent de la charge C4
     for (const e of ecartsDom) {
       const ecartId = `ecart_${e.id}`
-      ajouter({ id: ecartId, type: 'ecart', ecartId: e.id, niveau: e.niveau_risque, domaine: e.domaine, statut: e.statut })
+      ajouter({ id: ecartId, type: 'ecart', ecartId: e.id, reference: e.reference || '', niveau: e.niveau_risque, domaine: e.domaine, statut: e.statut })
       aretes.push({ source: domaineId, cible: ecartId, type: 'rattache' })
       if (e.niveau_risque === 'critique') {
         aretes.push({ source: 'critere_c4', cible: ecartId, type: 'charge' })

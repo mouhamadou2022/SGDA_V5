@@ -37,7 +37,7 @@ export function CompteurPoidsAprentissage() {
         <div className="h-full rounded bg-role-primary transition-all" style={{ width: `${pct}%` }} />
       </div>
       <p className="text-muted-foreground mt-1">
-        Chaque checklist signée alimente le dataset. Au seuil, les poids appris remplacent les règles ±3 (champion/challenger, audit conservé).
+        Chaque checklist signée alimente le dataset (échantillon local + central). Au seuil, les poids appris prennent le relais des règles ±3 (ajustements journalisés).
       </p>
     </div>
   )

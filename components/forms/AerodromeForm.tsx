@@ -11,7 +11,7 @@ import {
   Mail, User, Plus, Compass, ArrowUp, Gauge, Search as SearchIcon,
   Loader2, Sparkles, HelpCircle, Target, Building2, Flag,
   ChevronRight, ChevronLeft, Check, CheckCircle2, Brain, Info, Clock,
-  Radio, Fuel, Zap, CalendarDays, Navigation, Waves, Weight, Flame, Shield, Hash,
+  Radio, Fuel, Zap, CalendarDays, Navigation, Waves, Weight, Flame, Shield, Hash, Undo2, Pencil,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAppStore, Aerodrome, type TypeEntiteAerodrome } from '@/lib/store';
@@ -98,9 +98,66 @@ function getStep5Fields(te: TypeEntiteAerodrome): string[] {
 
 // ── Types IA ─────────────────────────────────────────────────────────────────
 interface AiSuggestionField {
-  value: string | number;
+  value: string | number | boolean;
   confidence: number;
-  source: 'training' | 'websearch' | 'nominatim' | 'aip_asecna' | 'estimate' | '';
+  source: 'training' | 'websearch' | 'nominatim' | 'aip_asecna' | 'estimate' | 'memoire' | 'saisie' | '';
+}
+
+/** Libellé d'affichage des sources (dont 'memoire' = correction passée réappliquée). */
+const SOURCE_LABELS: Record<string, string> = {
+  training: 'Training', websearch: 'Web', nominatim: 'Nominatim',
+  aip_asecna: 'eAIP ASECNA', estimate: 'Estimation', memoire: 'Mémoire (vos corrections)',
+  saisie: 'Saisie (vous)',
+};
+
+/** Correspondance suggestion IA → champ du formulaire (utilisée à l'acceptation ET à la fusion). */
+export const CARTE_SUGGESTION_FORMULAIRE: Record<string, string> = {
+  nom:'nom', code_oaci:'code_oaci', region:'region', type:'type', type_entite:'type_entite',
+  categorie_sslia:'categorie_sslia',
+  exploitant_nom:'exploitant_nom', exploitant_adresse:'exploitant_adresse', exploitant_telephone:'exploitant_telephone',
+  altitude:'altitude', horaires:'horaires',
+  piste_longueur:'piste_principale.longueur', piste_largeur:'piste_principale.largeur',
+  piste_orientation:'piste_principale.orientation', piste_revetement:'piste_principale.revetement',
+  piste_pcr:'piste_principale.pcr', piste_code_reference:'piste_principale.code_reference',
+  piste_avion_reference:'piste_principale.avion_reference', piste_type_approche:'piste_principale.type_approche',
+  heli_valeur_d:'helistation.valeur_d', heli_cap:'helistation.cap',
+  heli_altitude_ft:'helistation.altitude_ft', heli_mtom:'helistation.mtom',
+  heli_moyen_com:'helistation.moyen_com', heli_frequence_com:'helistation.frequence_com',
+  heli_indicatif_rt:'helistation.indicatif_rt', heli_identification:'helistation.identification',
+  heli_marque_distinctive:'helistation.marque_distinctive', heli_type_installation:'helistation.type_installation',
+  heli_hauteur_maximale_ft:'helistation.hauteur_maximale_ft', heli_hauteur_obstacle_ft:'helistation.hauteur_obstacle_ft',
+  heli_avitaillement:'helistation.avitaillement', heli_gpu:'helistation.gpu',
+  heli_equipement_incendie:'helistation.equipement_incendie', heli_date_revision:'helistation.date_revision',
+  maturite_sgs_suggered:'maturite_sgs',
+  statut:'statut', statut_sgs:'statut_sgs', statut_certification:'statut_certification',
+};
+
+/** Vrai si une valeur de formulaire est réellement renseignée (0 / '' / vide = non). */
+export function estValeurSaisie(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'number') return Number.isFinite(v) && v !== 0;
+  if (typeof v === 'string') return v.trim() !== '';
+  if (Array.isArray(v)) return v.length > 0;
+  return false;
+}
+
+/** Les valeurs déjà saisies par l'utilisateur priment sur l'IA (déterministe,
+ *  pas seulement une consigne prompt que le LLM peut ignorer) : recopie à
+ *  l'identique, confiance 100, source 'saisie'. Retourne les clés protégées
+ *  (à exclure des ajustements par retours passés). */
+export function fusionnerValeursSaisies(suggestion: AiSuggestion, lire: (chemin: string) => unknown): Set<string> {
+  const proteges = new Set<string>();
+  Object.entries(CARTE_SUGGESTION_FORMULAIRE).forEach(([cleSuggestion, cheminForm]) => {
+    const saisie = lire(cheminForm);
+    if (!estValeurSaisie(saisie)) return;
+    const champ = (suggestion as unknown as Record<string, AiSuggestionField>)[cleSuggestion];
+    if (!champ || typeof champ !== 'object' || !('value' in champ)) return;
+    champ.value = saisie as string | number;
+    champ.confidence = 100;
+    champ.source = 'saisie';
+    proteges.add(cleSuggestion);
+  });
+  return proteges;
 }
 
 interface AiSuggestion {
@@ -225,6 +282,43 @@ function emptyField(): AiSuggestionField {
 // ne répète pas les mêmes erreurs sur les mêmes champs/coordonnées.
 type SuggestionFeedback = { field: string; predicted: unknown; actual: unknown; action: 'accept' | 'modify' | 'reject' };
 
+/** L'IA apprend : réapplique les retours utilisateur passés (mêmes coordonnées
+ *  = même site = mêmes vraies valeurs) aux nouvelles suggestions.
+ *  - champ rejeté par le passé → confiance plafonnée à 30 (badge vigilance) ;
+ *  - champ corrigé par le passé → correction réappliquée, confiance 90,
+ *    source 'memoire' (visible dans l'en-tête du panneau).
+ *  Best-effort : moteur pas prêt → suggestions inchangées. */
+function appliquerRetoursEnrichissement(suggestion: AiSuggestion, coordonnees: string, ignorer?: Set<string>): { appliques: number; ajustes: number } {
+  if (!engineFeedback.estPret()) return { appliques: 0, ajustes: 0 };
+  let appliques = 0;
+  let ajustes = 0;
+  Object.entries(suggestion).forEach(([key, val]) => {
+    if (ignorer?.has(key)) return; // Valeur saisie par l'utilisateur : intouchable
+    if (!val || typeof val !== 'object' || !('value' in val)) return;
+    const v = val as AiSuggestionField;
+    if (v.value === '' || v.value === undefined || v.value === null) return;
+    const dernier = engineFeedback.dernierFeedbackEnrichissement(key, coordonnees);
+    if (!dernier) return;
+    if (dernier.vote === 'non_pertinent') {
+      // Déjà rejeté ici : on affiche quand même, mais en vigilance.
+      if (v.confidence > 30) { v.confidence = 30; ajustes++; }
+    } else if (dernier.vote === 'partiellement' && dernier.correctionUtilisateur) {
+      try {
+        const correction = JSON.parse(dernier.correctionUtilisateur) as string | number | boolean;
+        if (correction !== '' && correction !== undefined && correction !== null && correction !== v.value) {
+          v.value = correction;
+          v.confidence = Math.max(v.confidence, 90);
+          v.source = 'memoire';
+          appliques++;
+        }
+      } catch {
+        // correction illisible : ignorer, garder la suggestion fraîche
+      }
+    }
+  });
+  return { appliques, ajustes };
+}
+
 function enregistrerFeedbackEnrichissement(opts: { aerodromeId?: string; coordonnees: string; field: string; predicted: unknown; actual: unknown; action: 'accept' | 'modify' | 'reject' }) {
   try {
     engineFeedback.enregistrer({
@@ -255,17 +349,54 @@ export function detectCodeOaci(texte: string): string {
   return m ? m[0].toUpperCase() : '';
 }
 
-async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>, nomSaisi?: string, regionHint?: string): Promise<AiSuggestion | null | 'LLM_UNAVAILABLE'> {
+/** Diagnostic d'un enrichissement vide : dit QUELLE jambe a échoué. */
+export interface DiagnosticEnrichissement {
+  nomCherche: string;
+  oaciDetecte: string;
+  ourAirportsTrouve: boolean;
+  regionTrouvee: boolean;
+  llmRepondu: boolean;
+  jsonExploitable: boolean;
+  erreurTechnique?: string;
+}
+
+export type ResultatEnrichissement =
+  | { statut: 'ok'; suggestion: AiSuggestion }
+  | { statut: 'llm_indisponible' }
+  | { statut: 'vide'; diagnostic: DiagnosticEnrichissement };
+
+/** Lignes d'affichage du diagnostic (pur, testé) : [ok?, libellé]. */
+export function lignesDiagnosticEnrichissement(d: DiagnosticEnrichissement): Array<{ ok: boolean; label: string }> {
+  return [
+    { ok: d.oaciDetecte !== '' || d.nomCherche !== '', label: `Recherche : « ${d.nomCherche || '—'} »${d.oaciDetecte ? ` (${d.oaciDetecte})` : ' (aucun code OACI détecté)'}` },
+    { ok: d.ourAirportsTrouve, label: d.ourAirportsTrouve ? 'OurAirports : site trouvé' : 'OurAirports : aucun site trouvé' },
+    { ok: d.regionTrouvee, label: d.regionTrouvee ? 'Localisation : région identifiée' : 'Localisation : région non identifiée (reverse geocoding injoignable ou zone inconnue)' },
+    { ok: d.llmRepondu, label: d.llmRepondu ? 'IA : réponse reçue' : 'IA : injoignable (vérifiez Ollama ou la clé cloud, puis réessayez)' },
+    { ok: d.jsonExploitable, label: d.jsonExploitable ? 'Réponse IA : exploitable' : 'Réponse IA : inexploitable (texte sans données — précisez nom et code OACI, puis réessayez)' },
+  ];
+}
+
+async function suggestAerodrome(nom: string, lat: number, lon: number, existingData?: Record<string, unknown>, nomSaisi?: string, regionHint?: string): Promise<ResultatEnrichissement> {
   try {
     // Nom : priorité au nom saisi dans le formulaire, sinon au reverse geocoding
     const searchName = (nomSaisi || nom || '').trim();
     // Code OACI : détecté dans le nom saisi puis dans le nom du reverse geocoding
     const codeOACI = detectCodeOaci(searchName + ' ' + nom);
+    const diagnostic: DiagnosticEnrichissement = {
+      nomCherche: searchName || nom || '',
+      oaciDetecte: '',
+      ourAirportsTrouve: false,
+      regionTrouvee: !!regionHint,
+      llmRepondu: false,
+      jsonExploitable: false,
+    };
 
     // Recherches sur le net : OurAirports (code OACI → nom → plus proche des coordonnées)
     let ourAirports = codeOACI ? await searchOurAirportsByCode(codeOACI) : null;
     if (!ourAirports) ourAirports = await searchOurAirportsByName(searchName || nom, lat, lon);
     const oaciFinal = codeOACI || ourAirports?.oaci || '';
+    diagnostic.oaciDetecte = oaciFinal;
+    diagnostic.ourAirportsTrouve = !!ourAirports;
     // Wikipédia : résumé de l'article fourni à l'IA
     const wiki = await searchWikipedia(searchName || ourAirports?.nom || oaciFinal);
     // Recherche web autorités (ASECNA eAIP, ANACIM…) : l'IA cherche elle-même
@@ -293,7 +424,7 @@ Code OACI : ${oaciFinal || 'non détecté'}
 ${ourAirports ? `Données OurAirports trouvées (source web) : ${JSON.stringify(ourAirports)}` : 'Aucune donnée OurAirports trouvée'}
 ${wiki ? `Résumé Wikipédia trouvé (source web) : ${wiki}` : 'Aucun article Wikipédia trouvé'}
 ${blocWeb || 'Aucune source autorité (ASECNA/ANACIM) trouvée en ligne'}
-${existingData ? `Données déjà renseignées (ne suggère que les champs vides ou à améliorer) :\n${JSON.stringify(existingData, null, 2)}` : ''}
+${existingData ? `RÈGLE ABSOLUE — champs déjà renseignés par l'utilisateur (ex. altitude) : recopie chaque valeur à l'identique avec confidence=100, ne propose JAMAIS une valeur différente :\n${JSON.stringify(existingData, null, 2)}` : ''}
 
 Retourne UNIQUEMENT un objet JSON valide, sans texte avant ni après.
 Pour chaque champ, estime ta confiance (0-100) :
@@ -357,14 +488,21 @@ Ne mets JAMAIS de valeur pour un champ qui ne correspond pas au type_entite.`;
 
     const aiResult = await assistantAgent.chat({ message: prompt, contexte: { module: 'aerodrome-enrichissement' }, userRole: 'inspector' });
     // Détecter si le LLM n'est pas disponible (fallback local)
-    if (assistantAgent.isLLMAvailable() === false || aiResult.message.includes('GROQ_API_KEY')) return 'LLM_UNAVAILABLE'
+    if (assistantAgent.isLLMAvailable() === false || aiResult.message.includes('GROQ_API_KEY')) return { statut: 'llm_indisponible' };
+    diagnostic.llmRepondu = aiResult.message.trim().length > 0;
     const parsed = safeParseJSON<Record<string, any>>(aiResult.message);
-    if (parsed) return enrichFromSources(buildSuggestionFromParsed(parsed), ourAirports, regionHint || '');
+    if (parsed) {
+      diagnostic.jsonExploitable = true;
+      return { statut: 'ok', suggestion: enrichFromSources(buildSuggestionFromParsed(parsed), ourAirports, regionHint || '') };
+    }
     // Fallback déterministe : le LLM n'a rien renvoyé mais on a des sources web fiables
-    if (ourAirports || regionHint) return suggestionFromSources(ourAirports, regionHint || '');
-    return null;
-  } catch {
-    return null;
+    if (ourAirports || regionHint) {
+      diagnostic.jsonExploitable = true;
+      return { statut: 'ok', suggestion: suggestionFromSources(ourAirports, regionHint || '') };
+    }
+    return { statut: 'vide', diagnostic };
+  } catch (err) {
+    return { statut: 'vide', diagnostic: { nomCherche: '', oaciDetecte: '', ourAirportsTrouve: false, regionTrouvee: false, llmRepondu: false, jsonExploitable: false, erreurTechnique: (err as Error)?.message || 'erreur réseau' } };
   }
 }
 
@@ -416,7 +554,7 @@ function buildSuggestionFromParsed(parsed: Record<string, any>): AiSuggestion {
 
 // Complète les champs restés vides avec les sources web (OurAirports, région Nominatim)
 function enrichFromSources(s: AiSuggestion, oa: OurAirportsRecord | null, regionHint: string): AiSuggestion {
-  const fill = (field: keyof AiSuggestion, value: string | number, confidence: number, source: AiSuggestionField['source']) => {
+  const fill = (field: keyof AiSuggestion, value: string | number | boolean, confidence: number, source: AiSuggestionField['source']) => {
     const cur = s[field] as AiSuggestionField | undefined;
     if (!cur || cur.value === '' || cur.value === undefined || cur.value === null) {
       (s as any)[field] = { value, confidence, source };
@@ -775,7 +913,7 @@ function getConfidenceBadge(confidence: number) {
   return { cls: 'badge neutral', label: '?' };
 }
 
-function formatFieldValue(key: string, value: string | number): string {
+function formatFieldValue(key: string, value: string | number | boolean): string {
   if (key === 'code_oaci') return String(value).toUpperCase();
   if (key === 'type') return value === 'international' ? 'International' : 'National';
   if (key === 'categorie_sslia') return `Catégorie ${value}`;
@@ -792,8 +930,82 @@ function formatFieldValue(key: string, value: string | number): string {
   return String(value);
 }
 
-function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, onFeedback }: {
-  field: SectionField; value: AiSuggestionField; onAccept: () => void; isAccepted: boolean; onFeedback?: (fb: SuggestionFeedback) => void;
+/** Nature du contrôle d'édition d'un champ suggéré (step 2) : mêmes formats
+ *  que le formulaire (listes = options du formulaire, nombres, booléens),
+ *  pour que la valeur corrigée s'intègre aux étapes suivantes sans ressaisie. */
+export type EditeurSaisie =
+  | { kind: 'texte' }
+  | { kind: 'nombre'; min?: number; max?: number; step?: number }
+  | { kind: 'liste'; options: Array<{ value: string; label: string }> }
+  | { kind: 'booleen' };
+
+const listeDe = (options: Array<{ value: string; label: string }>): EditeurSaisie => ({ kind: 'liste', options });
+
+/** Éditeur par clé de suggestion — source unique alignée sur les <select> du formulaire. */
+export function editeurPourChamp(key: string): EditeurSaisie {
+  switch (key) {
+    case 'region': return listeDe(REGIONS.map(r => ({ value: r, label: r })));
+    case 'type': return listeDe([{ value: 'international', label: 'International' }, { value: 'national', label: 'National' }]);
+    case 'type_entite': return listeDe(TYPE_ENTITE_OPTIONS.map(o => ({ value: o.value, label: o.label })));
+    case 'categorie_sslia': return listeDe(CATEGORIES_SSLIA.map(c => ({ value: c, label: `Catégorie ${c}` })));
+    case 'piste_revetement': return listeDe(REVETEMENTS.map(r => ({ value: r, label: r })));
+    case 'piste_type_approche': return listeDe([
+      { value: 'a_vue', label: 'À vue' }, { value: 'classique', label: 'Classique' },
+      { value: 'cat1', label: 'CAT I' }, { value: 'cat2', label: 'CAT II' },
+    ]);
+    case 'statut_sgs': return listeDe([
+      { value: 'complet', label: 'SGS complet' }, { value: 'simplifie', label: 'SGS simplifié' },
+      { value: 'non_applicable', label: 'Non applicable' },
+    ]);
+    case 'statut': return listeDe([
+      { value: 'brouillon', label: 'Brouillon' }, { value: 'actif', label: 'En service' },
+      { value: 'suspendu', label: 'Suspendu' }, { value: 'ferme', label: 'Fermé' },
+    ]);
+    case 'statut_certification': return listeDe([
+      { value: 'non_certifie', label: 'Non certifié' }, { value: 'certifie', label: 'Certifié' },
+      { value: 'non_homologue', label: 'Non homologué' }, { value: 'homologue', label: 'Homologué' },
+    ]);
+    case 'horaires': return listeDe([
+      { value: 'jour', label: 'Jour (08h - 19h)' }, { value: 'h24', label: 'H24' },
+    ]);
+    case 'heli_type_installation': return listeDe(
+      Object.entries(TYPE_INSTALLATION_LABELS).map(([value, label]) => ({ value, label: label as string })));
+    case 'heli_moyen_com': return listeDe(
+      Object.entries(MOYEN_COM_LABELS).map(([value, label]) => ({ value, label: label as string })));
+    case 'heli_avitaillement':
+    case 'heli_gpu': return { kind: 'booleen' };
+    case 'maturite_sgs_suggered': return listeDe(
+      MATURITE_SGS.map(n => ({ value: String(n.value), label: n.label })));
+    case 'piste_longueur':
+    case 'piste_largeur':
+    case 'piste_pcr':
+    case 'altitude': return { kind: 'nombre' };
+    case 'heli_valeur_d': return { kind: 'nombre', min: 0, step: 0.1 };
+    case 'heli_cap': return { kind: 'nombre', min: 0, max: 360, step: 1 };
+    case 'heli_altitude_ft':
+    case 'heli_hauteur_maximale_ft':
+    case 'heli_hauteur_obstacle_ft':
+    case 'heli_mtom': return { kind: 'nombre', min: 0 };
+    default: return { kind: 'texte' };
+  }
+}
+
+/** Parse la valeur éditée selon le type d'origine (pur, testé) : les nombres
+ *  restent des nombres, les booléens des booléens, les textes (dont
+ *  téléphones à zéro initial) restent des chaînes ; code OACI en majuscules. */
+export function normaliserValeurEditee(editValue: string, original: unknown, key: string): string | number | boolean {
+  const v = key === 'code_oaci' ? editValue.trim().toUpperCase() : editValue;
+  if (typeof original === 'boolean') return v === 'true';
+  if (typeof original === 'number') {
+    if (v.trim() === '') return v;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : v;
+  }
+  return v;
+}
+
+function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, isRejected, onReject, onUnreject, onFeedback }: {
+  field: SectionField; value: AiSuggestionField; onAccept: () => void; isAccepted: boolean; isRejected: boolean; onReject: () => void; onUnreject: () => void; onFeedback?: (fb: SuggestionFeedback) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -802,37 +1014,62 @@ function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, onFeedback }
   const isHigh = value?.confidence >= 80;
   const isLow = value?.confidence < 50 && hasValue;
   const displayVal = formatFieldValue(field.key, value.value);
+  const editeur = editeurPourChamp(field.key);
+  const horsReferentiel = editeur.kind === 'liste' && !editeur.options.some(o => o.value === String(value.value ?? ''));
 
   const handleEdit = () => {
-    setEditValue(String(value.value ?? ''));
+    const courant = String(value.value ?? '');
+    const spec = editeurPourChamp(field.key);
+    // Liste : si la valeur IA est hors référentiel, forcer un choix valide
+    // (l'ancienne valeur est rappelée sous le select, jamais réinjectée).
+    if (spec.kind === 'liste' && !spec.options.some(o => o.value === courant)) {
+      setEditValue('');
+    } else {
+      setEditValue(courant);
+    }
     setEditing(true);
   };
 
   const handleSave = () => {
     const original = value.value;
-    const changed = editValue !== String(original ?? '');
+    const nv = normaliserValeurEditee(editValue, original, field.key);
+    // Select sans choix : on referme sans rien toucher.
+    if (editValue === '' && editeurPourChamp(field.key).kind === 'liste' && original !== '') {
+      setEditing(false);
+      return;
+    }
+    const changed = nv !== original;
     if (changed) {
-      value.value = isNaN(Number(editValue)) ? editValue : Number(editValue);
+      value.value = nv;
       value.confidence = 100;
     }
     setEditing(false);
     onFeedback?.({ field: field.key, predicted: original, actual: value.value, action: changed ? 'modify' : 'accept' });
+    if (isRejected) onUnreject();
     onAccept();
   };
 
   const handleAcceptSimple = () => {
     onFeedback?.({ field: field.key, predicted: value.value, actual: value.value, action: 'accept' });
+    if (isRejected) onUnreject();
     onAccept();
+  };
+
+  const handleReject = () => {
+    onFeedback?.({ field: field.key, predicted: value.value, actual: null, action: 'reject' });
+    onReject();
   };
 
   return (
     <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 ${
+      isRejected ? 'border-danger/50 bg-danger/5 opacity-80' :
       isAccepted ? 'border-success bg-success/5' :
       isLow ? 'border-warning/40 bg-warning/5' :
       isHigh ? 'border-role-primary/20 bg-role-primary/5' :
       'border-border bg-background hover:border-role-primary/30'
     }`}>
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+        isRejected ? 'bg-danger/20 text-danger' :
         isAccepted ? 'bg-success text-white' :
         isLow ? 'bg-warning/20 text-warning' :
         'bg-role-primary-soft text-role-primary'
@@ -842,18 +1079,48 @@ function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, onFeedback }
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-0.5">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{field.label}</p>
-          {hasValue && (
+          {isRejected ? (
+            <span className="badge danger text-[9px] h-4 px-1.5 shrink-0">Rejeté</span>
+          ) : hasValue && (
             <span className={`badge text-[9px] h-4 px-1.5 shrink-0 ${badge.cls}`}>{badge.label}</span>
           )}
         </div>
         {editing ? (
-          <div className="flex gap-2">
-            <input type={field.key.startsWith('heli_')||field.key==='piste_longueur'||field.key==='piste_largeur'||field.key==='altitude'||field.key==='piste_pcr'||field.key==='maturite_sgs_suggered' ? 'number' : 'text'}
-              value={editValue} onChange={e=>setEditValue(e.target.value)}
-              className="form-input flex-1 py-1 px-2 text-sm bg-background border-border rounded-lg"
-              autoFocus onKeyDown={e=>e.key==='Enter'&&handleSave()}
-            />
-            <button onClick={handleSave} className="btn btn-primary btn-sm gap-1"><Check className="w-3 h-3"/>OK</button>
+          <div className="flex flex-col gap-1.5">
+            {horsReferentiel && (
+              <p className="text-[11px] text-warning">Valeur IA « {String(value.value)} » hors référentiel — choisissez une valeur valide :</p>
+            )}
+            <div className="flex gap-2">
+              {editeur.kind === 'liste' ? (
+                <select
+                  value={editValue} onChange={e=>setEditValue(e.target.value)}
+                  className="form-select flex-1 py-1 px-2 text-sm bg-background border-border rounded-lg"
+                  autoFocus onKeyDown={e=>e.key==='Enter'&&handleSave()}
+                >
+                  <option value="">Sélectionner une valeur valide</option>
+                  {editeur.options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : editeur.kind === 'booleen' ? (
+                <select
+                  value={editValue} onChange={e=>setEditValue(e.target.value)}
+                  className="form-select flex-1 py-1 px-2 text-sm bg-background border-border rounded-lg"
+                  autoFocus onKeyDown={e=>e.key==='Enter'&&handleSave()}
+                >
+                  <option value="true">Oui</option>
+                  <option value="false">Non</option>
+                </select>
+              ) : (
+                <input type={editeur.kind === 'nombre' ? 'number' : 'text'}
+                  min={editeur.kind === 'nombre' ? editeur.min : undefined}
+                  max={editeur.kind === 'nombre' ? editeur.max : undefined}
+                  step={editeur.kind === 'nombre' ? (editeur.step ?? 'any') : undefined}
+                  value={editValue} onChange={e=>setEditValue(e.target.value)}
+                  className="form-input flex-1 py-1 px-2 text-sm bg-background border-border rounded-lg"
+                  autoFocus onKeyDown={e=>e.key==='Enter'&&handleSave()}
+                />
+              )}
+              <button onClick={handleSave} disabled={editeur.kind === 'liste' && editValue === ''} className="btn btn-primary btn-sm gap-1 disabled:opacity-40"><Check className="w-3 h-3"/>OK</button>
+            </div>
           </div>
         ) : (
           <button onClick={handleEdit} className="text-left w-full">
@@ -865,19 +1132,45 @@ function AiSuggestionFieldRow({ field, value, onAccept, isAccepted, onFeedback }
           </button>
         )}
       </div>
-      <button onClick={editing ? handleSave : handleAcceptSimple}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 transition-all ${
-          isAccepted ? 'bg-success/10 text-success' : 'bg-role-primary/10 text-role-primary hover:bg-role-primary/20'
-        }`}>
-        {isAccepted ? <><Check className="w-3.5 h-3.5"/>Accepté</> : <><Plus className="w-3.5 h-3.5"/>{editing ? 'Valider' : 'Accepter'}</>}
-      </button>
+      <div className="flex flex-col items-stretch gap-1 shrink-0">
+        <button onClick={editing ? handleSave : handleAcceptSimple}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            isAccepted ? 'bg-success/10 text-success' : 'bg-role-primary/10 text-role-primary hover:bg-role-primary/20'
+          }`}>
+          {isAccepted ? <><Check className="w-3.5 h-3.5"/>Accepté</> : <><Plus className="w-3.5 h-3.5"/>{editing ? 'Valider' : 'Accepter'}</>}
+        </button>
+        {isRejected ? (
+          <button onClick={onUnreject}
+            className="flex items-center justify-center gap-1 px-3 py-1 rounded-lg text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
+            title="Annuler le rejet (la suggestion redevient modifiable)">
+            <Undo2 className="w-3 h-3"/>Annuler le rejet
+          </button>
+        ) : (
+          <>
+            {!editing && (
+              <button onClick={handleEdit}
+                className="flex items-center justify-center gap-1 px-3 py-1 rounded-lg text-[11px] font-medium text-role-primary/80 hover:text-role-primary hover:bg-role-primary/10 transition-all"
+                title="Modifier la valeur suggérée (la correction est reprise dans le formulaire et l'IA l'apprend)">
+                <Pencil className="w-3 h-3"/>Modifier
+              </button>
+            )}
+            {!isAccepted && (
+              <button onClick={handleReject}
+                className="flex items-center justify-center gap-1 px-3 py-1 rounded-lg text-[11px] font-medium text-danger/80 hover:text-danger hover:bg-danger/10 transition-all"
+                title="Rejeter cette suggestion (l'IA apprend de ce rejet)">
+                <X className="w-3 h-3"/>Rejeter
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, onAcceptField, onAcceptAll, onSkip, onToggle, onRetry, onFeedback }: {
-  suggestion: AiSuggestion|null; isLoading: boolean; llmError: string|null; acceptedFields: Set<string>;
-  onAcceptField:(f: string, v: string | number) => void; onAcceptAll:()=>void; onSkip:()=>void; onToggle:(f: string)=>void; onRetry?:()=>void;
+function AiSuggestionPanel({ suggestion, isLoading, llmError, diagnosticEchec, acceptedFields, rejectedFields, onAcceptField, onAcceptAll, onRejectAll, onRejectField, onUnrejectField, onSkip, onToggle, onRetry, onFeedback }: {
+  suggestion: AiSuggestion|null; isLoading: boolean; llmError: string|null; diagnosticEchec: DiagnosticEnrichissement|null; acceptedFields: Set<string>; rejectedFields: Set<string>;
+  onAcceptField:(f: string, v: string | number | boolean) => void; onAcceptAll:()=>void; onRejectAll:()=>void; onRejectField:(f: string, v: string | number | boolean) => void; onUnrejectField:(f: string) => void; onSkip:()=>void; onToggle:(f: string)=>void; onRetry?:()=>void;
   onFeedback?: (fb: SuggestionFeedback) => void;
 }) {
   if (isLoading) return (
@@ -900,6 +1193,19 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
     <div className="flex flex-col items-center justify-center py-20 gap-4 text-center text-muted-foreground">
       <MapPin className="w-14 h-14 opacity-20"/>
       <div><p className="font-medium text-foreground">Aucune suggestion AERORISQ</p><p className="text-sm mt-1">Aucune donnée trouvée (ni en ligne, ni dans la base). Vérifiez le nom, le code OACI ou les coordonnées, puis réessayez.</p></div>
+      {diagnosticEchec && (
+        <div className="w-full max-w-md rounded-xl border border-border bg-background p-3 text-left space-y-1">
+          {lignesDiagnosticEnrichissement(diagnosticEchec).map((l, i) => (
+            <p key={i} className="flex items-start gap-2 text-xs">
+              <span className={l.ok ? 'text-success font-bold' : 'text-danger font-bold'}>{l.ok ? '✓' : '✗'}</span>
+              <span className="text-foreground">{l.label}</span>
+            </p>
+          ))}
+          {diagnosticEchec.erreurTechnique && (
+            <p className="text-[11px] text-muted-foreground pt-1">Détail technique : {diagnosticEchec.erreurTechnique}</p>
+          )}
+        </div>
+      )}
       <div className="flex gap-2">
         {onRetry && <button onClick={onRetry} className="btn btn-primary mt-2 gap-2"><Sparkles className="w-4 h-4"/>Réessayer</button>}
         <button onClick={onSkip} className="btn btn-secondary mt-2 gap-2"><ChevronRight className="w-4 h-4"/>Continuer sans AERORISQ</button>
@@ -923,13 +1229,14 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
               Suggestions IA — {suggestion.nom?.value || suggestion.code_oaci?.value || 'Aérodrome'}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Sources : {[...new Set(Object.values(suggestion).filter((v): v is AiSuggestionField => v && typeof v === 'object' && 'source' in v).map(v => v.source).filter(Boolean))].join(', ') || 'Training'}
+              Sources : {[...new Set(Object.values(suggestion).filter((v): v is AiSuggestionField => v && typeof v === 'object' && 'source' in v).map(v => v.source).filter(Boolean))].map(s => SOURCE_LABELS[s] || s).join(', ') || 'Training'}
             </p>
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
           <button onClick={onAcceptAll} className="btn btn-primary btn-sm gap-1.5"><CheckCircle2 className="w-3.5 h-3.5"/>Tout accepter</button>
-          <button onClick={onSkip} className="btn btn-secondary btn-sm gap-1.5"><X className="w-3.5 h-3.5"/>Ignorer</button>
+          <button onClick={onRejectAll} className="btn btn-sm gap-1.5 border border-danger/40 text-danger hover:bg-danger/10" title="Rejeter toutes les suggestions restantes et continuer (l'IA apprend de ces rejets)"><X className="w-3.5 h-3.5"/>Tout rejeter</button>
+          <button onClick={onSkip} className="btn btn-secondary btn-sm gap-1.5"><ChevronRight className="w-3.5 h-3.5"/>Ignorer</button>
         </div>
       </div>
 
@@ -958,6 +1265,9 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, acceptedFields, on
                     field={f}
                     value={(suggestion as any)[f.key] as AiSuggestionField}
                     isAccepted={acceptedFields.has(f.key)}
+                    isRejected={rejectedFields.has(f.key)}
+                    onReject={() => onRejectField(f.key, (suggestion as any)[f.key]?.value)}
+                    onUnreject={() => onUnrejectField(f.key)}
                     onFeedback={onFeedback}
                     onAccept={() => { onToggle(f.key); onAcceptField(f.key, (suggestion as any)[f.key]?.value); }}
                   />
@@ -1043,6 +1353,10 @@ const aerodromeSchema = z.object({
 }).superRefine((data, ctx) => {
   if (data.type_entite !== 'helistation') {
     if (!data.code_oaci) ctx.addIssue({ code: 'custom', path: ['code_oaci'], message: 'Code OACI requis pour les aérodromes' });
+  } else if ((data.code_oaci || '').trim()) {
+    // Pas de code OACI pour une hélistation (réservé aux aérodromes et sites mixtes),
+    // y compris les fiches existantes : la valeur est nettoyée à la saisie et à la soumission.
+    ctx.addIssue({ code: 'custom', path: ['code_oaci'], message: 'Pas de code OACI pour une hélistation (aérodromes et sites mixtes uniquement)' });
   }
   if (data.statut_certification === 'certifie') {
     if (!data.certifie_le) ctx.addIssue({ code: 'custom', path: ['certifie_le'], message: 'Date de certification requise' });
@@ -1126,9 +1440,11 @@ export default function AerodromeForm({ aerodrome, onClose, onSuccess, userRole,
 
   // ── IA ───────────────────────────────────────────────────────────────────
   const [aiSuggestion,   setAiSuggestion]   = useState<AiSuggestion|null>(null);
+  const [diagnosticEchec, setDiagnosticEchec] = useState<DiagnosticEnrichissement|null>(null);
   const [isEnriching,    setIsEnriching]    = useState(false);
   const [llmError,       setLlmError]       = useState<string|null>(null);
   const [acceptedFields, setAcceptedFields] = useState<Set<string>>(new Set());
+const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
   const [iaValidated,    setIaValidated]    = useState(false);
   const enrichDebounce = useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
 
@@ -1204,6 +1520,15 @@ const watchAvitaillement = useWatch({ control: form.control, name: 'helistation.
 const watchGpu = useWatch({ control: form.control, name: 'helistation.gpu' }) as boolean;
 const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) as string[];
 
+// Pas de code OACI pour une hélistation : nettoyer dès le basculement de nature
+// (y compris fiches existantes chargées avec un code) pour ne jamais bloquer
+// la soumission sur un champ masqué.
+useEffect(() => {
+  if (watchTypeEntite === 'helistation' && (form.getValues('code_oaci') || '').trim()) {
+    form.setValue('code_oaci', undefined as any, { shouldDirty: true, shouldValidate: false });
+  }
+}, [watchTypeEntite, form]);
+
   // ── Logique métier ───────────────────────────────────────────────────────
   const aerodromesSimilaires = useMemo(() => {
   const type   = aerodrome?.type   ?? watchType;
@@ -1270,6 +1595,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       return
     }
     setLlmError(null)
+    setDiagnosticEchec(null)
     setIsEnriching(true);
     const mySeq = ++requestSeq.current
     try {
@@ -1304,14 +1630,42 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         regionHint,
       )
       if (mySeq !== requestSeq.current) return;
-      if (result === 'LLM_UNAVAILABLE') {
+      if (result.statut === 'llm_indisponible') {
         setLlmError('L\'assistant AERORISQ n\'est pas disponible — démarrez Ollama (ollama serve) ou configurez une clé cloud dans .env.local')
         setAiSuggestion(null)
+        setDiagnosticEchec(null)
+      } else if (result.statut === 'vide') {
+        // Échec diagnostiqué (et non muet) : le panneau affiche quelle jambe
+        // a échoué + Réessayer ; enrichedKey non marqué pour ne pas bloquer.
+        setAiSuggestion(null)
+        setDiagnosticEchec(result.diagnostic)
       } else {
-        setAiSuggestion(result as AiSuggestion | null)
+        setDiagnosticEchec(null)
+        const suggestion = result.suggestion
+        // Pas de code OACI pour une hélistation : l'IA n'en propose jamais
+        // (ni détection, ni suggestion, ni fusion vers le formulaire).
+        if ((form.getValues('type_entite') as string) === 'helistation' && suggestion.code_oaci) {
+          suggestion.code_oaci = emptyField();
+        }
+        // 1) Les valeurs déjà saisies (ex. altitude à l'étape Localisation)
+        //    priment sur l'IA : recopie déterministe, jamais écrasées.
+        const proteges = fusionnerValeursSaisies(suggestion, (c) => form.getValues(c as any));
+        // 2) L'IA apprend : les retours passés sur ce site ajustent le reste.
+        const coords = `${la.toFixed(4)},${lo.toFixed(4)}`;
+        const { appliques, ajustes } = appliquerRetoursEnrichissement(suggestion, coords, proteges);
+        if (appliques > 0 || ajustes > 0 || proteges.size > 0) {
+          suggestion.notes = [
+            suggestion.notes,
+            `${proteges.size > 0 ? `${proteges.size} valeur(s) déjà saisie(s) conservée(s) telle(s) quelle(s)` : ''}${proteges.size > 0 && (appliques > 0 || ajustes > 0) ? ' · ' : ''}${appliques > 0 ? `${appliques} valeur(s) reprise(s) de vos corrections précédentes` : ''}${appliques > 0 && ajustes > 0 ? ' · ' : ''}${ajustes > 0 ? `${ajustes} suggestion(s) déjà rejetée(s) ici — vigilance` : ''} — vérifiez avant d'accepter.`,
+          ].filter(Boolean).join(' ');
+        }
+        // Nouvelles suggestions → décisions repartent de zéro.
+        setAcceptedFields(new Set());
+        setRejectedFields(new Set());
+        setAiSuggestion(suggestion)
         // Ne marquer les coordonnées comme traitées qu'en cas de succès :
         // sinon le guard enrichedKey bloque « Réessayer » après un échec.
-        if (result) enrichedKey.current = key
+        enrichedKey.current = key
       }
     } catch {
       // Échec visible (plus jamais silencieux) : le panneau affiche la cause.
@@ -1337,28 +1691,8 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
   }, [watchType, form, watchStatutCertification]);
 
   // ── Handlers IA ──────────────────────────────────────────────────────────
-  const handleAcceptField = useCallback((field: string, value: string | number) => {
-    const map: Record<string, string> = {
-      nom:'nom', code_oaci:'code_oaci', region:'region', type:'type', type_entite:'type_entite',
-      categorie_sslia:'categorie_sslia',
-      exploitant_nom:'exploitant_nom', exploitant_adresse:'exploitant_adresse', exploitant_telephone:'exploitant_telephone',
-      altitude:'altitude', horaires:'horaires',
-      piste_longueur:'piste_principale.longueur', piste_largeur:'piste_principale.largeur',
-      piste_orientation:'piste_principale.orientation', piste_revetement:'piste_principale.revetement',
-      piste_pcr:'piste_principale.pcr', piste_code_reference:'piste_principale.code_reference',
-      piste_avion_reference:'piste_principale.avion_reference', piste_type_approche:'piste_principale.type_approche',
-      heli_valeur_d:'helistation.valeur_d', heli_cap:'helistation.cap',
-      heli_altitude_ft:'helistation.altitude_ft', heli_mtom:'helistation.mtom',
-      heli_moyen_com:'helistation.moyen_com', heli_frequence_com:'helistation.frequence_com',
-      heli_indicatif_rt:'helistation.indicatif_rt', heli_identification:'helistation.identification',
-      heli_marque_distinctive:'helistation.marque_distinctive', heli_type_installation:'helistation.type_installation',
-      heli_hauteur_maximale_ft:'helistation.hauteur_maximale_ft', heli_hauteur_obstacle_ft:'helistation.hauteur_obstacle_ft',
-      heli_avitaillement:'helistation.avitaillement', heli_gpu:'helistation.gpu',
-      heli_equipement_incendie:'helistation.equipement_incendie', heli_date_revision:'helistation.date_revision',
-      maturite_sgs_suggered:'maturite_sgs',
-      statut:'statut', statut_sgs:'statut_sgs', statut_certification:'statut_certification',
-    };
-    const formField = map[field];
+  const handleAcceptField = useCallback((field: string, value: string | number | boolean) => {
+    const formField = CARTE_SUGGESTION_FORMULAIRE[field];
     if (formField) {
       if (formField === 'aides_visuelles' && typeof value === 'string') {
         const arr = value.split(',').map(s => s.trim()).filter(Boolean);
@@ -1393,6 +1727,7 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     if (!aiSuggestion) return;
     const accepted: string[] = [];
     Object.entries(aiSuggestion).forEach(([key, val]) => {
+      if (rejectedFields.has(key)) return; // Rejet explicite : jamais ré-accepté en masse
       if (val && typeof val === 'object' && 'value' in val) {
         const v = val as AiSuggestionField;
         if (v.value !== '' && v.value !== undefined && v.value !== null) {
@@ -1414,7 +1749,72 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
     setCompletedSteps(prev => new Set([...prev, 2]));
     setCurrentStep(3);
     scrollToTop();
-  }, [aiSuggestion, handleAcceptField, aerodrome, coordonneesCourantes]);
+  }, [aiSuggestion, handleAcceptField, aerodrome, coordonneesCourantes, rejectedFields]);
+
+  const handleRejectField = useCallback((field: string, predicted: string | number | boolean) => {
+    enregistrerFeedbackEnrichissement({
+      aerodromeId: aerodrome?.id,
+      coordonnees: coordonneesCourantes,
+      field,
+      predicted,
+      actual: null,
+      action: 'reject',
+    });
+    setRejectedFields(prev => new Set([...prev, field]));
+    setAcceptedFields(prev => { const n = new Set(prev); n.delete(field); return n; });
+  }, [aerodrome, coordonneesCourantes]);
+
+  const handleUnrejectField = useCallback((field: string) => {
+    // Annulation locale uniquement : l'historique garde la trace du rejet initial.
+    setRejectedFields(prev => { const n = new Set(prev); n.delete(field); return n; });
+  }, []);
+
+  const avancerApresValidation = useCallback(() => {
+    setIaValidated(true);
+    setCompletedSteps(prev => new Set([...prev, 2]));
+    setCurrentStep(3);
+    scrollToTop();
+  }, []);
+
+  const enregistrerRejetsRestants = useCallback(() => {
+    // Rejets implicites : uniquement les champs non encore tranchés
+    // (ni acceptés/modifiés, ni explicitement rejetés) — jamais de signal
+    // contradictoire sur un champ déjà décidé.
+    if (!aiSuggestion) return;
+    Object.entries(aiSuggestion).forEach(([key, val]) => {
+      if (acceptedFields.has(key) || rejectedFields.has(key)) return;
+      if (val && typeof val === 'object' && 'value' in val) {
+        const v = val as AiSuggestionField;
+        if (v.value !== '' && v.value !== undefined && v.value !== null) {
+          enregistrerFeedbackEnrichissement({
+            aerodromeId: aerodrome?.id,
+            coordonnees: coordonneesCourantes,
+            field: key,
+            predicted: v.value,
+            actual: null,
+            action: 'reject',
+          });
+        }
+      }
+    });
+  }, [aiSuggestion, acceptedFields, rejectedFields, aerodrome, coordonneesCourantes]);
+
+  const handleRejectAll = useCallback(() => {
+    enregistrerRejetsRestants();
+    setRejectedFields(prev => {
+      const n = new Set(prev);
+      if (aiSuggestion) {
+        Object.entries(aiSuggestion).forEach(([key, val]) => {
+          if (val && typeof val === 'object' && 'value' in val) {
+            const v = val as AiSuggestionField;
+            if (v.value !== '' && v.value !== undefined && v.value !== null) n.add(key);
+          }
+        });
+      }
+      return n;
+    });
+    avancerApresValidation();
+  }, [enregistrerRejetsRestants, aiSuggestion, avancerApresValidation]);
 
   // ── Navigation ───────────────────────────────────────────────────────────
   const handleNext = async () => {
@@ -1436,24 +1836,8 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       setCompletedSteps(prev => new Set([...prev, 2]));
       setCurrentStep(3);
       scrollToTop();
-      // Feedback AERORISQ : les suggestions non validées sont marquées comme rejetées
-      if (aiSuggestion) {
-        Object.entries(aiSuggestion).forEach(([key, val]) => {
-          if (val && typeof val === 'object' && 'value' in val) {
-            const v = val as AiSuggestionField;
-            if (v.value !== '' && v.value !== undefined && v.value !== null) {
-              enregistrerFeedbackEnrichissement({
-                aerodromeId: aerodrome?.id,
-                coordonnees: coordonneesCourantes,
-                field: key,
-                predicted: v.value,
-                actual: null,
-                action: 'reject',
-              });
-            }
-          }
-        });
-      }
+      // Feedback AERORISQ : les suggestions non tranchées sont marquées rejetées
+      enregistrerRejetsRestants();
       return;
     }
 
@@ -1483,6 +1867,9 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
       // travaille en N1-N5, convertir avant stockage.
       cleanData.maturite_sgs = sgsNiveauVersScore(Number(data.maturite_sgs));
       if (typeof cleanData.code_oaci === 'string') cleanData.code_oaci = cleanData.code_oaci.trim().toUpperCase();
+      // Pas de code OACI pour une hélistation (y compris fiches existantes) :
+      // le champ est masqué, le schéma l'interdit, la soumission le supprime.
+      if (data.type_entite === 'helistation') delete cleanData.code_oaci;
       if (data.type_entite === 'helistation') delete cleanData.piste_principale;
       if (data.type_entite === 'aerodrome') delete cleanData.helistation;
       Object.keys(cleanData).forEach(key => {
@@ -1589,19 +1976,13 @@ const watchAides = useWatch({ control: form.control, name: 'aides_visuelles' }) 
         {currentStep===2 && (
           <div className="animate-fade-up">
             <SectionTitle icon={Sparkles}>Validation des suggestions AERORISQ</SectionTitle>
-            <AiSuggestionPanel suggestion={aiSuggestion} isLoading={isEnriching} llmError={llmError} acceptedFields={acceptedFields}
-              onAcceptField={handleAcceptField} onAcceptAll={handleAcceptAll}
+            <AiSuggestionPanel suggestion={aiSuggestion} isLoading={isEnriching} llmError={llmError} diagnosticEchec={diagnosticEchec} acceptedFields={acceptedFields} rejectedFields={rejectedFields}
+              onAcceptField={handleAcceptField} onAcceptAll={handleAcceptAll} onRejectAll={handleRejectAll}
+              onRejectField={handleRejectField} onUnrejectField={handleUnrejectField}
               onFeedback={handleSuggestionFeedback}
               onSkip={()=>{
                 setIaValidated(true); setCompletedSteps(prev=>new Set([...prev,2])); setCurrentStep(3);
-                if (aiSuggestion) Object.entries(aiSuggestion).forEach(([key, val]) => {
-                  if (val && typeof val === 'object' && 'value' in val) {
-                    const v = val as AiSuggestionField;
-                    if (v.value !== '' && v.value !== undefined && v.value !== null) {
-                      enregistrerFeedbackEnrichissement({ aerodromeId: aerodrome?.id, coordonnees: coordonneesCourantes, field: key, predicted: v.value, actual: null, action: 'reject' });
-                    }
-                  }
-                });
+                enregistrerRejetsRestants();
               }}
               onToggle={handleToggle}
               onRetry={()=> handleRunAnalysis(currentLatitude, currentLongitude)}/>

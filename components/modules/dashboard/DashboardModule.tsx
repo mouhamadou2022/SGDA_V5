@@ -20,7 +20,8 @@ import {
 import { useAppStore } from '@/lib/store';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { getLabelFromScore, getBadgeClassFromScore } from '@/lib/config'
-import { AlertCard } from './AlertCard';
+import { FileTraitement } from './FileTraitement';
+import { fileTraitementInspecteur, alertesTriage, avecAlertes } from '@/lib/triage';
 import { BarChart } from '@/components/ui/charts/BarChart';
 
 interface DashboardModuleProps {
@@ -31,6 +32,8 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   const aerodromes = useAppStore(s => s.aerodromes);
   const surveillances = useAppStore(s => s.surveillances);
   const ecarts = useAppStore(s => s.ecarts);
+  const evenements = useAppStore(s => s.evenements);
+  const messages = useAppStore(s => s.messages);
   const profilsRisque = useAppStore(s => s.profilsRisque);
   const certifications = useAppStore(s => s.certifications);
   const formations = useAppStore(s => s.formations);
@@ -38,6 +41,22 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   const setActiveModule = useAppStore(s => s.setActiveModule);
   const userRole = userProp?.role ?? storeUser?.role ?? '';
   const userId = storeUser?.id || '';
+
+  // File de traitement (mes tâches + alertes) — remplace l'AlertCard séparée.
+  const fileTraitement = useMemo(() => {
+    const nomsAerodromes: Record<string, string> = {};
+    for (const a of aerodromes || []) {
+      if (a.id) nomsAerodromes[a.id] = a.code_oaci || a.nom || a.id;
+    }
+    const entrees = {
+      evenements, ecarts, surveillances, messages, nomsAerodromes,
+      profils: Object.values(profilsRisque || {}),
+    };
+    return avecAlertes(
+      fileTraitementInspecteur(entrees, userId),
+      alertesTriage(entrees, 'inspector', { userId }),
+    );
+  }, [evenements, ecarts, surveillances, messages, aerodromes, profilsRisque, userId]);
 
   // Statistiques KPIs
   const stats = useMemo(() => {
@@ -227,7 +246,13 @@ export default function DashboardModule({ user: userProp }: DashboardModuleProps
   return (
     <div className="space-y-6 animate-fade-in" data-role={userRole} data-module="dashboard">
 
-      <AlertCard role={userRole} />
+      <FileTraitement
+        titre="Mes tâches"
+        sousTitre="Ce qui vous attend — par urgence"
+        items={fileTraitement.items}
+        compteurs={fileTraitement.compteurs}
+        onOuvrir={(module) => setActiveModule(module)}
+      />
 
       {/* KPIs Grid */}
       <div className="kpi-grid">

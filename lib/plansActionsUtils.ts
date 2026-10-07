@@ -11,6 +11,25 @@ export const plansActionsUtils = {
   },
 
   /**
+   * Prochaine référence libre ECA-AAAA-NNN : max+1 sur les références
+   * existantes (pur, testé) — jamais length+1 (suppressions, listes
+   * filtrées, caches partiels et créations parallèles dupliquaient).
+   */
+  prochaineReference(
+    references: Array<string | undefined | null>,
+    annee = new Date().getFullYear(),
+  ): string {
+    const tete = `ECA-${annee}-`
+    let max = 0
+    for (const ref of references || []) {
+      if (typeof ref !== 'string' || !ref.startsWith(tete)) continue
+      const n = Number(ref.slice(tete.length))
+      if (Number.isInteger(n) && n > max) max = n
+    }
+    return `ECA-${annee}-${String(max + 1).padStart(3, '0')}`
+  },
+
+  /**
    * Calcule les délais par défaut selon le niveau de risque
    */
   getDelaisParDefaut(niveau: string): { pac: number; regularisation: number } {

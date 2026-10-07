@@ -1101,6 +1101,24 @@ CREATE INDEX IF NOT EXISTS idx_reg_entries_date ON registre_entries(date_entree 
 -- 2026-10-06 — Références uniques (registre réglementaire) : l'ancien compteur
 -- length+1 dupliquait après suppression/accès concurrents. Table vide vérifiée.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reg_entries_reference_unique ON registre_entries(reference);
+-- 2026-10-07 — Références uniques (écarts, formations, dossiers) : même cause,
+-- même remède côté client (max+1). Garde-fou base : ne s'applique que si la
+-- colonne existe. IMPORTANT : dédupliquer d'abord en prod, sinon la création
+-- échoue :
+--   SELECT reference, COUNT(*) FROM ecarts GROUP BY reference HAVING COUNT(*) > 1;
+--   (idem formations, dossiers). evenements_securite est déjà couvert en prod
+--   par evenements_securite_reference_key.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ecarts' AND column_name = 'reference') THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ecarts_reference_unique ON ecarts(reference);
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'formations' AND column_name = 'reference') THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_formations_reference_unique ON formations(reference);
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dossiers' AND column_name = 'reference') THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_dossiers_reference_unique ON dossiers(reference);
+  END IF;
+END $$;
 
 -- Migrations idempotentes : colonnes ajoutées APRÈS la création de la table
 -- (sinon CREATE TABLE IF NOT EXISTS ne les applique pas aux bases existantes)

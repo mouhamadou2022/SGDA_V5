@@ -10,6 +10,24 @@ export const formationUtils = {
   },
 
   /**
+   * Prochaine référence libre FMT-AAAA-NNNN : max+1 sur les références
+   * existantes (pur, testé) — jamais length+1 (même cause que les écarts).
+   */
+  prochaineReference(
+    references: Array<string | undefined | null>,
+    annee = new Date().getFullYear(),
+  ): string {
+    const tete = `FMT-${annee}-`
+    let max = 0
+    for (const ref of references || []) {
+      if (typeof ref !== 'string' || !ref.startsWith(tete)) continue
+      const n = Number(ref.slice(tete.length))
+      if (Number.isInteger(n) && n > max) max = n
+    }
+    return `FMT-${annee}-${String(max + 1).padStart(4, '0')}`
+  },
+
+  /**
    * Calcule la matrice de compétences pour un inspecteur
    */
   calculerMatriceCompetences(

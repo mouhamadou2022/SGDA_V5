@@ -1,5 +1,5 @@
 // lib/__tests__/risqueUtils.test.ts
-import { risqueUtils } from '../risque'
+import { risqueUtils, badgeNiveauRisque } from '../risque'
 
 describe('risqueUtils', () => {
   describe('calculateC2FromEcarts', () => {
@@ -134,3 +134,16 @@ describe('risqueUtils', () => {
     })
   })
 })
+
+describe('badgeNiveauRisque', () => {
+  it('convention profil de risque (danger/eleve/moyen/success)', () => {
+    expect(badgeNiveauRisque('critique')).toBe('badge danger')
+    expect(badgeNiveauRisque('eleve')).toBe('badge eleve')
+    expect(badgeNiveauRisque('moyen')).toBe('badge moyen')
+    expect(badgeNiveauRisque('faible')).toBe('badge success')
+    expect(badgeNiveauRisque('ELEVE')).toBe('badge eleve')
+    expect(badgeNiveauRisque(undefined)).toBe('badge neutral')
+    expect(badgeNiveauRisque('inconnu')).toBe('badge neutral')
+  })
+})
+

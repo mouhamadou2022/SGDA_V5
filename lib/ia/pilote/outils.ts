@@ -409,15 +409,14 @@ const OUTILS: OutilPilote[] = [
       }
       const { plansActionsUtils } = await import('@/lib/plansActionsUtils')
       const annee = new Date().getFullYear()
-      const compteur = (etat.ecarts || []).filter(e =>
-        e.reference?.startsWith(`ECA-${annee}-`)).length + 1
+      const reference = plansActionsUtils.prochaineReference((etat.ecarts || []).map(e => e.reference), annee)
       const delais = plansActionsUtils.getDelaisParDefaut(niveau)
       const dansNJours = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
       const ecart = {
         id: crypto.randomUUID(),
         aerodrome_id: aero.id,
         domaine,
-        reference: plansActionsUtils.genererReference(annee, compteur),
+        reference: reference,
         ref_reglementaire: String(args.reference_reglementaire || ''),
         libelle: String(args.libelle),
         niveau_risque: niveau,

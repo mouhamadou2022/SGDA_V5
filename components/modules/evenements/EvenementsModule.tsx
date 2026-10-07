@@ -171,7 +171,7 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
 
     const newEvenement: Omit<EvenementSecurite, 'id' | 'created_at' | 'updated_at'> = {
       aerodrome_id: formData.aerodrome_id,
-      reference: `EVT-${new Date().getFullYear()}-${String(evenements.length + 1).padStart(3, '0')}`,
+      reference: evenementUtils.prochaineReference(evenements.map(e => e.reference)),
       type: formData.type,
       gravite,
       date: formData.date,
@@ -197,7 +197,8 @@ export function EvenementsModule({ user: userProp, userRole: userRoleProp, aerod
     }
 
     try {
-      await addEvenement(newEvenement)
+      const creationOk = await addEvenement(newEvenement)
+      if (!creationOk) return
     } catch (error) {
       console.error('Erreur création événement:', error)
       return
