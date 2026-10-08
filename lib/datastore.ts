@@ -271,6 +271,8 @@ export * from './datastore/kitDocuments';
 export * from './datastore/notifications';
 export * from './datastore/presence';
 export * from './datastore/audit';
+export * from './datastore/historiqueEcarts';
+export * from './datastore/selfAssessments';
 export * from './datastore/iaFeedbacks';
 export * from './datastore/iaModeles';
 export * from './datastore/profilsRisque';

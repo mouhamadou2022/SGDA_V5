@@ -325,8 +325,12 @@ CREATE TABLE IF NOT EXISTS self_assessments (
 
 ALTER TABLE self_assessments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "self_assessments_owner" ON self_assessments;
+-- 2026-10-08 — l'id applicatif (utilisateurs.id) n'est JAMAIS égal à auth.uid()
+-- (mapping via utilisateurs.auth_id) : l'ancienne condition ne matchait donc
+-- jamais et rendait la table illisible/inscriptible. Aligné sur notifications.
+-- (À appliquer dans Supabase.)
 CREATE POLICY "self_assessments_owner" ON self_assessments
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (user_id = get_user_internal_id());
 
 -- ============================================================
 -- SECTION 5.D — COLONNES HIÉRARCHIE ANACIM
@@ -840,6 +844,25 @@ CREATE POLICY "ecarts_write" ON ecarts
       )
     )
   );
+
+-- 2026-10-08 — Contraintes CHECK statut alignées sur les unions du code
+-- (type Ecart.statut / EvenementSecurite.statut) : la prod rejetait
+-- 'en_attente_validation_chef' (évaluation PAC) et rejettera les autres
+-- statuts du cycle (preuves_*, attente_operateur, ...). À appliquer dans
+-- Supabase. Vérification préalable (doit retourner 0 ligne) :
+--   SELECT statut, COUNT(*) FROM ecarts GROUP BY statut;
+--   SELECT statut, COUNT(*) FROM evenements_securite GROUP BY statut;
+ALTER TABLE ecarts DROP CONSTRAINT IF EXISTS ecarts_statut_check;
+ALTER TABLE ecarts ADD CONSTRAINT ecarts_statut_check CHECK (statut IN (
+  'ouvert','pac_attendu','pac_soumis','pac_refuse','pac_accepte',
+  'preuves_soumises','preuves_evaluees','en_retard','cloture',
+  'en_attente_validation_chef'
+));
+ALTER TABLE evenements_securite DROP CONSTRAINT IF EXISTS evenements_securite_statut_check;
+ALTER TABLE evenements_securite ADD CONSTRAINT evenements_securite_statut_check CHECK (statut IN (
+  'recu','assigne','accepte','refuse','attente_operateur','en_cours',
+  'analyse','ecart_cree','rapport_redige','soumis_validation','retourne','cloture'
+));
 
 -- Événement-Écart (jonction)
 DROP POLICY IF EXISTS "evenement_ecarts_select" ON evenement_ecarts;
@@ -3297,6 +3320,15 @@ CREATE TABLE IF NOT EXISTS ia_feedback (
 CREATE INDEX IF NOT EXISTS idx_ia_feedback_aerodrome ON ia_feedback(aerodrome_id);
 CREATE INDEX IF NOT EXISTS idx_ia_feedback_engine ON ia_feedback(engine_type);
 CREATE INDEX IF NOT EXISTS idx_ia_feedback_user ON ia_feedback(user_id);
+
+-- 2026-10-08 — engine_type 'aerodromeEnrichment' manquant : le code
+-- (EngineType, engineFeedback) l'émet depuis le formulaire aérodrome mais le
+-- CHECK le rejetait, tuant tout le batch syncIAFeedbacks (upsert atomique).
+-- À appliquer dans Supabase.
+ALTER TABLE ia_feedback DROP CONSTRAINT IF EXISTS ia_feedback_engine_type_check;
+ALTER TABLE ia_feedback ADD CONSTRAINT ia_feedback_engine_type_check CHECK (engine_type IN (
+  'riskProfile','compliance','recommendation','certificate','team','aerodromeEnrichment'
+));
 
 CREATE OR REPLACE FUNCTION trigger_ia_feedback_updated_at()
 RETURNS TRIGGER AS $$

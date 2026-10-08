@@ -89,12 +89,13 @@ export default function AdminDashboardModule({ user: _user }: { user: any }) {
       evenements, ecarts, surveillances, messages, nomsAerodromes,
       profils: Object.values(profilsRisque || {}),
       mlRecalEnAttente: (recalibrationAlerts || []).filter(a => !a.traitee).length,
+      utilisateurs,
     };
     return avecAlertes(
       fileTraitementAdmin(entrees, user?.id || ''),
       alertesTriage(entrees, 'admin', { userId: user?.id || '' }),
     );
-  }, [evenements, ecarts, surveillances, messages, aerodromes, profilsRisque, recalibrationAlerts, user]);
+  }, [evenements, ecarts, surveillances, messages, aerodromes, profilsRisque, recalibrationAlerts, utilisateurs, user]);
 
   const stats = useMemo(() => {
     const totalUsers = utilisateurs?.length || 0;

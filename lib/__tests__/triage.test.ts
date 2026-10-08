@@ -9,6 +9,8 @@ import {
   alertesTriage,
   avecAlertes,
   messageRelance,
+  nomUtilisateur,
+  focalDuSite,
 } from '../triage';
 
 const NOMS = { a1: 'GOBD', a2: 'GOOY' };
@@ -94,6 +96,46 @@ describe('fileTraitementExploitant', () => {
   });
 });
 
+describe('fileTraitementExploitant : auto-évaluation', () => {
+  const base: any = { evenements: [], ecarts: [], surveillances: [], messages: [], nomsAerodromes: NOMS };
+  test('top 3 non cochées + rappel si score bas', () => {
+    const r = fileTraitementExploitant(
+      {
+        ...base,
+        autoEval: {
+          scoreAutoEval: 42,
+          actions: [
+            { id: 'a1', texte: 'Rédiger le manuel', gain: 5, checked: false },
+            { id: 'a2', texte: 'Former l’équipe', gain: 3, checked: false },
+            { id: 'a3', texte: 'Registre mensuel', gain: 2, checked: false },
+            { id: 'a4', texte: 'Indicateurs', gain: 1, checked: false },
+            { id: 'a5', texte: 'Déjà fait', gain: 1, checked: true },
+          ],
+        },
+      },
+      'a1',
+      'focal1',
+    );
+    const ids = r.items.map((i) => i.id);
+    expect(ids).toContain('autoeval:a1');
+    expect(ids).toContain('autoeval:a2');
+    expect(ids).toContain('autoeval:a3');
+    expect(ids).not.toContain('autoeval:a4'); // top 3 seulement
+    expect(ids).not.toContain('autoeval:a5'); // cochée exclue
+    expect(ids).toContain('autoeval:rappel');
+    expect(r.items.find((i) => i.id === 'autoeval:a1')?.module).toBe('risque');
+  });
+  test('sans autoEval : rien ; score haut + tout coché : rien', () => {
+    expect(fileTraitementExploitant(base, 'a1', 'focal1').items).toHaveLength(0);
+    const r = fileTraitementExploitant(
+      { ...base, autoEval: { scoreAutoEval: 85, actions: [{ id: 'a1', texte: 'Fait', checked: true }] } },
+      'a1',
+      'focal1',
+    );
+    expect(r.items).toHaveLength(0);
+  });
+});
+
 describe('syntheseDG', () => {
   const r = syntheseDG(ENTREES as any);
   test('critiques non clotures en lecture seule', () => {
@@ -138,6 +180,85 @@ describe('messageRelance', () => {
     const m = messageRelance('retard', 'ECA-2026-003', PASSE, true, 'Piste');
     expect(m.objet).toContain('en retard');
     expect(m.corps).toContain('Piste');
+  });
+  test('correction et soumission : wording et destinataire', () => {
+    const c = messageRelance('correction', 'ECA-9', null, false, 'Balise', 'Moussa Ndiaye');
+    expect(c.objet).toContain('Corriger');
+    expect(c.corps).toContain('Moussa Ndiaye');
+    const s = messageRelance('soumission', 'ECA-10', FUTUR, false);
+    expect(s.objet).toContain('non soumis');
+    expect(s.corps).toContain(FUTUR);
+  });
+});
+
+describe('noms et focal', () => {
+  const USERS = [
+    { id: 'insp1', role: 'inspector', prenom: 'Awa', nom: 'Diallo' },
+    { id: 'focal1', role: 'focal_operator', aerodrome_id: 'a1', prenom: 'Moussa', nom: 'Ndiaye' },
+    { id: 'staff1', role: 'staff_operator', aerodrome_id: 'a1', prenom: 'Ibra', nom: 'Sow' },
+  ];
+  test('nomUtilisateur : jamais d’UUID brut sauf inconnu', () => {
+    expect(nomUtilisateur(USERS, 'insp1')).toBe('Awa Diallo');
+    expect(nomUtilisateur(USERS, 'zzz')).toBe('zzz');
+    expect(nomUtilisateur(USERS, '')).toBe('à désigner');
+  });
+  test('focalDuSite : focal prioritaire, sinon operateur du site', () => {
+    expect(focalDuSite(USERS, 'a1')?.id).toBe('focal1');
+    expect(focalDuSite(USERS, 'a9')).toBeNull();
+    expect(focalDuSite([{ id: 's1', role: 'staff_operator', aerodrome_id: 'a2' }], 'a2')?.id).toBe('s1');
+  });
+});
+
+describe('fileTraitementAdmin : camps et états fins', () => {
+  const ENTREES_CAMP: any = {
+    evenements: [],
+    ecarts: [
+      { id: 'o1', reference: 'ECA-1', aerodrome_id: 'a1', statut: 'ouvert', niveau_risque: 'moyen', libelle: 'X', delai_pac: PASSE },
+      { id: 'o2', reference: 'ECA-2', aerodrome_id: 'a1', statut: 'pac_attendu', niveau_risque: 'moyen', libelle: 'Y' },
+      { id: 'r1', reference: 'ECA-3', aerodrome_id: 'a1', statut: 'pac_refuse', niveau_risque: 'eleve', libelle: 'Z' },
+      { id: 'a1x', reference: 'ECA-4', aerodrome_id: 'a1', statut: 'pac_accepte', niveau_risque: 'faible', libelle: 'W' },
+      { id: 'v1', reference: 'ECA-5', aerodrome_id: 'a1', statut: 'en_attente_validation_chef', niveau_risque: 'moyen', libelle: 'V' },
+    ],
+    surveillances: [],
+    messages: [],
+    nomsAerodromes: NOMS,
+    utilisateurs: [
+      { id: 'insp1', role: 'inspector', prenom: 'Awa', nom: 'Diallo' },
+      { id: 'focal1', role: 'focal_operator', aerodrome_id: 'a1', prenom: 'Moussa', nom: 'Ndiaye' },
+    ],
+  };
+  const r = fileTraitementAdmin(ENTREES_CAMP, 'admin1', MAINTENANT);
+  const parId = (id: string) => r.items.find((i) => i.id === id)!;
+  test('PAC non soumis dépassé → Relancer exploitant nommé', () => {
+    const it = parId('ecart:o1:soumission');
+    expect(it.action).toBe('Relancer');
+    expect(it.camp).toBe('exploitant');
+    expect(it.relance?.destinataireId).toBe('focal1');
+    expect(it.detail).toContain('Moussa Ndiaye');
+    expect(it.detail).not.toContain('focal1');
+  });
+  test('PAC à soumettre non échu → Voir, sans relance', () => {
+    const it = parId('ecart:o2:asoumettre');
+    expect(it.action).toBe('Voir');
+    expect(it.camp).toBe('exploitant');
+    expect(it.relance).toBeUndefined();
+  });
+  test('PAC refusé → Relancer exploitant (correction)', () => {
+    const it = parId('ecart:r1:correction');
+    expect(it.action).toBe('Relancer');
+    expect(it.camp).toBe('exploitant');
+    expect(it.relance?.destinataireId).toBe('focal1');
+  });
+  test('PAC accepté → Voir côté exploitant (preuves à déposer)', () => {
+    const it = parId('ecart:a1x:preuvesadeposer');
+    expect(it.action).toBe('Voir');
+    expect(it.camp).toBe('exploitant');
+  });
+  test('validation chef → Valider côté admin', () => {
+    const it = parId('ecart:v1:chef');
+    expect(it.action).toBe('Valider');
+    expect(it.camp).toBe('admin');
+    expect(r.compteurs.aValider).toBe(1);
   });
 });
 

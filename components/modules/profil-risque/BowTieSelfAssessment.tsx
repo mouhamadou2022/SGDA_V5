@@ -4,12 +4,14 @@
 
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { Barriere, BowTieModele } from '@/lib/risque/types'
 import type { ProfilRisque } from '@/lib/store'
-import { AlertTriangle, CheckCircle2, X, Plus, FileText } from 'lucide-react'
+import { useAppStore } from '@/lib/store'
+import { AlertTriangle, CheckCircle2, X, Plus, FileText, Save } from 'lucide-react'
 import { getRiskLevelVariant } from '@/lib/risque'
+import { chargerAutoEvaluation, sauvegarderAutoEvaluation } from '@/lib/datastore/selfAssessments'
 
 function getScoreClr(s: number) {
   if (s >= 80) return 'text-success'; if (s >= 60) return 'text-primary'
@@ -77,6 +79,26 @@ export default function BowTieSelfAssessment({
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [observations, setObservations] = useState<Record<string, string>>({})
   const [customActions, setCustomActions] = useState<AutoEvalAction[]>([])
+  const [sauvegarde, setSauvegarde] = useState<'idle' | 'cours' | 'ok' | 'ko'>('idle')
+  const [sauveLe, setSauveLe] = useState<string | null>(null)
+  const userId = useAppStore(s => s.user?.id)
+
+  // Reprise : dernier état enregistré pour cet aérodrome (sinon on part de zéro).
+  const repriseFaite = useRef(false)
+  useEffect(() => {
+    if (repriseFaite.current || !userId) return
+    repriseFaite.current = true
+    chargerAutoEvaluation(userId)
+      .then(r => {
+        const contenu = r.data
+        if (!contenu || contenu.aerodrome_id !== profil.aerodrome_id) return
+        if (contenu.checked) setChecked(contenu.checked)
+        if (contenu.observations) setObservations(contenu.observations)
+        if (Array.isArray(contenu.customActions)) setCustomActions(contenu.customActions)
+        if (contenu.savedAt) { setSauveLe(contenu.savedAt); setSauvegarde('ok') }
+      })
+      .catch(() => {})
+  }, [userId, profil.aerodrome_id])
 
   // Génère les actions pour toutes les barrières faibles des domaines
   const actions = useMemo(() => {
@@ -135,6 +157,27 @@ export default function BowTieSelfAssessment({
     setChecked(prev => { const n = { ...prev }; delete n[id]; return n })
     setObservations(prev => { const n = { ...prev }; delete n[id]; return n })
   }, [])
+
+  const enregistrer = useCallback(async () => {
+    if (!userId || sauvegarde === 'cours') return
+    setSauvegarde('cours')
+    // Texte de chaque action (générées + perso) pour la file « Mes tâches ».
+    const actions = toutesActions.map(a => ({
+      id: a.id,
+      texte: a.texte || a.id,
+      gain: a.gain,
+      checked: !!checked[a.id],
+    }))
+    const res = await sauvegarderAutoEvaluation(userId, profil.aerodrome_id, {
+      checked, observations, customActions, actions, scoreProjete,
+    }).catch(() => ({ error: 'réseau' }) as never)
+    if ((res as { error?: unknown })?.error) {
+      setSauvegarde('ko')
+    } else {
+      setSauvegarde('ok')
+      setSauveLe(new Date().toISOString())
+    }
+  }, [userId, sauvegarde, profil.aerodrome_id, checked, observations, customActions, toutesActions, scoreProjete])
 
   // Regroupe les actions par domaine pour l'affichage
   const actionsParDomaine = useMemo(() => {
@@ -368,7 +411,14 @@ export default function BowTieSelfAssessment({
               </div>
             )}
 
-            {/* Bouton fermer */}
+            {/* Enregistrer + fermer */}
+            <button onClick={enregistrer} disabled={sauvegarde === 'cours'} className="btn btn-secondary w-full gap-1.5 disabled:opacity-60">
+              <Save className="w-4 h-4" />
+              {sauvegarde === 'cours' ? 'Enregistrement…' : sauvegarde === 'ok' ? `Enregistré${sauveLe ? ` le ${new Date(sauveLe).toLocaleDateString('fr-FR')}` : ''}` : 'Enregistrer mon auto-évaluation'}
+            </button>
+            {sauvegarde === 'ko' && (
+              <p className="text-xs text-danger text-center">Échec d'enregistrement (réseau ou droits) — vos coches restent visibles, réessayez.</p>
+            )}
             <button onClick={onClose} className="btn btn-primary w-full gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
               Terminer — {nbChecked} action{nbChecked > 1 ? 's' : ''} planifiée{nbChecked > 1 ? 's' : ''}

@@ -7,7 +7,7 @@
 // agit sur son aérodrome, le DG lit. Aucune action proposee hors role.
 
 export type TriageNiveau = 'danger' | 'warning' | 'info';
-export type TriageFamille = 'evenement' | 'ecart' | 'preuve' | 'surveillance' | 'message' | 'alerte';
+export type TriageFamille = 'evenement' | 'ecart' | 'preuve' | 'surveillance' | 'message' | 'alerte' | 'autoeval';
 
 export interface TriageItem {
   /** Cle stable famille:id (jamais de collision inter-familles). */
@@ -23,6 +23,8 @@ export interface TriageItem {
   module: string;
   /** Libelle du CTA, toujours pertinent pour le role (jamais d'assignation hors admin). */
   action: string;
+  /** Chez qui est la balle : l'admin sait si c'est côté inspecteur ou exploitant. */
+  camp?: 'inspecteur' | 'exploitant' | 'admin';
   /** Niveau de risque métier (gravité / niveau_risque) pour le badge canonique. */
   niveauRisque?: string;
   /**
@@ -105,6 +107,14 @@ export interface EntreeTriMessage {
   created_at?: string;
 }
 
+export interface EntreeTriUtilisateur {
+  id: string;
+  role?: string;
+  aerodrome_id?: string;
+  prenom?: string;
+  nom?: string;
+}
+
 export interface EntreeTriProfil {
   aerodrome_id?: string;
   score_global?: number;
@@ -120,6 +130,17 @@ export interface EntreesTriage {
   profils?: EntreeTriProfil[];
   /** Recalibrations ML en attente (admin) — compteur pré-calculé. */
   mlRecalEnAttente?: number;
+  /** Utilisateurs (résolution des noms + point focal par aérodrome). */
+  utilisateurs?: EntreeTriUtilisateur[];
+  /**
+   * Auto-évaluation Bow-Tie enregistrée (exploitant) : les 3 premières
+   * actions non cochées remontent dans « Mes tâches », et un rappel apparaît
+   * si le score est bas ou sans avancement. Source : self_assessments.
+   */
+  autoEval?: {
+    scoreAutoEval: number | null;
+    actions: Array<{ id: string; texte: string; gain?: number; checked: boolean }>;
+  } | null;
 }
 
 // ── Helpers ──
@@ -136,6 +157,26 @@ function estEnRetard(echeance: string | null | undefined, maintenant: number): b
 function nomAerodrome(noms: Record<string, string> | undefined, id?: string): string {
   if (!id) return '';
   return noms?.[id] || id;
+}
+
+/** Nom affichable d'un utilisateur (jamais d'UUID brut, repli sur l'id). */
+export function nomUtilisateur(utilisateurs: EntreeTriUtilisateur[] | undefined, id?: string | null): string {
+  if (!id) return 'à désigner';
+  const u = (utilisateurs || []).find((x) => x.id === id);
+  const nom = [u?.prenom, u?.nom].filter(Boolean).join(' ').trim();
+  return nom || id;
+}
+
+/** Point focal (exploitant) d'un aérodrome pour les relances côté exploitant. */
+export function focalDuSite(
+  utilisateurs: EntreeTriUtilisateur[] | undefined,
+  aerodromeId?: string,
+): EntreeTriUtilisateur | null {
+  if (!aerodromeId) return null;
+  const ops = (utilisateurs || []).filter(
+    (u) => u.aerodrome_id === aerodromeId && ['focal_operator', 'dg_operator', 'staff_operator'].includes(u.role || ''),
+  );
+  return ops.find((u) => u.role === 'focal_operator') || ops[0] || null;
 }
 
 function vide(): TriageCompteurs {
@@ -174,24 +215,32 @@ function finaliser(items: TriageItem[], c: TriageCompteurs): TriageResultat {
  * L'admin orchestre : il relance, il n'évalue pas.
  */
 export function messageRelance(
-  kind: 'PAC' | 'preuves' | 'retard',
+  kind: 'PAC' | 'preuves' | 'retard' | 'correction' | 'soumission',
   reference: string,
   echeance: string | null | undefined,
   enRetard: boolean,
   libelle?: string,
+  destinataireNom?: string,
 ): { objet: string; corps: string } {
-  const sujet = kind === 'PAC'
-    ? 'votre évaluation du PAC soumis par l’exploitant'
-    : kind === 'preuves'
-      ? 'votre validation des preuves déposées'
-      : `la régularisation de l’écart${libelle ? ` « ${libelle} »` : ''}`;
-  const objet = kind === 'retard'
-    ? `[Rappel] Écart en retard — ${reference || 'écart'}`.trim()
-    : `[Rappel] ${kind === 'PAC' ? 'Évaluation PAC' : 'Validation preuves'} — ${reference || 'écart'}`;
+  const sujets: Record<string, string> = {
+    PAC: 'votre évaluation du PAC soumis par l’exploitant',
+    preuves: 'votre validation des preuves déposées',
+    retard: `la régularisation de l’écart${libelle ? ` « ${libelle} »` : ''}`,
+    correction: `la correction du PAC refusé${libelle ? ` (« ${libelle} »)` : ''}`,
+    soumission: `la soumission du PAC${libelle ? ` pour « ${libelle} »` : ''}`,
+  };
+  const titres: Record<string, string> = {
+    PAC: 'Évaluation PAC',
+    preuves: 'Validation preuves',
+    retard: 'Écart en retard',
+    correction: 'Corriger le PAC refusé',
+    soumission: 'PAC non soumis',
+  };
+  const objet = `[Rappel] ${titres[kind]} — ${reference || 'écart'}`;
   const lignes = [
-    'Bonjour,',
+    `Bonjour${destinataireNom && destinataireNom !== 'à désigner' ? ` ${destinataireNom}` : ''},`,
     '',
-    `Le dossier ${reference || 'concerné'} attend toujours ${sujet}.`,
+    `Le dossier ${reference || 'concerné'} attend toujours ${sujets[kind]}.`,
   ];
   if (echeance) {
     lignes.push(`Échéance : ${echeance}${enRetard ? ' (DÉPASSÉE — traitement prioritaire)' : ''}.`);
@@ -233,51 +282,136 @@ export function fileTraitementAdmin(
     const statut = e.statut || '';
     if (STATUTS_ECART_CLOTURES.has(statut)) continue;
     const aero = nomAerodrome(noms, e.aerodrome_id);
+    const nomInsp = nomUtilisateur(entrees.utilisateurs, e.inspecteur_ref_id);
+    const focal = focalDuSite(entrees.utilisateurs, e.aerodrome_id);
+    const nomFocal = focal ? nomUtilisateur(entrees.utilisateurs, focal.id) : 'à désigner';
+    // PAC soumis, en attente d'évaluation → CÔTÉ INSPECTEUR
     if (statut === 'pac_soumis' && !e.evaluation_pac?.evalue_le) {
       const retard = estEnRetard(e.evaluation_pac?.deadline, maintenant);
-      const msg = messageRelance('PAC', e.reference || '', e.evaluation_pac?.deadline, retard);
+      const msg = messageRelance('PAC', e.reference || '', e.evaluation_pac?.deadline, retard, undefined, nomInsp);
       items.push({
         id: `ecart:${e.id}:pac`, famille: 'ecart',
         titre: `PAC en attente d’évaluation — ${e.reference || ''}`.trim(),
-        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · inspecteur : ${e.inspecteur_ref_id || 'à désigner'}`,
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · inspecteur : ${nomInsp}`,
         aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
         niveau: retard || e.niveau_risque === 'critique' ? 'danger' : 'warning',
         niveauRisque: e.niveau_risque,
         enRetard: retard, echeance: e.evaluation_pac?.deadline ?? null,
-        module: 'plans-actions', action: 'Relancer',
+        module: 'plans-actions', action: 'Relancer', camp: 'inspecteur',
         relance: { destinataireId: e.inspecteur_ref_id || '', objet: msg.objet, corps: msg.corps },
       });
       c.aValider++;
       if (retard) c.enRetard++;
     }
+    // Preuves déposées, en attente de validation → CÔTÉ INSPECTEUR
     if (statut === 'preuves_soumises' && !e.validation_preuves?.valide_le) {
       const retard = estEnRetard(e.validation_preuves?.deadline, maintenant);
-      const msg = messageRelance('preuves', e.reference || '', e.validation_preuves?.deadline, retard);
+      const msg = messageRelance('preuves', e.reference || '', e.validation_preuves?.deadline, retard, undefined, nomInsp);
       items.push({
         id: `ecart:${e.id}:preuves`, famille: 'preuve',
         titre: `Preuves en attente de validation — ${e.reference || ''}`.trim(),
-        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · inspecteur : ${e.inspecteur_ref_id || 'à désigner'}`,
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · inspecteur : ${nomInsp}`,
         aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
         niveau: retard ? 'danger' : 'warning',
         niveauRisque: e.niveau_risque,
         enRetard: retard, echeance: e.validation_preuves?.deadline ?? null,
-        module: 'plans-actions', action: 'Relancer',
+        module: 'plans-actions', action: 'Relancer', camp: 'inspecteur',
         relance: { destinataireId: e.inspecteur_ref_id || '', objet: msg.objet, corps: msg.corps },
       });
       c.aValider++;
       if (retard) c.enRetard++;
     }
+    // En attente de validation chef → CÔTÉ ADMIN (validation finale)
+    if (statut === 'en_attente_validation_chef') {
+      items.push({
+        id: `ecart:${e.id}:chef`, famille: 'ecart',
+        titre: `À valider (chef) — ${e.reference || ''}`.trim(),
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''}`,
+        aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
+        niveau: 'warning',
+        niveauRisque: e.niveau_risque,
+        enRetard: false,
+        module: 'plans-actions', action: 'Valider', camp: 'admin',
+      });
+      c.aValider++;
+    }
+    // PAC non soumis (ouvert / pac_attendu) → CÔTÉ EXPLOITANT
+    if (statut === 'ouvert' || statut === 'pac_attendu') {
+      const depasse = estEnRetard(e.delai_pac, maintenant);
+      if (depasse) {
+        const msg = messageRelance('soumission', e.reference || '', e.delai_pac, true, e.libelle, nomFocal);
+        items.push({
+          id: `ecart:${e.id}:soumission`, famille: 'ecart',
+          titre: `PAC non soumis, délai dépassé — ${e.reference || ''}`.trim(),
+          detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · exploitant : ${nomFocal}${e.delai_pac ? ` · échéance ${e.delai_pac}` : ''}`,
+          aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
+          niveau: 'danger',
+          niveauRisque: e.niveau_risque,
+          enRetard: true, echeance: e.delai_pac ?? null,
+          module: 'plans-actions', action: 'Relancer', camp: 'exploitant',
+          relance: focal
+            ? { destinataireId: focal.id, objet: msg.objet, corps: msg.corps }
+            : { destinataireId: '', objet: msg.objet, corps: msg.corps },
+        });
+        c.enRetard++;
+      } else {
+        items.push({
+          id: `ecart:${e.id}:asoumettre`, famille: 'ecart',
+          titre: `PAC à soumettre — ${e.reference || ''}`.trim(),
+          detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · exploitant : ${nomFocal}${e.delai_pac ? ` · échéance ${e.delai_pac}` : ''}`,
+          aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
+          niveau: 'warning',
+          niveauRisque: e.niveau_risque,
+          enRetard: false, echeance: e.delai_pac ?? null,
+          module: 'plans-actions', action: 'Voir', camp: 'exploitant',
+        });
+      }
+    }
+    // PAC refusé → CÔTÉ EXPLOITANT (correction)
+    if (statut === 'pac_refuse') {
+      const msg = messageRelance('correction', e.reference || '', e.delai_regularisation, false, e.libelle, nomFocal);
+      items.push({
+        id: `ecart:${e.id}:correction`, famille: 'ecart',
+        titre: `PAC refusé à corriger — ${e.reference || ''}`.trim(),
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · exploitant : ${nomFocal}`,
+        aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
+        niveau: 'warning',
+        niveauRisque: e.niveau_risque,
+        enRetard: false,
+        module: 'plans-actions', action: 'Relancer', camp: 'exploitant',
+        relance: focal
+          ? { destinataireId: focal.id, objet: msg.objet, corps: msg.corps }
+          : { destinataireId: '', objet: msg.objet, corps: msg.corps },
+      });
+    }
+    // PAC accepté, preuves à déposer → CÔTÉ EXPLOITANT (suivi, sans relance)
+    if (statut === 'pac_accepte') {
+      items.push({
+        id: `ecart:${e.id}:preuvesadeposer`, famille: 'ecart',
+        titre: `PAC accepté, preuves à déposer — ${e.reference || ''}`.trim(),
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''} · exploitant : ${nomFocal}`,
+        aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
+        niveau: 'info',
+        niveauRisque: e.niveau_risque,
+        enRetard: false, echeance: e.delai_regularisation ?? null,
+        module: 'plans-actions', action: 'Voir', camp: 'exploitant',
+      });
+    }
+    // Retard global : le camp suit l'avancement (rien soumis → exploitant).
     if (statut === 'en_retard' || estEnRetard(e.delai_regularisation, maintenant)) {
-      const msg = messageRelance('retard', e.reference || '', e.delai_regularisation, true, e.libelle);
+      const coteExploitant = !e.evaluation_pac && !e.validation_preuves;
+      const destId = coteExploitant ? (focal?.id || '') : (e.inspecteur_ref_id || '');
+      const destNom = coteExploitant ? nomFocal : nomInsp;
+      const msg = messageRelance('retard', e.reference || '', e.delai_regularisation, true, e.libelle, destNom);
       items.push({
         id: `ecart:${e.id}:retard`, famille: 'ecart',
         titre: `Écart en retard — ${e.reference || ''}`.trim(),
-        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''}${e.delai_regularisation ? ` · échéance ${e.delai_regularisation}` : ''} · inspecteur : ${e.inspecteur_ref_id || 'à désigner'}`,
+        detail: `${e.libelle || 'Écart'}${aero ? ` · ${aero}` : ''}${e.delai_regularisation ? ` · échéance ${e.delai_regularisation}` : ''} · ${coteExploitant ? `exploitant : ${destNom}` : `inspecteur : ${destNom}`}`,
         aerodromeId: e.aerodrome_id, aerodromeNom: aero || undefined,
         niveau: 'danger', enRetard: true, echeance: e.delai_regularisation ?? null,
         niveauRisque: e.niveau_risque,
-        module: 'plans-actions', action: 'Relancer',
-        relance: { destinataireId: e.inspecteur_ref_id || '', objet: msg.objet, corps: msg.corps },
+        module: 'plans-actions', action: 'Relancer', camp: coteExploitant ? 'exploitant' : 'inspecteur',
+        relance: { destinataireId: destId, objet: msg.objet, corps: msg.corps },
       });
       c.enRetard++;
     }
@@ -453,6 +587,36 @@ export function fileTraitementExploitant(
       module: 'operator-messagerie', action: 'Lire',
     });
     c.messages++;
+  }
+
+  // Auto-évaluation : engagements visibles dans le quotidien (top 3 non cochées)
+  // + rappel si score bas ou aucun avancement. Module 'risque' = vue exploitant.
+  const auto = entrees.autoEval;
+  if (auto) {
+    const reste = (auto.actions || []).filter((a) => !a.checked && (a.texte || '').trim());
+    for (const a of reste.slice(0, 3)) {
+      items.push({
+        id: `autoeval:${a.id}`, famille: 'autoeval',
+        titre: a.texte.trim().slice(0, 90),
+        detail: `Engagement d'auto-évaluation${typeof a.gain === 'number' ? ` · gain +${a.gain} pts` : ''}`,
+        aerodromeId, niveau: 'warning', enRetard: false,
+        module: 'risque', action: 'Faire',
+      });
+    }
+    const cochees = (auto.actions || []).filter((a) => a.checked).length;
+    if ((auto.scoreAutoEval ?? 100) < 50 || ((auto.actions || []).length > 0 && cochees === 0)) {
+      items.push({
+        id: 'autoeval:rappel', famille: 'autoeval',
+        titre: auto.scoreAutoEval == null
+          ? 'Faites votre auto-évaluation Bow-Tie'
+          : `Améliorez votre auto-évaluation (${auto.scoreAutoEval}/100)`,
+        detail: cochees === 0 && (auto.actions || []).length > 0
+          ? 'Aucune action cochée pour l’instant'
+          : 'Sous les 50/100 — reprenez vos engagements',
+        aerodromeId, niveau: 'warning', enRetard: false,
+        module: 'risque', action: 'Reprendre',
+      });
+    }
   }
 
   return finaliser(items, c);

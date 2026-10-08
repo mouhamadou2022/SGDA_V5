@@ -305,6 +305,7 @@ export const STATUTS_ECART = {
   ouvert: { label: 'Ouvert', color: 'danger', etape: 1 },
   pac_attendu: { label: 'PAC Attendu', color: 'warning', etape: 2 },
   pac_soumis: { label: 'PAC Soumis', color: 'primary', etape: 3 },
+  en_attente_validation_chef: { label: 'En attente validation', color: 'primary', etape: 3 },
   pac_refuse: { label: 'PAC Refusé', color: 'danger', etape: 3 },
   pac_accepte: { label: 'PAC Accepté', color: 'success', etape: 4 },
   preuves_soumises: { label: 'Preuves Soumises', color: 'primary', etape: 5 },

@@ -100,6 +100,11 @@ export function FileTraitement({ titre, sousTitre, items, compteurs, onOuvrir, o
                         {item.niveauRisque}
                       </span>
                     )}
+                    {item.camp && (
+                      <span className="badge neutral text-[10px] ml-1.5" title="Chez qui est la balle">
+                        Côté {item.camp}
+                      </span>
+                    )}
                   </p>
                   {item.detail && <p className="text-xs text-muted-foreground truncate">{item.detail}</p>}
                   {item.enRetard && <p className="text-[11px] text-danger font-medium">En retard{item.echeance ? ` depuis le ${item.echeance}` : ''}</p>}

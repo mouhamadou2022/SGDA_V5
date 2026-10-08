@@ -246,6 +246,8 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const [evalDrafts, setEvalDrafts] = useState<Record<string, any>>({})
   const [showEvalTransmissionModal, setShowEvalTransmissionModal] = useState(false)
   const [isSubmittingEvalBulk, setIsSubmittingEvalBulk] = useState(false)
+  // Progression visible de la transmission par lot (jamais de fermeture aveugle).
+  const [bulkProgress, setBulkProgress] = useState<{ fait: number; total: number; refEnCours: string | null; erreurs: string[] } | null>(null)
   // Affichage progressif : nb de cartes par groupe (surveillance+domaine), 10 par défaut.
   const [limitesGroupes, setLimitesGroupes] = useState<Record<string, number>>({})
   const LIMITE_GROUPE_DEFAUT = 10
@@ -273,11 +275,14 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   }
 
   const handleSubmitAllEvaluations = async () => {
-    if (!pendingEvalGroup) return
+    if (!pendingEvalGroup || isSubmittingEvalBulk) return
     setIsSubmittingEvalBulk(true)
     const toSubmit = pendingEvalGroup.ecarts.filter((e: any) => evalDrafts[e.id])
-    const errors: string[] = []
-    for (const ecart of toSubmit) {
+    setBulkProgress({ fait: 0, total: toSubmit.length, refEnCours: null, erreurs: [] })
+    // Parallèle (évaluations indépendantes par écart) avec suivi unitaire :
+    // le séquentiel d'avant prenait N allers-retours réseau sans aucun retour.
+    let termines = 0
+    const resultats = await Promise.allSettled(toSubmit.map(async (ecart: any) => {
       const draft = evalDrafts[ecart.id]
       try {
         await evaluerPAC(ecart.id, {
@@ -298,18 +303,34 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
           evalue_par: user?.id || '',
           evalue_le: new Date().toISOString(),
         })
-        deleteEvalDraft(ecart.id)
-      } catch (err) {
-        errors.push(`${ecart.reference}: ${err instanceof Error ? err.message : String(err)}`)
+        return ecart
+      } finally {
+        termines++
+        setBulkProgress(prev => (prev ? { ...prev, fait: termines, refEnCours: ecart.reference || ecart.id } : prev))
       }
-    }
+    }))
+    const errors: string[] = []
+    let ok = 0
+    resultats.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        ok++
+        deleteEvalDraft(toSubmit[i].id)
+      } else {
+        const ref = toSubmit[i]?.reference || toSubmit[i]?.id
+        errors.push(`${ref}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`)
+      }
+    })
+    setBulkProgress(prev => (prev ? { ...prev, refEnCours: null, erreurs: errors } : prev))
     setIsSubmittingEvalBulk(false)
-    setShowEvalTransmissionModal(false)
-    setPendingEvalGroup(null)
     if (errors.length === 0) {
-      addNotification({ user_id: user?.id || '', type: 'success', title: 'Évaluations transmises', message: `${toSubmit.length} évaluation(s) envoyée(s) à l'exploitant`, canal: 'in_app' })
+      addNotification({ user_id: user?.id || '', type: 'success', title: 'Évaluations transmises', message: `${ok} évaluation(s) envoyée(s) à l'exploitant`, canal: 'in_app' })
+      setShowEvalTransmissionModal(false)
+      setPendingEvalGroup(null)
+      setBulkProgress(null)
     } else {
-      addNotification({ user_id: user?.id || '', type: 'warning', title: 'Erreurs partielles', message: `${toSubmit.length - errors.length} envoyée(s), ${errors.length} erreur(s)`, canal: 'in_app' })
+      // Résumé d'erreurs dans le modal (données conservées : seuls les succès
+      // effacent leurs brouillons) + notification récapitulative.
+      addNotification({ user_id: user?.id || '', type: 'warning', title: 'Erreurs partielles', message: `${ok} envoyée(s), ${errors.length} erreur(s) — détail dans la fenêtre`, canal: 'in_app' })
     }
   }
 
@@ -601,6 +622,7 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
   const transmettreLot = useCallback((lot: any[]) => {
     const aTransmettre = lot.filter((e: any) => evalDrafts[e.id])
     setPendingEvalGroup({ domaine: 'Lot accordéon', ecarts: aTransmettre.length > 0 ? aTransmettre : lot })
+    setBulkProgress(null)
     setShowEvalTransmissionModal(true)
   }, [evalDrafts])
 
@@ -1451,22 +1473,56 @@ export function PlansActionsModule({ user: userProp, userRole: userRoleProp, aer
           <div className="bg-background rounded-2xl max-w-md w-full border-t-4 border-t-role-primary">
             <div className="modal-header">
               <div className="modal-title flex items-center gap-2"><Send className="w-5 h-5 text-role-primary" />Transmettre les évaluations</div>
-              <button className="modal-close" onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null) }}><X className="w-4 h-4" /></button>
+              <button className="modal-close" disabled={isSubmittingEvalBulk} onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null); }}><X className="w-4 h-4" /></button>
             </div>
             <div className="modal-body p-5 space-y-4">
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-warning/5 border border-warning/30">
-                <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
-                <p className="text-sm text-muted-foreground">
-                  Vous êtes sur le point de transmettre {pendingEvalGroup.ecarts.length} évaluation(s). Cette action est irréversible.
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">Les exploitants seront notifiés des résultats de l'évaluation de leurs PAC.</p>
+              {!bulkProgress && (
+                <>
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-warning/5 border border-warning/30">
+                    <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+                    <p className="text-sm text-muted-foreground">
+                      Vous êtes sur le point de transmettre {pendingEvalGroup.ecarts.length} évaluation(s). Cette action est irréversible.
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Les exploitants seront notifiés des résultats de l'évaluation de leurs PAC.</p>
+                </>
+              )}
+              {bulkProgress && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-foreground">
+                      {bulkProgress.erreurs.length > 0 ? 'Transmission terminée avec erreurs' : isSubmittingEvalBulk ? 'Transmission en cours…' : 'Transmission terminée'}
+                    </span>
+                    <span className="text-muted-foreground">{bulkProgress.fait}/{bulkProgress.total}</span>
+                  </div>
+                  <div className="progress h-2">
+                    <div className="progress-bar progress-fill" style={{ '--pf': bulkProgress.total > 0 ? Math.round((bulkProgress.fait / bulkProgress.total) * 100) : 0 } as React.CSSProperties} />
+                  </div>
+                  {isSubmittingEvalBulk && bulkProgress.refEnCours && (
+                    <p className="text-xs text-muted-foreground">Traitement : <span className="font-mono">{bulkProgress.refEnCours}</span>…</p>
+                  )}
+                  {bulkProgress.erreurs.length > 0 && (
+                    <div className="max-h-40 overflow-y-auto space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-2">
+                      {bulkProgress.erreurs.map((msg, i) => (
+                        <p key={i} className="text-xs text-danger">{msg}</p>
+                      ))}
+                      <p className="text-[11px] text-muted-foreground pt-1">Les brouillons en échec sont conservés — corrigez (contrainte base ?) puis relancez.</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="modal-footer gap-2">
-              <button className="btn btn-secondary" onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null) }}>Annuler</button>
-              <button className="btn btn-primary" onClick={handleSubmitAllEvaluations} disabled={isSubmittingEvalBulk}>
-                {isSubmittingEvalBulk ? 'Transmission...' : `Confirmer la transmission (${pendingEvalGroup.ecarts.length})`}
-              </button>
+              {bulkProgress && !isSubmittingEvalBulk ? (
+                <button className="btn btn-secondary" onClick={() => { setShowEvalTransmissionModal(false); setBulkProgress(null); }}>Fermer</button>
+              ) : (
+                <>
+                  <button className="btn btn-secondary" disabled={isSubmittingEvalBulk} onClick={() => { setShowEvalTransmissionModal(false); setPendingEvalGroup(null); }}>Annuler</button>
+                  <button className="btn btn-primary" onClick={handleSubmitAllEvaluations} disabled={isSubmittingEvalBulk}>
+                    {isSubmittingEvalBulk ? 'Transmission...' : `Confirmer la transmission (${pendingEvalGroup.ecarts.length})`}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>,

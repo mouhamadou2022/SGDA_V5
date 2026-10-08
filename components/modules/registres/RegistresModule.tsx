@@ -11,6 +11,7 @@ import { FormShell } from '@/components/ui/FormShell';
 import { AccordionSection, AccordionGroup, AccordionSubGroup, AccordionSubItem } from '@/components/ui/AccordionSection';
 import { Archive, Search, Grid3x3, List, Plus, Eye, Trash2, Download, Shield, Scale, AlertTriangle, Clock, MapPin, Brain, Loader2, Send, Sparkles, GraduationCap, AlertCircle, Calendar, User, FileText, History, PenSquare, CheckCircle, XCircle, FileCheck, LayoutDashboard, TrendingUp, ClipboardList, Mail, Printer, Filter } from 'lucide-react'
 import { useAppStore, RegistreEntry, CertificationMetadata, HomologationMetadata } from '@/lib/store';
+import { nomActeur } from '@/lib/acteurs';
 import { getSurveillanceEquipeIds } from '@/lib/surveillanceTeam';
 import { canManageRole } from '@/lib/config';
 import { getGraviteRisqueLabel, getGraviteRisqueClasse } from '@/lib/evenementUtils';
@@ -329,7 +330,7 @@ function DashboardTab() {
                         <span className="font-medium text-sm">{step.etape}</span>
                         <span className="text-xs text-muted-foreground">{new Date(step.date).toLocaleDateString('fr-FR')}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Par : {step.acteur} ({step.acteur_role})</p>
+                      <p className="text-xs text-muted-foreground">Par : {nomActeur(step.acteur, useAppStore.getState().utilisateurs || [])} ({step.acteur_role})</p>
                       {step.details && <p className="text-sm mt-1">{step.details}</p>}
                     </div>
                   </div>
@@ -1246,7 +1247,7 @@ function EcartsTab() {
                 <p className="text-sm text-muted-foreground">{selectedEcart.evaluation_pac.commentaire_refus}</p>
               )}
               <p className="text-xs text-muted-foreground mt-2">
-                Évalué par {selectedEcart.evaluation_pac.evalue_par} le {selectedEcart.evaluation_pac.evalue_le?.slice(0, 10)}
+                Évalué par {nomActeur(selectedEcart.evaluation_pac.evalue_par, useAppStore.getState().utilisateurs || [])} le {selectedEcart.evaluation_pac.evalue_le?.slice(0, 10)}
               </p>
             </div>
           )}
@@ -2307,7 +2308,7 @@ export default function RegistreModule({ userRole: userRoleProp, user: userProp 
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Par: {step.acteur} ({step.acteur_role})
+                          Par: {nomActeur(step.acteur, useAppStore.getState().utilisateurs || [])} ({step.acteur_role})
                         </p>
                         {step.details && <p className="text-sm mt-1">{step.details}</p>}
                         {step.fichiers && step.fichiers.length > 0 && (

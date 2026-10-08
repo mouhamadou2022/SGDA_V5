@@ -54,6 +54,16 @@ export interface EcartSlice {
   getDelaiRestant: (ecart: Ecart) => { jours: number; couleur: 'vert' | 'orange' | 'rouge'; depasse: boolean }
   getHistoriqueEcart: (ecartId: string) => HistoriqueEcart[]
   addHistoriqueEntry: (ecartId: string, entry: Omit<HistoriqueEcart, 'id'>) => void
+  /**
+   * Fusionne l'historique serveur d'un écart (multi-refus visibles partout) :
+   * union par id, sans écraser le local. Best-effort (erreurs ignorées).
+   */
+  chargerHistoriqueEcart: (ecartId: string) => Promise<void>
+  /**
+   * Pousse l'historique local d'un écart vers Supabase (upsert idempotent).
+   * Best-effort : un échec ne bloque jamais le workflow.
+   */
+  synchroniserHistoriqueEcart: (ecartId: string) => Promise<void>
   getStatistiquesPAC: (aerodromeId?: string) => StatistiquesPAC
   /**
    * Vigie périodique des écarts (retard + échéances + délais inspecteur).
@@ -1194,6 +1204,34 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
             [ecartId]: [...(state.historiqueEcarts[ecartId] || []), { ...entry, id: crypto.randomUUID() }]
           }
         }))
+      },
+
+      chargerHistoriqueEcart: async (ecartId) => {
+        try {
+          const { listHistoriqueEcart } = await import('../datastore')
+          const result = await listHistoriqueEcart(ecartId)
+          if (result.error || !result.data) return
+          const distantes = result.data as HistoriqueEcart[]
+          if (distantes.length === 0) return
+          set((state) => {
+            const locales = state.historiqueEcarts[ecartId] || []
+            const ids = new Set(locales.map(e => e.id))
+            const ajout = distantes.filter(e => e && e.id && !ids.has(e.id))
+            if (ajout.length === 0) return state
+            const fusion = [...locales, ...ajout].sort((a, b) =>
+              new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+            return { historiqueEcarts: { ...state.historiqueEcarts, [ecartId]: fusion } }
+          })
+        } catch { /* best-effort */ }
+      },
+
+      synchroniserHistoriqueEcart: async (ecartId) => {
+        try {
+          const entries = get().historiqueEcarts[ecartId] || []
+          if (entries.length === 0) return
+          const { syncHistoriqueEcart } = await import('../datastore')
+          await syncHistoriqueEcart(ecartId, entries).catch(() => {})
+        } catch { /* best-effort */ }
       },
 
       getStatistiquesPAC: (aerodromeId) => {

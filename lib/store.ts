@@ -832,6 +832,29 @@ export function registerStoreSubscriptions(): void {
     useAppStore.getState().integrerEcartExterne(ecart);
   });
 
+  // Historique écarts : miroir Supabase best-effort (un seul abonné).
+  // Sans lui, les refus passés (overwrite de evaluation_pac/validation_preuves)
+  // ne sont visibles que sur le poste d'évaluation : l'exploitant resoumet à
+  // l'aveugle. Déclenché uniquement quand la référence change (coût nul sinon),
+  // debounce 2 s, upsert idempotent par id.
+  const longueursSync: Record<string, number> = {};
+  let minuteurHist: ReturnType<typeof setTimeout> | null = null;
+  useAppStore.subscribe((state, prev) => {
+    if (state.historiqueEcarts === prev.historiqueEcarts) return;
+    const sales = Object.keys(state.historiqueEcarts || {}).filter(
+      (id) => (state.historiqueEcarts[id]?.length || 0) > (longueursSync[id] || 0),
+    );
+    if (sales.length === 0) return;
+    if (minuteurHist) clearTimeout(minuteurHist);
+    minuteurHist = setTimeout(() => {
+      const s = useAppStore.getState();
+      for (const id of sales) {
+        longueursSync[id] = (s.historiqueEcarts[id] || []).length;
+        void s.synchroniserHistoriqueEcart(id);
+      }
+    }, 2000);
+  });
+
   // Flags de rappels : la tranche plannings reste propriétaire.
   storeEvents.on('planning:marquer-rappels', ({ planning_id, rappels }) => {
     useAppStore.getState().marquerRappelsEnvoyes(planning_id, rappels);

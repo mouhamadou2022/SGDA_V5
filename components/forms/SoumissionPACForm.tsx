@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/lib/store';
+import { nomActeur } from '@/lib/acteurs';
+import { refusAnterieurs } from '@/lib/historiqueRefus';
 import { useEcartQuestionRefs } from '@/lib/useEcartQuestionRefs';
 import { veillerSoumissionPAC } from '@/lib/ia/watchdogEvaluation';
 import { Plus, Upload, X, Send, AlertCircle, Calendar, User, Building2, CalendarDays, HelpCircle } from 'lucide-react'
@@ -40,10 +42,24 @@ export function SoumissionPACForm({
 }: SoumissionPACFormProps) {
   const ecarts = useAppStore(s => s.ecarts);
   const aerodromes = useAppStore(s => s.aerodromes);
+  const utilisateurs = useAppStore(s => s.utilisateurs);
+  const inspecteurs = useAppStore(s => s.inspecteurs);
+  const chargerHistoriqueEcart = useAppStore(s => s.chargerHistoriqueEcart);
+  const historique = useAppStore(s => s.historiqueEcarts[ecartId] || []);
+  const personnes = [...(utilisateurs || []), ...(inspecteurs || [])];
+
+  // Refus précédents (tous postes) pour ne pas refaire les mêmes erreurs.
+  useEffect(() => {
+    chargerHistoriqueEcart(ecartId).catch(() => {});
+  }, [ecartId, chargerHistoriqueEcart]);
   const soumettrePAC = useAppStore(s => s.soumettrePAC);
   const user = useAppStore(s => s.user);
 
   const ecart = ecarts.find(e => e.id === ecartId);
+  const refusPrecedents = refusAnterieurs(historique, 'evaluation_pac', ecart?.evaluation_pac ? {
+    decision: ecart.evaluation_pac.decision,
+    date: ecart.evaluation_pac.evalue_le,
+  } : null);
   const aerodrome = aerodromes.find(a => a.id === ecart?.aerodrome_id);
   const { refs: questionRefs } = useEcartQuestionRefs(ecart);
 
@@ -218,6 +234,71 @@ export function SoumissionPACForm({
             </div>
           </div>
         </div>
+
+        {/* RETOUR INSPECTEUR (resoumission après refus/réserves : ne pas refaire les mêmes erreurs) */}
+        {ecart.evaluation_pac?.decision && (
+          <div className={`p-4 rounded-lg border ${ecart.evaluation_pac.decision === 'refuse' ? 'bg-danger/5 border-danger/30' : 'bg-warning/5 border-warning/30'}`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <AlertCircle className={`w-4 h-4 ${ecart.evaluation_pac.decision === 'refuse' ? 'text-danger' : 'text-warning'}`} />
+                Retour de l'inspecteur — {ecart.evaluation_pac.decision === 'accepte' ? 'accepté' : ecart.evaluation_pac.decision === 'reserve' ? 'avec réserves' : 'refusé'}
+              </p>
+              {typeof ecart.evaluation_pac.note_globale === 'number' && (
+                <span className="badge neutral text-xs">Note : {ecart.evaluation_pac.note_globale}/100</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {([
+                ['Pertinence', ecart.evaluation_pac.note_pertinence],
+                ['Exhaustivité', ecart.evaluation_pac.note_exhaustivite],
+                ['Précision', ecart.evaluation_pac.note_precision],
+                ['Spécificité', ecart.evaluation_pac.note_specificite],
+                ['Réalisme', ecart.evaluation_pac.note_realisme],
+                ['Traçabilité', ecart.evaluation_pac.note_tracabilite],
+                ['Cohérence', ecart.evaluation_pac.note_coherence],
+              ] as Array<[string, unknown]>).filter(([, v]) => typeof v === 'number').map(([label, v]) => (
+                <span key={label} className="text-[11px] px-2 py-0.5 rounded-full bg-background border border-border">
+                  {label} : <strong>{v as number}</strong>
+                </span>
+              ))}
+            </div>
+            {ecart.evaluation_pac.commentaire_refus && (
+              <p className="text-sm whitespace-pre-wrap bg-background/60 border border-border/60 rounded-lg p-2.5">{ecart.evaluation_pac.commentaire_refus}</p>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-3">
+              {ecart.evaluation_pac.evalue_par && <span className="flex items-center gap-1"><User className="w-3 h-3" />{nomActeur(ecart.evaluation_pac.evalue_par, personnes)}</span>}
+              {ecart.evaluation_pac.evalue_le && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(ecart.evaluation_pac.evalue_le).toLocaleDateString('fr-FR')}</span>}
+            </p>
+          </div>
+        )}
+
+        {/* REFUS PRÉCÉDENTS (tous cycles, tous postes) */}
+        {refusPrecedents.length > 0 && (
+          <div className="p-3 rounded-lg border border-border bg-muted/20">
+            <p className="text-xs font-semibold text-foreground mb-2">
+              Refus précédents ({refusPrecedents.length}) — à ne pas reproduire
+            </p>
+            <div className="space-y-1.5 max-h-44 overflow-y-auto">
+              {refusPrecedents.map(r => {
+                const d = (r.details || {}) as any;
+                return (
+                  <div key={r.id} className="text-xs bg-background border border-border/60 rounded-lg p-2">
+                    <p className="font-medium text-foreground">
+                      {r.type === 'validation_preuves' ? 'Preuves' : 'PAC'} — {d.decision === 'reserve' ? 'avec réserves' : 'refusé'}
+                      <span className="font-normal text-muted-foreground"> · {new Date(r.date).toLocaleDateString('fr-FR')} · {nomActeur(r.acteur, personnes)}</span>
+                    </p>
+                    {typeof d.note_globale === 'number' && (
+                      <p className="text-muted-foreground mt-0.5">Note : <strong className="text-foreground">{d.note_globale}</strong></p>
+                    )}
+                    {(d.commentaire_refus || d.commentaire) && (
+                      <p className="mt-0.5 whitespace-pre-wrap">{d.commentaire_refus || d.commentaire}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ALERTE DÉLAI DE SOUMISSION DÉPASSÉ */}
         {delaiSoumissionPasse && !isSgs && (
