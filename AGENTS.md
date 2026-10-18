@@ -73,7 +73,11 @@ On vise, à terme, un découplage progressif pour réduire le couplage (le store
 ## Build
 - `npm run typecheck` doit passer sans erreur avant tout commit.
 
-## GitHub Actions
-- La branche par défaut est **`main`**, pas `master`.
-- Les workflows ne sont détectés que depuis `main`. Toujours pousser sur `main` :
-  `git push origin master:main` (ou merger master dans main).
+## Déploiement et branches (`main` + `master`)
+- **Deux branches comptent** :
+  - **`main`** = branche par défaut sur GitHub → les workflows cron (`.github/workflows/*.yml`, `on: schedule`) s'y exécutent.
+  - **`master`** = branche déployée par Vercel.
+- Toujours pousser sur **les deux** après un commit :
+  `git push origin master:main; git push origin master:master`
+  (branche locale par défaut : `master`).
+- Ne jamais pousser sur une seule : `main` seule → pas de déploiement Vercel ; `master` seule → crons non exécutés.
