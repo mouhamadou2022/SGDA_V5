@@ -35,6 +35,20 @@ export interface Surveillance {
     | 'planifiee' | 'en_cours' | 'checklist_signee'
     | 'ecarts_signes' | 'rapport_signe' | 'lettre_signee'
     | 'transmise' | 'archivee'
+  /**
+   * Champ multi-usage (dérive sémantique connue, non corrigée en phase de
+   * stabilisation) — écrit par trois onglets avec des sens différents :
+   *  - checklist standard  : score de CONFORMITÉ (0.7×tauxConformité + 0.3×complétion) ;
+   *  - suivi des écarts    : PROGRESSION (%) ;
+   *  - mise en œuvre PAC   : moyenne des scores d'évaluation d'action.
+   * Lu comme : (1) score de conformité par C3 (`profilScoreEngine`), et
+   * (2) marqueur « checklist standard faite » (`reglesSignature.evaluerAvancement`)
+   * — le contrat documenté vise un score posé par la checklist standard seule.
+   * ATTENTION : suivi/PAC écrivent ce champ de façon PORTEUSE pour l'avancement
+   * (une mission suivi-seul / PAC-seul n'a pas de checklist standard et en
+   * dépend via `needStd`). Toute correction doit rendre `evaluerAvancement`
+   * conscient du type de checklist ou stocker un score par onglet.
+   */
   score_global?: number
   observations?: string
   justification_declenchement?: string
