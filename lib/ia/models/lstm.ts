@@ -621,19 +621,16 @@ export class LSTMModel {
   // ============================================================
 
   exportModel(): string {
+    // Sérialisation LOSSLESS : les matrices de poids (Wf/Wi/Wo/Wc) doivent être
+    // conservées intégralement. L'ancien repli qui les remplaçait par '[[...]]'
+    // corrompait silencieusement l'import (poids = chaînes → modèle inutilisable).
     return JSON.stringify({
       config: this.config,
       weights: this.weights,
       trained: this.trained,
       lastTrainingDate: this.lastTrainingDate?.toISOString(),
       normalizationParams: this.normalizationParams
-    }, (key, value) => {
-      // Pour les tableaux trop grands, on garde une version simplifiée
-      if (key === 'Wf' || key === 'Wi' || key === 'Wo' || key === 'Wc') {
-        return value ? '[[...]]' : null
-      }
-      return value
-    }, 2)
+    })
   }
 
   importModel(jsonData: string): boolean {
