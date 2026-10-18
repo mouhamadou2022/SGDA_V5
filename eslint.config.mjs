@@ -65,6 +65,16 @@ const eslintConfig = defineConfig([
     files: ["**/*.{ts,tsx,js,jsx}"],
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
+      // Convention projet : un identifiant préfixé `_` est volontairement non
+      // utilisé (placeholder d'arity, destructuration d'omission). On l'ignore
+      // pour que seuls les vrais oublis restent visibles.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        args: "after-used",
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+      }],
       "react/no-unescaped-entities": "warn",
       "react-hooks/purity": "warn",
       "react-hooks/set-state-in-effect": "warn",

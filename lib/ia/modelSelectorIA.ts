@@ -69,12 +69,6 @@ export async function traduireRecommandationEnClair(
   rec: RecommandationModele,
   modeles: string[]
 ): Promise<RecommandationClaire> {
-  const fallback: RecommandationClaire = {
-    justification: rec.justification,
-    scores: rec.scores,
-    fallbackIA: true,
-  }
-
   const traductionFallback: TraductionIA = {
     justification: rec.justification,
     raisons: Object.fromEntries(rec.scores.map((s) => [s.modele, s.raisons])),

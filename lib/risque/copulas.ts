@@ -198,7 +198,7 @@ export function predictCopula(
     description: 'Si C1-C2-C3 chutent simultanément (scénario catastrophe)',
   }
   if (n > 0) {
-    worstCase.components = components.map((c, i) => {
+    worstCase.components = components.map((c) => {
       const vals = history.map(h => (h as any)[c])
       return Math.round(Math.min(...vals))
     })

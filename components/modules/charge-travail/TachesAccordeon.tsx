@@ -142,7 +142,7 @@ export function TachesAccordeon({ userRole, userId }: TachesAccordeonProps) {
       }
       case 'ecart': {
         const id = tache.id.replace('ecart-', '');
-        updateEcart(id, { statut: 'cloture' });
+        updateEcart(id, { statut: 'cloture', cloture_le: new Date().toISOString(), motif_cloture: 'resolu_normal' });
         break;
       }
       case 'evt': {

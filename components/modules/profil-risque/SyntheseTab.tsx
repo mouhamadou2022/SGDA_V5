@@ -4,7 +4,7 @@
 'use client'
 
 import { useMemo, useState, useEffect, useCallback } from 'react'
-import { ProfilRisque, EvenementSecurite, Ecart, useAppStore } from '@/lib/store'
+import { ProfilRisque, EvenementSecurite, Ecart } from '@/lib/store'
 import { Card } from '@/components/ui/card'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Activity, Zap, BarChart3, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
 import { synthetiserModeles, DiagnosticUnifie, NOMBRE_MAX_VOTES } from '@/lib/risque/modelSynthesis'
@@ -42,16 +42,6 @@ const RADAR_CRITERES = [
   { key: 'c4' as const, label: 'C4', poids: 20 },
   { key: 'c5' as const, label: 'C5', poids: 15 },
 ]
-
-function getNiveauColor(niveau: string): string {
-  switch (niveau) {
-    case 'critique': return 'var(--color-danger)'
-    case 'eleve': return 'var(--color-warning)'
-    case 'moyen': return 'var(--color-teal)'
-    case 'faible': return 'var(--color-success)'
-    default: return 'var(--color-neutral)'
-  }
-}
 
 function getNiveauBgClass(niveau: string): string {
   switch (niveau) {
@@ -105,47 +95,9 @@ export function SyntheseTab({
 }: SyntheseTabProps) {
   const score = Math.min(100, Math.max(0, profil.score_global))
   const ringColor = getScoreRingColor(score)
-  const scoreColor = getScoreTextColor(score)
 
   // --- Radar polygon for small inline chart ---
   const radarCriteres = sgsNonApplicable ? RADAR_CRITERES.filter(c => c.key !== 'c1') : RADAR_CRITERES
-  const radarCenterX = 55
-  const radarCenterY = 55
-  const radarRadius = 38
-  const radarAngles = radarCriteres.map((_, i) => {
-    const stepAngle = (2 * Math.PI) / radarCriteres.length
-    return -Math.PI / 2 + i * stepAngle
-  })
-
-  const radarPoints = radarCriteres.map((c, i) => {
-    const value = (profil[c.key] as number) || 0
-    const ratio = Math.min(100, Math.max(0, value)) / 100
-    const r = radarRadius * ratio
-    return {
-      x: radarCenterX + r * Math.cos(radarAngles[i]),
-      y: radarCenterY + r * Math.sin(radarAngles[i]),
-    }
-  })
-
-  const radarPolygon = radarPoints.map((p) => `${p.x},${p.y}`).join(' ')
-
-  // Radar grid rings
-  const gridRings = [0.25, 0.5, 0.75, 1].map((ratio) => {
-    const pts = radarAngles.map((a) => {
-      const r = radarRadius * ratio
-      return `${radarCenterX + r * Math.cos(a)},${radarCenterY + r * Math.sin(a)}`
-    })
-    return pts.join(' ')
-  })
-
-  // Radar axis lines
-  const axisLines = radarAngles.map((a) => {
-    return `M${radarCenterX},${radarCenterY} L${radarCenterX + radarRadius * Math.cos(a)},${radarCenterY + radarRadius * Math.sin(a)}`
-  })
-
-  // Radar labels
-  const labelRadius = radarRadius + 12
-
   // --- Alert conditions ---
   const hasProactiveAlert = !!profil.proactive_alert
   const hasSystemStress = profil.system_stress && profil.system_stress.score !== undefined
@@ -170,7 +122,7 @@ export function SyntheseTab({
   // --- Synthèse IA (texte) — généré par LLM ---
   const [synthIA, setSynthIA] = useState<{ interpretation: string; recommandation: string; elementsClefs: string[] } | null>(null)
   const [synthLoading, setSynthLoading] = useState(true)
-  const [synthError, setSynthError] = useState(false)
+  const [, setSynthError] = useState(false)
 
   const fetchSynthesis = useCallback(async () => {
     setSynthLoading(true)
@@ -200,11 +152,6 @@ export function SyntheseTab({
   const scores = (profil.historical_scores || []).map(h => h.score).filter(Number.isFinite)
   const regResult = scores.length >= 2 ? linearRegression(scores) : null
   const r2 = regResult?.r2 ?? 0
-  const rfAccuracy = useAppStore(s => s.modelMetrics?.random_forest?.accuracy) ?? 0
-  const ensembleConfidence = profil.ensemble_confidence ?? 0
-  const ic95width = (profil.prediction_interval_3m?.upper ?? 0) - (profil.prediction_interval_3m?.lower ?? 0)
-  const calibrationError = ic95width > 0 ? Math.min(20, Math.round(ic95width / 2)) : 10
-  const hasIC95 = !!profil.prediction_interval_3m || !!profil.prediction_interval_6m
 
   // --- Statistiques des critères C1-C5 ---
   const critereValues = radarCriteres.map(c => {

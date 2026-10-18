@@ -105,7 +105,7 @@ export class RiskAgent {
 
   async analyzeRisk(
     request: RiskAnalysisRequest,
-    storeData?: any
+    _storeData?: any
   ): Promise<RiskAnalysisResult> {
     const cacheKey = `${request.aerodromeId}_${request.includePredictions}_${request.includeBlackSwan}`
     const cached = this.lastAnalysisCache.get(cacheKey)
@@ -326,7 +326,7 @@ ${JSON.stringify(contextData, null, 2)}`,
   // PRÉDICTIONS QUANTITATIVES (inchangées)
   // ============================================================
 
-  private async computePredictions(data: RiskAnalysisData, horizonMonths: number): Promise<RiskAnalysisResult['predictions']> {
+  private async computePredictions(data: RiskAnalysisData, _horizonMonths: number): Promise<RiskAnalysisResult['predictions']> {
     const { historique, profil } = data
     if (historique.length < 3) {
       const s = profil?.score_global ?? 70
@@ -354,9 +354,8 @@ ${JSON.stringify(contextData, null, 2)}`,
       score6m: [score6m - volatility * 2, score6m + volatility * 2] as [number, number],
       score12m: [score12m - volatility * 3, score12m + volatility * 3] as [number, number],
     }
-    let transferAdjusted = false
     try {
-      const { computeConformalInterval, findSimilarAerodromes, bandit } = await import('@/lib/risque')
+      const { computeConformalInterval, findSimilarAerodromes } = await import('@/lib/risque')
       // Conformal
       const actuals = historique.slice(-6).map(h => h.score)
       const preds = historique.slice(0, -6).map(h => h.score)
@@ -376,58 +375,11 @@ ${JSON.stringify(contextData, null, 2)}`,
         const similar = findSimilarAerodromes(data.aerodromeId, store.aerodromes || [], store.profilsRisque || {})
         if (similar.length > 0) {
           const avg = similar.reduce((s: number, a: any) => s + (a.score || 70), 0) / similar.length
-          transferAdjusted = true
           local3m = Math.round(local3m * 0.85 + avg * 0.15)
           local6m = Math.round(local6m * 0.85 + avg * 0.15)
         }
       }
     } catch { /* fallback to volatility */ }
-
-    // ── Survival Analysis ──
-    let survival: any = null
-    try {
-      const { predictSurvival } = await import('@/lib/risque/survival')
-      const survEvents = historique.slice().reverse().map((h, i) => ({
-        time: i * 30 + 1,
-        event: h.score < 40,
-        score: h.score,
-        covariates: [h.score, profil?.score_global || 70],
-      }))
-      const survResult = predictSurvival(survEvents, [local3m, profil?.score_global || 70])
-      survival = {
-        medianDays: survResult.medianSurvivalDays,
-        hazard90d: survResult.hazard90days,
-        hazard180d: survResult.hazard180days,
-      }
-    } catch { /* survival unavailable */ }
-
-    // ── Extreme Value Theory ──
-    let evt: any = null
-    try {
-      const { predictEVT } = await import('@/lib/risque/extreme')
-      const evtEvents = historique.map(h => ({ value: 100 - h.score, date: h.date || '' }))
-      const evtResult = predictEVT(evtEvents)
-      evt = {
-        returnLevel1y: evtResult.returnLevel1y,
-        isHeavyTailed: evtResult.isHeavyTailed,
-        maxExpected12m: evtResult.maxExpected12m,
-        tailRisk: evtResult.probabilityExtreme,
-      }
-    } catch { /* EVT unavailable */ }
-
-    // ── Hidden Markov Model ──
-    let hmm: any = null
-    try {
-      const { predictHMM } = await import('@/lib/risque/hmm')
-      const obs = historique.map(h => h.score)
-      const hmmResult = predictHMM(obs)
-      hmm = {
-        currentState: hmmResult.currentStateName,
-        isTransitioning: hmmResult.isTransitioning,
-        transitionRisk: hmmResult.transitionRisk,
-        daysToCritical: hmmResult.daysToCritical,
-      }
-    } catch { /* HMM unavailable */ }
 
     return {
       score3m: Math.min(100, Math.max(0, local3m)),

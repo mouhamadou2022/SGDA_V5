@@ -374,6 +374,9 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         // Partiel réel (evalue_le complété à la validation chef) —
         // cible documentée par l'assertion, runtime inchangé.
         const evaluationPac = {
+          // Préserve deadline/retard_inspecteur posés à la soumission : C2 s'en
+          // sert pour soustraire les délais imputables à l'inspecteur.
+          ...(ecart.evaluation_pac || {}),
           ...evaluation,
           note_globale: plansActionsUtils.calculerNoteGlobale(evaluation),
           delai_traitement: delaiTraitement
@@ -582,7 +585,8 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         const syncResult = await datastore.upsertEcart({
           ...ecart,
           statut: 'en_attente_validation_chef',
-          validation_preuves: validation,
+          // Préserve deadline/retard_inspecteur posés à la soumission des preuves.
+          validation_preuves: { ...(ecart.validation_preuves || {}), ...validation },
           validation_chef: validationChef,
           updated_at: now
         })
@@ -594,7 +598,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         set((state) => {
           const updatedFields: Partial<Ecart> = {
             statut: 'en_attente_validation_chef',
-            validation_preuves: validation,
+            validation_preuves: { ...(ecart.validation_preuves || {}), ...validation },
             validation_chef: validationChef,
             updated_at: now
           }

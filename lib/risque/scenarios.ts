@@ -13,7 +13,7 @@ export function buildRealisticScenario(
   scores: number[],
   horizonMois: number = 6
 ): Scenario {
-  const { slope, intercept, r2, confidenceMargin95 } = linearRegression(scores)
+  const { slope, r2, confidenceMargin95 } = linearRegression(scores)
   const dernierScore = scores[scores.length - 1]
   const scoreProjete = Math.min(100, Math.max(0, dernierScore + slope * horizonMois))
   
@@ -50,7 +50,6 @@ export function buildOptimisticScenario(
   scores: number[],
   horizonMois: number = 6
 ): Scenario {
-  const meilleurScore = Math.max(...scores)
   const dernierScore = scores[scores.length - 1]
   const penteOptimiste = 2.0 // Amélioration rapide
   const scoreProjete = Math.min(100, dernierScore + penteOptimiste * horizonMois)
@@ -82,7 +81,6 @@ export function buildPessimisticScenario(
   horizonMois: number = 6,
   aggravatorsMultiplier: number = 1
 ): Scenario {
-  const pireScore = Math.min(...scores)
   const dernierScore = scores[scores.length - 1]
   const pentePessimiste = -1.5 * aggravatorsMultiplier
   let scoreProjete = dernierScore + pentePessimiste * horizonMois
@@ -117,7 +115,7 @@ export function buildPessimisticScenario(
  */
 export function buildCatastrophicScenario(
   scores: number[],
-  horizonMois: number = 6,
+  _horizonMois: number = 6,
   hasBlackSwan: boolean = false
 ): Scenario {
   const dernierScore = scores[scores.length - 1]

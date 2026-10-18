@@ -555,7 +555,7 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
     }
   }
 
-  private buildFallbackLibelle(items: GenerateEcartRequest['itemsNSNV'], niveau: string): string {
+  private buildFallbackLibelle(items: GenerateEcartRequest['itemsNSNV'], _niveau: string): string {
     const isSGS = items[0]?.domaine === 'SGS'
     // Utiliser 'description' pour SGS, 'point_verification' pour standard
     const desc = items.map(i => i.description || i.point_verification || '')
@@ -581,7 +581,7 @@ Si plusieurs items sont combinés, une puce par item. Si des items sont séparé
   // ÉVALUATION PAC — scoring + commentaire IA
   // ============================================================
 
-  async evaluatePAC(request: EvaluatePACRequest, storeData: any): Promise<EvaluatePACResult> {
+  async evaluatePAC(request: EvaluatePACRequest, _storeData: any): Promise<EvaluatePACResult> {
     const cached = this.evaluationCache.get(request.ecartId)
     if (cached) return cached
 

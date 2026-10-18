@@ -160,7 +160,7 @@ function addToAdjacency(adjacencyList: Map<string, string[]>, from: string, to: 
 export function calculateRiskPropagation(
   graph: RiskGraph,
   sourceNodeId: string,
-  maxDepth: number = 3
+  _maxDepth: number = 3
 ): PropagationResult {
   const affectedNodes: Array<{ id: string; impact: number; path: string[] }> = []
   const criticalPaths: string[][] = []
@@ -233,7 +233,7 @@ export function calculateRiskPropagation(
  */
 export function findCriticalPaths(
   graph: RiskGraph,
-  threshold: number = 0.7
+  _threshold: number = 0.7
 ): string[][] {
   const criticalPaths: string[][] = []
   

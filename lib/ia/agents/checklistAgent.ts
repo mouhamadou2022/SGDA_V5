@@ -96,12 +96,6 @@ export interface OfflinePreparationResult {
 }
 
 // Seuils
-const CONFIDENCE_THRESHOLDS = {
-  TRES_ELEVEE: 85,
-  ELEVEE: 70,
-  MOYENNE: 50,
-}
-
 const PRIORITY_THRESHOLDS = {
   CRITIQUE: {
     confidence: 85,
@@ -123,7 +117,7 @@ export class ChecklistAgent {
   private predictionCache: Map<string, ChecklistPredictionResult> = new Map()
   private cacheTTL: number = 300000 // 5 minutes
 
-  async init(storeData: any): Promise<void> {
+  async init(_storeData: any): Promise<void> {
     this.initialized = true
     console.log('[ChecklistAgent] Initialisé')
   }
@@ -134,7 +128,7 @@ export class ChecklistAgent {
 
   async predictChecklist(
     request: ChecklistPredictionRequest,
-    storeData: any
+    _storeData: any
   ): Promise<ChecklistPredictionResult> {
     const cacheKey = `${request.aerodromeId}_${request.domaine}_${request.sousDomaine}_${request.sousSousDomaine}_${request.itemId}`
     
@@ -144,8 +138,6 @@ export class ChecklistAgent {
       return cached
     }
 
-    const store = useAppStore.getState()
-    
     // Utiliser checklistMemory existant
     const prediction = checklistMemory.getPredictionForItem(
       request.aerodromeId,
@@ -258,7 +250,6 @@ En 1 phrase courte, explique pourquoi ce résultat est prédit.`,
     type_inspection: TypeInspection = 'programmee',
     domaine?: string
   ): Promise<PriorityItem[]> {
-    const store = useAppStore.getState()
     const allSuggestions = getSuggestionsDetaillees(aerodromeId, type_inspection)
     
     const priorityItems: PriorityItem[] = []

@@ -94,16 +94,6 @@ export async function expliquerCriteresEnClair(
 ): Promise<ExplicationCriteresResult> {
   const p = input.profil
   const sgsNonApplicable = input.statut_sgs === 'non_applicable'
-  const fallback: ExplicationCriteresResult = {
-    explications: {
-      c1: EXPLICATION_FALLBACKS.c1,
-      c2: EXPLICATION_FALLBACKS.c2,
-      c3: EXPLICATION_FALLBACKS.c3,
-      c4: EXPLICATION_FALLBACKS.c4,
-      c5: EXPLICATION_FALLBACKS.c5,
-    },
-    fallbackIA: true,
-  }
 
   const valeurs = [
     { critere: 'c1', label: 'Maturité SGS', score: sgsNonApplicable ? null : p.c1 ?? 0, niveau: sgsNonApplicable ? 'non applicable' : getNiveauLabel(getNiveau(p.c1 ?? 0)) },

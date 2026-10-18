@@ -4,6 +4,8 @@
 
 import type { Planning, ProfilRisque, Ecart, Certification, Homologation } from '@/lib/store'
 import { computeFinalFrequency, suggestMissionType } from '@/lib/risque/frequency'
+import { detectAllTriggers } from '@/lib/risque/triggers'
+import { detectSurcharge, detectC1Bas } from '@/lib/risque/aggravators'
 import { normalizePlanningType } from '@/lib/planning'
 import { releveChecklistPAC, releveChecklistEcarts, prochaineEcheanceActions } from '@/lib/domaines'
 import { modelCache } from '@/lib/risque/modelCache'
@@ -33,7 +35,7 @@ export interface PlanningGeneratorParams {
 }
 
 export function genererPlanning(params: PlanningGeneratorParams): PlanningProposal[] {
-  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], homologations = [], inspecteurs = [], historiqueSurveillances = [], statut_sgs, type_entite } = params
+  const { aerodromeId, annee, profilRisque, ecartsActifs = [], certifications = [], historiqueSurveillances = [], statut_sgs, type_entite } = params
   const propositions: PlanningProposal[] = []
 
   // Applicabilité SGS : non applicable si statut 'non_applicable' OU entité hélistation
@@ -110,16 +112,8 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
       : profilRisque.niveau === 'moyen' ? 'moyen'
       : 'faible'
 
-    const freqResult = computeFinalFrequency({ riskLevel })
-    let frequence = freqResult.frequencyPerYear || 2
-    const freqLabel = freqResult.recommendations?.join(', ') || ''
-
-    // NB → ajustement fréquence basé sur le ratio variance/moyenne (continu, pas binaire)
-    if (modelOverrides.nb && modelOverrides.nb.overdispersion > 1) {
-      frequence = Math.min(12, Math.round(frequence * modelOverrides.nb.overdispersion))
-    }
-
-    // Mission type — Thompson Sampling override si confiance > 70%.
+    // Mission type — calculé AVANT la fréquence (multiplicateur par type de mission).
+    // Thompson Sampling override si confiance > 70%.
     // Normalisé vers le vocabulaire canonique : le moteur TS peut retourner
     // un identifiant d'action legacy (`programmee`) ou inconnu.
     let missionType = normalizePlanningType(suggestMissionType({
@@ -133,6 +127,26 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
       // N'accepter l'override TS que s'il désigne un vrai type de mission
       const TYPES_MISSION = ['periodique', 'inopine', 'speciale', 'suivi_ecarts', 'mise_oeuvre_pac', 'certification', 'homologation', 'audit_complet', 'urgence', 'maintien']
       if (TYPES_MISSION.includes(tsType)) missionType = tsType
+    }
+
+    // Contexte de modulation (triggers + aggravants) issu des signaux disponibles
+    const signaux = computeSignauxContexte(ecartsActifs, historiqueSurveillances, profilRisque)
+
+    const freqResult = computeFinalFrequency({
+      riskLevel,
+      typeAeroport: profilRisque.infrastructure?.type,
+      typeMission: missionType,
+      hasCriticalEcarts: nbEcartsCritiques > 0,
+      tendance: profilRisque.tendance,
+      hasTriggers: signaux.hasTriggers,
+      hasAggravators: signaux.hasAggravators,
+    })
+    let frequence = freqResult.frequencyPerYear || 2
+    const freqLabel = freqResult.recommendations?.join(', ') || ''
+
+    // NB → ajustement fréquence basé sur le ratio variance/moyenne (continu, pas binaire)
+    if (modelOverrides.nb && modelOverrides.nb.overdispersion > 1) {
+      frequence = Math.min(12, Math.round(frequence * modelOverrides.nb.overdispersion))
     }
 
     // Domaines — Copulas override (élargir si dépendance de queue)
@@ -194,7 +208,7 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
         source: {
           type: 'profil_risque',
           raison: `Fréquence ${freqLabel || `${frequence}/an`} — Score ${profilRisque.score_global}/100 (${profilRisque.niveau})${modelOverrides.modelReason.length > 0 ? ' + Modèles ML' : ''}`,
-          details: [...domaines.map(d => `Domaine ${d} : C1=${profilRisque.c1} C2=${profilRisque.c2} C3=${profilRisque.c3} C5=${profilRisque.c5}`), ...modelOverrides.modelReason],
+          details: [...domaines.map(d => `Domaine ${d} : C1=${profilRisque.c1} C2=${profilRisque.c2} C3=${profilRisque.c3} C5=${profilRisque.c5}`), ...signaux.raisons, ...modelOverrides.modelReason],
         },
         sort_order: priorite === 'critique' ? 0 : priorite === 'haute' ? 1 : 3,
       })
@@ -276,6 +290,54 @@ export function genererPlanning(params: PlanningGeneratorParams): PlanningPropos
     if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
     return new Date(a.date_debut || '').getTime() - new Date(b.date_debut || '').getTime()
   })
+}
+
+/**
+ * Dérive le contexte de modulation de fréquence (triggers + aggravants) à
+ * partir des seuls signaux réellement disponibles au générateur.
+ * Les facteurs non alimentés (incidents, changement d'exploitant, rotation,
+ * absence de formation/barrière) restent inactifs faute de données.
+ * `ecart_critique` est exclu des triggers car déjà porté par `hasCriticalEcarts`.
+ */
+function computeSignauxContexte(
+  ecartsActifs: Ecart[],
+  historiqueSurveillances: { type: string; date: string; domaines: string[]; score?: number }[],
+  profilRisque: ProfilRisque,
+): { hasTriggers: boolean; hasAggravators: boolean; raisons: string[] } {
+  const actifs = ecartsActifs.filter(e => e.statut !== 'cloture')
+  const nbEcartsCritiques = actifs.filter(e => e.niveau_risque === 'critique').length
+  const now = Date.now()
+
+  const nbDelaisDepasses = actifs.filter(e => {
+    const deadline = e.evaluation_pac?.deadline || e.validation_preuves?.deadline || e.delai_regularisation
+    return !!deadline && new Date(deadline).getTime() < now
+  }).length
+
+  const dates = historiqueSurveillances
+    .map(h => new Date(h.date).getTime())
+    .filter(t => !Number.isNaN(t))
+  const joursDepuisDerniereInspection = dates.length > 0
+    ? Math.floor((now - Math.max(...dates)) / 86400000)
+    : null
+
+  const triggersRetenus = detectAllTriggers({
+    nbEcartsCritiques,
+    nbDelaisDepasses,
+    nbIncidentsRecents: 0,
+    moisDepuisChangement: null,
+    joursDepuisDerniereInspection,
+  }).filter(t => t.actif && t.type !== 'ecart_critique')
+
+  const aggravatorsRetenus = [
+    detectSurcharge(actifs.length),
+    detectC1Bas(profilRisque.c1),
+  ].filter(a => a.actif)
+
+  return {
+    hasTriggers: triggersRetenus.length > 0,
+    hasAggravators: aggravatorsRetenus.length > 0,
+    raisons: [...triggersRetenus, ...aggravatorsRetenus].map(f => f.description),
+  }
 }
 
 function buildObjectifsProfil(type: string, domaines: string[], profil: ProfilRisque, freqJust: string, typeJust: string, mlReasons: string[]): string {

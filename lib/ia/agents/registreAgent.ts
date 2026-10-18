@@ -397,7 +397,6 @@ Réponds à cette commande de façon professionnelle et utile pour l'inspecteur.
   // ============================================================
 
   async analyzeRegulationDocument(request: RegulationAnalysisRequest): Promise<RegulationAnalysisResult> {
-    const store = useAppStore.getState()
     const cacheKey = `${request.documentId}_${request.version_nouvelle}`
     
     const cached = this.analysesCache.get(cacheKey)
@@ -482,7 +481,7 @@ Résumé: ${request.resume ?? 'Non fourni'}`,
     return keywords.some(k => titre.toLowerCase().includes(k))
   }
 
-  private extractModifiedChapters(titre: string): string[] {
+  private extractModifiedChapters(_titre: string): string[] {
     return ['Chapitre 5 - Sécurité', 'Annexe B - Procédures']
   }
 
@@ -576,7 +575,7 @@ Résumé: ${request.resume ?? 'Non fourni'}`,
   // 4. ANALYSE DES BESOINS EN FORMATION
   // ============================================================
 
-  async analyzeTrainingNeeds(request: TrainingNeedsAnalysisRequest): Promise<TrainingNeedsAnalysisResult> {
+  async analyzeTrainingNeeds(_request: TrainingNeedsAnalysisRequest): Promise<TrainingNeedsAnalysisResult> {
     const store = useAppStore.getState()
     const inspecteurs = store.utilisateurs?.filter(u => u.role === 'inspector') || []
     const formations = store.formations || []
@@ -713,7 +712,7 @@ Résumé: ${request.resume ?? 'Non fourni'}`,
     return [...new Set(words.filter(w => w.length > 3 && !stopWords.includes(w)))]
   }
 
-  async analyze(request: any): Promise<any> {
+  async analyze(_request: any): Promise<any> {
     return {
       stats: { total: 0, parType: {}, parAerodrome: {}, parMois: {} },
       entries: [],

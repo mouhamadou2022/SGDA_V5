@@ -89,7 +89,6 @@ export function FeatureDriftCard({ profil, analysis: providedAnalysis }: Props) 
   const analysis = useMemo(() => providedAnalysis ?? buildDriftAnalysis(profil), [profil, providedAnalysis])
 
   const anomalies = analysis.drifts.filter(d => d.severity === 'critique' || d.severity === 'eleve')
-  const normals = analysis.drifts.filter(d => d.severity === 'normal')
 
   if (!analysis.hasAnomaly && analysis.drifts.length === 0) {
     return null

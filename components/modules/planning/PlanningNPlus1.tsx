@@ -308,7 +308,6 @@ export default function PlanningNPlus1({ onClose, userRole = '' }: Props) {
                   const isEditing = editingId === prop.id
                   const conflict = !isValide && g.existants.some(e => overlap(prop, e))
                   const source = (prop as any).source
-                  const aero = g.aero
 
                   if (isEditing) return (
                     <div key={prop.id || `prop-${pi}`} className="p-3 rounded-lg border border-role-primary/50 bg-role-primary-soft/5 text-sm space-y-3">

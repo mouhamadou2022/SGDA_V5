@@ -57,8 +57,6 @@ function constatCritere(key: string, val: number, label: string): string {
 function verifCritere(key: string, val: number): string {
   const severe = val < 30
   const modere = val < 50
-  const leger = val < 65
-  const keyIdx = parseInt(key[1])
 
   if (key === 'c1') {
     if (severe) return "Exiger la mise a jour complete du manuel SGS et la preuve de diffusion a l'ensemble du personnel. Verifier les registres de formation securite des 24 derniers mois. Audit documentaire a prevoir dans la mission."

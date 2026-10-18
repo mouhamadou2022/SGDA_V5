@@ -5,8 +5,6 @@ import React, { useState, useMemo } from 'react';
 import { AlertTriangle, Flame, AlertOctagon, Info, Shield, FileText, Repeat, Globe, Activity } from 'lucide-react'
 import { Card } from '@/components/ui/card';
 
-const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
-
 interface CritereNiveauRisque {
   id: string;
   label: string;
@@ -95,7 +93,7 @@ interface NiveauRisqueMatrixProps {
   userRole?: string;
 }
 
-export function NiveauRisqueMatrix({ onNiveauChange, initialNotes, userRole }: NiveauRisqueMatrixProps) {
+export function NiveauRisqueMatrix({ onNiveauChange, initialNotes }: NiveauRisqueMatrixProps) {
   const [notes, setNotes] = useState<Record<string, number>>(() => {
     if (initialNotes) return { ...initialNotes };
     return {

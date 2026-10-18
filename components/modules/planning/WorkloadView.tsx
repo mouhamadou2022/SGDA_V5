@@ -65,7 +65,6 @@ export function WorkloadView({ userRole }: WorkloadViewProps) {
   const plannings = useAppStore(s => s.plannings);
   const aerodromes = useAppStore(s => s.aerodromes);
   const utilisateurs = useAppStore(s => s.utilisateurs);
-  const user = useAppStore(s => s.user);
 
   const moisCourant = new Date().toISOString().slice(0, 7);
   const [moisSelectionne, setMoisSelectionne] = useState(moisCourant);

@@ -291,8 +291,19 @@ export class ChecklistFeedbackEngine {
       auto_evaluated: true,
     }))
 
+    // Dimensions réelles du profil (état AVANT prise en compte des résultats) :
+    // permet au recalibrage d'attribuer la décision à la dimension réellement
+    // la plus faible, plutôt qu'à un c1 figé par une carte de zéros.
     const dimensions = new Map<string, Record<string, number>>()
-    dimensions.set(aerodromeId, { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 })
+    if (profilAvant) {
+      dimensions.set(aerodromeId, {
+        c1: profilAvant.c1,
+        c2: profilAvant.c2,
+        c3: profilAvant.c3,
+        c4: profilAvant.c4,
+        c5: profilAvant.c5,
+      })
+    }
 
     let weightAdjustments = 0
     try {

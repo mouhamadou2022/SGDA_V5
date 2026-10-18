@@ -43,45 +43,6 @@ export function computeFinalFrequency(base: number, multipliers?: number[]): num
 import type { NiveauProbabilite, NiveauGravite, FacteurDeclencheur, FacteurAggravant, NiveauRisque } from './risque/types'
 export type { NiveauProbabilite, NiveauGravite, FacteurDeclencheur, FacteurAggravant, NiveauRisque as NiveauRisqueMatrice }
 
-// ============================================================
-// MEMOIZATION AVEC TTL POUR OPTIMISATION PERFORMANCES
-// ============================================================
-
-/**
- * Utility de memoization avec TTL pour éviter les recalculs coûteux
- */
-function memoizeWithTTL<T extends (...args: any[]) => any>(
-  fn: T,
-  ttl: number = 60000, // 1 minute par défaut
-  resolver?: (...args: Parameters<T>) => string
-): T {
-  const cache = new Map<string, { result: ReturnType<T>; timestamp: number }>();
-  let cleanupCounter = 0;
-  
-  return ((...args: Parameters<T>) => {
-    const key = resolver ? resolver(...args) : JSON.stringify(args);
-    const cached = cache.get(key);
-    
-    if (cached && Date.now() - cached.timestamp < ttl) {
-      return cached.result;
-    }
-    
-    const result = fn(...args);
-    cache.set(key, { result, timestamp: Date.now() });
-    
-    // Nettoyage différé : 1 fois tous les 50 appels (évite boucler à chaque fois)
-    if (++cleanupCounter % 50 === 0) {
-      cache.forEach((value, cacheKey) => {
-        if (Date.now() - value.timestamp > ttl * 2) {
-          cache.delete(cacheKey);
-        }
-      });
-    }
-    
-    return result;
-  }) as T;
-}
-
 // Re-export advanced types from the new module structure so that
 // `import { X } from '@/lib/risque'` keeps working.
 export type { PredictionBayesienne, NiveauRisque, MatricePerformance, CorrectionModele, RisqueDomaine } from './risque/types'
@@ -528,7 +489,6 @@ export function predictRiskScore(historique: Array<{ date: string; score: number
   const sumY = points.reduce((acc, p) => acc + p.y, 0)
   const sumXY = points.reduce((acc, p) => acc + p.x * p.y, 0)
   const sumXX = points.reduce((acc, p) => acc + p.x * p.x, 0)
-  const meanX = sumX / n
   const meanY = sumY / n
   const denom = n * sumXX - sumX * sumX
 
@@ -699,7 +659,6 @@ export function computeIncidentPrediction(
   const recent6m = evenements.filter(e => new Date(e.date).getTime() >= sixMonthsAgo)
   const recent12m = evenements.filter(e => new Date(e.date).getTime() >= oneYearAgo)
 
-  const eventsPerMonth6m = recent6m.length / 6
   const eventsPerMonth12m = recent12m.length / 12
 
   // Sévérité moyenne pondérée des 6 derniers mois
@@ -950,7 +909,6 @@ export function detectChangePointCUSUM(
   const alerte = maxCumul > seuil;
   const seuilDepasse = Math.round(maxCumul);
   
-  const dernierEcart = Math.abs(valeurs[valeurs.length-1] - valeurs[valeurs.length-2]);
   const magnitude = Math.min(100, Math.round((maxCumul / seuil) * 100));
   
   return {
@@ -1579,17 +1537,14 @@ export function calculateC2FromEcarts(ecarts: Ecart[], aerodromeId?: string): nu
 
   const avgDelai = scoresDelai.reduce((a, b) => a + b, 0) / scoresDelai.length;
 
+  // Composante qualité du PAC : note d'évaluation globale (échelle 0-4 des
+  // critères) ramenée sur 0-100. Source unique et persistée :
+  // evaluation_pac.note_globale (posée par evaluerPAC).
   const pacScores: number[] = [];
   ecartsPeriode.forEach(ecart => {
-    if (ecart.pac?.actions && ecart.pac.actions.length > 0) {
-      ecart.pac.actions.forEach(action => {
-        if ((action as any).evaluation_score) {
-          pacScores.push((action as any).evaluation_score);
-        }
-      });
-    }
-    if ((ecart as any).pac_evaluation_score) {
-      pacScores.push((ecart as any).pac_evaluation_score);
+    const note = ecart.evaluation_pac?.note_globale;
+    if (typeof note === 'number' && Number.isFinite(note)) {
+      pacScores.push(Math.max(0, Math.min(100, note * 25)));
     }
   });
 
@@ -1613,7 +1568,8 @@ export function calculateC4FromEcarts(ecarts: Ecart[], aerodromeId?: string): nu
     critique: 4,
     eleve: 2,
     moyen: 1,
-    faible: 0.5
+    faible: 0.5,
+    tres_faible: 0.25
   };
 
   const scorePenalite = ecartsActifs.reduce((acc, ecart) => {
@@ -1674,281 +1630,6 @@ export function mettreAJourProfilRisque(
 
   return nouveauProfil;
 }
-
-// ============================================================
-// 13. GÉNÉRATION PLANNING N+1 - VERSION OPTIMISÉE (conservée)
-// ============================================================
-
-/**
- * Calcule la fréquence de surveillance optimale basée sur le profil de risque complet
- */
-function computeOptimalFrequency(
-  profilRisque: ProfilRisque,
-  aerodromeType: 'international' | 'national',
-  nbEcartsCritiquesActifs: number,
-  hasActiveIncidents: boolean,
-  triggers?: FacteurDeclencheur[],
-  aggravators?: FacteurAggravant[]
-): { frequency: number; label: string; justification: string[] } {
-  const justification: string[] = []
-
-  // Déléguer le calcul de base à frequency.ts (source unique)
-  const riskLevel = mapScoreToRiskLevel(profilRisque.score_global)
-
-  const { frequencyPerYear, recommendations } = computeFinalFrequencyObj({
-    riskLevel,
-    typeAeroport: aerodromeType,
-    hasCriticalEcarts: nbEcartsCritiquesActifs > 0,
-    tendance: profilRisque.tendance === 'baisse' ? 'baisse' : profilRisque.tendance === 'hausse' ? 'hausse' : 'stable',
-    hasTriggers: (triggers?.length || 0) > 0,
-    hasAggravators: (aggravators?.length || 0) > 0,
-  })
-  justification.push(...recommendations)
-
-  // NOTE : vélocité retirée — elle mesurait le même signal que la tendance (via profondeur et direction
-  // de la pente), déjà prise en compte par frequency.ts (×1.3 si 'baisse'). Le double comptage
-  // amplifIAIT artificiellement la fréquence (jusqu'à ×1.95 cumulé). frequency.ts est désormais
-  // la seule source de vérité pour l'effet tendance sur la fréquence.
-
-  // finalFreq vient de computeFinalFrequencyObj, déjà clampé dans [1,12] par applyMultipliers.
-  // Pas de second clamp — éviter la cascade rounding/clamping qui complique le débogage.
-  const finalFreq = frequencyPerYear
-
-  let label = ''
-  if (finalFreq >= 12) label = 'Mensuelle (×12/an)'
-  else if (finalFreq >= 6) label = 'Bimensuelle (×6/an)'
-  else if (finalFreq >= 4) label = 'Trimestrielle (×4/an)'
-  else if (finalFreq >= 2) label = 'Semestrielle (×2/an)'
-  else label = 'Annuelle (×1/an)'
-  
-  return { frequency: finalFreq, label, justification }
-}
-
-function computeOptimalMissionType(
-  profilRisque: ProfilRisque,
-  nbEcartsCritiquesActifs: number,
-  hasPendingPac: boolean,
-  isCertificationPhase: boolean,
-  triggers?: FacteurDeclencheur[]
-): { type: string; justification: string } {
-  if (profilRisque.score_global < 30) {
-    return { 
-      type: 'audit_complet', 
-      justification: 'Score critique - audit complet requis immédiatement' 
-    }
-  }
-  if (nbEcartsCritiquesActifs > 0) {
-    return { 
-      type: 'suivi_ecarts', 
-      justification: `${nbEcartsCritiquesActifs} écart(s) critique(s) actif(s) - suivi prioritaire` 
-    }
-  }
-  if (profilRisque.c2 < 45 && hasPendingPac) {
-    return { 
-      type: 'mise_oeuvre_pac', 
-      justification: `Efficacité PAC faible (C2=${profilRisque.c2}/100) - vérification des plans d'actions` 
-    }
-  }
-  if (isCertificationPhase) {
-    return { 
-      type: 'certification', 
-      justification: 'Processus de certification en cours - audit requis' 
-    }
-  }
-  if (profilRisque.tendance === 'baisse' && profilRisque.score_global < 60) {
-    return { 
-      type: 'programmee', 
-      justification: 'Tendance baissière - surveillance programmée renforcée' 
-    }
-  }
-  if (triggers && triggers.some(t => t.actif && t.type === 'saison_pluies')) {
-    return { 
-      type: 'programmee', 
-      justification: 'Saison des pluies - surveillance préventive recommandée' 
-    }
-  }
-  return { 
-    type: 'programmee', 
-    justification: 'Surveillance programmée standard' 
-  }
-}
-
-
-function getDomainesPrioritairesOptimises(
-  profilRisque: ProfilRisque,
-  ecartsActifs?: { niveau_risque: string; domaine?: string }[]
-): string[] {
-  const domaines: { nom: string; score: number; priorite: number }[] = []
-  
-  if (profilRisque.c1 < 70) {
-    domaines.push({ nom: 'SGS', score: profilRisque.c1, priorite: 100 - profilRisque.c1 })
-  }
-  if (profilRisque.c5 < 70) {
-    domaines.push({ nom: 'SLI', score: profilRisque.c5, priorite: 100 - profilRisque.c5 })
-  }
-  if (profilRisque.c3 < 70) {
-    domaines.push({ nom: 'PHY', score: profilRisque.c3, priorite: 100 - profilRisque.c3 })
-  }
-  
-  // Écarts actifs par domaine — les domaines des écarts sont des domaines de surveillance réels
-  if (ecartsActifs) {
-    const domainesEcarts = new Set(ecartsActifs.map(e => e.domaine).filter(Boolean))
-    domainesEcarts.forEach(domaine => {
-      const existing = domaines.find(d => d.nom === domaine)
-      if (existing) {
-        existing.priorite += 20
-      } else {
-        domaines.push({ nom: domaine as string, score: 50, priorite: 50 })
-      }
-    })
-  }
-  
-  return domaines
-    .sort((a, b) => b.priorite - a.priorite)
-    .slice(0, 4)
-    .map(d => d.nom)
-}
-
-function getSousDomainesCritiquesOptimises(
-  profilRisque: ProfilRisque,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  checklistHierarchy?: any[]
-): string[] {
-  const sousDomaines: string[] = []
-
-  // Si on a la hiérarchie de checklist, on récupère dynamiquement
-  if (checklistHierarchy && checklistHierarchy.length > 0) {
-    checklistHierarchy.forEach(domaine => {
-      // Vérifier si ce domaine est critique (C1, C3, C5 selon le domaine)
-      const isCritique = 
-        (domaine.nom === 'SGS' && profilRisque.c1 < 50) ||
-        (domaine.nom === 'PHY' && profilRisque.c3 < 50) ||
-        (domaine.nom === 'SLI' && profilRisque.c5 < 50) ||
-        (domaine.nom === 'OLS' && profilRisque.c1 < 50) ||
-        (domaine.nom === 'RA' && profilRisque.c1 < 50)
-
-      if (isCritique) {
-        domaine.sousDomaines.forEach((sd: { nom: string; sousSousDomaines?: { nom: string }[] }) => {
-          sousDomaines.push(`${domaine.nom}/${sd.nom}`)
-          
-          // Ajouter aussi les sous-sous-domaines s'ils existent
-          if (sd.sousSousDomaines && sd.sousSousDomaines.length > 0) {
-            sd.sousSousDomaines.forEach((ssd: { nom: string }) => {
-              sousDomaines.push(`${domaine.nom}/${sd.nom}/${ssd.nom}`)
-            })
-          }
-        })
-      }
-    })
-  } else {
-    console.warn('[getSousDomainesCritiquesOptimises] Fallback utilisé — pas de checklistHierarchy. Les sous-domaines par défaut peuvent ne plus correspondre à la structure réelle.')
-    // Fallback (valeurs par défaut si pas de checklist)
-    if (profilRisque.c3 < 50) {
-      sousDomaines.push('PHY/Piste')
-      sousDomaines.push('PHY/Balisage')
-    }
-    if (profilRisque.c1 < 50) {
-      sousDomaines.push('SGS/Documentation')
-      sousDomaines.push('SGS/Formation')
-    }
-    if (profilRisque.c5 < 50) {
-      sousDomaines.push('SLI/Véhicules')
-      sousDomaines.push('SLI/Temps intervention')
-    }
-    if (profilRisque.c1 < 50) {
-      sousDomaines.push('OLS/Obstacles')
-      sousDomaines.push('RA/Péril animalier')
-    }
-  }
-
-  return [...new Set(sousDomaines)].slice(0, 5)
-}
-
-function getEquipeSuggererOptimisee(
-  domainesPrioritaires: string[],
-  inspecteurs: { id: string; nom: string; prenom: string; competences?: { domaine: string; niveau: string }[]; statut?: string }[]
-): { id: string; nom: string; prenom: string; competences: string[] }[] {
-  // Filtrer les inspecteurs disponibles (pas en congé, mission, ou absent)
-  const inspecteursDisponibles = inspecteurs.filter(insp => 
-    !insp.statut || (insp.statut !== 'en_conge' && insp.statut !== 'en_mission' && insp.statut !== 'absent')
-  )
-  
-  // Convertir les compétences au format attendu et mapper les domaines AGA/XXX vers les domaines individuels
-  const inspecteursAvecCompetences = inspecteursDisponibles.map(insp => {
-    let competencesDomaines: string[] = []
-    
-    if (insp.competences && insp.competences.length > 0) {
-      competencesDomaines = insp.competences.map(c => {
-        // Si c'est un code AGA/XXX, expandre vers les domaines individuels
-        if (c.domaine.startsWith('AGA/')) {
-          const sousDomaine = ['AGA/EXPLOIT', 'AGA/GENIE_CIV', 'AGA/GENIE_ELEC', 'AGA/SLI_RA'].find(d => d === c.domaine)
-          if (sousDomaine) {
-            // Mapper vers les domaines individuels
-            const mapping: Record<string, string[]> = {
-              'AGA/EXPLOIT': ['SGS', 'COP', 'OPS'],
-              'AGA/GENIE_CIV': ['PHY', 'OLS'],
-              'AGA/GENIE_ELEC': ['ELEC', 'MFP'],
-              'AGA/SLI_RA': ['SLI', 'RA'],
-            }
-            return mapping[c.domaine] || [c.domaine]
-          }
-        }
-        return [c.domaine]
-      }).flat()
-    }
-    
-    return {
-      id: insp.id,
-      nom: insp.nom,
-      prenom: insp.prenom,
-      competences: competencesDomaines
-    }
-  })
-  
-  // Calculer le score de correspondance avec les domaines prioritaires
-  const avecScore = inspecteursAvecCompetences.map(insp => {
-    const matchCount = insp.competences.filter(c => 
-      domainesPrioritaires.some(d => c === d || d.includes(c) || c.includes(d))
-    ).length
-    return { ...insp, matchScore: matchCount }
-  })
-  
-  return avecScore
-    .sort((a, b) => b.matchScore - a.matchScore)
-    .slice(0, 3) // Retourner les 3 meilleurs candidats
-}
-
-function genererObjectifsOptimises(
-  type: string,
-  domaines: string[],
-  profilRisque: ProfilRisque,
-  freqJustification: string[],
-  typeJustification: string
-): string {
-  let baseObjectif = ''
-  switch (type) {
-    case 'audit_complet':
-      baseObjectif = `Audit complet de l'aérodrome - Évaluation générale de la conformité`
-      break
-    case 'suivi_ecarts':
-      baseObjectif = `Suivi des écarts critiques - Vérification de la mise en œuvre des actions correctives`
-      break
-    case 'mise_oeuvre_pac':
-      baseObjectif = `Vérification de la mise en œuvre des PAC acceptés`
-      break
-    case 'certification':
-      baseObjectif = `Audit de certification - Vérification des exigences réglementaires`
-      break
-    default:
-      baseObjectif = `Surveillance programmée des domaines ${domaines.join(', ')} - Vérification de routine`
-  }
-  
-  const justification = `Basé sur analyse du profil de risque (score ${profilRisque.score_global}/100, tendance ${profilRisque.tendance})`
-  
-  return `${baseObjectif} / ${justification} / ${typeJustification}`
-}
-
-// genererPlanningN1 supprimé — remplacé par planningGenerator.ts dans store.ts
 
 // ============================================================
 // NOUVELLE FONCTION : CALCUL C3 AVEC EXEMPTIONS (AJOUT)

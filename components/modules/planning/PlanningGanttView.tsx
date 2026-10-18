@@ -132,15 +132,6 @@ export default function PlanningGanttView({ plannings, aerodromes, selectedYear,
     }
   };
 
-  const getBadgeClass = (priorite: string) => {
-    switch (priorite) {
-      case 'critique': return 'badge danger';
-      case 'haute': return 'badge warning';
-      case 'moyenne': return 'badge teal';
-      default: return 'badge neutral';
-    }
-  };
-
   return (
     <div className="card border-border shadow-md" data-role={userRole}>
       <div className="card-content p-6">

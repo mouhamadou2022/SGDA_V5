@@ -52,7 +52,6 @@ function BayesianSection({ profil }: { profil: ProfilRisque }) {
       <div className="space-y-1">
         {(['bas', 'moyen', 'eleve'] as const).map(n => {
           const priorPct = (bayes.prior[n] * 100).toFixed(0)
-          const postPct = (bayes.posterior[n] * 100).toFixed(0)
           const shift = bayes.posterior[n] - bayes.prior[n]
           const barColor = getC5Color(n)
           return (

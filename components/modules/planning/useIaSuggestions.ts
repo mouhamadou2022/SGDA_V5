@@ -185,7 +185,7 @@ export function useIaSuggestions(deps: DepsIaSuggestions) {
         userRole: userRole,
       });
       setIaAnswer(result.message);
-    } catch (error) {
+    } catch {
       addNotification({
         user_id: user?.id || '',
         type: 'danger',

@@ -42,7 +42,6 @@ export * from './simulationSurveillance'
 // ============================================================
 // ENTRAÎNEMENT ET FEEDBACK
 // ============================================================
-export { ModelCalibrator, calibrator } from './training/calibrator'
 export { FeedbackManager, feedbackManager } from './training/feedback'
 
 // ============================================================

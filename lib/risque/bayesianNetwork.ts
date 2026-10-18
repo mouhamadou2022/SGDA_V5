@@ -186,7 +186,7 @@ export function construireReseauDepuisBowTie(bowTie: BowTieModele): BayesNode[] 
 // VARIABLE ELIMINATION — INFERENCE BAYESIENNE
 // ============================================================
 
-function obtenirFacteur(noeud: BayesNode, reseau: BayesNode[]): Record<string, number[]> {
+function obtenirFacteur(noeud: BayesNode, _reseau: BayesNode[]): Record<string, number[]> {
   const facteur: Record<string, number[]> = {}
 
   for (const [combinaison, distribution] of Object.entries(noeud.cpt.table)) {
@@ -518,7 +518,6 @@ export function recomputeCPTFromObservations(node: BayesNode): BayesNode {
   const cpt = node.cpt
   const newTable: Record<string, number[]> = {}
   const alpha = ALPHA_DEFAUT
-  const etatsCount = node.etats.length
 
   for (const [key, priorProbs] of Object.entries(cpt.table)) {
     const stateCounts = cpt.observations[key]
@@ -527,8 +526,7 @@ export function recomputeCPTFromObservations(node: BayesNode): BayesNode {
       continue
     }
 
-    const totalObs = stateCounts.reduce((a, b) => a + b, 0)
-    const smoothed = stateCounts.map((count, i) => count + alpha)
+    const smoothed = stateCounts.map((count) => count + alpha)
     const total = smoothed.reduce((a, b) => a + b, 0)
     newTable[key] = smoothed.map(v => Math.round((v / total) * 100) / 100)
   }

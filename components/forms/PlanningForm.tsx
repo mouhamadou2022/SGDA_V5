@@ -32,7 +32,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative, normaliserDomaineCompetence } from '@/lib/store';
+import { useAppStore, type Planning, type ProfilRisque, type CompetenceDeclarative, normaliserDomaineCompetence, declarativeNiveauVersNombre } from '@/lib/store';
 import { TYPES_SURVEILLANCE, DOMAINES_SURVEILLANCE, expandDomaines, SPECIALITES_INSPECTEUR } from '@/lib/domaines';
 import { isSGSApplicable } from '@/lib/risque'
 import { useDecisionEngine } from '@/hooks/useDecisionEngine';
@@ -86,16 +86,6 @@ interface PlanningFormProps {
   onSuccess: () => void;
   onProgressChange?: (n: number) => void;
 }
-
-// Mapping des domaines pour suggestion
-const DOMAINE_MAPPING: Record<string, { critere: string; seuil: number; label: string }> = {
-  'SGS': { critere: 'c1', seuil: 60, label: 'Maturité SGS' },
-  'PAC': { critere: 'c2', seuil: 60, label: 'Efficacité PAC' },
-  'PHY': { critere: 'c3', seuil: 60, label: 'Conformité PHY' },
-  'OPS': { critere: 'c3', seuil: 60, label: 'Conformité OPS' },
-  'SLI': { critere: 'c5', seuil: 60, label: 'Résilience SLI' },
-  'Écarts': { critere: 'c4', seuil: 60, label: 'Charge critique' },
-};
 
 // Récupérer les domaines prioritaires basés sur le profil
 // `sgsApplicable` : si le SGS n'est pas applicable à l'aérodrome (statut non_applicable
@@ -213,7 +203,6 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const aerodromes = useAppStore(s => s.aerodromes)
   const utilisateurs = useAppStore(s => s.utilisateurs)
   const inspecteurs = useAppStore(s => s.inspecteurs)
-  const profilsRisque = useAppStore(s => s.profilsRisque)
   const addPlanning = useAppStore(s => s.addPlanning)
   const updatePlanning = useAppStore(s => s.updatePlanning)
   const setLoading = useAppStore(s => s.setLoading)
@@ -223,7 +212,6 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
   const plannings = useAppStore(s => s.plannings);
   const [error, setError] = useState<string | null>(null);
   const [suggestedDomains, setSuggestedDomains] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(true);
   const [suggestionsApplied, setSuggestionsApplied] = useState(false);
   const [porteeDropdown, setPorteeDropdown] = useState(false);
   const [equipeDropdown, setEquipeDropdown] = useState(false);
@@ -306,7 +294,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
         }).length;
         
         // Privilégier les experts
-        const hasExpert = (insp.competences || []).some((c: CompetenceDeclarative) => c.niveau === 'expert');
+        const hasExpert = (insp.competences || []).some((c: CompetenceDeclarative) => declarativeNiveauVersNombre(c.niveau) === 3);
         
         return {
           id: insp.id,
@@ -323,7 +311,7 @@ export default memo(function PlanningForm({ planning, onClose, onSuccess, onProg
     return candidats;
   };
 
-  const { register, handleSubmit, watch, setValue, setFocus, formState: { errors } } = useForm<PlanningFormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<PlanningFormData>({
     resolver: zodResolver(planningSchema),
     defaultValues: planning ? {
       aerodrome_id: planning.aerodrome_id,

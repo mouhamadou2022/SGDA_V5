@@ -253,7 +253,7 @@ export class CertificationAgent {
   private evaluationsCache: Map<string, DocumentEvaluationResult> = new Map()
   private cacheTTL: number = 3600000 // 1 heure
 
-  async init(storeData: unknown): Promise<void> {
+  async init(_storeData: unknown): Promise<void> {
     this.initialized = true
     console.log('[CertificationAgent] Initialisé')
   }
@@ -291,7 +291,6 @@ export class CertificationAgent {
 
     // Analyser chaque phase
     const phases = []
-    let totalProgression = 0
 
     for (const phaseNum of phaseKeys) {
       const phaseData = process.phases_data?.[`phase${phaseNum}` as keyof typeof process.phases_data]
@@ -342,11 +341,8 @@ export class CertificationAgent {
         if (profil && profil.score_global < 40) {
           actionsRecommandees.push(`⚠️ Profil de risque critique (${profil.score_global}/100) - vigilance accrue`)
         }
-        
-        totalProgression += progression / phaseKeys.length
-      } else {
-        totalProgression += 0
       }
+        
 
       phases.push({
         numero: phaseNum,
@@ -454,8 +450,6 @@ ${JSON.stringify(aiContext, null, 2)}`,
     let totalDelaiEstime = 0
     let delaiEcoule = 0
     
-    const startDate = new Date(process.created_at)
-    
     for (let i = 1; i <= Object.keys(phasesInfo).length; i++) {
       const phaseNum = i as keyof typeof phasesInfo
       totalDelaiEstime += phasesInfo[phaseNum].delaiEstimeJours
@@ -533,10 +527,8 @@ ${JSON.stringify(aiContext, null, 2)}`,
     const store = useAppStore.getState()
     const inspecteursDisponibles = store.utilisateurs.filter(u => u.role === 'inspector' || u.role === 'admin')
     
-    const phaseInfo = type === 'certification'
-      ? PHASES_CERTIFICATION[phaseActuelle as PhaseNumberCertification]
-      : PHASES_HOMOLOGATION[phaseActuelle as PhaseNumberHomologation]
     
+
     const suggestions = inspecteursDisponibles.map(insp => {
       let score = 50 // base
       const raisons: string[] = []
@@ -785,7 +777,6 @@ ${JSON.stringify(aiContext, null, 2)}`,
       throw new Error(`${request.type} ${request.processId} non trouvé`)
     }
 
-    const aerodrome = store.aerodromes.find(a => a.id === process.aerodrome_id)
     const profil = store.profilsRisque[process.aerodrome_id]
     const phaseData = process.phases_data?.[`phase${request.phase}` as keyof typeof process.phases_data] || {}
     
@@ -971,7 +962,7 @@ Ne pas inclure l'en-tête (logo ANACIM) — juste le corps de la lettre à parti
     numeroRef: string,
     signataire: string,
     phase: number,
-    process: unknown
+    _process: unknown
   ): string {
     const p = process as { type?: string }
     return `Direction de la Sécurité des Aérodromes
@@ -1002,7 +993,7 @@ Pièces jointes :
     numeroRef: string,
     signataire: string,
     type: ProcessType,
-    process: unknown
+    _process: unknown
   ): string {
     const p = process as { created_at?: string }
     return `DIRECTION DE LA SÉCURITÉ DES AÉRODROMES
@@ -1043,7 +1034,7 @@ Certificat n°${numeroRef}`
     date: string,
     numeroRef: string,
     signataire: string,
-    process: unknown
+    _process: unknown
   ): string {
     const p = process as { type?: string }
     return `Direction de la Sécurité des Aérodromes
@@ -1095,7 +1086,7 @@ ${signataire}`
     date: string,
     numeroRef: string,
     signataire: string,
-    process: unknown
+    _process: unknown
   ): string {
     // Format Word compatible
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -1116,7 +1107,7 @@ ${signataire}`
     date: string,
     numeroRef: string,
     signataire: string,
-    process: unknown
+    _process: unknown
   ): string {
     // Format Word compatible
     return `<?xml version="1.0" encoding="UTF-8"?>

@@ -167,20 +167,6 @@ interface PACItem {
   evaluation_action?: EvaluationAction;
 }
 
-function ResultatBadge({ resultat }: { resultat: string }) {
-  const colors: Record<string, string> = {
-    SA: 'bg-success/20 text-success border-success',
-    NS: 'bg-danger/20 text-danger border-danger',
-    NA: 'bg-gray-200 text-gray-600 border-gray-300',
-    NV: 'bg-warning/20 text-warning border-warning',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${colors[resultat] || colors.NV}`}>
-      {resultat || 'NV'}
-    </span>
-  );
-}
-
 function PreuveModal({ isOpen, onClose, itemRef, preuves, onAdd, onRemove }: {
   isOpen: boolean; onClose: () => void; itemRef: string;
   preuves: PreuveItem[]; onAdd: (p: PreuveItem) => void; onRemove: (id: string) => void;

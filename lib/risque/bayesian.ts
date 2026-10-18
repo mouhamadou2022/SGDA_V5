@@ -105,11 +105,10 @@ export function computeCombinedPosterior(
 export function computeCredibleInterval(
   successCount: number,
   totalCount: number,
-  confidence: number = 0.95
+  _confidence: number = 0.95
 ): [number, number] {
   if (totalCount === 0) return [0, 1]
   
-  const alpha = 1 - confidence
   const a = successCount + 1
   const b = totalCount - successCount + 1
   

@@ -174,7 +174,7 @@ function calculerScoreInspecteur(
     score += competenceScore / 4;
     if (competenceScore >= 75) correspondance.push(`Expert (${competenceScore}%)`);
     else if (competenceScore >= 50) correspondance.push(`Confirmé (${competenceScore}%)`);
-  } catch (e) {
+  } catch {
     // Fallback
   }
 
@@ -246,7 +246,6 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
   const [assignations, setAssignations] = useState<Record<string, string>>({});
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showDetails, setShowDetails] = useState<string | null>(null);
   
   // États pour l'IA
   const [iaSuggestion, setIaSuggestion] = useState<string | null>(null);
@@ -276,7 +275,7 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
             e.mesures && e.mesures.some((m) => m.statut === 'en_retard')
           );
         }
-      } catch (e) {
+      } catch {
         // Fonction non disponible
       }
       
@@ -300,8 +299,8 @@ export function SmartAssignment({ userRole = '' }: SmartAssignmentProps) {
   }, [utilisateurs]);
 
   const enregistrerFeedbackAssignation = useCallback((
-    planningId: string,
-    inspecteurId: string
+    _planningId: string,
+    _inspecteurId: string
   ) => {
     // Feedback ignoré : cette fonction sera réimplémentée via teamOptimizer
     // dans la version AERORISQ. L'ancien appel à learningEngine.recordLearningFeedback

@@ -21,9 +21,6 @@ function getScoreBg(s: number) {
   if (s >= 80) return 'bg-success-soft'; if (s >= 60) return 'bg-primary-soft'
   if (s >= 30) return 'bg-warning-soft'; return 'bg-danger-soft'
 }
-function getBarColor(v: number) {
-  return v >= 80 ? 'bg-success' : v >= 60 ? 'bg-primary' : v >= 40 ? 'bg-warning' : 'bg-danger'
-}
 
 function computeGain(currentEff: number, targetVal: number): number {
   return Math.max(1, Math.round((targetVal - Math.min(currentEff, targetVal)) * 0.25))
@@ -73,7 +70,7 @@ interface Props {
 }
 
 export default function BowTieSelfAssessment({
-  domaines, score, aerodromeCode, aerodromeName, onClose, profil, sgsNonApplicable = false,
+  domaines, score, aerodromeCode, onClose, profil, sgsNonApplicable = false,
 }: Props) {
   // État local : actions cochées + observations + actions personnalisées
   const [checked, setChecked] = useState<Record<string, boolean>>({})

@@ -70,7 +70,7 @@ function computeCoverageFromFeedbacks(feedbacks: FeedbackInspecteur[]): number |
  */
 export function computeModelPerformance(
   feedbacks: FeedbackInspecteur[],
-  seuilJours: number = 90
+  _seuilJours: number = 90
 ): MatricePerformance {
   const feedbacks3m = feedbacks.filter(f => f.type === 'prediction_3m')
   const feedbacks6m = feedbacks.filter(f => f.type === 'prediction_6m')

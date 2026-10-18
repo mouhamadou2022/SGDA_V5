@@ -90,6 +90,13 @@ export function sgsNiveauVersScore(niveau: SgsNiveau | number): number {
  * Les lignes écrites par le formulaire avant sa conversion en 0-100
  * contiennent encore du 1-5 : elles sont détectées (1 ≤ v ≤ 5) et
  * converties. Après une ré-édition, la valeur est stockée en 0-100.
+ *
+ * LIMITE CONNUE (non corrigée — phase de stabilisation) : le canal PAOE
+ * « SGS » peut écrire un score continu 0-100 compris dans [1,5]. Une telle
+ * valeur est alors interprétée à tort comme un niveau legacy N1-N5 (ex. 5 →
+ * 100 au lieu de 5). L'impact est rare (score PAOE quasi nul) mais violent.
+ * Correction sûre à prévoir par migration de données : convertir toutes les
+ * lignes legacy 1-5 en 0-100, puis supprimer cette branche.
  */
 export function normaliserScoreSgs(valeur: number | null | undefined, defaut = 50): number {
   if (valeur == null || Number.isNaN(valeur)) return defaut

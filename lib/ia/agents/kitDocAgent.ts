@@ -89,33 +89,6 @@ export interface KitChecklistItem {
   sous_domaine?: string
 }
 
-// ─── Parser : extrait le guide et les critères SA/NS/NV/NA d'une directive ───
-
-function parseDirectiveEval(directive: string): {
-  guide: string
-  sa?: string; ns?: string; nv?: string; na?: string
-} {
-  const EVAL_MARKER = '📌 ÉVALUATION OBJECTIVE'
-  const SEUIL_MARKER = '⚠️ Seuil'
-  const idx = directive.indexOf(EVAL_MARKER)
-  if (idx === -1) return { guide: directive }
-
-  const guide = directive.slice(0, idx).trim()
-  let evalSection = directive.slice(idx + EVAL_MARKER.length)
-    .replace(/^\s*:\s*/, '').trim()
-
-  // Retirer la partie "⚠️ Seuil" si présente
-  const seuilIdx = evalSection.indexOf(SEUIL_MARKER)
-  if (seuilIdx !== -1) evalSection = evalSection.slice(0, seuilIdx).trim()
-
-  const extract = (key: string) => {
-    // Cherche "- SA : texte" jusqu'à la prochaine "- XX :" ou fin
-    const m = evalSection.match(new RegExp(`-\\s*${key}\\s*:\\s*(.+?)(?=\\n\\s*-\\s*[A-Z]{2}\\s*:|$)`, 's'))
-    return m?.[1]?.trim()
-  }
-
-  return { guide, sa: extract('SA'), ns: extract('NS'), nv: extract('NV'), na: extract('NA') }
-}
 
 export interface KitSousSousDomaine {
   id: string
@@ -540,7 +513,7 @@ export function toDomaineChecklistArray(result: KitChecklistResult): any[] {
       id: sd.id,
       nom: sd.nom,
       items: [],
-      sousSousDomaines: sd.sous_sous_domaines.map((ssd, ssdi) => ({
+      sousSousDomaines: sd.sous_sous_domaines.map((ssd) => ({
         id: ssd.id,
         nom: ssd.nom,
         ordre: ssd.ordre,
@@ -814,7 +787,7 @@ Identifie jusqu'à 5 extraits clés. Format:
       return true
     }
 
-    const walkItems = (items: any[], domaineCode: string, sousDomaine: string, sousSousDomaine: string) =>
+    const walkItems = (items: any[], domaineCode: string, _sousDomaine: string, _sousSousDomaine: string) =>
       (items || []).map(item => {
         // R7: Filtrer par type d'entité cible
         if (!filterByEntityType(item)) {

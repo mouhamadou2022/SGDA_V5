@@ -84,20 +84,6 @@ export interface ProactiveSuggestion {
 }
 
 // ============================================================
-// RACCOURCIS CLAVIER
-// ============================================================
-
-const RACCOURCIS: Record<string, { action: string; shortcut?: string }> = {
-  'profil_risque': { action: 'Ouvrir le module Profil de Risque', shortcut: 'G+P' },
-  'certification': { action: 'Ouvrir le module Certification', shortcut: 'G+C' },
-  'planning': { action: 'Ouvrir le module Planning', shortcut: 'G+L' },
-  'surveillance': { action: 'Ouvrir le module Surveillance', shortcut: 'G+S' },
-  'ecarts': { action: 'Ouvrir le module Écarts et PAC', shortcut: 'G+E' },
-  'recherche': { action: 'Ouvrir la recherche globale', shortcut: 'Ctrl+K' },
-  'aide': { action: 'Afficher l\'aide contextuelle', shortcut: 'F1' },
-}
-
-// ============================================================
 // RÉSOLUTION DE SITE NOMMÉ (testable)
 // ============================================================
 

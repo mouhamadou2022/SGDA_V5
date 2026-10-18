@@ -144,7 +144,7 @@ export class ReportAgent {
   private reportVersions: Map<string, ReportVersion[]> = new Map()
   private loadedReports: Map<string, LoadedReport> = new Map()
 
-  async init(storeData: any): Promise<void> {
+  async init(_storeData: any): Promise<void> {
     this.initialized = true
     console.log('[ReportAgent] Initialisé')
     await this.loadVersionsFromStorage()
@@ -171,7 +171,6 @@ export class ReportAgent {
   async executeInstruction(request: IAInstruction): Promise<IAResult> {
     const instruction = request.instruction.toLowerCase()
     const currentContent = request.currentContent
-    const store = useAppStore.getState()
     
     this.saveToHistory(request.surveillanceId, currentContent)
 
@@ -263,7 +262,7 @@ Exécute l'instruction et retourne le contenu modifié ou ta réponse directemen
     }
 
     // Sauvegarder la version actuelle avant de charger
-    const currentVersion = await this.saveVersion(request.surveillanceId, request.currentContent, 'Chargement d\'un rapport existant')
+    await this.saveVersion(request.surveillanceId, request.currentContent, 'Chargement d\'un rapport existant')
     
     return {
       success: true,
@@ -1097,7 +1096,6 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
 
   private async generateSummary(surveillanceId: string): Promise<string> {
     const store = useAppStore.getState()
-    const surveillance = store.surveillances.find(s => s.id === surveillanceId)
     const checklistItems = store.checklistItems[surveillanceId] || []
     const ecarts = store.ecarts.filter(e => e.surveillance_id === surveillanceId)
     
@@ -1126,7 +1124,6 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
   private async generateRecommendations(surveillanceId: string): Promise<string> {
     const store = useAppStore.getState()
     const surveillance = store.surveillances.find(s => s.id === surveillanceId)
-    const checklistItems = store.checklistItems[surveillanceId] || []
     const ecarts = store.ecarts.filter(e => e.surveillance_id === surveillanceId)
     const profil = surveillance ? store.profilsRisque[surveillance.aerodrome_id] : null
     
@@ -1164,7 +1161,6 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
 
   private async generateConclusion(surveillanceId: string): Promise<string> {
     const store = useAppStore.getState()
-    const surveillance = store.surveillances.find(s => s.id === surveillanceId)
     const checklistItems = store.checklistItems[surveillanceId] || []
     const ecarts = store.ecarts.filter(e => e.surveillance_id === surveillanceId)
     
@@ -1200,7 +1196,7 @@ Retourne uniquement le contenu HTML de la section (utilisez <h3>, <p>, <ul>, <li
       }
       html += '</tbody></table>'
       return html
-    } catch (e) {
+    } catch {
       return '<p>Erreur lors du chargement des fiches de présence</p>'
     }
   }

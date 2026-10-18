@@ -2,6 +2,7 @@
 // Optimise la composition d'équipe : compétences, charge, disponibilité
 
 import type { Utilisateur, Planning, Formation } from '@/lib/store'
+import { declarativeNiveauVersNombre } from '@/lib/store'
 
 export interface TeamProposal {
   inspecteurs: Array<{
@@ -74,12 +75,12 @@ export class TeamOptimizer {
     const notes = inspecteurs.map(insp => {
       const comps = (insp as any).competences || []
       const match = competencesRequises.filter(c =>
-        comps.some((cc: { domaine: string; niveau: string }) => cc.domaine === c)
+        comps.some((cc: { domaine: string; niveau: string | number }) => cc.domaine === c)
       ).length
       const charge = charges[insp.id] || 0
       const niveauMax = comps.length > 0
-        ? Math.max(...comps.map((c: { niveau: string }) =>
-            c.niveau === 'expert' ? 3 : c.niveau === 'confirme' ? 2 : 1
+        ? Math.max(...comps.map((c: { niveau: string | number }) =>
+            declarativeNiveauVersNombre(c.niveau)
           ))
         : 0
       const peutEtreChef = ['inspecteur_titulaire', 'inspecteur_principal'].includes(

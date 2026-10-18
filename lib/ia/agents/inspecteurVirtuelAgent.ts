@@ -86,8 +86,7 @@ export class InspecteurVirtuelAgent {
   }
 
   async generateChecklist(params: KitDocChecklistParams): Promise<KitChecklistResult> {
-    const { entite_id, portee } = params
-    const domainesActifs = (await import('@/lib/domaines')).expandDomaines(portee)
+    const { entite_id } = params
 
     if (entite_id && useAppStore.getState().profilsRisque[entite_id]) {
       const ctx = await this.getOrBuildAerorisqContext(entite_id)

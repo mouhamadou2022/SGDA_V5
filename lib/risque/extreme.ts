@@ -113,7 +113,7 @@ function computeReturnLevels(
  */
 export function predictEVT(
   events: ExtremeEvent[],
-  monthsAhead: number = 12
+  _monthsAhead: number = 12
 ): EVTPrediction {
   if (events.length < 5) {
     return {

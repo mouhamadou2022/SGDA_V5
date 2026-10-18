@@ -73,7 +73,6 @@ export interface MLModelWeights {
 const MIN_FEEDBACKS_FOR_ML = 5;
 const DEFAULT_LEARNING_RATE = 0.05;
 const WEIGHT_DECAY = 0.001;
-const CONFIDENCE_THRESHOLD = 0.6;
 
 const STATUT_CYCLE_MAP: Record<string, number> = {
   'ouvert': 0,
@@ -185,7 +184,6 @@ export function extractFeatures(
   const joursRetard = joursAvantEcheance < 0 ? Math.abs(joursAvantEcheance) : 0;
 
   const prob = ecart.probabilite_risque ?? 3;
-  const grav = ecart.gravite_risque ?? 3;
   const graviteNum = { 'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5 }[ecart.gravite_risque || 'C'] ?? 3;
   const celluleScore = prob * graviteNum;
 
@@ -373,21 +371,6 @@ export function updateModelWithFeedback(
 
   saveModelWeights(m);
   return m;
-}
-
-function getFeatureValue(weightKey: string, features: MLFeatures): number {
-  switch (weightKey) {
-    case 'w_c2': return (100 - features.c2) / 100;
-    case 'w_score_global': return (100 - features.scoreGlobal) / 100;
-    case 'w_cellule_oaci': return features.celluleOACI / 25;
-    case 'w_jours_retard': return Math.min(features.joursRetard / 30, 1);
-    case 'w_statut_cycle': return features.statutCycle / 7;
-    case 'w_tendance': return features.tendance;
-    case 'w_c4': return (100 - features.c4) / 100;
-    case 'w_has_pac': return features.hasPAC ? 1 : 0;
-    case 'w_pac_actions': return Math.min(features.pacActionsCount / 5, 1);
-    default: return 0;
-  }
 }
 
 /** Retourne ∂(rawScore_class)/∂(weight) — la dérivée du score brut d'une classe

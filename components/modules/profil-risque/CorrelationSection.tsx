@@ -35,13 +35,6 @@ function correlationColor(value: number): string {
   return 'bg-danger/20 text-danger border border-danger/30'
 }
 
-function correlationBarColor(value: number): string {
-  const absVal = Math.abs(value)
-  if (absVal < 0.3) return 'var(--color-success)'
-  if (absVal < 0.6) return 'var(--color-warning)'
-  return 'var(--color-danger)'
-}
-
 export function CorrelationSection({ profil }: CorrelationSectionProps) {
   const matrix = useMemo(() => {
     const history = profil.historical_scores

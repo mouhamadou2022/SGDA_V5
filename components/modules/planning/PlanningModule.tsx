@@ -177,9 +177,8 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const isChefEquipeMission = (p: Planning) => estChefDePlanning(user, inspecteurs, p);
   const isMembreEquipeMission = (p: Planning) => estMembreEquipePlanning(user, inspecteurs, p);
   const equipeDesigneeMission = (p: Planning) => !!p.chef_id && (p.equipe_ids?.length ?? 0) > 0;
-  const canExecuteMission = (p: Planning) => isChefEquipeMission(p);
   const canPrepareMission = (p: Planning) => isChefEquipeMission(p) || isMembreEquipeMission(p) || (isManager && !equipeDesigneeMission(p));
-  const canManageMission = (p: Planning) => isManager;
+  const canManageMission = (_p: Planning) => isManager;
 
   const aerodromesActifs = useMemo(() => aerodromes.filter(a => !a.deleted_at), [aerodromes]);
 
@@ -212,7 +211,6 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const deletePlanning = useAppStore(s => s.deletePlanning);
   const updatePlanning = useAppStore(s => s.updatePlanning);
   const submitSuggestionFeedbackStore = useAppStore(s => s.submitSuggestionFeedback);
-  const setActiveModule = useAppStore(s => s.setActiveModule);
 
   // State
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -487,7 +485,6 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
       const aerodrome = aerodromesActifs.find(a => a.id === planning.aerodrome_id) || aerodromes.find(a => a.id === planning.aerodrome_id);
       const profil = profilsRisque[planning.aerodrome_id];
       const risqueData = aerodromesRisque.find(a => a.id === planning.aerodrome_id);
-      const exemptions = exemptionsActivesParAerodrome.get(planning.aerodrome_id) || [];
       
       const surveillanceLiee = surveillances.find(s => s.planning_id === planning.id);
       const isLancee = !!surveillanceLiee;
@@ -590,7 +587,7 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
   const enregistrerFeedbackPlanning = useCallback((
     planning: Planning,
     suggestionAcceptee: boolean,
-    raison?: string
+    _raison?: string
   ) => {
     // Ancien appel à learningEngine.recordLearningFeedback retiré — 
     // il enregistrait des données non-checklist ('planning'/'SA'/'SA')
@@ -625,12 +622,6 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     }
     setPreparationPlanning(planning);
     startTransition(() => setPreparationOpen(true));
-  };
-
-  const handleRefuser = (planning: Planning) => {
-    if (!isManager) return;
-    enregistrerFeedbackPlanning(planning, false, 'Planning rejeté par l\'utilisateur');
-    deletePlanning(planning.id);
   };
 
   const handleRequestExecute = (planning: Planning) => {

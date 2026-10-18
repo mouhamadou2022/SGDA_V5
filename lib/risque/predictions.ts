@@ -3,7 +3,7 @@
 // Utilise le modèle saisonnier Prophet-like pour les prévisions
 // Plus aucun seuil/poids/template hardcodé
 
-import { fitSeasonalModel, predict, evaluateModel, type ForecastPoint } from './seasonalForecast'
+import { fitSeasonalModel, predict, type ForecastPoint } from './seasonalForecast'
 
 export interface SaisonStats {
   parMois: { mois: number; tot: number; critiques: number; types: Record<string, number> }[]
@@ -28,11 +28,6 @@ export interface IncidentPredictions {
   prediction12m: number
   details: PredictionMois[]
   saisonStats: SaisonStats
-}
-
-function getMoisLabel(mois: number): string {
-  const labels = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']
-  return labels[mois] || ''
 }
 
 /**
@@ -65,7 +60,6 @@ export function computeIncidentPredictions(
   _scoreC5?: number
 ): IncidentPredictions {
   const stats = computeSaisonStats(evenements)
-  const now = new Date()
   const { parMois, moyenneCritiques, ecartType } = stats
 
   // Type le plus fréquent
@@ -76,7 +70,6 @@ export function computeIncidentPredictions(
   // Ajuster le modèle saisonnier sur les 12 mois d'historique
   const dataPourModele = parMois.map(m => ({ mois: m.mois, value: m.critiques }))
   const model = fitSeasonalModel(dataPourModele)
-  const metrics = evaluateModel(model, dataPourModele)
 
   // Prédire les 3 prochains mois
   const forecast = predict(model, 3)

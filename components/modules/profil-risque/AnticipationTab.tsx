@@ -64,7 +64,7 @@ function LangageClair({ texte, iaEnCours, iaActif }: { texte: string; iaEnCours:
   )
 }
 
-export default function AnticipationTab({ profil, historicalScores, evenements, aerodromeCode, userRole }: AnticipationTabProps) {
+export default function AnticipationTab({ profil, evenements, aerodromeCode, userRole }: AnticipationTabProps) {
   const actionsPartagees = useActionsIAStore((s) => s.parAerodrome[profil.aerodrome_id])
   const actions = actionsPartagees ?? []
   const ecartsActifs = useAppStore((s) => s.ecarts).filter((e: Ecart) => e.aerodrome_id === profil.aerodrome_id && e.statut !== 'cloture')

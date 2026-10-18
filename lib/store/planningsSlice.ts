@@ -432,7 +432,7 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
         const profil = state.profilsRisque?.[aerodromeId]
         const historique = state.surveillances
           .filter(s => s.aerodrome_id === aerodromeId && ['transmise', 'archivee'].includes(s.statut))
-          .map(s => ({ type: normalizePlanningType(s.type), date: s.date_debut, domaines: s.portee || [] }))
+          .map(s => ({ type: normalizePlanningType(s.type), date: s.date_debut, domaines: s.portee || [], score: s.score_global }))
         const ecarts = (state.ecarts || []).filter(e => e.aerodrome_id === aerodromeId)
         const certs = (state.certifications || []).filter(c => c.aerodrome_id === aerodromeId)
         const homos = (state.homologations || []).filter(h => h.aerodrome_id === aerodromeId)
@@ -464,7 +464,7 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
       },
 
-      refuserPropositionN1: (id, motif) => {
+      refuserPropositionN1: (id, _motif) => {
         set((s) => ({ propositionsN1: s.propositionsN1.filter(p => p.id !== id) }))
       },
 

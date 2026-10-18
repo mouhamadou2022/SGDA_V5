@@ -161,7 +161,6 @@ export async function expliquerCygneNoirEnClair(
   input: CygneNoirInput
 ): Promise<CygneNoirExplication> {
   const fallback = fallbackDeterministe(input)
-  const p = input.profil
 
   const userMessage = `L'alerte « cygne noir » a été déclenchée par le modèle bayésien pour un aérodrome. Explique, en langage clair pour un inspecteur de la sécurité aérienne (ANACIM), ce qui se passe réellement et ce qu'il faut faire.
 

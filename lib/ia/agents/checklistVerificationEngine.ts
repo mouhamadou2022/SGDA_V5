@@ -95,7 +95,6 @@ export class ChecklistVerificationEngine {
     const nsChecks = await this.verifierNS(surveillance)
 
     // 4. Score de couverture
-    const totalItems = this.compterItems(surveillance)
     const scoreCouverture = docsAEvolution.length > 0
       ? Math.round(Math.max(0, 100 - docsAEvolution.length * 20 - gaps.length * 5))
       : gaps.length === 0 ? 100 : Math.round(Math.max(50, 100 - gaps.length * 5))

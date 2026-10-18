@@ -137,7 +137,6 @@ export async function expliquerRisquesSaisoniersEnClair(
   profil: ProfilRisque
 ): Promise<SaisonExplication> {
   const fallbackRisques = RISQUES_SAISONNIERS[mois] ?? []
-  const fallback: SaisonExplication = { risques: fallbackRisques, fallbackIA: true }
 
   const userMessage = `Décris, en langage clair pour un inspecteur de la sécurité aérienne (ANACIM), les risques saisonniers du mois de ${MOIS_LABELS[mois]} pour un aérodrome du Sénégal.
 

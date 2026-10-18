@@ -45,10 +45,6 @@ function getScoreColor(score: number): string {
   return getBadgeClassFromScore(score).replace('badge', 'text')
 }
 
-function getBorderCls(score: number): string {
-  return getBadgeClassFromScore(score).replace('badge', 'border-l')
-}
-
 export function RisqueModule({ userRole }: Props) {
   const aerodromes = useOptimizedStore(s => s.aerodromes)
   const profilsRisque = useOptimizedStore(s => s.profilsRisque)
@@ -60,7 +56,7 @@ export function RisqueModule({ userRole }: Props) {
 
   const [selectedAerodromeId, setSelectedAerodromeId] = useState<string | null>(null)
   const [activeOnglet, setActiveOnglet] = useState<OngletId>('synthese')
-  const [refreshing, setRefreshing] = useState(false)
+  const [, setRefreshing] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
   const isDecisionMaker = userRole === 'dg_anacim'
