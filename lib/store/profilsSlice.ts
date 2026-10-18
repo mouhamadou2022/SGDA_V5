@@ -352,7 +352,10 @@ export const createProfilsSlice: StateCreator<AppStore, [], [], ProfilRisqueSlic
           try {
             const { ensembleModel } = await import('../ia/models/ensemble')
             const iaEnsemble = await ensembleModel.predict(historyFusionne, 1)
-            if (iaEnsemble.metadata.nModels >= 2 && iaEnsemble.confidence > ensembleConfidence) {
+            // Garde honnête : n'écrase la régression que si l'ensemble s'appuie
+            // sur au moins un modèle réellement appris (pas 100 % heuristique).
+            const learnedModels = iaEnsemble.metadata.learnedModels ?? 0
+            if (iaEnsemble.metadata.nModels >= 2 && learnedModels >= 1 && iaEnsemble.confidence > ensembleConfidence) {
               prediction3m = iaEnsemble.point
               prediction6m = iaEnsemble.point
               ensembleConfidence = iaEnsemble.confidence

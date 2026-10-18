@@ -77,8 +77,6 @@ const DEFAULT_PRIORS: Record<string, { mean: number; variance: number }> = {
 }
 
 const DECAY_FACTOR = 0.95 // Facteur d'atténuation temporelle
-const MIN_OBSERVATIONS = 5
-const UPDATE_THRESHOLD = 10
 
 // ============================================================
 // MODÈLE BAYÉSIEN DYNAMIQUE
@@ -295,7 +293,7 @@ export class BayesianDynamicModel {
     const likelihoods = evidences.map(e => e.likelihood || DEFAULT_LIKELIHOODS[e.type] || 0.5)
     
     // Calcul bayésien
-    const { posterior, marginal } = this.computePosterior(priorMean, likelihoods)
+    const { posterior } = this.computePosterior(priorMean, likelihoods)
     
     // Intervalle crédible
     const credibleInterval = this.computeCredibleInterval(posterior, prior.sampleSize + evidences.length)
@@ -366,8 +364,7 @@ export class BayesianDynamicModel {
    */
   computeCredibleInterval(
     probability: number,
-    sampleSize: number,
-    confidence: number = 0.95
+    sampleSize: number
   ): [number, number] {
     if (sampleSize === 0) {
       const margin = 0.2

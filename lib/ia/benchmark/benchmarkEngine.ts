@@ -12,6 +12,7 @@ import type {
 } from './types'
 import { buildConfusionMatrix } from './types'
 import { accuracy, precisionMacro, recallMacro, f1Macro, rocAucOvR } from './metrics'
+import { evaluateProbabilities } from '@/lib/ia/models/evaluation'
 import { RandomForestBenchmark, XGBoostBenchmark } from './adapters'
 import { LightGBMModel } from './models/lightgbm'
 import { CatBoostModel } from './models/catboost'
@@ -98,7 +99,7 @@ export function toBenchmarkSamples(
 
 function toResult(
   model: ModeleBenchmark,
-  metrics: { accuracy: number; precision: number; recall: number; f1Score: number; rocAuc: number; trainTimeMs: number; predictTimeMs: number; testSize: number; trainSize: number },
+  metrics: { accuracy: number; precision: number; recall: number; f1Score: number; rocAuc: number; brierScore?: number; ece?: number; trainTimeMs: number; predictTimeMs: number; testSize: number; trainSize: number },
 ): BenchmarkResult {
   const score = Math.round(
     (metrics.accuracy * 0.4 + metrics.f1Score * 0.3 + metrics.rocAuc * 0.3) * 100,
@@ -195,12 +196,15 @@ export async function runBenchmark(
     const predictTimeMs = Math.max(1, Math.round((performance.now() - predStart) / Math.max(1, test.length)))
 
     const matrix = buildConfusionMatrix(yTrue, yPred, classes.length)
+    const probEval = evaluateProbabilities(proba, yTrue, classes.length)
     results.push(toResult(model, {
       accuracy: accuracy(matrix),
       precision: precisionMacro(matrix),
       recall: recallMacro(matrix),
       f1Score: f1Macro(matrix),
       rocAuc: rocAucOvR(yTrue, proba),
+      brierScore: probEval.brierScore,
+      ece: probEval.ece,
       trainTimeMs,
       predictTimeMs,
       testSize: test.length,

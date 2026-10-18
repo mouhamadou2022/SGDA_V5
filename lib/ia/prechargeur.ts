@@ -4,7 +4,6 @@
 'use client'
 
 import { useAppStore } from '@/lib/store'
-import { aiClient } from '@/lib/ia/aiClient'
 import { expliquerCeQuiNeVaPas } from '@/lib/ia/ceQuiNeVaPasIA'
 import { expliquerCriteresEnClair } from '@/lib/ia/critereExplicationIA'
 import { expliquerPredictionsEnClair } from '@/lib/ia/anticipationIA'
@@ -12,6 +11,7 @@ import { expliquerCygneNoirEnClair } from '@/lib/ia/cygneNoirIA'
 import { expliquerScoreEnClair } from '@/lib/ia/explicabiliteIA'
 import { expliquerSituationExploitant } from '@/lib/ia/exploitantIA'
 import { expliquerTriggersEnClair } from '@/lib/ia/facteursExplicationIA'
+import { detectAllTriggers } from '@/lib/risque/triggers'
 
 let enCours = false
 
@@ -39,17 +39,32 @@ export function prechargerLangagesClairs(): void {
       statut_sgs: aero.statut_sgs,
     }
 
-    const appels = [
-      () => expliquerCeQuiNeVaPas(base).catch(() => {}),
-      () => expliquerCriteresEnClair({ profil, ecarts, evenementsCount: evenements.length, statut_sgs: aero.statut_sgs }).catch(() => {}),
-      () => expliquerPredictionsEnClair(profil).catch(() => {}),
-      () => expliquerScoreEnClair({ profil, ecarts, evenements }).catch(() => {}),
-      () => expliquerSituationExploitant({ profil, ecarts, evenements, statut_sgs: aero.statut_sgs }).catch(() => {}),
-      () => expliquerTriggersEnClair({ profil, month: new Date().getMonth() }).catch(() => {}),
+    const nbEcartsCritiques = ecarts.filter(e => e.niveau_risque === 'critique' && e.statut !== 'cloture').length
+    const nbDelaisDepasses = ecarts.filter(e => {
+      const d = e.delai_pac
+      return !!d && new Date(d) < new Date() && e.statut !== 'cloture'
+    }).length
+
+    const correlation = store.getMLRiskCorrelation()
+    const triggers = detectAllTriggers({
+      nbEcartsCritiques,
+      nbDelaisDepasses,
+      nbIncidentsRecents: 0,
+      moisDepuisChangement: null,
+      joursDepuisDerniereInspection: null,
+    })
+
+    const appels: Array<() => void> = [
+      () => { expliquerCeQuiNeVaPas(base).catch(() => {}) },
+      () => { expliquerCriteresEnClair({ profil, ecarts, evenementsCount: evenements.length, statut_sgs: aero.statut_sgs }).catch(() => {}) },
+      () => { expliquerPredictionsEnClair(profil).catch(() => {}) },
+      () => { expliquerScoreEnClair({ profil, ecarts, evenements, correlation }).catch(() => {}) },
+      () => { expliquerSituationExploitant({ profil, aerodromeCode: aero.code_oaci, aerodromeName: aero.nom, ecartsActifs: ecarts, evenements, statut_sgs: aero.statut_sgs }).catch(() => {}) },
+      () => { expliquerTriggersEnClair(triggers, profil).catch(() => {}) },
     ]
 
     if (profil.bayesian_black_swan) {
-      appels.push(() => expliquerCygneNoirEnClair({ profil, ecarts, evenementsCount: evenements.length, statut_sgs: aero.statut_sgs }).catch(() => {}))
+      appels.push(() => { expliquerCygneNoirEnClair({ profil, ecarts, evenementsCount: evenements.length, statut_sgs: aero.statut_sgs }).catch(() => {}) })
     }
 
     for (const appel of appels) {

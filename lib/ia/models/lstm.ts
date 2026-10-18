@@ -57,7 +57,8 @@ const DEFAULT_CONFIG: LSTMConfig = {
 // Fonctions d'activation
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
 const tanh = (x: number): number => Math.tanh(x)
-const relu = (x: number): number => Math.max(0, x)
+// Clip de gradient (évite l'explosion lors du BPTT)
+const CLIP_GRAD = 5
 
 // ============================================================
 // MODÈLE LSTM LÉGER
@@ -229,14 +230,14 @@ export class LSTMModel {
       hiddenState = newHiddenState
     }
     
-    // Couche de sortie
+    // Couche de sortie — activation linéaire (les scores normalisés sont dans ℝ)
     const output: number[] = []
     for (let i = 0; i < this.config.outputSize; i++) {
       let sum = this.weights.by[i]
       for (let j = 0; j < hiddenSize; j++) {
         sum += this.weights.Wy[i][j] * hiddenState[j]
       }
-      output.push(relu(sum))
+      output.push(sum)
     }
     
     return {
@@ -329,10 +330,9 @@ export class LSTMModel {
           c = newC
         }
         
-        // Couche de sortie (Wy, by)
+        // Couche de sortie (Wy, by) — linéaire
         let output = w.by[0]
         for (let j = 0; j < hiddenSize; j++) output += w.Wy[0][j] * h[j]
-        output = relu(output)
         const prediction = output
         const loss = 0.5 * (prediction - target) ** 2
         epochLoss += loss
@@ -345,7 +345,7 @@ export class LSTMModel {
         this.grads!.by[0] += dOutput
         
         // dL/dh_T (dernière hidden state)
-        const dH: number[] = []
+        let dH: number[] = []
         for (let j = 0; j < hiddenSize; j++) dH.push(dOutput * w.Wy[0][j])
         let dCNext = new Array(hiddenSize).fill(0)
         
@@ -413,6 +413,8 @@ export class LSTMModel {
             }
             dCNext = new Array(hiddenSize)
             for (let j = 0; j < hiddenSize; j++) dCNext[j] = dC[j] * s.f[j]
+            // Propager le gradient de h vers le pas de temps précédent (BPTT réel)
+            dH = nextDH
           }
         }
       }
@@ -423,6 +425,12 @@ export class LSTMModel {
       const avg1d = (g: number[]) => { for (let i = 0; i < g.length; i++) g[i] *= scale }
       avg2d(this.grads!.Wf); avg2d(this.grads!.Wi); avg2d(this.grads!.Wo); avg2d(this.grads!.Wc); avg2d(this.grads!.Wy)
       avg1d(this.grads!.bf); avg1d(this.grads!.bi); avg1d(this.grads!.bo); avg1d(this.grads!.bc); avg1d(this.grads!.by)
+
+      // Clip de gradient (stabilité du BPTT)
+      const clip2d = (g: number[][]) => { for (const row of g) for (let j = 0; j < row.length; j++) row[j] = Math.max(-CLIP_GRAD, Math.min(CLIP_GRAD, row[j])) }
+      const clip1d = (g: number[]) => { for (let i = 0; i < g.length; i++) g[i] = Math.max(-CLIP_GRAD, Math.min(CLIP_GRAD, g[i])) }
+      clip2d(this.grads!.Wf); clip2d(this.grads!.Wi); clip2d(this.grads!.Wo); clip2d(this.grads!.Wc); clip2d(this.grads!.Wy)
+      clip1d(this.grads!.bf); clip1d(this.grads!.bi); clip1d(this.grads!.bo); clip1d(this.grads!.bc); clip1d(this.grads!.by)
       
       // Mise à jour des poids (descente de gradient)
       for (let i = 0; i < hiddenSize; i++) {
@@ -474,12 +482,15 @@ export class LSTMModel {
     historique: ScoreHistoryPoint[],
     horizon: number = 6
   ): LSTMPrediction {
-    if (!this.trained && historique.length < this.config.sequenceLength) {
+    const scores = historique.map(h => h.score)
+    if ((!this.trained || !this.weights || !this.normalizationParams) || historique.length < this.config.sequenceLength) {
       return this.fallbackPrediction(historique, horizon)
     }
-    
-    const scores = historique.map(h => h.score)
-    const normalizedScores = this.normalize(scores)
+
+    // Normalisation avec les paramètres APPRIS — jamais recalculés sur les données
+    // de prédiction (sinon toute prévision hors échantillon est faussée).
+    const { mean, std } = this.normalizationParams
+    const normalizedScores = scores.map(v => (v - mean) / (std || 1))
     
     const predictions: number[] = []
     const confidence: number[] = []

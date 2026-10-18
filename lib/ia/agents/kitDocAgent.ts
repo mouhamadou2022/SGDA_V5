@@ -1488,14 +1488,23 @@ Génère un JSON avec cette structure exacte (guide_etapes = tirets, PAS de num�
       maxChars: 3500,
     })
 
+    // Plafond du texte injecté : 30000 car. ≈ 10000 tokens + prompt + RAG
+    // ≈ 13958 tokens — refusé par le tier gratuit Groq (> 6000), abort du
+    // local CPU (pré-remplissage 14k), puis 429 en cascade → 503 partout
+    // (mesuré en prod). 10000 car. ≈ 3300 tokens, total ≈ 5100 < 6000 :
+    // Groq sert vite au lieu de sauter vers le local.
+    const TEXTE_MAX_CHARS = 10000
+    const textePlafonne = texte
+      ? texte.substring(0, TEXTE_MAX_CHARS) + (texte.length > TEXTE_MAX_CHARS ? '\n[… suite du document tronquée pour tenir dans la fenêtre du modèle …]' : '')
+      : '(texte non disponible — document probablement scanné, non OCRisé)'
     const userMessage = `DOCUMENT À ÉVALUER :
 Nom du fichier : ${params.nomFichier}
 Titre du dossier : ${params.titre}
 Catégorie du dossier : ${params.categorie}
 ${params.instructions ? `Instructions du dossier : ${params.instructions}` : ''}
 
-TEXTE DU DOCUMENT :
-${texte ? texte.substring(0, 30000) : '(texte non disponible — document probablement scanné, non OCRisé)'}
+TEXTE DU DOCUMENT (début du document) :
+${textePlafonne}
 
 ${contexteReg}
 

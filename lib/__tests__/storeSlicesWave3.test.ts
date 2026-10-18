@@ -26,6 +26,7 @@ jest.mock('../datastore', () => ({
   createMessage: async (msg: unknown) => ({ data: msg, error: null }),
   updateMessage: async () => ({ error: null }),
   deleteMessage: async () => ({ error: null }),
+  createAuditLog: async (payload: unknown) => ({ data: payload, error: null }),
 }))
 
 function isolated<T>(creator: unknown) {

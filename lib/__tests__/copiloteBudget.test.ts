@@ -23,8 +23,8 @@ describe('plafonnerHistorique', () => {
     expect(total).toBeLessThanOrEqual(6000);
     expect(messages[messages.length - 1].content.startsWith('m7-')).toBe(true);
   });
-  test('budget par défaut = 6000 (tient le tier gratuit avec pièces + RAG)', () => {
-    expect(BUDGET_HISTORIQUE_CHARS).toBe(6000);
+  test('budget par défaut = 3000 (tient le tier gratuit avec pièces + RAG)', () => {
+    expect(BUDGET_HISTORIQUE_CHARS).toBe(3000);
   });
   test('vide : rien, sans troncature', () => {
     expect(plafonnerHistorique([])).toEqual({ messages: [], tronque: false });
@@ -60,7 +60,7 @@ describe('repondre : suite automatique si coup\u00E9e au plafond', () => {
     appelIA
       .mockResolvedValueOnce({ content: 'Premi\u00E8re partie...', ok: true, usage: { completion_tokens: 4000 } })
       .mockResolvedValueOnce({ content: '...et fin.', ok: true, usage: { completion_tokens: 50 } });
-    const texte = await copiloteAgent.repondre({ question: 'Fais une synth\u00E8se.', historique: [] });
+    const texte = await copiloteAgent.repondre({ question: 'Fais une synth\u00E8se complete.', historique: [] });
     expect(texte).toContain('Premi\u00E8re partie...');
     expect(texte).toContain('...et fin.');
     expect(appelIA).toHaveBeenCalledTimes(2);
@@ -70,7 +70,7 @@ describe('repondre : suite automatique si coup\u00E9e au plafond', () => {
     appelIA
       .mockResolvedValueOnce({ content: 'D\u00E9but.', ok: true, usage: { completion_tokens: 4096 } })
       .mockResolvedValueOnce({ content: '', ok: false, error: 'timeout' });
-    const texte = await copiloteAgent.repondre({ question: 'Fais une synth\u00E8se.', historique: [] });
+    const texte = await copiloteAgent.repondre({ question: 'Fais une synth\u00E8se detaillee.', historique: [] });
     expect(texte).toBe('D\u00E9but.');
   });
 });

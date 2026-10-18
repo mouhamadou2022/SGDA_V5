@@ -22,6 +22,7 @@ import { engineFeedback, type EngineLearningStats } from '@/lib/ia/engines/engin
 import { inspecteurMonitoring, type CapaciteInspecteur, CAPACITES_INSPECTEUR, type InspecteurMonitoringStats } from '@/lib/ia/engines/inspecteurMonitoring'
 import { statsCacheOutils } from '@/lib/ia/pilote/bouclePilote'
 import { synthetiserModeles } from '@/lib/risque/modelSynthesis'
+import { makeProvenance, classifyProvenance, provenanceBadgeClass, isLearned } from '@/lib/ia/models/provenance'
 import { EnClairNote } from './EnClairNote'
 import { CompteurPoidsAprentissage } from './CompteurPoidsAprentissage'
 import { recommanderModeleAnalyse } from '@/lib/ia/modelSelector'
@@ -384,6 +385,10 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
   const ordered: ModeleBenchmarkId[] = ['random_forest', 'xgboost', 'lightgbm', 'catboost', 'mlp']
   const [showSettings, setShowSettings] = useState(false)
   const customParams = configEstPersonnalisee(benchmarkConfig)
+  const activeProvenance = makeProvenance(
+    classifyProvenance(activeModelId != null, rfSamplesCount, 10),
+    rfSamplesCount,
+  )
 
   const updateParam = (id: ModeleBenchmarkId, key: string, value: number) => {
     onSetConfig({ ...benchmarkConfig, [id]: { ...benchmarkConfig[id], [key]: value } })
@@ -393,6 +398,7 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
     <Card icon={<Cpu className="h-4 w-4 text-role-primary" />} title="1. Modèles Machine Learning — comparaison & sélection" badge={
       <div className="flex items-center gap-2">
         {activeModelName && <span className="badge badge-primary text-xs">{activeModelName} <CheckCircle2 className="w-3 h-3 inline ml-1" /></span>}
+        {activeModelName && <span className={provenanceBadgeClass(activeProvenance.source)} title={activeProvenance.detail}>{isLearned(activeProvenance.source) ? '\u2713 ' : ''}{activeProvenance.label}</span>}
         {customParams && isAdmin && <span className="badge warning text-xs">Paramètres personnalisés</span>}
         {isAdmin && (
           <>
@@ -478,6 +484,8 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
                   <th className="py-2 pr-3 text-right">Recall</th>
                   <th className="py-2 pr-3 text-right">F1</th>
                   <th className="py-2 pr-3 text-right">ROC-AUC</th>
+                  <th className="py-2 pr-3 text-right" title="Brier score : qualité des probabilités (plus bas = mieux)">Brier</th>
+                  <th className="py-2 pr-3 text-right" title="Expected Calibration Error : 0 = parfaitement calibré">ECE</th>
                   <th className="py-2 pr-3 text-right">Train</th>
                   <th className="py-2 pr-3 text-right">Prédict</th>
                   <th className="py-2 pr-3 text-center">Maturité</th>
@@ -503,6 +511,8 @@ function MLModelsCard({ benchmarkOutcome, isBenchmarking, activeModelId, activeM
                       <td className="py-2 pr-3 text-right">{(r.recall * 100).toFixed(1)}%</td>
                       <td className="py-2 pr-3 text-right">{(r.f1Score * 100).toFixed(1)}%</td>
                       <td className="py-2 pr-3 text-right font-medium text-role-primary">{(r.rocAuc * 100).toFixed(1)}%</td>
+                      <td className="py-2 pr-3 text-right">{typeof r.brierScore === 'number' ? r.brierScore.toFixed(3) : '—'}</td>
+                      <td className="py-2 pr-3 text-right">{typeof r.ece === 'number' ? `${(r.ece * 100).toFixed(1)}%` : '—'}</td>
                       <td className="py-2 pr-3 text-right text-muted-foreground">{r.trainTimeMs}ms</td>
                       <td className="py-2 pr-3 text-right text-muted-foreground">{r.predictTimeMs}ms</td>
                       <td className="py-2 pr-3 text-center"><span className="badge text-xs">{r.maturiteLabel}</span></td>

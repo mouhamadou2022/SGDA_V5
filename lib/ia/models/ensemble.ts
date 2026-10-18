@@ -9,6 +9,7 @@ import { ScoreHistoryPoint } from '@/lib/store'
 import { bayesianDynamicModel } from './bayesianDynamic'
 import { lstmModel } from './lstm'
 import { riskClassifier } from './xgboost'
+import type { ModelSource } from './provenance'
 
 // ============================================================
 // TYPES
@@ -22,9 +23,13 @@ export interface EnsemblePrediction {
     name: string
     weight: number
     prediction: number
+    /** Origine du vote : appris / heuristique / repli. */
+    source?: ModelSource
   }[]
   metadata: {
     nModels: number
+    /** Nombre de modèles réellement appris (parmi les votes). */
+    learnedModels?: number
     consensus: 'fort' | 'modere' | 'faible'
     variance: number
   }
@@ -52,14 +57,13 @@ export interface ModelPerformance {
 // ============================================================
 
 const DEFAULT_CONFIG: EnsembleConfig = {
+  // Poids alignés sur MODEL_NAMES (lstm / bayesian / xgboost), somme = 1.
+  // Les anciennes clés (hawkes, quantile, temporal, garch) ne correspondaient à
+  // aucun modèle instancié dans l'ensemble → config morte supprimée.
   weights: {
-    hawkes: 0.15,
-    lstm: 0.20,
-    quantile: 0.15,
-    bayesian: 0.15,
-    temporal: 0.15,
-    garch: 0.10,
-    xgboost: 0.10
+    lstm: 0.35,
+    bayesian: 0.35,
+    xgboost: 0.30,
   },
   minConfidence: 30,
   useDynamicWeights: true,
@@ -109,7 +113,7 @@ export class EnsembleModel {
     horizon: number = 1,
     options?: { useAllModels?: boolean; customWeights?: Record<string, number> }
   ): Promise<EnsemblePrediction> {
-    const predictions: { name: string; prediction: number; confidence?: number }[] = []
+    const predictions: { name: string; prediction: number; confidence?: number; source: ModelSource }[] = []
 
     // 1. LSTM (deep learning — nécessite ≥30 points pour être fiable)
     if (historique.length >= 30) {
@@ -118,8 +122,15 @@ export class EnsembleModel {
           await lstmModel.train(historique, { epochs: 10, verbose: false })
         }
         const lstmPred = lstmModel.predict(historique, horizon)
-        predictions.push({ name: 'lstm', prediction: lstmPred.predictions[0], confidence: Math.min(80, lstmPred.confidence ? lstmPred.confidence[0] : 50) })
-      } catch { predictions.push({ name: 'lstm', prediction: 50, confidence: 30 }) }
+        predictions.push({
+          name: 'lstm',
+          prediction: lstmPred.predictions[0],
+          confidence: Math.min(80, lstmPred.confidence ? lstmPred.confidence[0] : 50),
+          source: lstmModel.isTrained() ? 'learned' : 'heuristic',
+        })
+      } catch {
+        predictions.push({ name: 'lstm', prediction: 50, confidence: 30, source: 'fallback' })
+      }
     }
 
     // 2. Bayesian dynamique (toujours dispo, s'améliore avec les données)
@@ -144,8 +155,8 @@ export class EnsembleModel {
       const likelihood = Math.min(0.9, Math.max(0.1, lh))
 
       const { posterior } = bayesianDynamicModel.computePosterior(prior, [likelihood])
-      predictions.push({ name: 'bayesian', prediction: posterior * 100, confidence: 65 })
-    } catch { predictions.push({ name: 'bayesian', prediction: 50, confidence: 30 }) }
+      predictions.push({ name: 'bayesian', prediction: posterior * 100, confidence: 65, source: 'heuristic' })
+    } catch { predictions.push({ name: 'bayesian', prediction: 50, confidence: 30, source: 'fallback' }) }
 
     // 3. XGBoost (nécessite ≥50 échantillons labellisés)
     try {
@@ -153,7 +164,12 @@ export class EnsembleModel {
       if (historique.length >= 20) {
         const result = riskClassifier.predict(features)
         const xgboostPred = typeof result.prediction === 'number' ? result.prediction : this.classToScore(result.prediction as string)
-        predictions.push({ name: 'xgboost', prediction: xgboostPred, confidence: result.confidence })
+        predictions.push({
+          name: 'xgboost',
+          prediction: xgboostPred,
+          confidence: result.confidence,
+          source: riskClassifier.isTrained() ? 'learned' : 'insufficient_data',
+        })
       }
     } catch { /* XGBoost indisponible */ }
 
@@ -176,7 +192,7 @@ export class EnsembleModel {
     // Prédiction pondérée
     let totalWeight = 0
     let weightedSum = 0
-    const contributions: { name: string; weight: number; prediction: number }[] = []
+    const contributions: { name: string; weight: number; prediction: number; source: ModelSource }[] = []
     
     for (let i = 0; i < predictions.length; i++) {
       const pred = predictions[i]
@@ -187,7 +203,8 @@ export class EnsembleModel {
         contributions.push({
           name: pred.name,
           weight: Math.round(weight * 100) / 100,
-          prediction: Math.round(pred.prediction)
+          prediction: Math.round(pred.prediction),
+          source: pred.source
         })
       }
     }
@@ -232,6 +249,7 @@ export class EnsembleModel {
       modelContributions: contributions.sort((a, b) => b.weight - a.weight),
       metadata: {
         nModels: predictions.length,
+        learnedModels: predictions.filter(p => p.source === 'learned').length,
         consensus,
         variance: Math.round(variance)
       }
@@ -383,7 +401,6 @@ export class EnsembleModel {
 
   private computeConsensus(predictions: { name: string; prediction: number }[]): number {
     const values = predictions.map(p => p.prediction)
-    const mean = values.reduce((a, b) => a + b, 0) / values.length
     const stdDev = Math.sqrt(this.variance(values))
     
     // Plus l'écart-type est faible, plus le consensus est fort

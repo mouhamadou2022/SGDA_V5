@@ -46,6 +46,16 @@ export { ModelCalibrator, calibrator } from './training/calibrator'
 export { FeedbackManager, feedbackManager } from './training/feedback'
 
 // ============================================================
+// ÉVALUATION PROBABILISTE (Brier, log-loss, ECE, couverture, température)
+// ============================================================
+export * from './models/evaluation'
+
+// ============================================================
+// PROVENANCE (learned / heuristic / fallback / insufficient_data)
+// ============================================================
+export * from './models/provenance'
+
+// ============================================================
 // CONSTANTES
 // ============================================================
 export const IA_VERSION = '2.0.0'

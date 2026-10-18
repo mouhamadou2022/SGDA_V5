@@ -206,5 +206,6 @@ export type {
 export {
   evaluateModel as evaluateClassifier,
   trainAndEvaluate, saveEvaluationHistory, getEvaluationHistory, getAccuracyTrend, getConfidenceLevel,
+  evaluateProbabilities,
 } from './modelEvaluator'
-export type { ModelEvaluation, EvaluationHistoryPoint } from './modelEvaluator'
+export type { ModelEvaluation, EvaluationHistoryPoint, ProbabilisticEvaluation } from './modelEvaluator'

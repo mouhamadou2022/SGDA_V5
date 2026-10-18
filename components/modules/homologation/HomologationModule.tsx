@@ -342,6 +342,8 @@ function PhaseModal({
     (utilisateurCourant?.id === assignationPhase.chef_id || userRole === 'admin');
 
   const handleAccuseReception = async () => {
+    // Accusé de réception réservé à l'admin (demandes d'homologation).
+    if (userRole !== 'admin') return;
     const now = new Date().toISOString();
     setPhaseData({ ...phaseData, statut: 'accuse', date_accuse_reception: now });
     await handleSave(false);
@@ -676,9 +678,13 @@ function PhaseModal({
 
             {phase1Status === 'en_attente' && !isLocked && !isCompleted && droitInstruire && (
               <div className="text-center py-4">
-                <button type="button" onClick={handleAccuseReception} className="btn btn-primary gap-2">
-                  <CheckCircle2 className="w-4 h-4" />Accuser réception
-                </button>
+                {estAdminLocal ? (
+                  <button type="button" onClick={handleAccuseReception} className="btn btn-primary gap-2">
+                    <CheckCircle2 className="w-4 h-4" />Accuser réception
+                  </button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Demande en attente d'accusé de réception par l'administrateur.</p>
+                )}
               </div>
             )}
 

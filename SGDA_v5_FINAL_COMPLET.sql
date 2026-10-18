@@ -1452,7 +1452,11 @@ CREATE POLICY "presence_select" ON presence_entries
 DROP POLICY IF EXISTS "presence_write" ON presence_entries;
 -- 2026-10-08 — les points focaux remplissent aussi les fiches de présence :
 -- INSERT ouvert aux opérateurs, UPDATE/DELETE réservés admin/inspecteur.
--- (À appliquer dans Supabase : ce fichier est la source de vérité, pas un runner.)
+-- (À appliquer dans Supabase. DROP préalables : CREATE POLICY n'a pas
+-- d'IF NOT EXISTS, le bloc doit rester réexécutable sans erreur 42710.)
+DROP POLICY IF EXISTS "presence_insert_tous" ON presence_entries;
+DROP POLICY IF EXISTS "presence_update_admin" ON presence_entries;
+DROP POLICY IF EXISTS "presence_delete_admin" ON presence_entries;
 CREATE POLICY "presence_insert_tous" ON presence_entries
   FOR INSERT WITH CHECK (
     auth.uid() IS NOT NULL

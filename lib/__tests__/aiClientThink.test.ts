@@ -40,7 +40,7 @@ describe('garde-fou taille centrale', () => {
     const total = body.messages.reduce((s: number, m: { content: string }) => s + m.content.length, 0);
     expect(total).toBeLessThanOrEqual(26000);
     expect(body.messages[body.messages.length - 1].content).toBe('question finale');
-    expect(body.systemPrompt).toContain('tronqu\u00E9s');
+    expect(body.systemPrompt).toContain('conserv\u00E9s');
   });
   test('petit historique : intact, sans note', async () => {
     await aiClient.call({ systemPrompt: 's', userMessage: 'bonjour', history: gros(2).slice(0, 2) });
@@ -81,7 +81,8 @@ describe('garde-fou taille et retry JSON', () => {
     );
     expect(res).toEqual({ items: [{ q: 'abc' }] });
     expect(f).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(f.mock.calls[1][1].body).maxTokens).toBe(1500);
+    // Plancher JSON 1024 : 1000 → 1024, bonus 1024*1.5 = 1536
+    expect(JSON.parse(f.mock.calls[1][1].body).maxTokens).toBe(1536);
   });
   test('JSON mal forme non tronque : paliers decroissants classiques', async () => {
     const f = global.fetch as jest.Mock;

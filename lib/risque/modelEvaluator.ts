@@ -4,6 +4,7 @@
 
 import type { TrainingSample } from './randomForest'
 import { trainTestSplit } from './randomForest'
+import { intervalCoverage, temperatureScaling } from '@/lib/ia/models/evaluation'
 
 export interface ModelEvaluation {
   accuracy: number
@@ -147,3 +148,13 @@ export function getConfidenceLevel(accuracy: number): { label: string; color: st
   if (accuracy >= 0.5) return { label: 'Faible', color: 'text-orange', icon: '🟠' }
   return { label: 'Non fiable', color: 'text-danger', icon: '🔴' }
 }
+
+// ============================================================
+// ÉVALUATION PROBABILISTE — réexportée de la couche ia/models
+// ============================================================
+
+export { evaluateProbabilities } from '@/lib/ia/models/evaluation'
+export type { ProbabilisticEvaluation } from '@/lib/ia/models/evaluation'
+
+export { intervalCoverage, temperatureScaling }
+export type { IntervalPrediction, IntervalCoverage, ReliabilityBin } from '@/lib/ia/models/evaluation'

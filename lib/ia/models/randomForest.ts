@@ -1,7 +1,14 @@
 // lib/ia/models/randomForest.ts
-// Modèle Random Forest pour classification et régression
-// Version légère pour prédiction de résultats de checklist et détection d'anomalies
-// 0 API externe, 0 coût, 100% local
+// Random Forest en pur TS — implémentation réelle (pas d'approximation) :
+//   · critère de split = baisse d'impureté pondérée (Gini en classification,
+//     variance en régression) ;
+//   · feuilles = distribution de classes (classification) ou moyenne (régression) ;
+//   · probabilités = moyenne des distributions de feuilles sur tous les arbres ;
+//   · importance des features = baisse d'impureté pondérée par le nombre
+//     d'échantillons de chaque nœud (MDI), moyennée sur les arbres ;
+//   · minSamplesLeaf réellement appliqué ; seuils candidats = points médians ;
+//   · RNG seedé (mulberry32) → entraînement reproductible.
+// 0 API externe, 0 coût, 100% local.
 
 'use client'
 
@@ -17,10 +24,13 @@ export interface RandomForestConfig {
   maxFeatures: number | 'sqrt' | 'log2'
   bootstrap: boolean
   sampleSize: number
+  /** Graine pour la reproductibilité (bootstrap + sous-ensemble de features). */
+  seed?: number
 }
 
 export interface RandomForestPrediction {
   prediction: string | number
+  /** Probabilités par classe (fractions dans [0,1]) — classification uniquement. */
   probabilities?: Record<string, number>
   confidence: number
   treeVotes: Record<string, number>
@@ -33,8 +43,10 @@ export interface TrainingSample {
   weight?: number
 }
 
+type TaskType = 'classification' | 'regression'
+
 // ============================================================
-// CONSTANTES
+// CONSTANTES / RNG
 // ============================================================
 
 const DEFAULT_CONFIG: RandomForestConfig = {
@@ -44,267 +56,323 @@ const DEFAULT_CONFIG: RandomForestConfig = {
   minSamplesLeaf: 1,
   maxFeatures: 'sqrt',
   bootstrap: true,
-  sampleSize: 1.0
+  sampleSize: 1.0,
+  seed: 42,
 }
 
-const RESULTS = ['SA', 'NS', 'NA', 'NV']
-
-class DecisionTreeNode {
-  isLeaf: boolean = false
-  value: number = 0
-  featureIndex: number = 0
-  threshold: number = 0
-  left: DecisionTreeNode | null = null
-  right: DecisionTreeNode | null = null
-  samples: number = 0
-  impurity: number = 0
+/** Générateur pseudo-aléatoire déterministe (mulberry32). */
+export function mulberry32(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (s + 0x6d2b79f5) | 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
 }
 
 // ============================================================
-// ARBRE DE DÉCISION POUR RANDOM FOREST
+// NŒUD D'ARBRE
 // ============================================================
+
+class TreeNode {
+  isLeaf = true
+  featureIndex = -1
+  threshold = 0
+  /** Valeur de régression (moyenne). */
+  value = 0
+  /** Distribution de classes (classification) — indexée sur l'ordre des classes. */
+  proba: number[] = []
+  left: TreeNode | null = null
+  right: TreeNode | null = null
+  nSamples = 0
+  impurity = 0
+}
+
+// ============================================================
+// ARBRE DE DÉCISION
+// ============================================================
+
+interface TreeConfig {
+  maxDepth: number
+  minSamplesSplit: number
+  minSamplesLeaf: number
+  featureIndices: number[]
+  maxFeatures: number | 'sqrt' | 'log2'
+  taskType: TaskType
+  nClasses: number
+  rng: () => number
+}
 
 class DecisionTree {
-  private maxDepth: number
-  private minSamplesSplit: number
-  private minSamplesLeaf: number
-  private maxFeatures: number | 'sqrt' | 'log2'
-  private featureIndices: number[]
-  root: DecisionTreeNode | null = null
-  private isClassifier: boolean = true
-  private classMapping: Map<string, number> = new Map()
-  
-  constructor(config: {
-    maxDepth: number
-    minSamplesSplit: number
-    minSamplesLeaf: number
-    featureIndices: number[]
-    maxFeatures?: number | 'sqrt' | 'log2'
-  }) {
-    this.maxDepth = config.maxDepth
-    this.minSamplesSplit = config.minSamplesSplit
-    this.minSamplesLeaf = config.minSamplesLeaf
-    this.featureIndices = config.featureIndices
-    this.maxFeatures = config.maxFeatures ?? 'sqrt'
+  root: TreeNode | null = null
+  /** Baisse d'impureté pondérée cumulée par feature (non normalisée). */
+  featureImportance: number[] = []
+  private cfg: TreeConfig
+  private totalN = 0
+
+  constructor(cfg: TreeConfig) {
+    this.cfg = cfg
   }
-  
-  train(samples: TrainingSample[], isClassifier: boolean = true): void {
-    this.isClassifier = isClassifier
-    
-    if (isClassifier) {
-      const uniqueClasses = [...new Set(samples.map(s => s.label as string))]
-      uniqueClasses.forEach((cls, idx) => {
-        this.classMapping.set(cls, idx)
-      })
-    }
-    
+
+  train(samples: TrainingSample[]): void {
+    this.totalN = Math.max(1, samples.length)
+    this.featureImportance = new Array(samples[0]?.features.length ?? 0).fill(0)
     this.root = this.buildTree(samples, 0)
   }
-  
-  private buildTree(samples: TrainingSample[], depth: number): DecisionTreeNode {
-    const node = new DecisionTreeNode()
-    
-    // Vérifier les conditions d'arrêt
-    if (depth >= this.maxDepth ||
-        samples.length < this.minSamplesSplit ||
-        this.isPure(samples)) {
-      node.isLeaf = true
-      node.value = this.getLeafValue(samples)
+
+  private nFeaturesToSample(total: number): number {
+    const mf = this.cfg.maxFeatures
+    if (typeof mf === 'number') return Math.max(1, Math.min(total, mf))
+    if (mf === 'log2') return Math.max(1, Math.floor(Math.log2(Math.max(2, total))))
+    return Math.max(1, Math.floor(Math.sqrt(total)))
+  }
+
+  private selectFeatureSubset(total: number): number[] {
+    const n = this.nFeaturesToSample(total)
+    if (n >= total) {
+      // Pas de sous-échantillonnage : on garde toutes les features (ordre stable).
+      return this.cfg.featureIndices.slice()
+    }
+    const pool = this.cfg.featureIndices.slice()
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(this.cfg.rng() * (i + 1))
+      const tmp = pool[i]
+      pool[i] = pool[j]
+      pool[j] = tmp
+    }
+    return pool.slice(0, n)
+  }
+
+  private buildTree(samples: TrainingSample[], depth: number): TreeNode {
+    const node = new TreeNode()
+    node.nSamples = samples.length
+
+    const stopping =
+      depth >= this.cfg.maxDepth ||
+      samples.length < this.cfg.minSamplesSplit
+
+    if (stopping || this.isPure(samples)) {
+      this.makeLeaf(node, samples)
       return node
     }
-    
-    // Trouver la meilleure split
-    let bestGain = -Infinity
+
+    node.impurity = this.impurity(samples)
+    const totalFeatures = samples[0].features.length
+    const featureSubset = this.selectFeatureSubset(totalFeatures)
+
+    let bestGain = 0
     let bestFeature = -1
     let bestThreshold = 0
-    
-    const featuresCount = samples[0].features.length
-    const featureSubset = this.selectFeatureSubset(featuresCount)
-    
+
     for (const f of featureSubset) {
-      const values = samples.map(s => s.features[f])
-      const uniqueValues = [...new Set(values)].sort((a, b) => a - b)
-      
-      for (let i = 0; i < Math.min(uniqueValues.length, 10); i++) {
-        const threshold = uniqueValues[i]
-        const leftIndices: number[] = []
-        const rightIndices: number[] = []
-        
-        for (let j = 0; j < samples.length; j++) {
-          if (samples[j].features[f] <= threshold) {
-            leftIndices.push(j)
-          } else {
-            rightIndices.push(j)
-          }
+      const values = samples.map(s => s.features[f]).sort((a, b) => a - b)
+      for (let k = 0; k < values.length - 1; k++) {
+        if (values[k] === values[k + 1]) continue
+        const threshold = (values[k] + values[k + 1]) / 2
+        let nLeft = 0
+        for (let i = 0; i < samples.length; i++) {
+          if (samples[i].features[f] <= threshold) nLeft++
         }
-        
-        if (leftIndices.length === 0 || rightIndices.length === 0) continue
-        
-        const leftSamples = leftIndices.map(i => samples[i])
-        const rightSamples = rightIndices.map(i => samples[i])
-        
-        const gain = this.computeGain(samples, leftSamples, rightSamples)
-        
-        if (gain > bestGain) {
+        const nRight = samples.length - nLeft
+        // minSamplesLeaf réellement appliqué
+        if (nLeft < this.cfg.minSamplesLeaf || nRight < this.cfg.minSamplesLeaf) continue
+
+        const left: TrainingSample[] = []
+        const right: TrainingSample[] = []
+        for (let i = 0; i < samples.length; i++) {
+          if (samples[i].features[f] <= threshold) left.push(samples[i])
+          else right.push(samples[i])
+        }
+        const gain = this.impurityGain(samples, left, right, node.impurity)
+        if (gain > bestGain + 1e-12) {
           bestGain = gain
           bestFeature = f
           bestThreshold = threshold
         }
       }
     }
-    
+
     if (bestFeature === -1) {
-      node.isLeaf = true
-      node.value = this.getLeafValue(samples)
+      this.makeLeaf(node, samples)
       return node
     }
-    
-    // Splitter les données
+
+    // Importance MDI : baisse d'impureté pondérée par la part d'échantillons du nœud
+    this.featureImportance[bestFeature] += (node.nSamples / this.totalN) * bestGain
+
     const leftSamples: TrainingSample[] = []
     const rightSamples: TrainingSample[] = []
-    
     for (const sample of samples) {
-      if (sample.features[bestFeature] <= bestThreshold) {
-        leftSamples.push(sample)
-      } else {
-        rightSamples.push(sample)
-      }
+      if (sample.features[bestFeature] <= bestThreshold) leftSamples.push(sample)
+      else rightSamples.push(sample)
     }
-    
+
+    node.isLeaf = false
     node.featureIndex = bestFeature
     node.threshold = bestThreshold
-    node.isLeaf = false
     node.left = this.buildTree(leftSamples, depth + 1)
     node.right = this.buildTree(rightSamples, depth + 1)
-    
     return node
   }
-  
-  private isPure(samples: TrainingSample[]): boolean {
-    if (!this.isClassifier) return false
-    
-    const firstLabel = samples[0].label as string
-    return samples.every(s => s.label === firstLabel)
-  }
-  
-  private getLeafValue(samples: TrainingSample[]): number {
-    if (this.isClassifier) {
-      // Classification: mode des classes
-      const counts: Record<string, number> = {}
-      for (const sample of samples) {
-        const label = sample.label as string
-        counts[label] = (counts[label] || 0) + 1
+
+  private makeLeaf(node: TreeNode, samples: TrainingSample[]): void {
+    if (this.cfg.taskType === 'classification') {
+      const counts = new Array(this.cfg.nClasses).fill(0)
+      for (const s of samples) {
+        const idx = this.labelToIndex(s.label)
+        if (idx >= 0) counts[idx]++
       }
-      
-      let maxClass = ''
-      let maxCount = 0
-      for (const [cls, count] of Object.entries(counts)) {
-        if (count > maxCount) {
-          maxCount = count
-          maxClass = cls
-        }
-      }
-      
-      return this.classMapping.get(maxClass) || 0
+      const total = counts.reduce((a, b) => a + b, 0) || 1
+      node.proba = counts.map(c => c / total)
+      let best = 0
+      for (let i = 1; i < counts.length; i++) if (counts[i] > counts[best]) best = i
+      node.value = best
+      node.impurity = giniFromCounts(counts)
     } else {
-      // Régression: moyenne
-      return samples.reduce((sum, s) => sum + (s.label as number), 0) / samples.length
+      node.value = mean(samples.map(s => Number(s.label)))
+      node.proba = []
+      node.impurity = variance(samples.map(s => Number(s.label)))
     }
   }
-  
-  private computeGain(
+
+  private labelToIndex(label: string | number): number {
+    // Les labels de classification sont mappés en amont sur des indices numériques.
+    const idx = typeof label === 'number' ? label : Number(label)
+    return Number.isInteger(idx) ? idx : -1
+  }
+
+  private isPure(samples: TrainingSample[]): boolean {
+    const first = samples[0].label
+    return samples.every(s => s.label === first)
+  }
+
+  private impurity(samples: TrainingSample[]): number {
+    if (this.cfg.taskType === 'classification') {
+      const counts = new Array(this.cfg.nClasses).fill(0)
+      for (const s of samples) {
+        const idx = this.labelToIndex(s.label)
+        if (idx >= 0) counts[idx]++
+      }
+      return giniFromCounts(counts)
+    }
+    return variance(samples.map(s => Number(s.label)))
+  }
+
+  private impurityGain(
     parent: TrainingSample[],
     left: TrainingSample[],
-    right: TrainingSample[]
+    right: TrainingSample[],
+    parentImpurity: number,
   ): number {
-    const parentImpurity = this.computeImpurity(parent)
-    const leftWeight = left.length / parent.length
-    const rightWeight = right.length / parent.length
-    const leftImpurity = this.computeImpurity(left)
-    const rightImpurity = this.computeImpurity(right)
-    
-    return parentImpurity - (leftWeight * leftImpurity + rightWeight * rightImpurity)
+    const p = parent.length || 1
+    const weighted =
+      (left.length / p) * this.impurity(left) +
+      (right.length / p) * this.impurity(right)
+    return parentImpurity - weighted
   }
-  
-  private computeImpurity(samples: TrainingSample[]): number {
-    if (samples.length === 0) return 0
-    
-    if (this.isClassifier) {
-      // Entropie pour classification
-      const counts: Record<string, number> = {}
-      for (const sample of samples) {
-        const label = sample.label as string
-        counts[label] = (counts[label] || 0) + 1
-      }
-      
-      let entropy = 0
-      for (const count of Object.values(counts)) {
-        const p = count / samples.length
-        if (p > 0) {
-          entropy -= p * Math.log2(p)
-        }
-      }
-      return entropy
-    } else {
-      // Variance pour régression
-      const values = samples.map(s => s.label as number)
-      const mean = values.reduce((a, b) => a + b, 0) / values.length
-      const variance = values.reduce((sq, v) => sq + Math.pow(v - mean, 2), 0) / values.length
-      return variance
+
+  predictValue(features: number[]): number {
+    let node = this.root
+    while (node && !node.isLeaf) {
+      node = features[node.featureIndex] <= node.threshold ? node.left : node.right
     }
+    return node ? node.value : 0
   }
-  
-  private selectFeatureSubset(totalFeatures: number): number[] {
-    let nFeatures: number
-    
-    if (typeof this.maxFeatures === 'number') {
-      nFeatures = Math.min(totalFeatures, this.maxFeatures)
-    } else if (this.maxFeatures === 'sqrt') {
-      nFeatures = Math.floor(Math.sqrt(totalFeatures))
-    } else {
-      nFeatures = Math.floor(Math.log2(totalFeatures))
-    }
-    
-    nFeatures = Math.max(1, nFeatures)
-    
-    // Mélanger et prendre les premiers nFeatures
-    const shuffled = [...this.featureIndices]
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-    }
-    
-    return shuffled.slice(0, nFeatures)
-  }
-  
-  predict(features: number[]): number {
-    return this.predictNode(this.root!, features)
-  }
-  
-  private predictNode(node: DecisionTreeNode, features: number[]): number {
-    if (node.isLeaf) return node.value
-    
-    if (features[node.featureIndex] <= node.threshold) {
-      return this.predictNode(node.left!, features)
-    } else {
-      return this.predictNode(node.right!, features)
-    }
-  }
-  
+
   predictProbas(features: number[], nClasses: number): number[] {
-    // Pour la classification, retourner les probabilités (simulées)
-    const prediction = this.predict(features)
-    const probas = new Array(nClasses).fill(0)
-    probas[Math.floor(prediction)] = 0.7
-    // Distribuer le reste
-    const remaining = 0.3 / (nClasses - 1)
-    for (let i = 0; i < nClasses; i++) {
-      if (i !== Math.floor(prediction)) {
-        probas[i] = remaining
-      }
+    let node = this.root
+    while (node && !node.isLeaf) {
+      node = features[node.featureIndex] <= node.threshold ? node.left : node.right
     }
-    return probas
+    const out = new Array(nClasses).fill(0)
+    if (node && node.proba.length) {
+      for (let i = 0; i < nClasses; i++) out[i] = node.proba[i] ?? 0
+    }
+    return out
   }
+
+  getPathLength(features: number[]): number {
+    let node = this.root
+    let depth = 0
+    while (node && !node.isLeaf) {
+      depth++
+      node = features[node.featureIndex] <= node.threshold ? node.left : node.right
+    }
+    return depth
+  }
+
+  serialize(): SerializedNode | null {
+    return this.root ? serializeNode(this.root) : null
+  }
+
+  static fromSerialized(data: SerializedNode | null): TreeNode | null {
+    return data ? deserializeNode(data) : null
+  }
+}
+
+// ============================================================
+// HELPERS PURS
+// ============================================================
+
+function giniFromCounts(counts: number[]): number {
+  const total = counts.reduce((a, b) => a + b, 0)
+  if (total === 0) return 0
+  let sumSq = 0
+  for (const c of counts) {
+    const p = c / total
+    sumSq += p * p
+  }
+  return 1 - sumSq
+}
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0
+  return values.reduce((a, b) => a + b, 0) / values.length
+}
+
+function variance(values: number[]): number {
+  if (values.length < 2) return 0
+  const m = mean(values)
+  return values.reduce((s, v) => s + (v - m) * (v - m), 0) / values.length
+}
+
+interface SerializedNode {
+  isLeaf: boolean
+  featureIndex?: number
+  threshold?: number
+  value: number
+  proba?: number[]
+  left?: SerializedNode
+  right?: SerializedNode
+}
+
+function serializeNode(node: TreeNode): SerializedNode {
+  if (node.isLeaf) {
+    return { isLeaf: true, value: node.value, proba: node.proba }
+  }
+  return {
+    isLeaf: false,
+    featureIndex: node.featureIndex,
+    threshold: node.threshold,
+    value: node.value,
+    left: node.left ? serializeNode(node.left) : undefined,
+    right: node.right ? serializeNode(node.right) : undefined,
+  }
+}
+
+function deserializeNode(data: SerializedNode): TreeNode {
+  const node = new TreeNode()
+  node.isLeaf = data.isLeaf
+  node.value = data.value
+  node.proba = data.proba ?? []
+  if (!data.isLeaf) {
+    node.featureIndex = data.featureIndex ?? -1
+    node.threshold = data.threshold ?? 0
+    node.left = data.left ? deserializeNode(data.left) : null
+    node.right = data.right ? deserializeNode(data.right) : null
+  }
+  return node
 }
 
 // ============================================================
@@ -314,378 +382,288 @@ class DecisionTree {
 export class RandomForestModel {
   private config: RandomForestConfig
   private trees: DecisionTree[] = []
-  private trained: boolean = false
+  private trained = false
   private featureNames: string[] = []
-  private classMapping: Map<string, number> = new Map()
-  private isClassifier: boolean = true
+  private classOrder: string[] = []
+  private labelToIdx = new Map<string, number>()
+  private taskType: TaskType = 'classification'
   private featureImportance: number[] = []
-  
+
   constructor(config: Partial<RandomForestConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
-  
+
   // ============================================================
   // ENTRAÎNEMENT
   // ============================================================
-  
+
   async train(
     samples: TrainingSample[],
-    options?: { verbose?: boolean }
+    options?: { verbose?: boolean },
   ): Promise<{ accuracy: number; oobScore?: number }> {
     if (samples.length < 10) {
       throw new Error(`Pas assez d'échantillons pour l'entraînement. Minimum: 10, reçu: ${samples.length}`)
     }
-    
-    // Déterminer le type de problème
-    const firstLabel = samples[0].label
-    this.isClassifier = typeof firstLabel === 'string'
-    
-    if (this.isClassifier) {
-      const uniqueClasses = [...new Set(samples.map(s => s.label as string))]
-      uniqueClasses.forEach((cls, idx) => {
-        this.classMapping.set(cls, idx)
-      })
-    }
-    
+
+    this.taskType = typeof samples[0].label === 'string' ? 'classification' : 'regression'
     const nFeatures = samples[0].features.length
+
+    // Mapping des classes (classification) vers indices entiers
+    if (this.taskType === 'classification') {
+      this.classOrder = [...new Set(samples.map(s => String(s.label)))].sort()
+      this.labelToIdx = new Map(this.classOrder.map((c, i) => [c, i]))
+    } else {
+      this.classOrder = []
+      this.labelToIdx = new Map()
+    }
+    const nClasses = this.classOrder.length
+
+    // Conversion des labels de classification en indices numériques (pour l'arbre)
+    const encoded: TrainingSample[] = samples.map(s => ({
+      features: s.features,
+      label: this.taskType === 'classification' ? this.labelToIdx.get(String(s.label)) ?? 0 : s.label,
+      weight: s.weight,
+    }))
+
+    const rng = mulberry32(this.config.seed ?? DEFAULT_CONFIG.seed ?? 42)
     const allFeatureIndices = Array.from({ length: nFeatures }, (_, i) => i)
-    
+    const sampleSize = Math.max(1, Math.floor(samples.length * this.config.sampleSize))
+
     this.trees = []
-    const sampleSize = Math.floor(samples.length * this.config.sampleSize)
-    
-    for (let i = 0; i < this.config.nTrees; i++) {
-      // Bootstrap sampling
-      let bootstrapSamples: TrainingSample[]
-      if (this.config.bootstrap) {
-        bootstrapSamples = this.bootstrapSample(samples, sampleSize)
-      } else {
-        bootstrapSamples = [...samples]
-      }
-      
-      // Feature subset
-      const featureIndices = [...allFeatureIndices]
-      for (let j = featureIndices.length - 1; j > 0; j--) {
-        const k = Math.floor(Math.random() * (j + 1))
-        ;[featureIndices[j], featureIndices[k]] = [featureIndices[k], featureIndices[j]]
-      }
-      
+    this.featureImportance = new Array(nFeatures).fill(0)
+
+    for (let t = 0; t < this.config.nTrees; t++) {
+      const bootstrap = this.config.bootstrap
+        ? this.bootstrapSample(encoded, sampleSize, rng)
+        : encoded
+
       const tree = new DecisionTree({
         maxDepth: this.config.maxDepth,
         minSamplesSplit: this.config.minSamplesSplit,
         minSamplesLeaf: this.config.minSamplesLeaf,
-        featureIndices
+        featureIndices: allFeatureIndices,
+        maxFeatures: this.config.maxFeatures,
+        taskType: this.taskType,
+        nClasses: Math.max(1, nClasses),
+        rng,
       })
-      
-      tree.train(bootstrapSamples, this.isClassifier)
+      tree.train(bootstrap)
       this.trees.push(tree)
-      
-      if (options?.verbose && (i + 1) % 10 === 0) {
-        console.log(`[RandomForest] Arbre ${i + 1}/${this.config.nTrees} entraîné`)
+
+      for (let f = 0; f < nFeatures; f++) {
+        this.featureImportance[f] += tree.featureImportance[f] ?? 0
+      }
+
+      if (options?.verbose && (t + 1) % 10 === 0) {
+        console.log(`[RandomForest] Arbre ${t + 1}/${this.config.nTrees} entraîné`)
       }
     }
-    
+
+    // Importance moyenne sur les arbres, normalisée en pourcentage
+    for (let f = 0; f < nFeatures; f++) this.featureImportance[f] /= this.trees.length
+    const totalImportance = this.featureImportance.reduce((a, b) => a + b, 0)
+    if (totalImportance > 0) {
+      for (let f = 0; f < nFeatures; f++) this.featureImportance[f] = (this.featureImportance[f] / totalImportance) * 100
+    }
+
     this.trained = true
     this.featureNames = Array.from({ length: nFeatures }, (_, i) => `feature_${i}`)
-    
-    // Calculer l'importance des features
-    this.computeFeatureImportance()
-    
-    return {
-      accuracy: this.evaluate(samples),
-      oobScore: undefined
-    }
+
+    return { accuracy: this.evaluate(samples), oobScore: undefined }
   }
-  
-  private bootstrapSample(samples: TrainingSample[], size: number): TrainingSample[] {
-    const result: TrainingSample[] = []
+
+  private bootstrapSample(
+    samples: TrainingSample[],
+    size: number,
+    rng: () => number,
+  ): TrainingSample[] {
+    const out: TrainingSample[] = []
     for (let i = 0; i < size; i++) {
-      const idx = Math.floor(Math.random() * samples.length)
-      result.push({ ...samples[idx] })
+      out.push(samples[Math.floor(rng() * samples.length)])
     }
-    return result
+    return out
   }
-  
+
   // ============================================================
   // PRÉDICTION
   // ============================================================
-  
+
   predict(features: number[]): RandomForestPrediction {
     if (!this.trained || this.trees.length === 0) {
       return this.fallbackPrediction(features)
     }
-    
-    if (this.isClassifier) {
-      // Classification: vote majoritaire
+
+    if (this.taskType === 'classification') {
+      const nClasses = this.classOrder.length
+      const agg = new Array(nClasses).fill(0)
       const votes: Record<string, number> = {}
-      
+
       for (const tree of this.trees) {
-        const prediction = tree.predict(features)
-        let className = ''
-        for (const [cls, idx] of this.classMapping) {
-          if (idx === Math.floor(prediction)) {
-            className = cls
-            break
-          }
+        const proba = tree.predictProbas(features, nClasses)
+        let best = 0
+        for (let i = 0; i < nClasses; i++) {
+          agg[i] += proba[i]
+          if (proba[i] > proba[best]) best = i
         }
-        votes[className] = (votes[className] || 0) + 1
+        const cls = this.classOrder[best]
+        votes[cls] = (votes[cls] || 0) + 1
       }
-      
-      // Meilleure classe
-      let bestClass = ''
-      let maxVotes = 0
-      for (const [cls, count] of Object.entries(votes)) {
-        if (count > maxVotes) {
-          maxVotes = count
-          bestClass = cls
-        }
-      }
-      
-      // Probabilités
+
       const probabilities: Record<string, number> = {}
-      for (const [cls, count] of Object.entries(votes)) {
-        probabilities[cls] = Math.round((count / this.trees.length) * 100)
+      let bestIdx = 0
+      for (let i = 0; i < nClasses; i++) {
+        const p = agg[i] / this.trees.length
+        probabilities[this.classOrder[i]] = p
+        if (p > agg[bestIdx] / this.trees.length) bestIdx = i
       }
-      
-      const confidence = Math.round((maxVotes / this.trees.length) * 100)
-      
+
       return {
-        prediction: bestClass,
+        prediction: this.classOrder[bestIdx],
         probabilities,
-        confidence,
-        treeVotes: votes
-      }
-    } else {
-      // Régression: moyenne des arbres
-      let sum = 0
-      for (const tree of this.trees) {
-        sum += tree.predict(features)
-      }
-      const prediction = sum / this.trees.length
-      const clampedPrediction = Math.min(100, Math.max(0, Math.round(prediction)))
-      
-      // Calcul de la variance comme mesure de confiance
-      const predictions = this.trees.map(t => t.predict(features))
-      const variance = this.computeVariance(predictions)
-      const confidence = Math.max(30, Math.min(95, 100 - variance))
-      
-      return {
-        prediction: clampedPrediction,
-        confidence,
-        treeVotes: {},
-        anomalyScore: variance > 50 ? variance / 100 : undefined
+        confidence: Math.round((agg[bestIdx] / this.trees.length) * 100),
+        treeVotes: votes,
       }
     }
+
+    // Régression
+    const preds = this.trees.map(t => t.predictValue(features))
+    const prediction = mean(preds)
+    const varianceTrees = variance(preds)
+    return {
+      prediction: Math.min(100, Math.max(0, Math.round(prediction))),
+      confidence: Math.max(30, Math.min(95, Math.round(100 - varianceTrees))),
+      treeVotes: {},
+      anomalyScore: varianceTrees > 50 ? varianceTrees / 100 : undefined,
+    }
   }
-  
+
   private fallbackPrediction(features: number[]): RandomForestPrediction {
-    if (this.isClassifier) {
-      const defaultClass = this.classMapping.size > 0 
-        ? Array.from(this.classMapping.keys())[0]
-        : 'moyen'
-      
+    if (this.taskType === 'classification') {
+      const probs: Record<string, number> = {}
+      const classes = this.classOrder.length > 0 ? this.classOrder : ['moyen']
+      classes.forEach(c => { probs[c] = 1 / classes.length })
       return {
-        prediction: defaultClass,
+        prediction: classes[0],
+        probabilities: probs,
         confidence: 50,
         treeVotes: {},
-        anomalyScore: 0.5
-      }
-    } else {
-      const mean = features.reduce((a, b) => a + b, 0) / features.length
-      return {
-        prediction: Math.min(100, Math.max(0, Math.round(mean * 100))),
-        confidence: 50,
-        treeVotes: {}
       }
     }
+    const m = mean(features)
+    return {
+      prediction: Math.min(100, Math.max(0, Math.round(m))),
+      confidence: 50,
+      treeVotes: {},
+    }
   }
-  
+
   // ============================================================
   // ÉVALUATION
   // ============================================================
-  
+
   evaluate(samples: TrainingSample[]): number {
     if (!this.trained) return 0
-    
     let correct = 0
-    
     for (const sample of samples) {
       const prediction = this.predict(sample.features)
-      
-      if (this.isClassifier) {
-        if (prediction.prediction === sample.label) {
-          correct++
-        }
+      if (this.taskType === 'classification') {
+        if (String(prediction.prediction) === String(sample.label)) correct++
       } else {
-        const error = Math.abs((prediction.prediction as number) - (sample.label as number))
-        if (error <= 5) correct++
+        if (Math.abs((prediction.prediction as number) - Number(sample.label)) <= 5) correct++
       }
     }
-    
     return Math.round((correct / samples.length) * 100)
   }
-  
+
   // ============================================================
-  // DÉTECTION D'ANOMALIES
+  // DÉTECTION D'ANOMALIES (profondeur moyenne de chemin, style Isolation Forest)
   // ============================================================
-  
-  detectAnomaly(features: number[]): {
-    isAnomaly: boolean
-    score: number
-    threshold: number
-  } {
-    if (!this.trained) {
+
+  detectAnomaly(features: number[]): { isAnomaly: boolean; score: number; threshold: number } {
+    if (!this.trained || this.trees.length === 0) {
       return { isAnomaly: false, score: 0, threshold: 0.7 }
     }
-    
-    // Calculer la similarité avec les arbres
-    let totalPathLength = 0
-    
-    for (const tree of this.trees) {
-      totalPathLength += this.getPathLength(tree, features)
-    }
-    
-    const avgPathLength = totalPathLength / this.trees.length
-    const normalizedScore = 1 - Math.exp(-avgPathLength / 10)
-    const anomalyScore = Math.min(1, normalizedScore)
-    
-    const threshold = 0.7
-    const isAnomaly = anomalyScore > threshold
-    
-    return {
-      isAnomaly,
-      score: anomalyScore,
-      threshold
-    }
+    const avgPath =
+      this.trees.reduce((sum, t) => sum + t.getPathLength(features), 0) / this.trees.length
+    const score = Math.min(1, 1 - Math.exp(-avgPath / 10))
+    return { isAnomaly: score > 0.7, score, threshold: 0.7 }
   }
-  
-  private getPathLength(tree: DecisionTree, features: number[]): number {
-    let node = tree.root
-    let depth = 0
-    
-    while (node && !node.isLeaf) {
-      depth++
-      if (features[node.featureIndex] <= node.threshold) {
-        node = node.left
-      } else {
-        node = node.right
-      }
-    }
-    
-    return depth
-  }
-  
+
   // ============================================================
   // IMPORTANCE DES FEATURES
   // ============================================================
-  
-  private computeFeatureImportance(): void {
-    if (!this.trained) return
-    
-    const nFeatures = this.featureNames.length
-    this.featureImportance = new Array(nFeatures).fill(0)
-    
-    // Calculer l'importance par permutation (simplifié)
-    for (let f = 0; f < nFeatures; f++) {
-      let importance = 0
-      for (const tree of this.trees) {
-        importance += this.getNodeCountForFeature(tree, f)
-      }
-      this.featureImportance[f] = importance
-    }
-    
-    // Normaliser
-    const total = this.featureImportance.reduce((a, b) => a + b, 0)
-    if (total > 0) {
-      for (let i = 0; i < nFeatures; i++) {
-        this.featureImportance[i] = (this.featureImportance[i] / total) * 100
-      }
-    }
-  }
-  
-  private getNodeCountForFeature(tree: DecisionTree, featureIndex: number): number {
-    let count = 0
-    const stack = [tree.root]
-    
-    while (stack.length > 0) {
-      const node = stack.pop()
-      if (!node) continue
-      if (!node.isLeaf) {
-        if (node.featureIndex === featureIndex) count++
-        stack.push(node.left, node.right)
-      }
-    }
-    
-    return count
-  }
-  
+
   getFeatureImportance(): Record<string, number> {
     if (!this.featureImportance.length) return {}
-    
     const result: Record<string, number> = {}
     for (let i = 0; i < this.featureNames.length; i++) {
       result[this.featureNames[i]] = Math.round(this.featureImportance[i])
     }
     return result
   }
-  
-  // ============================================================
-  // UTILITAIRES
-  // ============================================================
-  
-  private computeVariance(values: number[]): number {
-    if (values.length === 0) return 0
-    const mean = values.reduce((a, b) => a + b, 0) / values.length
-    const variance = values.reduce((sq, v) => sq + Math.pow(v - mean, 2), 0) / values.length
-    return variance
-  }
-  
+
   // ============================================================
   // SAUVEGARDE ET CHARGEMENT
   // ============================================================
-  
+
   exportModel(): string {
-    // Version simplifiée pour l'export
     return JSON.stringify({
       config: this.config,
-      trained: this.trained,
+      taskType: this.taskType,
       featureNames: this.featureNames,
-      classMapping: Array.from(this.classMapping.entries()),
-      isClassifier: this.isClassifier,
+      classOrder: this.classOrder,
       featureImportance: this.featureImportance,
-      nTrees: this.trees.length
-    }, null, 2)
+      trees: this.trees.map(t => t.serialize()),
+      trained: this.trained,
+    })
   }
-  
+
   importModel(jsonData: string): boolean {
     try {
       const data = JSON.parse(jsonData)
-      this.config = data.config
-      this.trained = data.trained
-      this.featureNames = data.featureNames
-      this.classMapping = new Map(data.classMapping)
-      this.isClassifier = data.isClassifier
-      this.featureImportance = data.featureImportance || []
-      // Note: Les arbres ne sont pas restaurés, nécessite un ré-entraînement
-      this.trees = []
-      this.trained = false
+      this.config = data.config ?? this.config
+      this.taskType = data.taskType ?? 'classification'
+      this.featureNames = data.featureNames ?? []
+      this.classOrder = data.classOrder ?? []
+      this.labelToIdx = new Map(this.classOrder.map((c: string, i: number) => [c, i]))
+      this.featureImportance = data.featureImportance ?? []
+
+      const roots = (data.trees ?? []).map((s: SerializedNode | null) => DecisionTree.fromSerialized(s))
+      // Reconstuire les DecisionTree à partir des racines sérialisées
+      this.trees = roots.map((root: TreeNode | null) => {
+        const t = new DecisionTree({
+          maxDepth: this.config.maxDepth,
+          minSamplesSplit: this.config.minSamplesSplit,
+          minSamplesLeaf: this.config.minSamplesLeaf,
+          featureIndices: [],
+          maxFeatures: this.config.maxFeatures,
+          taskType: this.taskType,
+          nClasses: Math.max(1, this.classOrder.length),
+          rng: mulberry32(0),
+        })
+        t.root = root
+        return t
+      })
+      this.trained = data.trained === true && this.trees.length > 0
       return true
     } catch (error) {
       console.error('[RandomForest] Erreur lors de l\'import:', error)
       return false
     }
   }
-  
+
   isTrained(): boolean {
     return this.trained
   }
-  
+
   reset(): void {
     this.trees = []
     this.trained = false
-    this.classMapping.clear()
+    this.classOrder = []
+    this.labelToIdx.clear()
     this.featureImportance = []
   }
-  
+
   getTreeCount(): number {
     return this.trees.length
   }
@@ -702,21 +680,18 @@ export class ChecklistResultPredictor extends RandomForestModel {
       maxDepth: 8,
       minSamplesSplit: 5,
       minSamplesLeaf: 2,
-      maxFeatures: 'sqrt'
+      maxFeatures: 'sqrt',
     })
   }
-  
+
   async trainOnData(
     features: number[][],
-    labels: ('SA' | 'NS' | 'NA' | 'NV')[]
+    labels: ('SA' | 'NS' | 'NA' | 'NV')[],
   ): Promise<void> {
-    const samples: TrainingSample[] = features.map((f, i) => ({
-      features: f,
-      label: labels[i]
-    }))
+    const samples: TrainingSample[] = features.map((f, i) => ({ features: f, label: labels[i] }))
     await this.train(samples)
   }
-  
+
   predictResult(features: number[]): {
     resultat: 'SA' | 'NS' | 'NA' | 'NV'
     confidence: number
@@ -726,28 +701,22 @@ export class ChecklistResultPredictor extends RandomForestModel {
     return {
       resultat: result.prediction as 'SA' | 'NS' | 'NA' | 'NV',
       confidence: result.confidence,
-      probabilities: result.probabilities || {}
+      probabilities: result.probabilities || {},
     }
   }
-  
+
   detectAnomalyInChecklist(features: number[]): {
     isAnomaly: boolean
     confidence: number
     suggestion: string
   } {
     const anomaly = this.detectAnomaly(features)
-    
-    let suggestion = ''
-    if (anomaly.isAnomaly) {
-      suggestion = 'Réponse inhabituelle détectée - vérification manuelle recommandée'
-    } else {
-      suggestion = 'Pattern conforme aux données historiques'
-    }
-    
     return {
       isAnomaly: anomaly.isAnomaly,
       confidence: Math.round((1 - anomaly.score) * 100),
-      suggestion
+      suggestion: anomaly.isAnomaly
+        ? 'Réponse inhabituelle détectée - vérification manuelle recommandée'
+        : 'Pattern conforme aux données historiques',
     }
   }
 }
@@ -759,28 +728,23 @@ export class AnomalyDetector extends RandomForestModel {
       maxDepth: 6,
       minSamplesSplit: 10,
       bootstrap: true,
-      sampleSize: 0.8
+      sampleSize: 0.8,
     })
   }
-  
+
   async trainOnNormalData(features: number[][]): Promise<void> {
-    const samples: TrainingSample[] = features.map((f, i) => ({
-      features: f,
-      label: 'normal'
-    }))
+    const samples: TrainingSample[] = features.map(f => ({ features: f, label: 'normal' }))
     await this.train(samples)
   }
-  
+
   detect(features: number[]): {
     niveau: 'normal' | 'suspect' | 'anormal'
     score: number
     justification: string
   } {
     const result = this.detectAnomaly(features)
-    
     let niveau: 'normal' | 'suspect' | 'anormal'
     let justification: string
-    
     if (result.score >= 0.8) {
       niveau = 'anormal'
       justification = 'Comportement très inhabituel - investigation requise'
@@ -791,12 +755,7 @@ export class AnomalyDetector extends RandomForestModel {
       niveau = 'normal'
       justification = 'Comportement conforme aux données historiques'
     }
-    
-    return {
-      niveau,
-      score: Math.round(result.score * 100),
-      justification
-    }
+    return { niveau, score: Math.round(result.score * 100), justification }
   }
 }
 

@@ -37,6 +37,10 @@ export interface BenchmarkMetrics {
   recall: number
   f1Score: number
   rocAuc: number
+  /** Brier score multi-classe — qualité des probabilités (plus bas = mieux). */
+  brierScore?: number
+  /** Expected Calibration Error — 0 = parfaitement calibré. */
+  ece?: number
   trainTimeMs: number
   predictTimeMs: number
   testSize: number
