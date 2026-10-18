@@ -12,6 +12,7 @@ import { decisionTracker, type DecisionRecord } from '@/lib/ia/decisionTracker'
 import { initRiskIndexFromIDB } from '@/lib/riskIndex'
 import { fetchThresholds, fetchDecisions, upsertThreshold, createDecision, fetchModelState, upsertModelState } from '@/lib/datastore'
 import { suggestionMLAgent } from '@/lib/ia/agents/suggestionMLAgent'
+import { prechargerLangagesClairs } from '@/lib/ia/prechargeur'
 import { TimerBar } from './TimerBar'
 import { AppHeader } from './AppHeader'
 import { Breadcrumb } from './Breadcrumb'
@@ -69,6 +70,11 @@ export function AppShell({ user, children, onLogout }: AppShellProps) {
   useEffect(() => {
     setUser(user)
   }, [user, setUser])
+
+  useEffect(() => {
+    const timer = setTimeout(() => { prechargerLangagesClairs() }, 2000)
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     // Restaurer l'état depuis IndexedDB avant Supabase

@@ -124,11 +124,10 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
   // ── « Ce qui ne va pas » — points de vigilance expliqués par l'IA (AERORISQ) ──
   const [ceQuiNeVaPas, setCeQuiNeVaPas] = useState<CeQuiNeVaPasExplication | null>(null)
   const [ceQuiNeVaPasEnCours, setCeQuiNeVaPasEnCours] = useState(true)
-  const [prevVigilanceProfil, setPrevVigilanceProfil] = useState(profil)
-  const [prevEcarts, setPrevEcarts] = useState(ecarts)
-  if (prevVigilanceProfil !== profil || prevEcarts !== ecarts) {
-    setPrevVigilanceProfil(profil)
-    setPrevEcarts(ecarts)
+  const vigilanceKey = useMemo(() => JSON.stringify([profil, ecarts]), [profil, ecarts])
+  const [prevVigilanceKey, setPrevVigilanceKey] = useState(vigilanceKey)
+  if (prevVigilanceKey !== vigilanceKey) {
+    setPrevVigilanceKey(vigilanceKey)
     setCeQuiNeVaPasEnCours(true)
     setCeQuiNeVaPas(null)
   }
@@ -146,7 +145,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
         setCeQuiNeVaPasEnCours(false)
       })
     return () => { actif = false }
-  }, [profil, ecarts, evenements, surveillances.length, sgsNonApplicable])
+  }, [vigilanceKey])
 
   const [modeleActif, setModeleActif] = useState<ModeleAnalyse>(() => {
     const rec = recommanderParmi(inputModele, modelesDispo)
@@ -163,9 +162,10 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
   }))
   const [explicationIAEnCours, setExplicationIAEnCours] = useState(true)
   const [explicationIAActif, setExplicationIAActif] = useState(false)
-  const [prevCriteresProfil, setPrevCriteresProfil] = useState(profil)
-  if (prevCriteresProfil !== profil) {
-    setPrevCriteresProfil(profil)
+  const criteresKey = useMemo(() => JSON.stringify([profil, ecarts, evenementsCount, sgsNonApplicable]), [profil, ecarts, evenementsCount, sgsNonApplicable])
+  const [prevCriteresKey, setPrevCriteresKey] = useState(criteresKey)
+  if (prevCriteresKey !== criteresKey) {
+    setPrevCriteresKey(criteresKey)
     setExplicationIAEnCours(true)
     setExplicationIAActif(false)
     setExplications({ c1: CRITERES[0].desc, c2: CRITERES[1].desc, c3: CRITERES[2].desc, c4: CRITERES[3].desc, c5: CRITERES[4].desc })
@@ -188,14 +188,15 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       setExplicationIAEnCours(false)
     })
     return () => { actif = false }
-  }, [profil, ecarts, evenementsCount, sgsNonApplicable])
+  }, [criteresKey, profil, ecarts, evenementsCount, sgsNonApplicable])
 
   // Explication IA de l'alerte cygne noir (fallback déterministe data-driven sinon)
   const [cygneNoir, setCygneNoir] = useState<CygneNoirExplication | null>(null)
   const [cygneNoirEnCours, setCygneNoirEnCours] = useState(true)
-  const [prevCygneProfil, setPrevCygneProfil] = useState(profil)
-  if (prevCygneProfil !== profil) {
-    setPrevCygneProfil(profil)
+  const cygneKey = useMemo(() => JSON.stringify([profil, ecarts, evenementsCount, sgsNonApplicable]), [profil, ecarts, evenementsCount, sgsNonApplicable])
+  const [prevCygneKey, setPrevCygneKey] = useState(cygneKey)
+  if (prevCygneKey !== cygneKey) {
+    setPrevCygneKey(cygneKey)
     setCygneNoirEnCours(true)
   }
 
@@ -216,7 +217,7 @@ export function DiagnosticTab({ profil, surveillances, ecarts, evenementsCount, 
       setCygneNoirEnCours(false)
     })
     return () => { actif = false }
-  }, [profil, ecarts, evenementsCount, sgsNonApplicable])
+  }, [cygneKey, profil, ecarts, evenementsCount, sgsNonApplicable])
 
   return (
     <div className="space-y-10">

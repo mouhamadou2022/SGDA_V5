@@ -7,6 +7,7 @@
 
 import { useAppStore, ProfilRisque } from '@/lib/store'
 import { normaliserRecherche } from '@/lib/domaines'
+import { searchCodeRAG } from '@/lib/ia/codeRag'
 
 // ============================================================
 // TYPES
@@ -221,6 +222,16 @@ export class AssistantAgent {
   private async handleWithLLM(request: ChatRequest): Promise<ChatResponse> {
     const store = useAppStore.getState()
     const contexte = request.contexte || {}
+
+    // 0. Cache check AVANT tout context building — évite 10+ scans inutiles sur cache hit
+    const cacheKey = `${contexte.module || ''}|${contexte.aerodromeId || ''}|${contexte.surveillanceId || ''}|${request.message.substring(0, 100)}`
+    const cached = this.responseCache?.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < 300_000) {
+      return cached.response
+    }
+
+    // 0.5 Recherche code RAG — enrichit le contexte avec les modules/routes/prompts pertinents
+    const codeContext = searchCodeRAG(request.message)
 
     // 1. Construire le contexte riche depuis le store
     const aerodromeCtx = contexte.aerodromeId
@@ -499,18 +510,12 @@ export class AssistantAgent {
     const sessionId = contexte.module || 'default'
     const localHistory = this.conversationHistory.get(sessionId) || []
     const recentHistory = localHistory
-      .slice(-8)
+      .slice(-6)
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
     // 3. Appel API avec cache 5 minutes (clé = message + périmètre, jamais
     // le message seul : sinon une réponse d'un site fuit vers un autre).
-    const cacheKey = `${contexte.module || ''}|${contexte.aerodromeId || ''}|${contexte.surveillanceId || ''}|${request.message.substring(0, 100)}`
-    const cached = this.responseCache?.get(cacheKey)
-    if (cached && Date.now() - cached.timestamp < 300_000) {
-      return cached.response
-    }
-
     try {
       const apiResponse = await fetch('/api/ia/chat', {
         method: 'POST',
@@ -547,9 +552,10 @@ export class AssistantAgent {
             pacs_en_jeu: pacsCtx && pacsCtx.length > 0 ? pacsCtx : undefined,
             surveillances_recentes: survsCtx && survsCtx.length > 0 ? survsCtx : undefined,
             plannings: planningsCtx && planningsCtx.length > 0 ? planningsCtx : undefined,
-            blocs_modules: blocsModules.length > 0 ? blocsModules : undefined,
+            blocs_modules: blocsModules.length > 0 ? blocsModules.slice(0, 3) : undefined,
             historique: recentHistory,
             module: contexte.module,
+            code_rag: codeContext || undefined,
           },
         }),
       })
@@ -569,6 +575,16 @@ export class AssistantAgent {
             ...(profilEffectif && aeroEffectif && !siteFocus ? [{ type: 'donnee' as const, title: `Profil de risque ${aeroEffectif.code_oaci}`, reference: `Score ${Math.round(profilEffectif.score_global)}/100 (${profilEffectif.niveau})` }] : []),
           ],
         })
+        if (this.responseCache.size >= 200) {
+          const now = Date.now()
+          for (const [k, v] of this.responseCache) {
+            if (now - v.timestamp > 300_000) this.responseCache.delete(k)
+          }
+          if (this.responseCache.size >= 200) {
+            const keys = [...this.responseCache.keys()]
+            for (const k of keys.slice(0, keys.length - 200)) this.responseCache.delete(k)
+          }
+        }
         this.responseCache.set(cacheKey, { timestamp: Date.now(), response: result })
         return result
       }

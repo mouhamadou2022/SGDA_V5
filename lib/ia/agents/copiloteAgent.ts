@@ -44,20 +44,17 @@ export interface MessageCopilote {
 // ============================================================
 
 /**
- * Budget global du contexte documentaire (caractères) : à 24000, pièces +
- * RAG + historique atteignaient ~9000 tokens — refusé par le tier gratuit
- * Groq ET trop lent pour le local CPU (abort à 120 s) → 503 partout.
- * 12000 car. ≈ 10 pages utiles : les questions ciblées restent couvertes ;
- * la synthèse intégrale d'un gros doc relèvera du map-reduce (chantier).
+ * Budget global du contexte documentaire (caractères) : mesuré à 14000 tokens
+ * avec 12000 (pièces) + 6000 (historique) + RAG + prompt → refusé par le tier
+ * gratuit Groq (6000) ET trop lent pour AERORISQ local → 503 partout.
+ * 6000 car. ≈ 4-5 pages utiles : les questions ciblées restent couvertes.
  */
-export const BUDGET_PIECES_CHARS = 12000
+export const BUDGET_PIECES_CHARS = 6000
 /**
- * Budget de l'historique de conversation (caractères) : les 8 derniers
- * messages SANS plafond dépassaient le tier gratuit avec les pièces + RAG
- * (mesuré : 11865 tokens → 503 chez tous les providers). On garde les plus
- * récents et on coupe les anciens en le signalant.
+ * Budget de l'historique de conversation (caractères) : avec pièces 6000 +
+ * RAG + prompt, 3000 chars d'historique gardent le total sous ~5500 tokens.
  */
-export const BUDGET_HISTORIQUE_CHARS = 6000
+export const BUDGET_HISTORIQUE_CHARS = 3000
 /** Plafond de génération d'une réponse (tokens) : au-delà, suite automatique. */
 export const MAX_REPONSE_TOKENS = 4096
 
@@ -167,6 +164,8 @@ class CopiloteAgent {
     }
   }
 
+  private cacheReponses = new Map<string, { timestamp: number; texte: string }>()
+
   /** Réponse libre : s'appuie sur les pièces jointes + RAG réglementaire + historique. */
   async repondre(params: {
     question: string
@@ -176,6 +175,10 @@ class CopiloteAgent {
     domaines?: string[]
     instructions?: string
   }): Promise<string> {
+    const cacheKey = `${params.question}|${params.pieces?.length || 0}|${params.aerodromeNom || ''}`
+    const cached = this.cacheReponses.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < 120_000) return cached.texte
+
     const pieces = params.pieces || []
 
     const { texte: piecesContexte, tronque } = plafonnerTextePieces(pieces)
@@ -229,7 +232,9 @@ class CopiloteAgent {
       if (suite.ok && suite.content?.trim()) texte = `${texte}\n${suite.content.trim()}`
     }
 
-    return texte || 'Je n\'ai pas pu formuler de réponse. Reformulez votre demande, ou vérifiez que les documents joints sont bien lus.'
+    const final = texte || 'Je n\'ai pas pu formuler de réponse. Reformulez votre demande, ou vérifiez que les documents joints sont bien lus.'
+    this.cacheReponses.set(cacheKey, { timestamp: Date.now(), texte: final })
+    return final
   }
 }
 

@@ -230,15 +230,20 @@ export async function getServiceKeys(service: string): Promise<KeyEntry[]> {
   return keys
 }
 
-// --- Pause auto sur quota épuisé ---
+// --- Pause auto sur quota épuisé avec backoff exponentiel ---
 // Un provider en échec quota/clé (401 clé invalide, 402 crédits épuisés,
-// 429 sans retry) est sauté pendant 15 min au lieu de brûler le budget cloud
-// à chaque appel — la chaîne passe au suivant, puis au local (Ollama, déjà
-// chaud via keep_alive). Purement mémoire (repart à zéro au redémarrage ;
-// un réapprovisionnement refonctionne à l'expiration). Les 400 et contenus
-// vides ne déclenchent PAS de pause (liés à la requête, pas au provider).
+// 429 sans retry) est sauté progressivement au lieu de brûler le budget cloud
+// à chaque appel. Backoff exponentiel : 1min → 2min → 4min → 8min → 15min max.
+// Un provider qui récupère vite n'est pas pénalisé 15 minutes. Purement mémoire
+// (repart à zéro au redémarrage ; un réapprovisionnement refonctionne à l'expiration).
+// Les 400 et contenus vides ne déclenchent PAS de pause (liés à la requête, pas au provider).
 const pausesQuota = new Map<string, number>()
+const tentativesPause = new Map<string, number>()
 export const DUREE_PAUSE_QUOTA_MS = 15 * 60 * 1000
+
+function backoffDuree(tentatives: number): number {
+  return Math.min(DUREE_PAUSE_QUOTA_MS, 60000 * Math.pow(2, Math.min(tentatives, 4)))
+}
 
 /** Préfixe de service (groq_0 + groq_fallback_0 partagent la même clé/quota). */
 export function prefixeService(nom: string): string {
@@ -246,13 +251,13 @@ export function prefixeService(nom: string): string {
 }
 
 /** Marque un provider en pause quota (testable directement). */
-export function marquerQuotaEpuise(nom: string, dureeMs: number = DUREE_PAUSE_QUOTA_MS): void {
-  const jusqu = Date.now() + dureeMs
+export function marquerQuotaEpuise(nom: string, dureeMs: number = 0): void {
+  const prefixe = prefixeService(nom)
+  const tentatives = (tentativesPause.get(prefixe) ?? 0) + 1
+  tentativesPause.set(prefixe, tentatives)
+  const jusqu = Date.now() + (dureeMs || backoffDuree(tentatives))
   pausesQuota.set(nom, jusqu)
-  // Le jumeau fallback partage clé et quota : pausé aussi, sinon il brûle
-  // le budget pour la même panne (mesuré : openrouter_0 429 puis
-  // openrouter_fallback_0 402 dans le même appel).
-  pausesQuota.set(prefixeService(nom), jusqu)
+  pausesQuota.set(prefixe, jusqu)
 }
 
 /** Vrai si le provider est en pause quota (expirée = nettoyée). */
@@ -262,6 +267,7 @@ export function quotaEnPause(nom: string, maintenant: number = Date.now()): bool
   if (maintenant >= jusqu) {
     pausesQuota.delete(nom)
     pausesQuota.delete(prefixeService(nom))
+    tentativesPause.delete(prefixeService(nom))
     return false
   }
   return true
@@ -270,7 +276,9 @@ export function quotaEnPause(nom: string, maintenant: number = Date.now()): bool
 /** Fin de pause anticipée (clé réparée / crédits rechargés). */
 export function leverPauseQuota(nom: string): void {
   pausesQuota.delete(nom)
-  pausesQuota.delete(prefixeService(nom))
+  const prefixe = prefixeService(nom)
+  pausesQuota.delete(prefixe)
+  tentativesPause.delete(prefixe)
 }
 
 // --- Context-aware routing helpers ---

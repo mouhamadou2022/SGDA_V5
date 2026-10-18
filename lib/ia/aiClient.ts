@@ -100,7 +100,7 @@ function hashOptions(opts: AICallOptions): string {
 class AIClientClass {
   private available: boolean | null = null
   private dedupCache = new Map<string, Promise<AICallResult>>()
-  private dedupTTL = 5000 // 5s avant de laisser repasser
+  private dedupTTL = 30000 // 30s — couvre les appels simultanés décalés (ex. 3 cartes LangageClair)
 
   async call(options: AICallOptions): Promise<AICallResult> {
     // Déduplication : si un appel identique est en cours, on réutilise sa promesse
@@ -139,13 +139,15 @@ class AIClientClass {
         const jetons = (t: string) => Math.ceil(((t || '').length + 10) / 3)
         let total = messages.reduce((s, m) => s + jetons(m.content), 0) + jetons(options.systemPrompt)
         let tronqueHisto = false
+        // Ne tronque QUE l'historique — jamais le message courant (il contient la consigne)
         while (total > limite && messages.length > 1) {
           const retire = messages.shift()!
           total -= jetons(retire.content)
           tronqueHisto = true
         }
         if (tronqueHisto) {
-          systemPrompt = `${options.systemPrompt}\n[Note : débuts de conversation tronqués pour tenir dans la fenêtre — réponds avec le contexte récent.]`
+          // Marqueur clair pour que le LLM comprenne la structure
+          systemPrompt = `${options.systemPrompt}\n[Note : historique de conversation volumineux — seuls les messages récents sont conservés. La consigne utilisateur est complète et prioritaire.]`
         }
       }
 
@@ -247,9 +249,19 @@ class AIClientClass {
   }
 
   private async _callJSONWithRetry<T>(options: AICallOptions, fallback: T, cacheKey: string): Promise<T> {
-    // Paliers de maxTokens progressifs pour retry
+    // Plancher JSON : sous ~1024 tokens, un JSON (même {"texte":"2 phrases"})
+    // + response_format json_object est quasi garanti tronqué — constaté en
+    // prod : paliers [256/128/64], [512/256/128] → 3 échecs + contenu vide.
+    // On remonte donc toute demande < 1024 à 1024 avant de construire les
+    // paliers. Pur coût marginal (quelques centaines de tokens).
+    const MIN_JSON_TOKENS = 1024
+    const demande = options.maxTokens ?? 32768
+    const premier = Math.max(demande, MIN_JSON_TOKENS)
+    // Paliers : 1er retry à TAILLE IDENTIQUE (un JSON invalide non tronqué
+    // vient du sampling, pas de la taille — réduire aggrave la troncature),
+    // puis un palier réduit (comportement historique) floaré au plancher.
     const tokenTiers = options.maxTokens
-      ? [...new Set([options.maxTokens, Math.floor(options.maxTokens / 2), Math.floor(options.maxTokens / 4)])]
+      ? [premier, premier, Math.max(MIN_JSON_TOKENS, Math.floor(premier / 2))]
       : [32768, 16000, 8000]
 
     // Marqueur renvoyé par /api/ia/analyze (code 'ALL_PROVIDERS_FAILED', status 503)
@@ -262,11 +274,16 @@ class AIClientClass {
     // de la fenêtre entière pour aboutir). Les paliers de retry, eux, ne servent
     // qu'à re-tester si un JSON mal formé redevient parseable : ils n'ont pas
     // besoin de la fenêtre pleine — un timeout réduit borne le pire cas cumulé
-    // (3 paliers × 90 s ≈ 4,5 min) sans jamais raccourcir un appel qui réussit.
+    // sans jamais raccourcir un appel qui réussit.
+    // MAIS 20 s → 60 s : l'inférence locale (Ollama CPU, budget serveur 240 s)
+    // met 30-60 s après warm-up — à 20 s chaque retry client avortait avant la
+    // réponse serveur (contenu vide sur tous les paliers, constaté en prod).
+    // Pire cas : 180 + 60 + 60 ≈ 5 min = maxDuration de /api/ia/analyze (300).
     // Exception : tronqué au plafond → UN retry PLUS GRAND (fenêtre pleine),
     // car des paliers plus petits rejoueraient la même troncature en pire.
-    const retryTimeoutMs = 20000
+    const retryTimeoutMs = 60000
     let dernierContenu = ''
+    const erreursPaliers: string[] = []
     let bonusTente = false
 
     for (let i = 0; i < tokenTiers.length; i++) {
@@ -279,7 +296,10 @@ class AIClientClass {
         timeoutMs: isFirst ? options.timeoutMs : retryTimeoutMs,
       })
       if (!result.ok || !result.content) {
-        if (isFirst && result.error && result.error.includes(ALL_PROVIDERS_FAILED)) {
+        if (result.error) erreursPaliers.push(`palier ${maxTokens}: ${result.error.slice(0, 160)}`)
+        // Panne déterministe (tous providers down) : quel que soit le palier,
+        // retenter rejoue la même panne — on renvoie le fallback direct.
+        if (result.error && result.error.includes(ALL_PROVIDERS_FAILED)) {
           console.error('[aiClient] Tous les providers IA down — skip des paliers de retry:', result.error)
           return fallback
         }
@@ -322,7 +342,7 @@ class AIClientClass {
       console.warn(`[aiClient] JSON invalide avec maxTokens=${maxTokens}, retry...`)
     }
 
-    console.error(`[aiClient] Échec après tous les paliers maxTokens [${tokenTiers.join('/')}] — prompt : ${(options.systemPrompt || '').slice(0, 80)} — dernier contenu : ${(dernierContenu || '').slice(0, 200)}`)
+    console.error(`[aiClient] Échec après tous les paliers maxTokens [${tokenTiers.join('/')}] — prompt : ${(options.systemPrompt || '').slice(0, 80)} — dernier contenu : ${(dernierContenu || '').slice(0, 200)} — erreurs : ${erreursPaliers.join(' | ').slice(0, 500)}`)
     return fallback
   }
 

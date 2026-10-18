@@ -7,10 +7,10 @@ import { callWithFallback } from '@/lib/ia/providers'
 
 // Borne explicite la durée de la route plutôt que de dépendre du seul timeout
 // de la plateforme d'hébergement. Doit rester STRICTEMENT SUPÉRIEUR au pire
-// cas de la chaîne de fallback (CLOUD_BUDGET_MS + LOCAL_BUDGET_MS = 50s dans
+// cas de la chaîne de fallback (CLOUD_BUDGET_MS + LOCAL_BUDGET_MS = 260s dans
 // lib/ia/providers.ts), afin que la chaîne s'arrête proprement sur son budget
 // interne avant que la plateforme ne coupe.
-export const maxDuration = 60
+export const maxDuration = 300
 
 function erreurDetail(err: unknown): string {
   return err instanceof Error ? err.message : String(err)

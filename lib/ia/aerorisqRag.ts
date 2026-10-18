@@ -10,6 +10,10 @@ export interface ExempleValide {
   texte: string
 }
 
+// Cache TTL pour les few-shot — évite une requête Supabase par message chat
+const fewShotCache = new Map<string, { data: ExempleValide[]; expiresAt: number }>()
+const FEW_SHOT_TTL = 5 * 60 * 1000
+
 // Récupère les derniers exemples fiables d'un module.
 // Retourne [] silencieusement si Supabase est absent ou en erreur :
 // l'apprentissage ne doit jamais bloquer une réponse IA.
@@ -17,6 +21,9 @@ export async function getExemplesValides(module?: string, limit = 3): Promise<Ex
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!supabaseUrl || !serviceKey || !module) return []
+
+  const cached = fewShotCache.get(module)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
 
   try {
     const { createClient } = await import('@supabase/supabase-js')
@@ -30,9 +37,11 @@ export async function getExemplesValides(module?: string, limit = 3): Promise<Ex
       .order('created_at', { ascending: false })
       .limit(limit)
     if (error || !data) return []
-    return data.filter(
+    const result = data.filter(
       (r): r is { module: string; texte: string } => typeof r.texte === 'string' && r.texte.length > 20
     )
+    fewShotCache.set(module, { data: result, expiresAt: Date.now() + FEW_SHOT_TTL })
+    return result
   } catch {
     return []
   }
