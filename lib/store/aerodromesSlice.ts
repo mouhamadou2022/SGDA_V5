@@ -8,6 +8,7 @@ import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
 import type { TypeEntiteAerodrome } from '../store'
 import type { HelistationData } from '../types/helistation'
+import type { InfrastructureComplexite } from '../risque/infrastructureComplexite'
 import * as datastore from '../datastore'
 import { storeEvents } from './eventBus'
 
@@ -57,6 +58,7 @@ export interface Aerodrome {
     avion_reference?: string
   }
   helistation?: HelistationData
+  infrastructure_complexite?: InfrastructureComplexite
   horaires?: 'jour' | 'h24'
   aides_visuelles?: string[]
   statut_certification?: 'certifie' | 'homologue' | 'non_certifie' | 'non_homologue'

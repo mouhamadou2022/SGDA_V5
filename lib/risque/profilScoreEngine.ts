@@ -13,6 +13,7 @@ import {
   calculateGlobalScore,
 } from '../risque'
 import { calculeMalusC3, type AmdecAnalyse } from './amdecEngine'
+import { computeInfrastructureComplexite, applyComplexiteC3, type InfrastructureComplexite } from './infrastructureComplexite'
 import { normaliserScoreSgs } from '@/lib/utils'
 import { getNiveauFromScore } from '@/lib/config'
 // Type canonique unique (lib/risque/types.ts). Le niveau d'un profil utilise
@@ -38,6 +39,7 @@ export interface AerodromeDim {
   type_entite?: string | null
   categorie_sslia?: string | null
   region?: string | null
+  infrastructure_complexite?: InfrastructureComplexite | null
 }
 
 export interface ComputeProfilScoreInput {
@@ -96,26 +98,28 @@ export function computeProfilScore(input: ComputeProfilScoreInput): ComputeProfi
       s.score_global !== undefined && s.score_global !== null &&
       ['checklist_signee', 'transmise', 'archivee'].includes(s.statut)
   )
-  const c3 = saniC(
-    surveillancesAvecScore.length > 0
-      ? calculateC3(surveillancesAvecScore.map((s: any) => ({
-          score: s.score_global as number,
-          date: s.date_debut as string,
-        })))
-      : aerodrome
-        // Poids 0.25+0.25+0.15+0.15+0.10 = 0.90 (historique) : on divise par
-        // 0.9 pour préserver EXACTEMENT les proportions relatives voulues —
-        // sans jugement sur quelle composante « mériterait » les 0.10 manquants.
-        ? Math.round((
-            (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
-            (normaliserScoreSgs(aerodrome.maturite_sgs, 50) * 0.25) +
-            ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
-            (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia ?? '', 10) || 1) - 3) * 2) * 0.15 +
-            ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
-          ) / 0.9)
-        : 30,
-    30
-  )
+  // Complexité d'infrastructure (pistes, voies de circulation, aire de trafic) :
+  // facteur de risque intrinsèque appliqué à C3, y compris PAR-DESSUS
+  // l'historique mesuré (un aérodrome complexe reste plus risqué même avec de
+  // bons scores de surveillance). Repli neutre si la donnée est absente.
+  const complexiteInfra = computeInfrastructureComplexite(aerodrome?.infrastructure_complexite)
+  const c3Brut = surveillancesAvecScore.length > 0
+    ? calculateC3(surveillancesAvecScore.map((s: any) => ({
+        score: s.score_global as number,
+        date: s.date_debut as string,
+      })))
+    : aerodrome
+      // Socle SANS historique mesuré (poids 0.25+0.25+0.15+0.15+0.10 = 0.90 :
+      // on divise par 0.9 pour préserver EXACTEMENT les proportions voulues).
+      ? Math.round((
+          (aerodrome.type === 'international' ? 55 : aerodrome.type === 'national' ? 70 : 80) * 0.25 +
+          (normaliserScoreSgs(aerodrome.maturite_sgs, 50) * 0.25) +
+          ((aerodrome.type_entite === 'helistation' || aerodrome.type_entite === 'mixte' ? 55 : 70) * 0.15) +
+          (80 - Math.max(0, (parseInt(aerodrome.categorie_sslia ?? '', 10) || 1) - 3) * 2) * 0.15 +
+          ((aerodrome.region === 'Ziguinchor' || aerodrome.region === 'Kolda' || aerodrome.region === 'Tambacounda') ? 50 : 75) * 0.10
+        ) / 0.9)
+      : 30
+  const c3 = saniC(applyComplexiteC3(c3Brut, complexiteInfra), 30)
 
   const c4 = saniC(calculateC4FromEcarts(ecarts), 50)
   const c5 = saniC(

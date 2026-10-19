@@ -6,6 +6,7 @@
 import { Aerodrome, ProfilRisque } from '@/lib/store'
 import { calculateC1, calculateGlobalScore } from '@/lib/risque'
 import { normaliserScoreSgs } from '@/lib/utils'
+import { computeInfrastructureComplexite, applyComplexiteC3 } from './infrastructureComplexite'
 
 // Normalise l'échelle legacy 1-5 (formulaire pré-correction) vers l'échelle
 // canonique 0-100 (migration SQL 2026-05-21). Appliquée à l'entrée du calcul
@@ -221,7 +222,11 @@ export function calculerProfilInitial(aerodrome: Aerodrome, flotte: PairFlotte[]
     { type: aerodrome.type, categorie_sslia: aerodrome.categorie_sslia, type_entite: aerodrome.type_entite },
     flotte,
   )
-  const c3 = prior.valeur ?? baselineC3(aerodrome)
+  // C3 : prior de flotte s'il existe (historique), sinon heuristique. Dans les
+  // deux cas, la complexité d'infrastructure s'applique par-dessus (facteur de
+  // risque intrinsèque). Repli neutre si la donnée est absente.
+  const c3Socle = prior.valeur ?? baselineC3(aerodrome)
+  const c3 = applyComplexiteC3(c3Socle, computeInfrastructureComplexite(aerodrome.infrastructure_complexite))
   const priorFlotte = prior.valeur != null
     ? { cle: prior.cle, nbPairs: prior.nbPairs, mediane: prior.valeur }
     : null
@@ -268,6 +273,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
 
   const sgs = aerodrome.maturite_sgs ?? 50
   const tendanceOffset = sgs >= 75 ? 2 : sgs <= 25 ? -4 : 0
+  const complexite = computeInfrastructureComplexite(aerodrome.infrastructure_complexite)
 
   return {
     aerodrome_id: aerodrome.id,
@@ -283,6 +289,7 @@ function construireProfil(aerodrome: Aerodrome, p: {
       type_approche: aerodrome.piste_principale?.type_approche,
       categorie_sslia: aerodrome.categorie_sslia,
       type: aerodrome.type,
+      complexite_infra: complexite.applicable ? complexite.indice : undefined,
     },
     prediction_6m:  Math.min(100, Math.max(0, p.scoreGlobal + tendanceOffset * 2)),
     prediction_12m: Math.min(100, Math.max(0, p.scoreGlobal + tendanceOffset * 3)),

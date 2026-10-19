@@ -88,6 +88,31 @@ describe('computeProfilScore — ajustements C3 centralisés', () => {
   })
 })
 
+describe('computeProfilScore — complexité infrastructure', () => {
+  const aero = { type: 'national', maturite_sgs: 70, type_entite: 'aerodrome', categorie_sslia: '3', region: 'Dakar' }
+  const surveillances = [{ score_global: 80, statut: 'checklist_signee', date_debut: '2026-01-01' }]
+  const complexe = {
+    nombre_pistes: 3,
+    configuration_pistes: 'mixte' as const,
+    nombre_voies_circulation: 8,
+    nombre_acces_piste: 6,
+    nombre_postes_stationnement: 40,
+    points_chauds: 3,
+  }
+
+  test('socle sans historique : pénalité appliquée', () => {
+    const sans = computeProfilScore({ ...base, aerodrome: aero })
+    const avec = computeProfilScore({ ...base, aerodrome: { ...aero, infrastructure_complexite: complexe } })
+    expect(avec.c3).toBe(Math.max(0, sans.c3 - 20))
+  })
+
+  test('par-dessus l\'historique mesuré : la pénalité s\'applique aussi', () => {
+    const sans = computeProfilScore({ ...base, aerodrome: aero, surveillances })
+    const avec = computeProfilScore({ ...base, aerodrome: { ...aero, infrastructure_complexite: complexe }, surveillances })
+    expect(avec.c3).toBe(Math.max(0, sans.c3 - 20))
+  })
+})
+
 describe('getNiveauFromScore — seuils uniques', () => {
   test.each([
     [100, 'faible'],

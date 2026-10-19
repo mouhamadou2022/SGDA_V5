@@ -2059,6 +2059,7 @@ DO $$ BEGIN
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS lon                     numeric(10,7);
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS altitude                integer;
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS piste_principale        jsonb;
+  ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS infrastructure_complexite jsonb;
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS helistation             jsonb;
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS horaires                text;
   ALTER TABLE aerodromes ADD COLUMN IF NOT EXISTS aides_visuelles         jsonb DEFAULT '[]'::jsonb;
@@ -2456,6 +2457,7 @@ COMMENT ON COLUMN dossiers.demandeur IS 'Info demandeur: {nom, organisation, con
 COMMENT ON COLUMN dossiers.fichiers IS 'Array JSON de fichiers: [{id, nom, url, taille, type, date_upload}]';
 COMMENT ON COLUMN dossiers.historique IS 'Array JSON d''historique: [{date, action, utilisateur, commentaire}]';
 COMMENT ON COLUMN aerodromes.piste_principale IS 'Info piste: {longueur, largeur, surface, orientation}';
+COMMENT ON COLUMN aerodromes.infrastructure_complexite IS 'Complexité de l''infrastructure: {nombre_pistes, configuration_pistes, nombre_voies_circulation, nombre_acces_piste, nombre_postes_stationnement, points_chauds} — alimente la pénalité C3';
 COMMENT ON COLUMN profils_risque.scenarios IS 'Scénarios de risque prédits par l''IA';
 
 -- ============================================================

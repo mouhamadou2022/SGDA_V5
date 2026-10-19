@@ -13,6 +13,7 @@ import type { NiveauRisque, ScoreHistoryPoint } from '../risque/types'
 import type { TypeEntiteAerodrome } from '../store'
 import { toFiniteNumber } from '../utils'
 import { risqueUtils } from '../risque'
+import { computeInfrastructureComplexite } from '../risque/infrastructureComplexite'
 import * as datastore from '../datastore'
 import { supabase } from '../supabase'
 
@@ -209,6 +210,8 @@ export interface ProfilRisque {
     type_approche?: string
     categorie_sslia: string
     type: 'international' | 'national'
+    /** Indice de complexité d'infrastructure 0-100 (undefined si non renseigné). */
+    complexite_infra?: number
   }
 }
 
@@ -459,6 +462,7 @@ export const createProfilsSlice: StateCreator<AppStore, [], [], ProfilRisqueSlic
           } catch { console.warn('[computeRiskProfile] chaîne qualitative échouée') }
         }
 
+        const complexiteInfra = computeInfrastructureComplexite(aerodrome?.infrastructure_complexite)
         const nouveauProfil: ProfilRisque = {
           aerodrome_id: aerodromeId,
           score_global: scoreGlobal,
@@ -492,6 +496,7 @@ export const createProfilsSlice: StateCreator<AppStore, [], [], ProfilRisqueSlic
             type_approche: aerodrome.piste_principale?.type_approche,
             categorie_sslia: aerodrome.categorie_sslia,
             type: aerodrome.type,
+            complexite_infra: complexiteInfra.applicable ? complexiteInfra.indice : undefined,
           } : undefined,
         }
         // ── Phase 3 : computation et stockage modèles avancés ──

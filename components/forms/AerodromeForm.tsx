@@ -1319,6 +1319,19 @@ const pisteSchema = z.object({
   type_approche:  z.enum(['a_vue','classique','cat1','cat2']).optional(),
 });
 
+// Normalisation des champs du bloc complexité : vide/NaN → undefined.
+const nombreOuVide = (v: unknown) => (v === '' || v == null || Number.isNaN(Number(v)) ? undefined : Number(v));
+const texteOuVide = (v: unknown) => (v === '' || v == null ? undefined : v);
+
+const infrastructureComplexiteSchema = z.object({
+  nombre_pistes:                z.number().int().min(0).optional(),
+  configuration_pistes:         z.enum(['unique','paralleles','croisees','mixte']).optional(),
+  nombre_voies_circulation:     z.number().int().min(0).optional(),
+  nombre_acces_piste:           z.number().int().min(0).optional(),
+  nombre_postes_stationnement:  z.number().int().min(0).optional(),
+  points_chauds:                z.number().int().min(0).optional(),
+});
+
 const aerodromeSchema = z.object({
   nom:                  z.string().min(3, 'Minimum 3 caractères'),
   // Saisi en majuscules (normalisé à la saisie et au pré-remplissage IA).
@@ -1335,6 +1348,7 @@ const aerodromeSchema = z.object({
   longitude:            z.number().min(-180).max(180),
   altitude:             z.number().min(0),
   piste_principale:     pisteSchema.optional(),
+  infrastructure_complexite: infrastructureComplexiteSchema.optional(),
   helistation:          helistationSchema.optional(),
   horaires:             z.enum(['jour','h24']).optional(),
   aides_visuelles:      z.array(z.string()).optional(),
@@ -1476,6 +1490,7 @@ const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
       exploitant_telephone: aerodrome.exploitant_telephone || '',
       latitude: aerodrome.lat, longitude: aerodrome.lon, altitude: aerodrome.altitude,
       piste_principale: aerodrome.piste_principale || undefined,
+      infrastructure_complexite: aerodrome.infrastructure_complexite || undefined,
       helistation: aerodrome.helistation || undefined,
       horaires: aerodrome.horaires, aides_visuelles: aerodrome.aides_visuelles || [],
       // Le formulaire travaille en N1-N5, le store en 0-100 (canonique) :
@@ -1489,6 +1504,7 @@ const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
       categorie_sslia:'', region:'', exploitant_nom:'', exploitant_adresse:'', exploitant_telephone:'',
       latitude:14.7168, longitude:-17.4675, altitude:0,
       piste_principale: undefined,
+      infrastructure_complexite: undefined,
       helistation: undefined,
       aides_visuelles:[], maturite_sgs:1, statut_sgs:'complet', statut:'brouillon', contacts:[],
       statut_certification:'non_certifie', certifie_le:'', numero_certificat:'',
@@ -1871,6 +1887,7 @@ useEffect(() => {
       // le champ est masqué, le schéma l'interdit, la soumission le supprime.
       if (data.type_entite === 'helistation') delete cleanData.code_oaci;
       if (data.type_entite === 'helistation') delete cleanData.piste_principale;
+      if (data.type_entite === 'helistation') delete cleanData.infrastructure_complexite;
       if (data.type_entite === 'aerodrome') delete cleanData.helistation;
       Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === undefined || cleanData[key] === '') delete cleanData[key];
@@ -1886,6 +1903,11 @@ useEffect(() => {
         const h = cleanData.helistation as Record<string, unknown>;
         Object.keys(h).forEach(k => { if (h[k] === undefined) delete h[k]; });
         if (Object.keys(h).length === 0) delete cleanData.helistation;
+      }
+      if (cleanData.infrastructure_complexite && typeof cleanData.infrastructure_complexite === 'object') {
+        const ic = cleanData.infrastructure_complexite as Record<string, unknown>;
+        Object.keys(ic).forEach(k => { if (ic[k] === undefined || ic[k] === '') delete ic[k]; });
+        if (Object.keys(ic).length === 0) delete cleanData.infrastructure_complexite;
       }
 
       if (aerodrome) {
@@ -2111,6 +2133,36 @@ useEffect(() => {
                       <option value="a_vue">À vue</option><option value="classique">Classique</option>
                       <option value="cat1">CAT I</option><option value="cat2">CAT II</option>
                     </select></div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Complexité de l'infrastructure (aerodrome & mixte) ── */}
+            {showPiste && (
+              <div>
+                <SectionTitle icon={Navigation}>Complexité de l'infrastructure</SectionTitle>
+                <p className="field-description -mt-2 mb-1">
+                  Configuration de l&apos;aire de mouvement — influence le profil de risque (C3). Laissez vide si inconnu.
+                </p>
+                <div className="grid grid-cols-2 gap-5">
+                  <div className="form-field"><Label icon={Hash}>Nombre de pistes</Label>
+                    <input type="number" min={1} className={`form-input w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} {...form.register('infrastructure_complexite.nombre_pistes',{ setValueAs: nombreOuVide })} placeholder="1"/></div>
+                  <div className="form-field"><Label icon={Compass}>Configuration des pistes</Label>
+                    <select className={`form-select w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} style={selectStyle} {...form.register('infrastructure_complexite.configuration_pistes',{ setValueAs: texteOuVide })}>
+                      <option value="">Sélectionner</option>
+                      <option value="unique">Piste unique</option>
+                      <option value="paralleles">Pistes parallèles</option>
+                      <option value="croisees">Pistes croisées</option>
+                      <option value="mixte">Configuration mixte</option>
+                    </select></div>
+                  <div className="form-field"><Label icon={Navigation}>Voies de circulation</Label>
+                    <input type="number" min={0} className={`form-input w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} {...form.register('infrastructure_complexite.nombre_voies_circulation',{ setValueAs: nombreOuVide })} placeholder="0"/></div>
+                  <div className="form-field"><Label icon={Navigation}>Accès de piste</Label>
+                    <input type="number" min={0} className={`form-input w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} {...form.register('infrastructure_complexite.nombre_acces_piste',{ setValueAs: nombreOuVide })} placeholder="0"/></div>
+                  <div className="form-field"><Label icon={Plane}>Postes de stationnement</Label>
+                    <input type="number" min={0} className={`form-input w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} {...form.register('infrastructure_complexite.nombre_postes_stationnement',{ setValueAs: nombreOuVide })} placeholder="0"/></div>
+                  <div className="form-field"><Label icon={AlertCircle}>Points chauds</Label>
+                    <input type="number" min={0} className={`form-input w-full bg-background border-border text-foreground py-3 px-4 rounded-xl ${focusClass}`} {...form.register('infrastructure_complexite.points_chauds',{ setValueAs: nombreOuVide })} placeholder="0"/></div>
                 </div>
               </div>
             )}
