@@ -4,6 +4,7 @@ import {
   applyComplexiteC3,
   PENALITE_C3_MAX,
 } from '../risque/infrastructureComplexite';
+import { calculerProfilInitial } from '../risque/initialProfile';
 
 describe('computeInfrastructureComplexite', () => {
   test('repli NEUTRE quand la donnée est absente (non-régression)', () => {
@@ -70,5 +71,44 @@ describe('computeInfrastructureComplexite', () => {
     expect(r.indice).toBeLessThanOrEqual(100);
     expect(r.penaliteC3).toBeLessThanOrEqual(PENALITE_C3_MAX);
     expect(r.penaliteC3).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('intégration — profil initial (tous les statuts)', () => {
+  const BASE = {
+    id: 'a-test', nom: 'Test', code_oaci: 'GOTX', type: 'international',
+    type_entite: 'aerodrome', categorie_sslia: '3', region: 'Dakar',
+    maturite_sgs: 70, statut: 'actif', lat: 0, lon: 0, altitude: 0,
+    created_at: '', updated_at: '',
+  };
+  const COMPLEXE = {
+    nombre_pistes: 3,
+    configuration_pistes: 'mixte' as const,
+    nombre_voies_circulation: 8,
+    nombre_acces_piste: 6,
+    nombre_postes_stationnement: 40,
+    points_chauds: 3,
+  };
+
+  test('certifié : C3 de base 90 moins la pénalité', () => {
+    const r = calculerProfilInitial({
+      ...BASE, statut_certification: 'certifie', infrastructure_complexite: COMPLEXE,
+    } as never, []);
+    expect(r.profil.c3).toBe(90 - PENALITE_C3_MAX);
+  });
+
+  test('homologué : C3 de base 80 moins la pénalité', () => {
+    const r = calculerProfilInitial({
+      ...BASE, statut_certification: 'homologue', infrastructure_complexite: COMPLEXE,
+    } as never, []);
+    expect(r.profil.c3).toBe(80 - PENALITE_C3_MAX);
+  });
+
+  test('certifié sans donnée de complexité : C3 inchangé (90)', () => {
+    const r = calculerProfilInitial({
+      ...BASE, statut_certification: 'certifie',
+    } as never, []);
+    expect(r.profil.c3).toBe(90);
+    expect(r.profil.infrastructure?.complexite_infra).toBeUndefined();
   });
 });

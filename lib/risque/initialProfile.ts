@@ -143,6 +143,13 @@ function baselineC3(aerodrome: Aerodrome): number {
   return Math.min(95, Math.max(30, Math.round(scorePondere(d))))
 }
 
+// Applique la pénalité de complexité d'infrastructure à un C3 de base.
+// Utilisée pour TOUS les profils (y compris certifiés/homologués) : la
+// complexité est un facteur de risque intrinsèque, indépendant du statut.
+function c3AvecComplexite(base: number, aerodrome: Aerodrome): number {
+  return applyComplexiteC3(base, computeInfrastructureComplexite(aerodrome.infrastructure_complexite))
+}
+
 // ─── Helper : âge en mois depuis une date ────────────────────────────────────
 
 function ageMois(dateStr: string | undefined): number | null {
@@ -162,7 +169,7 @@ function profilCertifie(aerodrome: Aerodrome): {
 
   const c1 = aerodrome.statut_sgs === 'non_applicable' ? 0 : Math.round(Math.min(95, Math.max(70, aerodrome.maturite_sgs ?? 80)))
   const c2 = 95
-  const c3 = 90
+  const c3 = c3AvecComplexite(90, aerodrome)
   const c4 = 92
   const c5 = recents ? 90 : 80
   const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, aerodrome.statut_sgs === 'non_applicable')
@@ -181,7 +188,7 @@ function profilHomologue(aerodrome: Aerodrome): {
 
   const c1 = aerodrome.statut_sgs === 'non_applicable' ? 0 : Math.round(Math.min(85, Math.max(55, aerodrome.maturite_sgs ?? 65)))
   const c2 = 85
-  const c3 = 80
+  const c3 = c3AvecComplexite(80, aerodrome)
   const c4 = 90
   const c5 = recents ? 85 : 78
   const scoreGlobal = calculateGlobalScore({ c1, c2, c3, c4, c5 }, undefined, aerodrome.statut_sgs === 'non_applicable')
@@ -226,7 +233,7 @@ export function calculerProfilInitial(aerodrome: Aerodrome, flotte: PairFlotte[]
   // deux cas, la complexité d'infrastructure s'applique par-dessus (facteur de
   // risque intrinsèque). Repli neutre si la donnée est absente.
   const c3Socle = prior.valeur ?? baselineC3(aerodrome)
-  const c3 = applyComplexiteC3(c3Socle, computeInfrastructureComplexite(aerodrome.infrastructure_complexite))
+  const c3 = c3AvecComplexite(c3Socle, aerodrome)
   const priorFlotte = prior.valeur != null
     ? { cle: prior.cle, nbPairs: prior.nbPairs, mediane: prior.valeur }
     : null

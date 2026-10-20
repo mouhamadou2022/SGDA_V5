@@ -796,9 +796,9 @@ export function DelegationZone({
               <p className="text-sm">Tous les domaines sont assignés</p>
             </div>
           ) : (
-            domainesNonAssignesList.map(domaine => (
+            domainesNonAssignesList.map((domaine, index) => (
               <DomaineCard
-                key={domaine.id}
+                key={`${domaine.id}-${index}`}
                 domaine={domaine}
                 isDragging={draggedDomaine?.id === domaine.id}
                 onDragStart={handleDragStart}

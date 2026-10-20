@@ -8,6 +8,52 @@ import { construireContexteAvecDocs } from '@/lib/ia/rag/reglementaireRag'
 import type { KitDocument } from '@/lib/store'
 import { supabase } from '@/lib/supabase'
 
+// Extrait le libellé brut d'une réponse IA qui peut, malgré les consignes,
+// renvoyer du JSON (avec ou sans fences Markdown) ou du texte entouré d'explications.
+function extraireLibelleBrut(content: string | undefined | null): string {
+  const texte = (content || '').trim()
+  if (!texte) return ''
+
+  // 1. Retire les fences Markdown (```json ... ``` ou ``` ... ```), gère \n et \r\n
+  let sansFences = texte
+    .replace(/^```[a-zA-Z]*\s*\r?\n/, '')
+    .replace(/\r?\n\s*```\s*$/, '')
+    .trim()
+
+  if (!sansFences) return ''
+
+  // 2. Si c'est du JSON pur, extrait le champ libelle
+  try {
+    const parse = JSON.parse(sansFences)
+    if (parse && typeof parse === 'object' && typeof parse.libelle === 'string' && parse.libelle.trim()) {
+      return parse.libelle.trim()
+    }
+  } catch { /* pas du JSON complet */ }
+
+  // 3. Tente de repérer un objet { "libelle": "..." } à l'intérieur du texte
+  const debut = sansFences.indexOf('{')
+  const fin = sansFences.lastIndexOf('}')
+  if (debut !== -1 && fin !== -1 && fin > debut) {
+    const candidat = sansFences.slice(debut, fin + 1)
+    try {
+      const parse = JSON.parse(candidat)
+      if (parse && typeof parse.libelle === 'string' && parse.libelle.trim()) {
+        return parse.libelle.trim()
+      }
+    } catch { /* pas un JSON valide à l'intérieur */ }
+  }
+
+  // 4. Dernier recours : extrait la valeur de "libelle" par regex si présent.
+  // Accepte aussi une valeur tronquée sans guillemet fermant ni accolade
+  // (réponse IA coupée prématurément).
+  const regex = /"libelle"\s*:\s*"?([^"}]*)/
+  const m = sansFences.match(regex)
+  if (m?.[1]) return m[1].trim().replace(/\\(.)/g, '$1')
+
+  // 5. Rien de reconnu → retourne le texte brut (déjà nettoyé des fences)
+  return sansFences
+}
+
 // RAG serveur : charge le Kit Inspecteur depuis Supabase (le store Zustand est
 // client uniquement — ne pas l'importer dans une route serveur).
 async function construireContexteReglementaireServeur(params: Parameters<typeof construireContexteAvecDocs>[1]) {
@@ -54,7 +100,7 @@ Ne retourne que le texte brut reformulé (puces ou phrases courtes), pas de JSON
       if (!result.content?.trim()) {
         return NextResponse.json({ libelle: '', ok: false, error: 'Réponse IA vide' })
       }
-      return NextResponse.json({ libelle: result.content.trim(), ok: true, model: result.model, reformule: true })
+      return NextResponse.json({ libelle: extraireLibelleBrut(result.content), ok: true, model: result.model, reformule: true })
     }
 
     if (!items?.length) {
@@ -127,7 +173,7 @@ Ne retourne que le texte brut du libellé (puces ou phrases courtes), pas de JSO
       return NextResponse.json({ libelle: '', ok: false, error: 'Réponse IA vide' })
     }
 
-    return NextResponse.json({ libelle: result.content.trim(), ok: true, model: result.model })
+    return NextResponse.json({ libelle: extraireLibelleBrut(result.content), ok: true, model: result.model })
   } catch (error) {
     console.error('[/api/ia/rediger-ecart]', error)
     return NextResponse.json({ libelle: '', ok: false, error: (error as Error).message })

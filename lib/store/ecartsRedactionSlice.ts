@@ -33,6 +33,37 @@ export interface EcartRedaction {
   cellule_ia_suggeree?: string;
 }
 
+// Nettoie un libellé d'écart qui aurait été stocké sous forme de JSON
+// (réponse IA non parsée avant la correction) ou entouré de fences Markdown,
+// y compris quand la réponse IA est tronquée (accolade/guillemet manquant).
+// Repli neutre si rien de reconnaissable : le texte brut est retourné tel quel.
+function nettoyerLibelle(v: string): string {
+  const texte = (v || '').trim()
+  if (!texte) return ''
+  let t = texte
+    .replace(/^```[a-zA-Z]*\s*\r?\n/, '')
+    .replace(/\r?\n\s*```\s*$/, '')
+    .trim()
+  if (!t) return ''
+  // JSON pur
+  try {
+    const p = JSON.parse(t)
+    if (p && typeof p === 'object' && typeof p.libelle === 'string' && p.libelle.trim()) return p.libelle.trim()
+  } catch {}
+  // JSON embarqué { ... }
+  const d = t.indexOf('{'), f = t.lastIndexOf('}')
+  if (d !== -1 && f !== -1 && f > d) {
+    try {
+      const p = JSON.parse(t.slice(d, f + 1))
+      if (p && typeof p.libelle === 'string' && p.libelle.trim()) return p.libelle.trim()
+    } catch {}
+  }
+  // regex fallback (même tronqué : s'arrête au prochain " ou } ou fin)
+  const m = t.match(/"libelle"\s*:\s*"?([^"}]*)/)
+  if (m?.[1]) return m[1].trim().replace(/\\(.)/g, '$1')
+  return t
+}
+
 // ─────────────────────────────────────────────────────────────
 // Interface publique du slice
 // ─────────────────────────────────────────────────────────────
@@ -55,7 +86,7 @@ export interface EcartsRedactionSlice {
 export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRedactionSlice> = (set, get) => ({
   ecartsRedaction: [],
 
-  setEcartsRedaction: (ecarts) => set({ ecartsRedaction: ecarts }),
+  setEcartsRedaction: (ecarts) => set({ ecartsRedaction: ecarts.map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle) })) }),
 
   addEcartRedaction: (ecartData) => {
     const now = new Date().toISOString()
@@ -76,7 +107,7 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
       id: crypto.randomUUID(),
       reference: ecartData.reference || `${new Date().getFullYear()}-BRDN-${String(get().ecartsRedaction.length + 1).padStart(2, '0')}`,
       ref_reglementaire: ecartData.ref_reglementaire || '',
-      libelle: ecartData.libelle || '',
+      libelle: nettoyerLibelle(ecartData.libelle || ''),
       niveau: ecartData.niveau || 'moyen',
       item_ids: ecartData.item_ids || [],
       surveillance_id: ecartData.surveillance_id || '',
@@ -97,7 +128,7 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
 
   updateEcartRedaction: (id, data) => set((state) => ({
     ecartsRedaction: state.ecartsRedaction.map(e =>
-      e.id === id ? { ...e, ...data, updated_at: new Date().toISOString() } : e
+      e.id === id ? { ...e, ...data, libelle: data.libelle !== undefined ? nettoyerLibelle(data.libelle) : e.libelle, updated_at: new Date().toISOString() } : e
     )
   })),
 
@@ -106,7 +137,7 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
   })),
 
   getEcartsBySurveillance: (surveillanceId) => {
-    return get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId)
+    return get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId).map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle) }))
   },
 
   // Écarts « effectifs » pour le rapport (annexe A-2, contexte IA, DOCX).
@@ -128,7 +159,7 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
         domaine: b.domaine || 'SGS',
         reference: b.reference,
         ref_reglementaire: b.ref_reglementaire || '',
-        libelle: b.libelle || '',
+        libelle: nettoyerLibelle(b.libelle || ''),
         niveau_risque: (b.niveau || 'moyen') as Ecart['niveau_risque'],
         cellule_risque_oaci: b.cellule_risque_oaci,
         probabilite_risque: b.probabilite_risque,
