@@ -88,10 +88,38 @@ describe('résolution selon le type d\'entité (aérodrome / hélistation)', () 
     expect(r?.id).toBe('QSC_QSC_CERT')
   })
 
-  test('repli : hélistation sans template dédié → template générique (pas de blocage)', () => {
+  test('type_entite absent en base mais données hélistation → template HELI_*', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], {
+      type_entite: null,
+      helistation: { type_installation: 'terrestre' },
+    })
+    expect(r?.id).toBe('QSC_QSC_HELI_SURFACE')
+  })
+
+  test('type_entite saisi « aerodrome » mais aucune piste → hélistation', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], {
+      type_entite: 'aerodrome',
+      helistation: { type_installation: 'terrestre' },
+    })
+    expect(r?.id).toBe('QSC_QSC_HELI_SURFACE')
+  })
+
+  test('aérodrome (piste) même avec données hélistation → template aérodrome', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], {
+      type_entite: 'aerodrome',
+      helistation: { type_installation: 'terrestre' },
+      piste_principale: { longueur: 2400 },
+    })
+    expect(r?.id).toBe('QSC_QSC_CERT')
+  })
+
+  test('hélistation sans template dédié → jamais le template aérodrome', () => {
     const s = makeStore()
     s.getState().setMasterChecklist('QSC_QSC_CERT', [domaine('PHY', ['a1'])] as never)
     const r = s.getState().resoudreChecklist(['PHY'], ['QSC'], { type_entite: 'helistation' })
-    expect(r?.id).toBe('QSC_QSC_CERT')
+    expect(r).toBeNull()
   })
 })

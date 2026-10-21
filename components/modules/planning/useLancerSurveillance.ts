@@ -413,7 +413,7 @@ async function genererChecklistFallback(
   // Strict puis assemblage par domaine (données réelles uniquement).
   const resolution = store.resoudreChecklist(planning.portee || [],
     filtresTemplatesParType(planning.type),
-    aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined);
+    aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation, piste_principale: aerodrome.piste_principale } : undefined);
   if (resolution) {
     if (resolution.manquants.length > 0) {
       console.warn(

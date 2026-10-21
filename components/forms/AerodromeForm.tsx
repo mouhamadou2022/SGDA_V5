@@ -22,7 +22,7 @@ import { assistantAgent } from '@/lib/ia/agents/assistantAgent';
 import { safeParseJSON } from '@/lib/safeParseJSON';
 import { sgsScoreVersNiveau, sgsNiveauVersScore, normaliserScoreSgs } from '@/lib/utils';
 import { engineFeedback } from '@/lib/ia/engines/engineFeedback';
-import { TypeInstallation, MoyenCom } from '@/lib/types/helistation'
+import { TypeInstallation, MoyenCom, inferTypeEntite } from '@/lib/types/helistation'
 import { TYPE_INSTALLATION_LABELS, MOYEN_COM_LABELS } from '@/lib/types/helistation';
 
 // ── Import dynamique de la carte ────────────────────────────────────────────
@@ -1484,7 +1484,7 @@ const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
     resolver: zodResolver(schema),
     defaultValues: aerodrome ? {
       nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, type: aerodrome.type,
-      type_entite: aerodrome.type_entite ?? 'aerodrome', categorie_sslia: aerodrome.categorie_sslia,
+      type_entite: inferTypeEntite(aerodrome), categorie_sslia: aerodrome.categorie_sslia,
       region: aerodrome.region, exploitant_id: aerodrome.exploitant_id,
       exploitant_nom: aerodrome.exploitant_nom || '', exploitant_adresse: aerodrome.exploitant_adresse || '',
       exploitant_telephone: aerodrome.exploitant_telephone || '',

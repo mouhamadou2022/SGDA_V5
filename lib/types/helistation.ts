@@ -52,6 +52,22 @@ export function mapTypeInstallationToSousType(
   }
 }
 
+/**
+ * Détermine le type d'entité réel d'un site, en tolérant les fiches où
+ * `type_entite` est absent/en base (colonne ajoutée sans backfill) : dans ce
+ * cas, la présence de données hélistation (sans piste) fait foi.
+ * Garantit qu'une hélistation ne reçoit jamais une checklist « aérodrome ».
+ */
+export function inferTypeEntite(a: {
+  type_entite?: string | null
+  helistation?: unknown
+  piste_principale?: unknown
+}): 'aerodrome' | 'helistation' | 'mixte' {
+  if (a.type_entite === 'helistation' || a.type_entite === 'mixte') return a.type_entite
+  if (a.helistation && !a.piste_principale) return 'helistation'
+  return 'aerodrome'
+}
+
 export type TypeInstallation =
   | 'plateforme_autoelevee'    // Plate-forme auto-élévatrice (jack-up)
   | 'plateforme_fixe'          // Plate-forme fixe en mer

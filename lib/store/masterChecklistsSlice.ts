@@ -6,7 +6,14 @@ import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
 import type { DomaineChecklist } from './checklistSlice'
 import type { HelistationData } from '../types/helistation'
-import { mapTypeInstallationToSousType } from '../types/helistation'
+import { inferTypeEntite, mapTypeInstallationToSousType } from '../types/helistation'
+
+/** Contexte d'entité pour choisir le template de checklist adapté. */
+export interface EntityContextChecklist {
+  type_entite?: string | null
+  helistation?: HelistationData
+  piste_principale?: unknown
+}
 
 // ─────────────────────────────────────────────────────────────
 // Interface publique du slice
@@ -24,7 +31,7 @@ export interface MasterChecklistSlice {
   findMasterChecklistForPortee: (
     portee: string[],
     typeFilters?: string[],
-    entityContext?: { type_entite?: string; helistation?: HelistationData },
+    entityContext?: EntityContextChecklist,
   ) => { id: string; checklist: DomaineChecklist[] } | null
   /**
    * Résolution avec assemblage par domaine (données réelles uniquement,
@@ -35,7 +42,7 @@ export interface MasterChecklistSlice {
   resoudreChecklist: (
     portee: string[],
     typeFilters?: string[],
-    entityContext?: { type_entite?: string; helistation?: HelistationData },
+    entityContext?: EntityContextChecklist,
   ) => { id: string; checklist: DomaineChecklist[]; manquants: string[]; assemble: boolean } | null
 }
 
@@ -97,10 +104,13 @@ export const createMasterChecklistsSlice: StateCreator<AppStore, [], [], MasterC
       ? Object.entries(mcs).filter(([id]) => typeFilters.some(t => id.startsWith(t + '_')))
       : Object.entries(mcs)
 
-    // Contexte hélistation : sous-type d'entité dérivé du type d'installation,
-    // pour privilégier le template de checklist correspondant (HELI_SURFACE / HELI_MER / HELI_PLATEFORME).
-    const estHelistation = entityContext?.type_entite === 'helistation'
-    const estAerodrome = entityContext?.type_entite === 'aerodrome'
+    // Contexte entité : `type_entite` peut être absent en base (colonne ajoutée
+    // sans backfill) ou incohérent. On l'infère alors depuis les données
+    // hélistation, sinon une hélistation retomberait sur le premier template
+    // couvrant (souvent la checklist aérodrome).
+    const typeEntite = entityContext ? inferTypeEntite(entityContext) : undefined
+    const estHelistation = typeEntite === 'helistation'
+    const estAerodrome = typeEntite === 'aerodrome'
     const sousTypeEntite = estHelistation
       ? mapTypeInstallationToSousType(entityContext?.helistation?.type_installation)
       : undefined
@@ -113,6 +123,13 @@ export const createMasterChecklistsSlice: StateCreator<AppStore, [], [], MasterC
     // Les templates hélistation portent le marqueur HELI_ dans leur id.
     const compatibleEntite = (id: string) =>
       estHelistation ? id.includes('HELI_')
+      : estAerodrome ? !id.includes('HELI_')
+      : true
+
+    // Repli ultime : on n'accepte jamais un template explicitement réservé à
+    // l'autre type d'entité (ex. QSC_CERT/QSC_HMG pour une hélistation).
+    const compatibleRepli = (id: string) =>
+      estHelistation ? !/(^|_)(CERT|HMG|AERO)(_|$)/i.test(id)
       : estAerodrome ? !id.includes('HELI_')
       : true
 
@@ -141,12 +158,13 @@ export const createMasterChecklistsSlice: StateCreator<AppStore, [], [], MasterC
     }
 
     // Repli 2 : entité typée mais aucun template de son type → accepter un
-    // template générique couvrant la portée (jamais de blocage).
+    // template générique couvrant la portée (jamais de blocage), sans jamais
+    // franchir le type d'entité.
     if (estHelistation || estAerodrome) {
       for (const [id, checklist] of entries) {
         const domainesCodes = checklist.map(d => d.nom.toUpperCase())
         const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
-        if (couvre) {
+        if (couvre && compatibleRepli(id)) {
           const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
           return { id, checklist: filtered }
         }

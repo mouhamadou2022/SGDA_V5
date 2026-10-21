@@ -339,7 +339,7 @@ export function SurveillanceChecklistStandard({
         // Familles centralisées (COP ∈ certification, HMG ∈ homologation).
         // Strict puis assemblage par domaine (données réelles uniquement).
         const templateTypes = filtresTemplatesParType(surv?.type || 'periodique')
-        const master = store.resoudreChecklist(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation } : undefined);
+        const master = store.resoudreChecklist(portee, templateTypes, aerodromeStore ? { type_entite: aerodromeStore.type_entite, helistation: aerodromeStore.helistation, piste_principale: aerodromeStore.piste_principale } : undefined);
         if (master) {
           if (master.manquants.length > 0) {
             console.warn(

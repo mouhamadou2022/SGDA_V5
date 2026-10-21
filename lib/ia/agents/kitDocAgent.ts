@@ -20,6 +20,7 @@ import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
 import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
+import { inferTypeEntite } from '@/lib/types/helistation'
 
 // ============================================================
 // TYPES EXPORTS
@@ -765,9 +766,9 @@ Identifie jusqu'à 5 extraits clés. Format:
    */
   filterChecklistByAerodrome(
     checklist: any[],
-    aerodrome: Partial<Pick<Aerodrome, 'horaires' | 'aides_visuelles' | 'piste_principale' | 'type_entite'>>
+    aerodrome: Partial<Pick<Aerodrome, 'horaires' | 'aides_visuelles' | 'piste_principale' | 'type_entite' | 'helistation'>>
   ): any[] {
-    const typeEntite: string = aerodrome.type_entite || 'aerodrome'
+    const typeEntite: string = inferTypeEntite(aerodrome)
     const revetementsNonRevetus = ['herbe', 'terre', 'latérite', 'latrite']
     const isPisteRevêtue = !revetementsNonRevetus.includes((aerodrome.piste_principale?.revetement || '').toLowerCase())
     const horaires = aerodrome.horaires

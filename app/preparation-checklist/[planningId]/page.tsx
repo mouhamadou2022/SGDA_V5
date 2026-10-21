@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { kitDocAgent } from '@/lib/ia/agents/kitDocAgent';
 import { filtresTemplatesParType } from '@/lib/planning-lancement';
+import { inferTypeEntite } from '@/lib/types/helistation';
 import { exporterFicheBriefing } from '@/lib/services/ficheBriefingPDF';
 import type { DomaineChecklist, ChecklistItem, EvaluationSGS, PAOELevel, EvaluationAction } from '@/types/checklist';
 import { computeEvaluationActionScore } from '@/types/checklist';
@@ -62,6 +63,18 @@ function normalizeDomaines(domaines: DomaineChecklist[]): DomaineChecklist[] {
 
 function excludeSGSDomaines(domaines: DomaineChecklist[], _portee: string[]): DomaineChecklist[] {
   return domaines.filter(d => (d.nom || d.id || '').toUpperCase() !== 'SGS');
+}
+
+/** Tous les ids d'items d'une hiérarchie (domaines, sous-domaines, sous-sous-domaines). */
+function collectItemIds(domaines: unknown[]): Set<string> {
+  const ids = new Set<string>();
+  const walk = (d: any) => {
+    (d.items || []).forEach((i: any) => { if (i?.id) ids.add(String(i.id)); });
+    (d.sousDomaines || []).forEach(walk);
+    (d.sousSousDomaines || []).forEach(walk);
+  };
+  domaines.forEach(walk);
+  return ids;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -783,6 +796,26 @@ export default function PreparationChecklistPage() {
   const aerodrome = aerodromes.find(a => a.id === planning?.aerodrome_id);
   const profil = profilsRisque?.[planning?.aerodrome_id || ''] || undefined;
 
+  // Une checklist hélistation enregistrée avant la correction peut contenir le
+  // template aérodrome. On la considère périmée si aucun item ne correspond au
+  // template HELI_* attendu (et qu'un tel template existe) → régénération.
+  const estChecklistHelistationValide = useCallback((domaines: DomaineChecklist[] | null | undefined): boolean => {
+    if (!domaines || domaines.length === 0 || !aerodrome || !planning) return true;
+    if (inferTypeEntite(aerodrome) !== 'helistation') return true;
+    const resolution = resoudreChecklist(
+      planning.portee || [],
+      filtresTemplatesParType(planning.type),
+      { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation, piste_principale: aerodrome.piste_principale },
+    );
+    if (!resolution || !resolution.id.includes('HELI_')) return true;
+    const attendus = collectItemIds(resolution.checklist);
+    if (attendus.size === 0) return true;
+    for (const id of collectItemIds(domaines)) {
+      if (attendus.has(id)) return true;
+    }
+    return false;
+  }, [aerodrome, planning, resoudreChecklist]);
+
   // Template SGS résolu : Kit Inspecteur (source maîtresse) puis repli aérodrome
   const sgsTemplate = useMemo(
     () => buildSGSTemplateFromMaster(masterChecklists, aerodrome?.sgs_checklist_template as any),
@@ -888,10 +921,10 @@ export default function PreparationChecklistPage() {
       if (needsStandard) {
         const key = `preparation-${planningId}-standard`;
         const offline = await dbGet(key);
-        if (offline?.domaines) {
+        if (offline?.domaines && estChecklistHelistationValide(offline.domaines as unknown as DomaineChecklist[])) {
           setStandardDomaines(normalizeDomaines(excludeSGSDomaines(offline.domaines, planning.portee || [])));
           setHasChanges(true);
-        } else if (planning.checklist_hierarchy?.length) {
+        } else if (planning.checklist_hierarchy?.length && estChecklistHelistationValide(planning.checklist_hierarchy as unknown as DomaineChecklist[])) {
           setStandardDomaines(normalizeDomaines(excludeSGSDomaines(planning.checklist_hierarchy as unknown as DomaineChecklist[], planning.portee || [])));
           if (planning.sgs_evaluation_prepa) setSgsEvaluation(planning.sgs_evaluation_prepa as EvaluationSGS);
           let cnt = 0;
@@ -904,7 +937,7 @@ export default function PreparationChecklistPage() {
           const resolution = resoudreChecklist(
             planning.portee || [],
             filtresTemplatesParType(planning.type),
-            aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined,
+            aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation, piste_principale: aerodrome.piste_principale } : undefined,
           )
           const master = resolution
           if (master) {
@@ -919,7 +952,7 @@ export default function PreparationChecklistPage() {
             const snapshot = JSON.parse(JSON.stringify(master.checklist));
             const filtered = aerodrome ? kitDocAgent.filterChecklistByAerodrome(snapshot, aerodrome) : snapshot;
             const enriched = kitDocAgent.applyRiskProfileToChecklist(filtered, {
-              entite_id: planning.aerodrome_id, type_entite: aerodrome?.type_entite ?? 'aerodrome',
+        entite_id: planning.aerodrome_id, type_entite: aerodrome ? inferTypeEntite(aerodrome) : 'aerodrome',
               type_surveillance: typeSurv, portee: planning.portee || [], profil_risque: profil,
             });
             setStandardDomaines(normalizeDomaines(excludeSGSDomaines(enriched as unknown as DomaineChecklist[], planning.portee || [])));
@@ -1033,7 +1066,7 @@ export default function PreparationChecklistPage() {
     };
 
     load();
-  }, [planning, aerodrome, profil, planningId, checklistType, ecarts, resoudreChecklist]);
+  }, [planning, aerodrome, profil, planningId, checklistType, ecarts, resoudreChecklist, estChecklistHelistationValide]);
 
   // ── Re-résolution à l'arrivée des templates ─────────────────
   // Le chargement initial peut tourner AVANT que le kit (async) n'arrive :
@@ -1043,12 +1076,12 @@ export default function PreparationChecklistPage() {
   useEffect(() => {
     if (!planning) return;
     if (!(checklistType === 'standard' || checklistType === 'mixte')) return;
-    if (dataRef.current.standardDomaines.length > 0) return;
-    if ((planning.checklist_hierarchy || []).length > 0) return;
+    if (dataRef.current.standardDomaines.length > 0 && estChecklistHelistationValide(dataRef.current.standardDomaines)) return;
+    if ((planning.checklist_hierarchy || []).length > 0 && estChecklistHelistationValide(planning.checklist_hierarchy as unknown as DomaineChecklist[])) return;
     let annule = false;
     (async () => {
       const offline = await dbGet(`preparation-${planningId}-standard`).catch(() => null);
-      if (annule || offline?.domaines) return;
+      if (annule || (offline?.domaines && estChecklistHelistationValide(offline.domaines as unknown as DomaineChecklist[]))) return;
       const typeSurv: import('@/lib/checklistMemory').TypeInspection =
         planning.type === 'inopine' ? 'inopine'
         : planning.type === 'maintien' ? 'maintien'
@@ -1060,7 +1093,7 @@ export default function PreparationChecklistPage() {
       const resolution = resoudreChecklist(
         planning.portee || [],
         filtresTemplatesParType(planning.type),
-        aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined,
+        aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation, piste_principale: aerodrome.piste_principale } : undefined,
       );
       if (annule || !resolution) return;
       setDomainesManquants(resolution.manquants);
