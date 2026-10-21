@@ -146,8 +146,12 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
   // transmission. Le rapport doit donc lire les brouillons en priorité
   // (normalisés en Ecart[]), avec repli sur les écarts officiels.
   getEcartsEffectifsSurveillance: (surveillanceId): Ecart[] => {
-    const officiels = get().ecarts.filter(e => e.surveillance_id === surveillanceId).map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle || '') }))
-    const brouillons = get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId).map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle || '') }))
+    const officiels = get().ecarts
+      .filter(e => e.surveillance_id === surveillanceId)
+      .map(e => (e.libelle ? { ...e, libelle: nettoyerLibelle(e.libelle) } : e))
+    const brouillons = get().ecartsRedaction
+      .filter(e => e.surveillance_id === surveillanceId)
+      .map(e => (e.libelle ? { ...e, libelle: nettoyerLibelle(e.libelle) } : e))
     if (brouillons.length === 0) return officiels
     const byId = new Map(officiels.map(e => [e.id, e]))
     return brouillons.map(b => {
