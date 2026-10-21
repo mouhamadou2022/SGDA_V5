@@ -290,12 +290,15 @@ export default function PlanningModule({ userRole }: PlanningModuleProps) {
     list = list.filter(p => !p.est_proposition);
     // Exclure TOUS les plannings certification/homologation (affichés dans l'accordéon dédié)
     list = list.filter(p => p.type !== 'certification' && p.type !== 'homologation');
-    return list;
+    // Dédoublonner par id (défensif : évite les clés React dupliquées si le
+    // store contient deux entrées de même id).
+    return Array.from(new Map(list.map(p => [p.id, p])).values());
   }, [planningsStore, selectedYear, selectedAerodrome, selectedType, selectedStatut, searchTerm, aerodromesActifs]);
 
   // Plannings certification/homologation (affichés dans l'accordéon dédié)
   const certHomologPlannings = useMemo(() => {
-    return planningsStore.filter(p => p.type === 'certification' || p.type === 'homologation')
+    const list = planningsStore.filter(p => p.type === 'certification' || p.type === 'homologation')
+    return Array.from(new Map(list.map(p => [p.id, p])).values())
   }, [planningsStore, certifications, homologations])
 
   const aerodromesRisque = useMemo(() => {

@@ -697,7 +697,12 @@ export const useAppStore = create<AppStore>()(
         let deferred = false
         return (state) => {
           if (!state) return
-          useAppStore.setState({ _hydrated: true })
+          // Dédoublonner les plannings persistés (idempotence : jamais deux
+          // entrées de même id, sinon clés React dupliquées dans le planning).
+          const planningsUniques = Array.isArray(state.plannings)
+            ? Array.from(new Map(state.plannings.map(p => [p.id, p])).values())
+            : []
+          useAppStore.setState({ _hydrated: true, plannings: planningsUniques })
           if (!deferred) {
             deferred = true
             // Déférer la synchronisation ML après le rendu initial

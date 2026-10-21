@@ -159,7 +159,7 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
       plannings: [],
       currentPlanning: null,
       propositionsN1: [],
-      setPlannings: (plannings) => set({ plannings }),
+      setPlannings: (plannings) => set({ plannings: Array.from(new Map(plannings.map(p => [p.id, p])).values()) }),
       setCurrentPlanning: (planning) => set({ currentPlanning: planning }),
       setPropositionsN1: (proposals) => set({
         propositionsN1: proposals.map(p => ({
@@ -196,7 +196,9 @@ export const createPlanningsSlice: StateCreator<AppStore, [], [], PlanningSlice>
           console.error('Erreur création planning Supabase:', result.error)
           throw new Error(result.error)
         }
-        set((state) => ({ plannings: [...state.plannings, result.data as Planning] }))
+        set((state) => state.plannings.some(p => p.id === (result.data as Planning).id)
+          ? {}
+          : ({ plannings: [...state.plannings, result.data as Planning] }))
 
         // Notifier les membres de l'équipe par email
         if (cleanPlanning.equipe_ids?.length) {

@@ -16,7 +16,13 @@ export function groupEquipeIds(plannings: Planning[], equipeRows: { planning_id:
     if (!map.has(row.planning_id)) map.set(row.planning_id, [])
     map.get(row.planning_id)!.push(row.utilisateur_id)
   }
-  return plannings.map(p => ({ ...p, equipe_ids: map.get(p.id) || [] }))
+  // Dédoublonnage par id : deux lectures concurrentes (ou une ligne dupliquée
+  // en base) ne doivent jamais produire deux entrées — cela casse les clés React.
+  const byId = new Map<string, Planning>()
+  for (const p of plannings) {
+    byId.set(p.id, { ...p, equipe_ids: map.get(p.id) || [] })
+  }
+  return Array.from(byId.values())
 }
 
 export function marshalMessage(msg: Partial<Message>): Record<string, unknown> {
