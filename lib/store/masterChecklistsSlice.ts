@@ -99,27 +99,50 @@ export const createMasterChecklistsSlice: StateCreator<AppStore, [], [], MasterC
 
     // Contexte hélistation : sous-type d'entité dérivé du type d'installation,
     // pour privilégier le template de checklist correspondant (HELI_SURFACE / HELI_MER / HELI_PLATEFORME).
-    const sousTypeEntite = entityContext?.type_entite === 'helistation'
+    const estHelistation = entityContext?.type_entite === 'helistation'
+    const estAerodrome = entityContext?.type_entite === 'aerodrome'
+    const sousTypeEntite = estHelistation
       ? mapTypeInstallationToSousType(entityContext?.helistation?.type_installation)
       : undefined
     const suffixe = sousTypeEntite
       ? ({ helistation_surface: 'HELI_SURFACE', helistation_mer: 'HELI_MER', heliplateforme: 'HELI_PLATEFORME' } as const)[sousTypeEntite]
       : undefined
 
+    // Compatibilité entité : une hélistation ne doit jamais retenir un template
+    // réservé aux aérodromes (et inversement) quand un template adapté existe.
+    // Les templates hélistation portent le marqueur HELI_ dans leur id.
+    const compatibleEntite = (id: string) =>
+      estHelistation ? id.includes('HELI_')
+      : estAerodrome ? !id.includes('HELI_')
+      : true
+
     for (const [id, checklist] of entries) {
       const domainesCodes = checklist.map(d => d.nom.toUpperCase())
       // Matching strict : tous les domaines demandés (hors SGS) doivent correspondre exactement
       const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
-      if (couvre && (!suffixe || id.includes(suffixe))) {
+      if (couvre && compatibleEntite(id) && (!suffixe || id.includes(suffixe))) {
         // Retourner la checklist sans les domaines SGS
         const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
         return { id, checklist: filtered }
       }
     }
 
-    // Repli : si un suffixe hélistation était demandé mais qu'aucun template
-    // dédié n'existe, accepter le template générique couvrant la portée.
+    // Repli 1 : sous-type hélistation demandé mais aucun template dédié →
+    // accepter n'importe quel template hélistation couvrant la portée.
     if (suffixe) {
+      for (const [id, checklist] of entries) {
+        const domainesCodes = checklist.map(d => d.nom.toUpperCase())
+        const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))
+        if (couvre && compatibleEntite(id)) {
+          const filtered = checklist.filter(d => d.nom.toUpperCase() !== 'SGS')
+          return { id, checklist: filtered }
+        }
+      }
+    }
+
+    // Repli 2 : entité typée mais aucun template de son type → accepter un
+    // template générique couvrant la portée (jamais de blocage).
+    if (estHelistation || estAerodrome) {
       for (const [id, checklist] of entries) {
         const domainesCodes = checklist.map(d => d.nom.toUpperCase())
         const couvre = porteeSansSGS.every(p => domainesCodes.includes(p.toUpperCase()))

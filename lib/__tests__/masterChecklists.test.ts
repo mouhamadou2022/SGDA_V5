@@ -48,3 +48,50 @@ describe('resoudreChecklist', () => {
     expect(s.getState().resoudreChecklist(['SGS'], ['QSC'])).toBeNull()
   })
 })
+
+describe('résolution selon le type d\'entité (aérodrome / hélistation)', () => {
+  function storeAvecAeroEtHeli() {
+    const s = makeStore()
+    s.getState().setMasterChecklist('QSC_QSC_CERT', [domaine('PHY', ['a1']), domaine('OPS', ['a2'])] as never)
+    s.getState().setMasterChecklist('QSC_QSC_HELI_MER', [domaine('PHY', ['h1']), domaine('OPS', ['h2'])] as never)
+    s.getState().setMasterChecklist('QSC_QSC_HELI_SURFACE', [domaine('PHY', ['s1']), domaine('OPS', ['s2'])] as never)
+    return s
+  }
+
+  test('hélistation en mer → template HELI_MER, jamais le template aérodrome', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], {
+      type_entite: 'helistation',
+      helistation: { type_installation: 'plateforme_fixe' },
+    })
+    expect(r?.id).toBe('QSC_QSC_HELI_MER')
+  })
+
+  test('hélistation terrestre → template HELI_SURFACE', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], {
+      type_entite: 'helistation',
+      helistation: { type_installation: 'terrestre' },
+    })
+    expect(r?.id).toBe('QSC_QSC_HELI_SURFACE')
+  })
+
+  test('hélistation sans type d\'installation → préfère un template HELI_*', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], { type_entite: 'helistation' })
+    expect(r?.id.startsWith('QSC_QSC_HELI_')).toBe(true)
+  })
+
+  test('aérodrome → template aérodrome, jamais un template HELI_*', () => {
+    const s = storeAvecAeroEtHeli()
+    const r = s.getState().resoudreChecklist(['PHY', 'OPS'], ['QSC'], { type_entite: 'aerodrome' })
+    expect(r?.id).toBe('QSC_QSC_CERT')
+  })
+
+  test('repli : hélistation sans template dédié → template générique (pas de blocage)', () => {
+    const s = makeStore()
+    s.getState().setMasterChecklist('QSC_QSC_CERT', [domaine('PHY', ['a1'])] as never)
+    const r = s.getState().resoudreChecklist(['PHY'], ['QSC'], { type_entite: 'helistation' })
+    expect(r?.id).toBe('QSC_QSC_CERT')
+  })
+})

@@ -901,7 +901,11 @@ export default function PreparationChecklistPage() {
         } else {
           // Générer depuis le kit inspecteur (familles centralisées : voir filtresTemplatesParType)
           // Strict puis assemblage par domaine (données réelles uniquement).
-          const resolution = resoudreChecklist(planning.portee || [], filtresTemplatesParType(planning.type))
+          const resolution = resoudreChecklist(
+            planning.portee || [],
+            filtresTemplatesParType(planning.type),
+            aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined,
+          )
           const master = resolution
           if (master) {
             setDomainesManquants(master.manquants);
@@ -1053,7 +1057,11 @@ export default function PreparationChecklistPage() {
         : planning.type === 'suivi_ecarts' ? 'suivi_ecarts'
         : planning.type === 'mise_oeuvre_pac' ? 'mise_oeuvre_pac'
         : 'periodique';
-      const resolution = resoudreChecklist(planning.portee || [], filtresTemplatesParType(planning.type));
+      const resolution = resoudreChecklist(
+        planning.portee || [],
+        filtresTemplatesParType(planning.type),
+        aerodrome ? { type_entite: aerodrome.type_entite, helistation: aerodrome.helistation } : undefined,
+      );
       if (annule || !resolution) return;
       setDomainesManquants(resolution.manquants);
       const snapshot = JSON.parse(JSON.stringify(resolution.checklist));
