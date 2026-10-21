@@ -107,11 +107,12 @@ Ne retourne que le texte brut reformulé (puces ou phrases courtes), pas de JSON
       return NextResponse.json({ error: 'items requis' }, { status: 400 })
     }
 
-    // Contexte réglementaire RAG
+    // Contexte réglementaire RAG (borné pour limiter la taille du prompt
+    // envoyé aux providers — Groq tier gratuit plafonne à ~6000 tokens).
     const contexteReglementaire = await construireContexteReglementaireServeur({
       domaines: [domaine],
       requete: items.map((i: any) => i.description || i.point_verification || '').join(' '),
-      maxChars: 2500,
+      maxChars: 1200,
     })
 
     let userMessage: string
@@ -134,8 +135,8 @@ Ne retourne que le texte brut du libellé (puces ou phrases courtes), pas de JSO
           : i.paoeLevel === 'present' ? 'Présent'
           : i.paoeLevel === 'approprie' ? 'Approprié'
           : i.resultat || 'NS'
-        const desc = i.description || i.point_verification || ''
-        const obs = i.justification || i.observation || ''
+        const desc = (i.description || i.point_verification || '').slice(0, 180)
+        const obs = (i.justification || i.observation || '').slice(0, 120)
         return `- [${paoeLabel}] ${desc}${obs ? ` (Obs: ${obs})` : ''}${i.reference_reglementaire ? ` [Réf: ${i.reference_reglementaire}]` : ''}`
       }).join('\n')
 
@@ -152,8 +153,8 @@ Tu décris le constat basé sur les résultats NS/NV.
 Ne retourne que le texte brut du libellé (puces ou phrases courtes), pas de JSON, pas de markdown.`
 
       const itemsCtx = items.map((i: any) => {
-        const desc = i.point_verification || i.description || ''
-        const obs = i.observation || i.justification || ''
+        const desc = (i.point_verification || i.description || '').slice(0, 180)
+        const obs = (i.observation || i.justification || '').slice(0, 120)
         return `- [${i.resultat ?? 'NS'}] ${desc}${obs ? ` (Obs: ${obs})` : ''}${i.reference_reglementaire ? ` [Réf: ${i.reference_reglementaire}]` : ''}`
       }).join('\n')
 
