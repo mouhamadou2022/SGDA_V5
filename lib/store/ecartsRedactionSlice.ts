@@ -37,7 +37,7 @@ export interface EcartRedaction {
 // (réponse IA non parsée avant la correction) ou entouré de fences Markdown,
 // y compris quand la réponse IA est tronquée (accolade/guillemet manquant).
 // Repli neutre si rien de reconnaissable : le texte brut est retourné tel quel.
-function nettoyerLibelle(v: string): string {
+export function nettoyerLibelle(v: string): string {
   const texte = (v || '').trim()
   if (!texte) return ''
   let t = texte
@@ -146,8 +146,8 @@ export const createEcartsRedactionSlice: StateCreator<AppStore, [], [], EcartsRe
   // transmission. Le rapport doit donc lire les brouillons en priorité
   // (normalisés en Ecart[]), avec repli sur les écarts officiels.
   getEcartsEffectifsSurveillance: (surveillanceId): Ecart[] => {
-    const officiels = get().ecarts.filter(e => e.surveillance_id === surveillanceId)
-    const brouillons = get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId)
+    const officiels = get().ecarts.filter(e => e.surveillance_id === surveillanceId).map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle || '') }))
+    const brouillons = get().ecartsRedaction.filter(e => e.surveillance_id === surveillanceId).map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle || '') }))
     if (brouillons.length === 0) return officiels
     const byId = new Map(officiels.map(e => [e.id, e]))
     return brouillons.map(b => {

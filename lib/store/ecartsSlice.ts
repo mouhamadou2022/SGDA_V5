@@ -16,6 +16,7 @@ import { plansActionsUtils } from '../plansActionsUtils'
 // Décisions pures des rappels (la tranche applique : set/emit).
 import { evaluerRappelsEcart, evaluerDelaisInspecteur, calculerDelaiRestant } from '../ecarts-rappels'
 import { estEnRetardAccepte, qualiteCompte } from '../domaines'
+import { nettoyerLibelle } from './ecartsRedactionSlice'
 
 import type {
   Ecart,
@@ -92,7 +93,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
       currentEcart: null,
       historiqueEcarts: {},
       
-      setEcarts: (ecarts) => set({ ecarts }),
+      setEcarts: (ecarts) => set({ ecarts: ecarts.map(e => ({ ...e, libelle: nettoyerLibelle(e.libelle || '') })) }),
       setCurrentEcart: (ecart) => set({ currentEcart: ecart }),
       
       addEcart: async (ecart) => {
@@ -119,7 +120,7 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
         }
         const savedEcart = result.data as Ecart
         set((state) => ({
-          ecarts: [...state.ecarts, savedEcart],
+          ecarts: [...state.ecarts, { ...savedEcart, libelle: nettoyerLibelle(savedEcart.libelle || '') }],
           historiqueEcarts: {
             ...state.historiqueEcarts,
             [savedEcart.id]: [historiqueEntry]
