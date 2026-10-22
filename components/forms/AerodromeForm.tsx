@@ -1289,6 +1289,11 @@ function AiSuggestionPanel({ suggestion, isLoading, llmError, diagnosticEchec, a
 }
 
 // ── Schéma Zod ───────────────────────────────────────────────────────────────
+// Les colonnes texte de la table `aerodromes` sont nullables : `null` doit être
+// accepté comme « non renseigné » (sinon impossible de modifier une fiche
+// existante dont exploitant_id / dates de certification sont NULL).
+const texteNullable = z.string().nullish();
+
 const helistationSchema = z.object({
   indicatif_rt:        z.string().optional(),
   identification:      z.string().optional(),
@@ -1335,15 +1340,17 @@ const infrastructureComplexiteSchema = z.object({
 const aerodromeSchema = z.object({
   nom:                  z.string().min(3, 'Minimum 3 caractères'),
   // Saisi en majuscules (normalisé à la saisie et au pré-remplissage IA).
-  code_oaci:            z.string().length(4, 'Exactement 4 caractères').regex(/^[A-Z]{4}$/, 'Code OACI : 4 lettres majuscules (ex : GOOY)').optional(),
+  // '' autorisé ici : la présence/absence est contrôlée par superRefine selon
+  // le type d'entité (obligatoire aérodrome/mixte, interdit hélistation).
+  code_oaci:            z.union([z.literal(''), z.string().regex(/^[A-Z]{4}$/, 'Code OACI : 4 lettres majuscules (ex : GOOY)')]).nullish(),
   type:                 z.enum(['international','national']),
   type_entite:          z.enum(['aerodrome','helistation','mixte']),
   categorie_sslia:      z.string().min(1, 'Requis'),
   region:               z.string().min(1, 'Requis'),
-  exploitant_id:        z.string().optional(),
-  exploitant_nom:       z.string().optional(),
-  exploitant_adresse:   z.string().optional(),
-  exploitant_telephone: z.string().optional(),
+  exploitant_id:        texteNullable,
+  exploitant_nom:       texteNullable,
+  exploitant_adresse:   texteNullable,
+  exploitant_telephone: texteNullable,
   latitude:             z.number().min(-90).max(90),
   longitude:            z.number().min(-180).max(180),
   altitude:             z.number().min(0),
@@ -1356,15 +1363,15 @@ const aerodromeSchema = z.object({
   statut_sgs:           z.enum(['complet','simplifie','non_applicable']).optional(),
   statut:               z.enum(['brouillon','actif','suspendu','ferme']),
   statut_certification: z.enum(['certifie','homologue','non_certifie','non_homologue']).optional(),
-  certifie_le:          z.string().optional(),
-  numero_certificat:    z.string().optional(),
-  homologue_le:         z.string().optional(),
-  numero_homologation:  z.string().optional(),
+  certifie_le:          texteNullable,
+  numero_certificat:    texteNullable,
+  homologue_le:         texteNullable,
+  numero_homologation:  texteNullable,
   contacts: z.array(z.object({
     // Tolérant : des contacts historiques peuvent ne pas avoir tous les champs
     // (import exploitant) et ne doivent pas bloquer la modification de la fiche.
-    nom:z.string().optional(), poste:z.string().optional(),
-    email:z.string().email('Email invalide').or(z.literal('')).optional(), telephone:z.string().optional(),
+    nom: texteNullable, poste: texteNullable,
+    email: z.string().email('Email invalide').or(z.literal('')).nullish(), telephone: texteNullable,
   })).optional(),
 }).superRefine((data, ctx) => {
   if (data.type_entite !== 'helistation') {
@@ -1508,9 +1515,9 @@ const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
   const form = useForm<AerodromeFormData>({
     resolver: zodResolver(schema),
     defaultValues: aerodrome ? {
-      nom: aerodrome.nom, code_oaci: aerodrome.code_oaci, type: aerodrome.type,
+      nom: aerodrome.nom, code_oaci: aerodrome.code_oaci || '', type: aerodrome.type,
       type_entite: inferTypeEntite(aerodrome), categorie_sslia: aerodrome.categorie_sslia,
-      region: aerodrome.region, exploitant_id: aerodrome.exploitant_id,
+      region: aerodrome.region, exploitant_id: aerodrome.exploitant_id || undefined,
       exploitant_nom: aerodrome.exploitant_nom || '', exploitant_adresse: aerodrome.exploitant_adresse || '',
       exploitant_telephone: aerodrome.exploitant_telephone || '',
       latitude: aerodrome.lat, longitude: aerodrome.lon, altitude: aerodrome.altitude,

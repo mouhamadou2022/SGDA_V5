@@ -361,6 +361,20 @@ describe('AerodromeForm — navigation par étapes', () => {
       expect(screen.queryByText(/champs requis manquants/i)).not.toBeInTheDocument()
     })
 
+    it('accepte les colonnes SQL NULL (exploitant, certification, contacts)', async () => {
+      renderEditForm({
+        ...MOCK_AERODROME,
+        lat: 14.7347, lon: -17.4902,
+        exploitant_id: null, exploitant_nom: null, exploitant_adresse: null, exploitant_telephone: null,
+        certifie_le: null, numero_certificat: null, homologue_le: null, numero_homologation: null,
+        contacts: [{ nom: null, poste: null, email: null, telephone: null }],
+      })
+      fireEvent.click(screen.getByText('SGS & Statut').closest('button')!)
+      fireEvent.click(screen.getByText(/mettre à jour/i))
+      await waitFor(() => expect(mockUpdateAerodrome).toHaveBeenCalled())
+      expect(screen.queryByText(/champs requis manquants/i)).not.toBeInTheDocument()
+    })
+
     it("indique l'onglet Exploitant pour un email de contact invalide", async () => {
       renderEditForm({
         ...MOCK_AERODROME,
