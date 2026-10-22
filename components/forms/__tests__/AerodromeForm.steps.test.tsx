@@ -342,4 +342,23 @@ describe('AerodromeForm — navigation par étapes', () => {
       expect(screen.getByText('Piste & FATO')).toBeInTheDocument()
     })
   })
+
+  // ── 7. Données historiques incomplètes ────────────────────────────────────
+
+  describe('Édition avec données historiques incomplètes', () => {
+    it("ne bloque pas la mise à jour si un contact n'a pas d'email et que des enums sont vides", async () => {
+      const historique = {
+        ...MOCK_AERODROME,
+        lat: 14.7347, lon: -17.4902,
+        contacts: [{ nom: 'Directeur', poste: 'Chef', telephone: '771234567' }],
+        piste_principale: { ...MOCK_AERODROME.piste_principale, type_approche: '' },
+        infrastructure_complexite: { nombre_pistes: 1, configuration_pistes: '' },
+      }
+      renderEditForm(historique)
+      fireEvent.click(screen.getByText('SGS & Statut').closest('button')!)
+      fireEvent.click(screen.getByText(/mettre à jour/i))
+      await waitFor(() => expect(mockUpdateAerodrome).toHaveBeenCalled())
+      expect(screen.queryByText(/champs requis manquants/i)).not.toBeInTheDocument()
+    })
+  })
 })

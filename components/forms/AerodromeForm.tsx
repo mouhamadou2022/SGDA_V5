@@ -1361,8 +1361,10 @@ const aerodromeSchema = z.object({
   homologue_le:         z.string().optional(),
   numero_homologation:  z.string().optional(),
   contacts: z.array(z.object({
-    nom:z.string(), poste:z.string(),
-    email:z.string().email('Email invalide').or(z.literal('')), telephone:z.string(),
+    // Tolérant : des contacts historiques peuvent ne pas avoir tous les champs
+    // (import exploitant) et ne doivent pas bloquer la modification de la fiche.
+    nom:z.string().optional(), poste:z.string().optional(),
+    email:z.string().email('Email invalide').or(z.literal('')).optional(), telephone:z.string().optional(),
   })).optional(),
 }).superRefine((data, ctx) => {
   if (data.type_entite !== 'helistation') {
@@ -1415,6 +1417,29 @@ function createAerodromeSchema(codesExistants: Map<string, string>, courantId?: 
       ctx.addIssue({ code: 'custom', path: ['code_oaci'], message: `Code OACI ${code} déjà utilisé` })
     }
   })
+}
+
+// Premier message d'erreur lisible dans l'arbre d'erreurs React Hook Form.
+function premierMessageErreur(errors: unknown): string | undefined {
+  if (!errors || typeof errors !== 'object') return undefined;
+  const e = errors as Record<string, any>;
+  if (typeof e.message === 'string' && e.message) return e.message;
+  for (const key of Object.keys(e)) {
+    const found = premierMessageErreur(e[key]);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+// Retire les valeurs vides d'un objet imbriqué (les données historiques
+// contiennent parfois des '' qui invalident les enums optionnels).
+function sansValeursVides<T extends Record<string, any>>(obj: T | null | undefined): T | undefined {
+  if (!obj) return undefined;
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== '' && v !== null && v !== undefined) out[k] = v;
+  }
+  return (Object.keys(out).length > 0 ? out : undefined) as T | undefined;
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -1489,13 +1514,14 @@ const [rejectedFields, setRejectedFields] = useState<Set<string>>(new Set());
       exploitant_nom: aerodrome.exploitant_nom || '', exploitant_adresse: aerodrome.exploitant_adresse || '',
       exploitant_telephone: aerodrome.exploitant_telephone || '',
       latitude: aerodrome.lat, longitude: aerodrome.lon, altitude: aerodrome.altitude,
-      piste_principale: aerodrome.piste_principale || undefined,
-      infrastructure_complexite: aerodrome.infrastructure_complexite || undefined,
-      helistation: aerodrome.helistation || undefined,
-      horaires: aerodrome.horaires, aides_visuelles: aerodrome.aides_visuelles || [],
+      piste_principale: sansValeursVides(aerodrome.piste_principale),
+      infrastructure_complexite: sansValeursVides(aerodrome.infrastructure_complexite),
+      helistation: sansValeursVides(aerodrome.helistation),
+      horaires: aerodrome.horaires || undefined, aides_visuelles: aerodrome.aides_visuelles || [],
       // Le formulaire travaille en N1-N5, le store en 0-100 (canonique) :
       // convertir au chargement (gère aussi le legacy 1-5 déjà stocké).
-      maturite_sgs: sgsScoreVersNiveau(normaliserScoreSgs(aerodrome.maturite_sgs, 50)), statut_sgs: aerodrome.statut_sgs || 'complet', statut: aerodrome.statut, contacts: aerodrome.contacts || [],
+      maturite_sgs: sgsScoreVersNiveau(normaliserScoreSgs(aerodrome.maturite_sgs, 50)), statut_sgs: aerodrome.statut_sgs || 'complet', statut: aerodrome.statut,
+      contacts: (aerodrome.contacts || []).map(c => ({ nom: c.nom || '', poste: c.poste || '', email: c.email || '', telephone: c.telephone || '' })),
       statut_certification: aerodrome.statut_certification || undefined,
       certifie_le: aerodrome.certifie_le || '', numero_certificat: aerodrome.numero_certificat || '',
       homologue_le: aerodrome.homologue_le || '', numero_homologation: aerodrome.numero_homologation || '',
@@ -1943,9 +1969,12 @@ useEffect(() => {
     const tabs: string[] = [];
     if (errors.latitude||errors.longitude||errors.altitude) tabs.push('Localisation');
     if (errors.nom||errors.code_oaci||errors.type||errors.type_entite||errors.categorie_sslia||errors.region) tabs.push('Général');
-    if (errors.piste_principale||errors.helistation) tabs.push('Infrastructure');
-    if (errors.maturite_sgs||errors.statut) tabs.push('SGS & Statut');
-    setError(`Champs requis manquants dans : ${tabs.join(', ')||'le formulaire'}`);
+    if (errors.exploitant_id||errors.exploitant_nom||errors.exploitant_adresse||errors.exploitant_telephone||errors.contacts) tabs.push('Exploitant');
+    if (errors.piste_principale||errors.helistation||errors.infrastructure_complexite||errors.horaires||errors.aides_visuelles) tabs.push('Infrastructure');
+    if (errors.maturite_sgs||errors.statut||errors.statut_sgs||errors.statut_certification
+      ||errors.certifie_le||errors.numero_certificat||errors.homologue_le||errors.numero_homologation) tabs.push('SGS & Statut');
+    const premier = premierMessageErreur(errors);
+    setError(`Champs requis manquants dans : ${tabs.join(', ')||'le formulaire'}${premier ? ` — ${premier}` : ''}`);
   };
 
   const showPiste = watchTypeEntite==='aerodrome' || watchTypeEntite==='mixte';
