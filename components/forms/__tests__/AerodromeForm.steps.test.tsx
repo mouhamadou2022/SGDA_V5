@@ -360,5 +360,17 @@ describe('AerodromeForm — navigation par étapes', () => {
       await waitFor(() => expect(mockUpdateAerodrome).toHaveBeenCalled())
       expect(screen.queryByText(/champs requis manquants/i)).not.toBeInTheDocument()
     })
+
+    it("indique l'onglet Exploitant pour un email de contact invalide", async () => {
+      renderEditForm({
+        ...MOCK_AERODROME,
+        lat: 14.7347, lon: -17.4902,
+        contacts: [{ nom: 'X', poste: 'Y', email: 'pas-un-email', telephone: '1' }],
+      })
+      fireEvent.click(screen.getByText('SGS & Statut').closest('button')!)
+      fireEvent.click(screen.getByText(/mettre à jour/i))
+      expect(await screen.findByText(/Exploitant.*Email invalide/i)).toBeInTheDocument()
+      expect(mockUpdateAerodrome).not.toHaveBeenCalled()
+    })
   })
 })

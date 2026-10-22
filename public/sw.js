@@ -1,7 +1,7 @@
 // SGDA V5 — Service Worker
 // Cache les pages visitées + assets pour navigation offline
 
-const CACHE = 'sgda-v5-v2'
+const CACHE = 'sgda-v5-v3'
 const STATIC_ASSETS = ['/']
 
 self.addEventListener('install', (e) => {

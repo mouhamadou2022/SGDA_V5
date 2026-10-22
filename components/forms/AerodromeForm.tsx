@@ -1974,7 +1974,17 @@ useEffect(() => {
     if (errors.maturite_sgs||errors.statut||errors.statut_sgs||errors.statut_certification
       ||errors.certifie_le||errors.numero_certificat||errors.homologue_le||errors.numero_homologation) tabs.push('SGS & Statut');
     const premier = premierMessageErreur(errors);
-    setError(`Champs requis manquants dans : ${tabs.join(', ')||'le formulaire'}${premier ? ` — ${premier}` : ''}`);
+    if (tabs.length === 0) {
+      // Cas anormal : aucune clé connue. On journalise pour diagnostic au lieu
+      // d'afficher un message inutile « le formulaire ».
+      console.error('[AerodromeForm] Validation échouée sans champ identifiable', errors);
+    }
+    const cles = Object.keys(errors);
+    setError(
+      tabs.length > 0
+        ? `Champs requis manquants dans : ${tabs.join(', ')}${premier ? ` — ${premier}` : ''}`
+        : `Formulaire invalide${premier ? ` — ${premier}` : ''}${cles.length ? ` (${cles.join(', ')})` : ''}`,
+    );
   };
 
   const showPiste = watchTypeEntite==='aerodrome' || watchTypeEntite==='mixte';
