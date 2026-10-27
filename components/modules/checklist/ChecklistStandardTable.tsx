@@ -9,9 +9,10 @@
  * • Ajout/suppression de lignes, sous-domaines, groupes
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { StylusCanvas } from './StylusCanvas';
+import { numerosUtilises, prochaineReference, prefixeDepuisItems, prefixeDepuisNom } from '@/lib/checklistNumerotation';
 import {
   Shield, ChevronDown, ChevronRight, FileText, Upload, Trash2,
   PenLine, Eye, TrendingUp, X, Plus, FolderPlus, Sparkles, CheckCircle2,
@@ -111,18 +112,21 @@ function genId(prefix = 'item') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function makeBlankItem(numero: string, existingItems?: ChecklistItem[]): ChecklistItem {
-  // Auto-numérotation : prend le max des numéros existants + 1
-  let finalNumero = `${numero}`
-  if (existingItems && existingItems.length > 0) {
-    const maxNum = Math.max(
-      ...existingItems
-        .map(i => parseInt(i.numero, 10))
-        .filter(n => !isNaN(n)),
-      0
-    )
-    finalNumero = String(maxNum + 1).padStart(Math.max(2, String(existingItems.length + 1).length), '0')
-  }
+function makeBlankItem(
+  prefixe: string,
+  existingItems?: ChecklistItem[],
+  numerosChecklist?: Iterable<string>,
+): ChecklistItem {
+  // Référence UNIQUE et courte : on reprend le schéma de la section
+  // (QSC01 → QSC02, SGS.01 → SGS.02) et on évite toute collision avec le reste
+  // de la checklist. Avant, on produisait `${domaine.id}.${n}`
+  // (« QSC_CONTINUE_SEC6.1.19 ») : référence illisible qui débordait de la
+  // colonne, ou « 01 » répété dans chaque section.
+  const existants = new Set<string>(
+    [...(numerosChecklist ?? []), ...(existingItems || []).map(i => i.numero)].map(n => String(n ?? '').trim()),
+  )
+  const prefixeSection = prefixeDepuisItems(existingItems) || prefixe
+  const finalNumero = prochaineReference(prefixeSection, existants)
   return {
     id: genId('item'),
     numero: finalNumero,
@@ -479,7 +483,8 @@ function InlineEdit({
   return (
     <span
       onClick={e => { e.stopPropagation(); open(); }}
-      className={`block leading-snug ${!readOnly ? 'cursor-text hover:bg-blue-50 rounded px-0.5 -mx-0.5 transition-colors' : ''} ${!value ? 'text-gray-300' : ''} ${className}`}
+      title={value || undefined}
+      className={`block leading-snug break-words ${!readOnly ? 'cursor-text hover:bg-blue-50 rounded px-0.5 -mx-0.5 transition-colors' : ''} ${!value ? 'text-gray-300' : ''} ${className}`}
     >
       {value || placeholder}
     </span>
@@ -699,12 +704,12 @@ function ItemRow({ item, onUpdate, onDelete, onAdd, onSplitDomaine, domaines, re
         className={`border-b border-blue-100 hover:bg-blue-50/20 transition-colors group scroll-mt-32 ${isProposed ? 'ai-proposed-row' : ''}`}>
 
         {/* ── Réf (structureLocked) ── */}
-        <td className="p-1.5 border-r border-blue-100 bg-white w-14 min-w-[3.5rem] max-w-[3.5rem] align-top">
+        <td className="p-1.5 border-r border-blue-100 bg-white w-14 min-w-[3.5rem] max-w-[3.5rem] align-top overflow-hidden">
           <InlineEdit
             value={item.numero}
             onChange={v => onUpdate({ ...item, numero: v })}
             readOnly={structureReadOnly}
-            className="text-[13px] font-mono text-foreground"
+            className="text-[13px] font-mono text-foreground break-all"
             inputClassName="text-[13px] font-mono"
             placeholder="Réf"
           />
@@ -1021,6 +1026,7 @@ function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, onSplitDomai
 function ElementSection({
   sd, ssdList, onUpdateItem, onMutateSd, onSplitDomaine, domaineId, domaines,
   modeSaisie, readOnly, structureReadOnly, collapsed, onToggle, onUploadPreuve, aerodromeId, domaineNom,
+  numerosChecklist,
 }: {
   sd: SousDomaine;
   ssdList: SousSousDomaine[];
@@ -1042,6 +1048,8 @@ function ElementSection({
   onUploadPreuve?: (file: File, itemId: string) => Promise<string>;
   aerodromeId?: string;
   domaineNom?: string;
+  /** Toutes les références déjà utilisées (unicité des nouvelles questions) */
+  numerosChecklist?: Iterable<string>;
 }) {
   const [addingSsd, setAddingSsd]   = useState(false);
   const [newSsdName, setNewSsdName] = useState('');
@@ -1111,7 +1119,7 @@ function ElementSection({
             items={sd.items || []}
             onUpdate={onUpdateItem}
             onDeleteItem={canEdit ? (id) => updateSdItems((sd.items || []).filter(i => i.id !== id)) : undefined}
-            onAddItem={canEdit ? (afterIndex) => updateSdItems(insertItemAfter(sd.items || [], afterIndex, makeBlankItem(`${sd.id}.${(sd.items || []).length + 1}`, sd.items))) : undefined}
+            onAddItem={canEdit ? (afterIndex) => updateSdItems(insertItemAfter(sd.items || [], afterIndex, makeBlankItem(prefixeDepuisNom(domaineNom), sd.items, numerosChecklist))) : undefined}
             onSplitDomaine={onSplitDomaine ? (afterIndex, info) => onSplitDomaine({ domaineId, sdId: sd.id, afterIndex }, info) : undefined}
             splitTarget={{ domaineId, sdId: sd.id }}
             domaines={domaines}
@@ -1153,7 +1161,7 @@ function ElementSection({
                   items={ssd.items || []}
                   onUpdate={onUpdateItem}
                   onDeleteItem={canEdit ? (id) => updateSsdItems(ssd.id, (ssd.items || []).filter(i => i.id !== id)) : undefined}
-                  onAddItem={canEdit ? (afterIndex) => updateSsdItems(ssd.id, insertItemAfter(ssd.items || [], afterIndex, makeBlankItem(`${ssd.id}.${(ssd.items || []).length + 1}`, ssd.items))) : undefined}
+                  onAddItem={canEdit ? (afterIndex) => updateSsdItems(ssd.id, insertItemAfter(ssd.items || [], afterIndex, makeBlankItem(prefixeDepuisNom(domaineNom), ssd.items, numerosChecklist))) : undefined}
                   onSplitDomaine={onSplitDomaine ? (afterIndex, info) => onSplitDomaine({ domaineId, sdId: sd.id, ssdId: ssd.id, afterIndex }, info) : undefined}
                   splitTarget={{ domaineId, sdId: sd.id, ssdId: ssd.id }}
                   domaines={domaines}
@@ -1224,6 +1232,10 @@ export function ChecklistStandardTable({
   const [newSdName, setNewSdName] = useState('');
 
   const canEdit = !structureReadOnly && !!onUpdateDomaines;
+
+  // Références déjà utilisées dans TOUTE la checklist : sert à garantir que
+  // chaque nouvelle question reçoit une référence unique (jamais « 01 » répété).
+  const numerosChecklist = useMemo(() => numerosUtilises(domaines as any), [domaines]);
 
   const toggleDomaine     = (id: string) => setCollapsedDomaines(p     => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSousDomaine = (id: string) => setCollapsedSousDomaines(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1361,7 +1373,7 @@ export function ChecklistStandardTable({
                       d.id !== domaine.id ? d : { ...d, items: (d.items || []).filter(i => i.id !== id) }
                     )) : undefined}
                     onAddItem={canEdit ? (afterIndex) => mutateDomaines(ds => ds.map(d =>
-                      d.id !== domaine.id ? d : { ...d, items: insertItemAfter(d.items || [], afterIndex, makeBlankItem(`${domaine.id}.${(d.items || []).length + 1}`, d.items)) }
+                      d.id !== domaine.id ? d : { ...d, items: insertItemAfter(d.items || [], afterIndex, makeBlankItem(prefixeDepuisNom(domaine.nom), d.items, numerosChecklist)) }
                     )) : undefined}
                     onSplitDomaine={canEdit ? (afterIndex, info) => handleSplitDomaine({ domaineId: domaine.id, afterIndex }, info) : undefined}
                     splitTarget={{ domaineId: domaine.id }}
@@ -1433,6 +1445,7 @@ export function ChecklistStandardTable({
                         onUploadPreuve={onUploadPreuve}
                         aerodromeId={aerodromeId}
                         domaineNom={domaine.nom}
+                        numerosChecklist={numerosChecklist}
                       />
                       {/* Ajouter une question — APRÈS le tableau du sous-domaine */}
                       {canEdit && (
@@ -1443,7 +1456,7 @@ export function ChecklistStandardTable({
                                 d.id !== domaine.id ? d : {
                                   ...d,
                                   sousDomaines: (d.sousDomaines || []).map(s =>
-                                    s.id !== sd.id ? s : { ...s, items: [...(s.items || []), makeBlankItem(`${sd.id}.${(sd.items || []).length + 1}`, sd.items)] }
+                                    s.id !== sd.id ? s : { ...s, items: [...(s.items || []), makeBlankItem(prefixeDepuisNom(domaine.nom), sd.items, numerosChecklist)] }
                                   ),
                                 }
                               ));

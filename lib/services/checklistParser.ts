@@ -1,6 +1,7 @@
 import type { DomaineChecklist, ChecklistItem } from '@/lib/store'
 import type { SGSQuestion, SGSDirectives, SGSGuideEtape } from '@/types/checklist'
 import { retirerDiacritiques } from '@/lib/domaines'
+import { assurerReferencesUniques } from '@/lib/checklistNumerotation'
 
 export type ChecklistParseType = 'IT' | 'SOP' | 'QSC' | 'SGS' | 'VALIDATION_SITE' | 'HMG' | 'COP' | 'AUT'
 
@@ -335,7 +336,10 @@ export async function parseChecklistWord(
     })
   }
 
-  const domaines = Array.from(sectionMap.values())
+  // Références de questions uniques dès l'import : quand le document n'a pas de
+  // numéro d'item, chaque section repartait à « 1 » → références identiques
+  // partout (« parfois identiques partout »). On renumérote les doublons.
+  const domaines = assurerReferencesUniques(Array.from(sectionMap.values())).domaines
   const portee = [...new Set(rawItems.map(r => guessDomaineFromSection(r.sectionNum, type)))]
 
   const versionMatch = file.name.match(/(\w+\s+\d{4})/)

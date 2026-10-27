@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { ChecklistTableEditor } from '@/components/checklist-editor/ChecklistTableEditor'
 import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral'
+import { fusionnerDomainesIA, domainesTouchesIA, domaineEstTouche } from '@/lib/checklistMerge'
+import { assurerReferencesUniques } from '@/lib/checklistNumerotation'
 import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation'
 import { buildSGSTemplateFromImport } from '@/lib/services/checklistParser'
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent'
@@ -42,7 +44,7 @@ function normalizeChecklistIds(domaines: DomaineChecklist[]): DomaineChecklist[]
       return { ...item, id }
     })
   }
-  return (domaines || []).map(d => ({
+  const dedupeIds = (domaines || []).map(d => ({
     ...d,
     items: dedupe(d?.items || []),
     sousDomaines: (d?.sousDomaines || []).map(sd => ({
@@ -51,6 +53,9 @@ function normalizeChecklistIds(domaines: DomaineChecklist[]): DomaineChecklist[]
       sousSousDomaines: (sd?.sousSousDomaines || []).map(ssd => ({ ...ssd, items: dedupe(ssd?.items || []) })),
     })),
   }))
+  // Références de questions UNIQUES (colonne « Réf ») : les doublons importés
+  // (QSC08 en double, « 01 » répété dans chaque section) sont renumérotés.
+  return assurerReferencesUniques(dedupeIds).domaines
 }
 
 // Chemin d'accès d'un item dans l'arbre : domaines → sousDomaines → sousSousDomaines
@@ -434,18 +439,17 @@ export default function KitChecklistEditorPage() {
 
   const handleChatUpdate = useCallback((updated: any[]) => {
     setDomainesWithHistory(prev => {
-      const merged = prev.map(d => {
-        const match = updated.find((u: any) => u.id === d.id)
-        return match ? (match as any) : d
-      })
-      updated.forEach((u: any) => {
-        if (!merged.find((m: any) => m.id === u.id)) merged.push(u)
-      })
-      return merged.map(d => {
-        const u = updated.find((x: any) => x.id === d.id)
+      // Fusion SANS PERTE : l'IA ne renvoie que les items modifiés/ajoutés ;
+      // tout item non renvoyé est conservé (avant, le domaine entier était
+      // remplacé par la réponse de l'IA → items perdus si elle était partielle).
+      const touches = domainesTouchesIA(updated)
+      // Références uniques : les items proposés par l'IA peuvent réutiliser une
+      // référence existante (ou aucune) → renumérotation selon le schéma local.
+      const fusion = assurerReferencesUniques(fusionnerDomainesIA(prev, updated)).domaines
+      return fusion.map(d =>
         // Marque comme "proposé par l'IA" les domaines touchés → brillance en attente de validation
-        return u ? markDomaineProposed(u) : d
-      })
+        domaineEstTouche(d, touches) ? markDomaineProposed(d) : d
+      )
     })
   }, [setDomainesWithHistory])
 

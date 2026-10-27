@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Bot, User, Send, X, Brain, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { aiClient } from '@/lib/ia/aiClient'
+import { construireContexteChecklist } from '@/lib/ia/checklistContext'
 import { Markdown } from '@/components/ui/markdown'
 
 const CHAT_SYSTEM_PROMPT = (contexte: string) => `Tu es un assistant expert en réglementation aéronautique (OACI, Annexe 14, Doc 9137, Doc 9981, Doc 9157, Doc 9859, Doc 9261, circulaires ANACIM).
@@ -12,13 +13,16 @@ Tu aides un inspecteur à **construire et affiner une checklist** de surveillanc
 **Règles ABSOLUES :**
 - Tu peux AJOUTER de nouveaux items ou MODIFIER des items existants.
 - Tu NE DOIS JAMAIS SUPPRIMER des items, domaines, sous-domaines ou sous-sous-domaines existants.
-- Tu NE DOIS JAMAIS renvoyer updatedChecklist sans tous les items existants.
 - Réponds TOUJOURS en JSON uniquement avec le format ci-dessous.
-- Si tu modifies la checklist, renvoie SEULEMENT les domaines modifiés ou ajoutés, mais chaque domaine renvoyé doit contenir TOUS ses items existants (même inchangés) : le système remplace le domaine par la version renvoyée.
+- Si tu modifies la checklist, renvoie SEULEMENT les domaines concernés, et dans chaque domaine SEULEMENT les items modifiés ou ajoutés. Le système fusionne par id : tout ce que tu ne renvoies pas est conservé tel quel.
+- Pour un item EXISTANT que tu modifies, renvoie son id et UNIQUEMENT les champs que tu changes (ne recopie pas les autres).
+- Pour un item NOUVEAU, fournis tous les champs listés ci-dessous.
+- Si tu ajoutes un sous-domaine ou un domaine, renvoie-le avec son id, son nom et ses items.
 - Si tu ne fais que répondre à une question, mets updatedChecklist: null.
 - Le champ "message" doit être concis (2-3 phrases) et ne pas recopier la checklist.
 - Conserve scrupuleusement les IDs existants des domaines, sous-domaines et sous-sous-domaines.
 - Pour les nouveaux items, génère un ID unique (ex: "ai_item_{Date.now()}_{index}").
+- La référence d'un nouvel item ("numero") doit être UNIQUE dans toute la checklist : reprends le schéma du domaine (QSC19 → QSC20, SGS.01 → SGS.02). Ne réutilise JAMAIS une référence déjà présente dans le contexte.
 - Les nouveaux items doivent avoir ces champs : id, numero, reference_reglementaire, point_verification, directive_preuve, directive_sa, directive_ns, directive_nv, directive_na, type_entite_cible, sous_domaine, prediction ("NV"), confiance (50), justification, alerte (false), prefilled (true).
 - Base TOUJOURS les questions et références sur la réglementation aéronautique réelle (RAS 14, Annexe 14, Doc 9137, Doc 9859, etc.). N'invente JAMAIS des références.
 
@@ -59,61 +63,23 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: Cha
     setLoading(true)
 
     try {
-      const contexte = JSON.stringify(
-        (checklistJson || []).map((d: any) => ({
-          id: d.id,
-          nom: d.nom,
-          description: d.description,
-          items: (d.items || []).map((i: any) => ({
-            id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
-            point_verification: i.point_verification, directive_preuve: i.directive_preuve,
-            directive_sa: i.directive_sa, directive_ns: i.directive_ns,
-            directive_nv: i.directive_nv, directive_na: i.directive_na,
-            type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
-            source_document_id: i.source_document_id,
-            prediction: i.prediction, confiance: i.confiance, justification: i.justification,
-            alerte: i.alerte, prefilled: i.prefilled,
-          })),
-          sousDomaines: (d.sousDomaines || []).map((sd: any) => ({
-            id: sd.id,
-            nom: sd.nom,
-            items: (sd.items || []).map((i: any) => ({
-              id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
-              point_verification: i.point_verification, directive_preuve: i.directive_preuve,
-              directive_sa: i.directive_sa, directive_ns: i.directive_ns,
-              directive_nv: i.directive_nv, directive_na: i.directive_na,
-              type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
-              source_document_id: i.source_document_id,
-              prediction: i.prediction, confiance: i.confiance, justification: i.justification,
-              alerte: i.alerte, prefilled: i.prefilled,
-            })),
-            sousSousDomaines: (sd.sousSousDomaines || []).map((ssd: any) => ({
-              id: ssd.id,
-              nom: ssd.nom,
-              items: (ssd.items || []).map((i: any) => ({
-                id: i.id, numero: i.numero, reference_reglementaire: i.reference_reglementaire,
-                point_verification: i.point_verification, directive_preuve: i.directive_preuve,
-                directive_sa: i.directive_sa, directive_ns: i.directive_ns,
-                directive_nv: i.directive_nv, directive_na: i.directive_na,
-                type_entite_cible: i.type_entite_cible, sous_domaine: i.sous_domaine,
-                source_document_id: i.source_document_id,
-                prediction: i.prediction, confiance: i.confiance, justification: i.justification,
-                alerte: i.alerte, prefilled: i.prefilled,
-              })),
-            })),
-          })),
-        }))
-      )
-
-      // Contexte réglementaire par domaine
-      const domainesInfos = (checklistJson || []).map((d: any) =>
-        `- ${d.nom}: ${d.description || 'Réglementation aéronautique'}`
-      ).join('\n')
+      // Contexte COMPACT : la checklist entière avec tous ses champs dépassait
+      // la fenêtre des providers (≈ 61 500 tokens sur 138 items) et l'appel
+      // échouait systématiquement. On n'envoie que de quoi identifier les
+      // items ; la fusion côté client conserve les champs non renvoyés.
+      const contexteCompact = construireContexteChecklist(checklistJson)
+      const noteContexte = contexteCompact.itemsOmis > 0
+        ? `\n\n[Note : checklist très volumineuse — ${contexteCompact.itemsEnvoyes} items sur ${contexteCompact.itemsTotal} sont listés. Ne recrée jamais un item dont le sujet existe déjà.]`
+        : ''
+      const contexte = contexteCompact.texte + noteContexte
 
       const result = await aiClient.callJSON<{ message: string; updatedChecklist: any[] | null }>(
         {
           systemPrompt: CHAT_SYSTEM_PROMPT(contexte),
-          userMessage: `Question: ${msg}\n\nDomaines de la checklist:\n${domainesInfos}\n\nRéponds UNIQUEMENT en JSON. Si tu ajoutes ou modifies des items, renvoie SEULEMENT les domaines modifiés dans updatedChecklist.`,
+          // Les domaines sont déjà décrits dans le contexte JSON ci-dessus :
+          // inutile de les répéter (chaque caractère compte pour rester sous le
+          // plafond du provider rapide).
+          userMessage: `Question: ${msg}\n\nRéponds UNIQUEMENT en JSON. Si tu ajoutes ou modifies des items, renvoie SEULEMENT les domaines concernés avec SEULEMENT les items modifiés ou ajoutés dans updatedChecklist.`,
           temperature: 0.3,
           maxTokens: 8192,
           responseFormat: 'json_object',

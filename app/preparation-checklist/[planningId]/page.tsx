@@ -35,6 +35,8 @@ import { getDomaineLabel, getDomaineCode } from '@/lib/domaines';
 import { getCellColor, isSGSApplicable } from '@/lib/risque';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral';
+import { fusionnerDomainesIA } from '@/lib/checklistMerge';
+import { assurerReferencesUniques } from '@/lib/checklistNumerotation';
 import { checklistAgent } from '@/lib/ia/agents/checklistAgent';
 
 // ─────────────────────────────────────────────────────────────
@@ -44,7 +46,7 @@ import { checklistAgent } from '@/lib/ia/agents/checklistAgent';
 // désérialisation, les items sont invisibles.
 // ─────────────────────────────────────────────────────────────
 function normalizeDomaines(domaines: DomaineChecklist[]): DomaineChecklist[] {
-  return domaines.map(d => ({
+  const normalises = domaines.map(d => ({
     ...d,
     isExpanded: d.isExpanded !== false,
     items: d.items ?? [],
@@ -59,6 +61,9 @@ function normalizeDomaines(domaines: DomaineChecklist[]): DomaineChecklist[] {
       })),
     })),
   }));
+  // Références de questions uniques (colonne « Réf ») : les doublons
+  // (« 01 » répété dans chaque section, QSC08 en double) sont renumérotés.
+  return assurerReferencesUniques(normalises).domaines;
 }
 
 function excludeSGSDomaines(domaines: DomaineChecklist[], _portee: string[]): DomaineChecklist[] {
@@ -1259,51 +1264,10 @@ export default function PreparationChecklistPage() {
   // ── Merge sécurisé IA : préserve les items/domaines existants, ne supprime rien ──
   const mergeChecklistUpdate = useCallback((aiDomaines: DomaineChecklist[]) => {
     if (isExecutee) return;
-    setStandardDomaines(prev => {
-      const merged = prev.map(dom => {
-        const aiDom = aiDomaines.find(d => d.id === dom.id || d.nom === dom.nom)
-        if (!aiDom) return dom // Domaine non touché par l'IA → inchangé
-
-        const mergeItems = (existing: ChecklistItem[] = [], incoming: ChecklistItem[] = []): ChecklistItem[] => {
-          const mergedMap = new Map(existing.map(i => [i.id, { ...i }]))
-          for (const aiItem of incoming) {
-            if (mergedMap.has(aiItem.id)) {
-              // Merge partiel : ne surcharge que les champs que l'IA a fournis
-              const existing = mergedMap.get(aiItem.id)!
-              mergedMap.set(aiItem.id, {
-                ...existing,
-                ...Object.fromEntries(
-                  Object.entries(aiItem).filter(([, v]) => v !== undefined && v !== null)
-                ),
-              })
-            } else {
-              // Nouvel item de l'IA
-              mergedMap.set(aiItem.id, { ...aiItem } as ChecklistItem)
-            }
-          }
-          return Array.from(mergedMap.values())
-        }
-
-        return {
-          ...dom,
-          items: mergeItems(dom.items, aiDom.items),
-          sousDomaines: (dom.sousDomaines ?? []).map(sd => {
-            const aiSd = (aiDom.sousDomaines ?? []).find(d => d.id === sd.id || d.nom === sd.nom)
-            if (!aiSd) return sd
-            return {
-              ...sd,
-              items: mergeItems(sd.items, aiSd.items),
-              sousSousDomaines: (sd.sousSousDomaines ?? []).map(ssd => {
-                const aiSsd = (aiSd.sousSousDomaines ?? []).find(d => d.id === ssd.id || d.nom === ssd.nom)
-                if (!aiSsd) return ssd
-                return { ...ssd, items: mergeItems(ssd.items, aiSsd.items) }
-              }),
-            }
-          }),
-        }
-      })
-      return merged
-    })
+    // Fusion SANS PERTE (partagée avec l'éditeur du Kit Inspecteur) : items
+    // modifiés fusionnés champ par champ, items/domaines/sous-domaines absents
+    // de la réponse conservés, nouveaux éléments ajoutés.
+    setStandardDomaines(prev => assurerReferencesUniques(fusionnerDomainesIA(prev, aiDomaines)).domaines as DomaineChecklist[])
     setHasChanges(true)
   }, [isExecutee])
 
