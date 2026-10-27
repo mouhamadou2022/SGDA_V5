@@ -19,6 +19,14 @@ export async function createDossier(payload: Partial<Dossier> & { titre: string;
   return { data: data as Dossier | null, error: error?.message ?? null }
 }
 
+export async function listDossierReferences(): Promise<DatastoreResult<string[]>> {
+  const { data, error } = await supabase.from('dossiers').select('reference')
+  const references = (data || [])
+    .map((row) => (row as { reference?: string | null }).reference)
+    .filter((ref): ref is string => typeof ref === 'string' && ref.length > 0)
+  return { data: references, error: error?.message ?? null }
+}
+
 export async function updateDossier(id: string, payload: Partial<Dossier>): Promise<DatastoreResult<Dossier>> {
   const { data, error } = await supabase
     .from('dossiers')

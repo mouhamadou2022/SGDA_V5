@@ -103,9 +103,10 @@ const RESULTATS_LABELS: Record<string, { label: string; cls: string }> = {
 
 interface ChecklistTraitementSectionProps {
   dossier: Dossier
+  canProcess: boolean
 }
 
-function ChecklistTraitementSection({ dossier }: ChecklistTraitementSectionProps) {
+function ChecklistTraitementSection({ dossier, canProcess }: ChecklistTraitementSectionProps) {
   const setChecklistTraitement = useAppStore(s => s.setChecklistTraitement)
   const mettreAJourItemChecklist = useAppStore(s => s.mettreAJourItemChecklist)
   const [loading, setLoading] = useState(false)
@@ -147,6 +148,7 @@ function ChecklistTraitementSection({ dossier }: ChecklistTraitementSectionProps
             </span>
           )}
         </p>
+        {canProcess && (
         <button
           onClick={handleGenerate}
           disabled={loading}
@@ -155,6 +157,7 @@ function ChecklistTraitementSection({ dossier }: ChecklistTraitementSectionProps
           {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
           {items.length > 0 ? 'Régénérer' : 'Générer par IA'}
         </button>
+        )}
       </div>
       {error && <p className="text-[10px] text-danger">{error}</p>}
       {items.length > 0 && (
@@ -172,10 +175,11 @@ function ChecklistTraitementSection({ dossier }: ChecklistTraitementSectionProps
                   <button
                     key={r}
                     onClick={() => mettreAJourItemChecklist(dossier.id, item.id, r)}
+                    disabled={!canProcess}
                     className={`text-[10px] px-1.5 py-0.5 rounded font-medium transition-all ${
                       (item.resultat || item.prediction) === r ? RESULTATS_LABELS[r].cls : 'btn-secondary'
                     }`}
-                    title={RESULTATS_LABELS[r].label}
+                    title={canProcess ? RESULTATS_LABELS[r].label : 'Lecture seule'}
                   >
                     {r}
                   </button>
@@ -336,13 +340,7 @@ const AssignmentCard = memo(function AssignmentCard({
     setCommentaireAccuse('')
   }
 
-  const handleProgressionChange = (val: number) => {
-    if (val === 100 && preuvesFiles.length === 0) {
-      setPreuveError('Veuillez joindre au moins un fichier comme preuve')
-      return
-    }
-    setPreuveError('')
-    setLocalProgression(val)
+  const persisterProgression = (val: number) => {
     const statut = val === 100 ? 'termine' as const : (val > 0 ? 'en_cours' as const : a.statut)
     updateAssignment(dossierId, a.id, {
       progression: val as 0 | 25 | 50 | 75 | 100,
@@ -353,6 +351,22 @@ const AssignmentCard = memo(function AssignmentCard({
         details: '',
       }],
     })
+  }
+
+  const handleProgressionChange = (val: number) => {
+    setPreuveError('')
+    setLocalProgression(val)
+    if (val === 100) {
+      // Sans preuve on n'enregistre pas 100 % : on affiche l'upload et on
+      // attend la soumission (sinon l'UI de preuve ne s'affiche jamais).
+      if (a.preuves.length === 0) {
+        setPreuveError('Joignez au moins un fichier, puis soumettez-le pour terminer.')
+        return
+      }
+      persisterProgression(100)
+      return
+    }
+    persisterProgression(val)
   }
 
   const handlePreuvesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -366,18 +380,32 @@ const AssignmentCard = memo(function AssignmentCard({
 
   const handleSubmitPreuves = async () => {
     if (preuvesFiles.length === 0) return
-    const newPreuves = await Promise.all(preuvesFiles.map(async f => ({
-      nom: f.name,
-      url: await uploadPreuveFile(f, dossierId, a.id),
-      taille: f.size,
-      type: f.type,
-      date_upload: new Date().toISOString(),
-    })))
-    updateAssignment(dossierId, a.id, {
-      preuves: [...a.preuves, ...newPreuves],
-      historique: [...a.historique, { date: new Date().toISOString(), action: `${preuvesFiles.length} preuve(s) soumise(s)`, details: preuvesFiles.map(f => f.name).join(', ') }],
-    })
-    setPreuvesFiles([])
+    setPreuveError('')
+    try {
+      const newPreuves = await Promise.all(preuvesFiles.map(async f => ({
+        nom: f.name,
+        url: await uploadPreuveFile(f, dossierId, a.id),
+        taille: f.size,
+        type: f.type,
+        date_upload: new Date().toISOString(),
+      })))
+      const terminer = localProgression === 100
+      updateAssignment(dossierId, a.id, {
+        preuves: [...a.preuves, ...newPreuves],
+        ...(terminer ? { progression: 100 as const, statut: 'en_validation' as const } : {}),
+        historique: [...a.historique, {
+          date: new Date().toISOString(),
+          action: terminer
+            ? `${preuvesFiles.length} preuve(s) soumise(s) — travail terminé`
+            : `${preuvesFiles.length} preuve(s) soumise(s)`,
+          details: preuvesFiles.map(f => f.name).join(', '),
+        }],
+      })
+      setPreuvesFiles([])
+    } catch (err) {
+      console.error('[dossiers] Échec envoi preuves:', err)
+      setPreuveError("Échec de l'envoi des preuves. Réessayez.")
+    }
   }
 
   const isTerminated = dossierStatut === 'termine' || dossierStatut === 'archive'
@@ -654,7 +682,12 @@ export default function DetailsModal({
   const isInspector = userRole === 'inspector'
   const canManage = isAdmin
   const canFeedback = isAdmin
-  const canRequestExtend = isInspector
+  const estAssigne = !!user?.id && (
+    d?.inspecteur_id === user.id ||
+    (d?.assignments ?? []).some(a => a.inspecteur_id === user.id)
+  )
+  const canProcess = isInspector && estAssigne
+  const canRequestExtend = isInspector && estAssigne
 
   return (
     <FormShell
@@ -721,6 +754,7 @@ export default function DetailsModal({
                         <Download className="w-3 h-3" />
                       </a>
                     </div>
+                    {canProcess && (
                     <button
                       onClick={() => handleAnalyserFichier(f)}
                       disabled={!!analysingFile}
@@ -732,6 +766,7 @@ export default function DetailsModal({
                         : <Brain className="w-3 h-3 text-role-primary" />}
                       {analysingFile === f.nom ? 'Analyse en cours...' : 'Analyser par IA'}
                     </button>
+                    )}
                     {analyse && <AnalyseResultPanel analyse={analyse} />}
                   </div>
                 )
@@ -741,7 +776,7 @@ export default function DetailsModal({
         )}
 
         {d && (
-          <ChecklistTraitementSection dossier={d} />
+          <ChecklistTraitementSection dossier={d} canProcess={canProcess} />
         )}
 
         {d && (

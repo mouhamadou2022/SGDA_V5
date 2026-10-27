@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { FormShell } from '@/components/ui/FormShell';
 import { useAppStore, type Enquete } from '@/lib/store';
 import { ModuleHeader } from '@/components/layout/ModuleHeader';
-import { TYPES_ENQUETE, TYPE_ENQUETE_AUTRE, canManageRole } from '@/lib/config'
+import { TYPES_ENQUETE, TYPE_ENQUETE_AUTRE, canManageRole, peutInstruireRole } from '@/lib/config'
 import { isSGSApplicable } from '@/lib/risque'
 import { ClipboardList, ClipboardCheck, BarChart3, TrendingUp, Users, Calendar, CheckCircle2, Plus, PenSquare, Send, Search, Filter, X, Star, MessageSquare, FileQuestion, UserCheck, History, HeartHandshake, ShieldCheck, Leaf, GraduationCap, Building2 } from 'lucide-react'
 import { verifierEquipeInstruction } from '@/lib/instructionHabilitation'
@@ -39,7 +39,7 @@ function AssignationEquipeEnquete({ enquete, utilisateurs, estAdmin, onAssign }:
   estAdmin: boolean
   onAssign: (a: { responsable_id?: string; chef_id?: string }) => void
 }) {
-  const inspecteurs = (utilisateurs || []).filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role))
+  const inspecteurs = (utilisateurs || []).filter(u => peutInstruireRole(u.role))
   const [responsable, setResponsable] = useState(enquete.responsable_id || '')
   const [chef, setChef] = useState(enquete.chef_id || '')
   const nomDe = (id?: string) => {

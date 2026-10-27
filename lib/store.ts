@@ -52,6 +52,7 @@ import { createRegistreIASlice, type RegistreIASlice } from './store/registreIAS
 export type { RegistreIASlice, RegulationAnalysis, FormationSuggestion } from './store/registreIASlice';
 import { createMasterChecklistsSlice, type MasterChecklistSlice } from './store/masterChecklistsSlice';
 export type { MasterChecklistSlice } from './store/masterChecklistsSlice';
+import { ensureUniqueHierarchyItemIds } from './checklistNormalize';
 import { createEnquetesSlice, type EnqueteSlice } from './store/enquetesSlice'
 export type { EnqueteSlice, Enquete, ReponseEnquete, StatistiquesEnquete, QuestionEnquete } from './store/enquetesSlice';
 import { createMessagerieSlice, type MessagerieSlice } from './store/messagerieSlice'
@@ -702,7 +703,25 @@ export const useAppStore = create<AppStore>()(
           const planningsUniques = Array.isArray(state.plannings)
             ? Array.from(new Map(state.plannings.map(p => [p.id, p])).values())
             : []
-          useAppStore.setState({ _hydrated: true, plannings: planningsUniques })
+          const normaliserTemplates = (templates: Record<string, DomaineChecklist[]>) => {
+            let changed = false
+            const normalises = Object.fromEntries(
+              Object.entries(templates || {}).map(([id, hierarchie]) => {
+                const normalise = ensureUniqueHierarchyItemIds(hierarchie) ?? []
+                if (normalise !== hierarchie) changed = true
+                return [id, normalise]
+              }),
+            )
+            return changed ? normalises : templates
+          }
+          const masterChecklists = normaliserTemplates(state.masterChecklists)
+          const archivedMasterChecklists = normaliserTemplates(state.archivedMasterChecklists)
+          useAppStore.setState({
+            _hydrated: true,
+            plannings: planningsUniques,
+            masterChecklists,
+            archivedMasterChecklists,
+          })
           if (!deferred) {
             deferred = true
             // Déférer la synchronisation ML après le rendu initial

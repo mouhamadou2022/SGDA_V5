@@ -12,7 +12,7 @@
 import React, { useState } from 'react'
 import { UserCheck, Plus, X } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
-import { canManageRole } from '@/lib/config'
+import { canManageRole, peutInstruireRole } from '@/lib/config'
 import {
   verifierEquipeInstruction,
   type ExpertExterne,
@@ -27,8 +27,6 @@ interface Props {
   userRole: string
   currentUserId?: string
 }
-
-const ROLES_INSTRUCTION = ['inspecteur', 'chef_inspecteur', 'admin']
 
 export function nomUtilisateur(u: { prenom?: string; nom?: string } | undefined): string {
   if (!u) return '—'
@@ -51,7 +49,7 @@ export function AssignationInstruction({ type, dossierId, phase, current, userRo
   const assignerHomo = useAppStore(s => s.assignerInstructionHomologation)
   const canAssign = canManageRole(userRole)
 
-  const inspecteurs = (utilisateurs || []).filter(u => ROLES_INSTRUCTION.includes(u.role))
+  const inspecteurs = (utilisateurs || []).filter(u => !u.deleted_at && peutInstruireRole(u.role))
   const [responsable, setResponsable] = useState(current.responsable_id || '')
   const [chef, setChef] = useState(current.chef_id || '')
   const [equipe, setEquipe] = useState<string[]>(current.equipe_ids || [])
@@ -104,7 +102,9 @@ export function AssignationInstruction({ type, dossierId, phase, current, userRo
     else assignerHomo(dossierId, payload)
   }
 
-  const nomDe = (id?: string) => nomUtilisateur(inspecteurs.find(u => u.id === id))
+  // Résolution sur tous les comptes : une équipe historique peut contenir un
+  // admin, qui n'est plus proposé mais doit rester affiché.
+  const nomDe = (id?: string) => nomUtilisateur((utilisateurs || []).find(u => u.id === id))
   const assignee = (current.responsable_id || '') !== '' || (current.equipe_ids || []).length > 0 ||
     (current.chef_id || '') !== '' || (current.externes || []).length > 0
 

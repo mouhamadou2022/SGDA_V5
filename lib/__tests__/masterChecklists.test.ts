@@ -49,8 +49,7 @@ describe('resoudreChecklist', () => {
   })
 })
 
-describe('résolution selon le type d\'entité (aérodrome / hélistation)', () => {
-  function storeAvecAeroEtHeli() {
+describe('résolution selon le type d\'entité (aérodrome / hélistation)', () => {  function storeAvecAeroEtHeli() {
     const s = makeStore()
     s.getState().setMasterChecklist('QSC_QSC_CERT', [domaine('PHY', ['a1']), domaine('OPS', ['a2'])] as never)
     s.getState().setMasterChecklist('QSC_QSC_HELI_MER', [domaine('PHY', ['h1']), domaine('OPS', ['h2'])] as never)
@@ -121,5 +120,20 @@ describe('résolution selon le type d\'entité (aérodrome / hélistation)', () 
     s.getState().setMasterChecklist('QSC_QSC_CERT', [domaine('PHY', ['a1'])] as never)
     const r = s.getState().resoudreChecklist(['PHY'], ['QSC'], { type_entite: 'helistation' })
     expect(r).toBeNull()
+  })
+})
+
+describe('normalisation des templates du Kit Inspecteur', () => {
+  test('setMasterChecklist rend les ids d’items uniques sans en supprimer', () => {
+    const s = makeStore()
+    s.getState().setMasterChecklist('HMG_HMG_CHKLIST_GENERAL', [
+      domaine('PHY', ['IT6', 'IT6']),
+      domaine('OPS', ['IT6']),
+    ] as never)
+
+    const checklist = s.getState().masterChecklists.HMG_HMG_CHKLIST_GENERAL as any[]
+    const ids = checklist.flatMap(d => d.items.map((i: any) => i.id))
+    expect(ids).toHaveLength(3)
+    expect(new Set(ids).size).toBe(3)
   })
 })

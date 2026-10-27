@@ -1,7 +1,7 @@
 // lib/chargeUtils.ts
 // Utilitaires pour le calcul de la charge de travail des inspecteurs
 
-import { Surveillance, Ecart, EvenementSecurite, Dossier } from './store'
+import { Surveillance, Ecart, EvenementSecurite, Dossier, DossierAssignment } from './store'
 
 export interface Tache {
   id: string;
@@ -17,6 +17,10 @@ export interface Tache {
   progression: number; // 0-100
   aerodrome_id?: string;
   lien_id: string;
+  /** Dossier d'origine (tâches dossier uniquement). */
+  dossier_id?: string;
+  /** Assignation d'origine : le bouton « terminé » ne clôture que celle-ci. */
+  assignment_id?: string;
 }
 
 export interface ChargeInspecteur {
@@ -178,13 +182,19 @@ export const chargeUtils = {
   },
 
   /**
-   * Convertit un dossier en tâche
+   * Convertit un dossier (ou une assignation) en tâche.
+   * Avec `assignment`, la tâche est propre à l'inspecteur assigné : le bouton
+   * « terminé » ne clôture que son travail, jamais le dossier.
    */
-  dossierVersTache(dossier: Dossier, aerodromes: any[]): Tache {
+  dossierVersTache(dossier: Dossier, aerodromes: any[], assignment?: DossierAssignment): Tache {
     const aerodrome = aerodromes.find(a => a.id === dossier.aerodrome_id);
     const maintenant = new Date();
     const dateEcheance = new Date(dossier.date_limite);
-    const estEnRetard = dossier.statut !== 'termine' && dateEcheance < maintenant;
+    const progression = assignment ? assignment.progression : dossier.progression;
+    const assignmentFini = assignment
+      ? assignment.statut === 'termine' || assignment.statut === 'valide'
+      : dossier.statut === 'termine';
+    const estEnRetard = !assignmentFini && dateEcheance < maintenant;
 
     const prioriteMap: Record<string, 'basse' | 'moyenne' | 'haute' | 'critique'> = {
       'reglementaire': 'haute',
@@ -195,22 +205,30 @@ export const chargeUtils = {
       'financier': 'moyenne'
     };
 
+    const statut: Tache['statut'] = assignmentFini
+      ? 'termine'
+      : estEnRetard
+        ? 'en_retard'
+        : assignment
+          ? (assignment.statut === 'en_cours' || assignment.statut === 'accuse' || assignment.statut === 'en_validation' || progression > 0 ? 'en_cours' : 'a_faire')
+          : dossier.statut === 'en_cours' ? 'en_cours' : 'a_faire';
+
     return {
-      id: `dossier-${dossier.id}`,
+      id: assignment ? `dossier-${dossier.id}-${assignment.id}` : `dossier-${dossier.id}`,
       type: 'dossier',
       titre: `Dossier ${dossier.reference} - ${aerodrome?.code_oaci || 'Général'}`,
       description: dossier.titre,
       priorite: prioriteMap[dossier.categorie] || 'moyenne',
-      statut: estEnRetard ? 'en_retard' : 
-              dossier.statut === 'termine' ? 'termine' :
-              dossier.statut === 'en_cours' ? 'en_cours' : 'a_faire',
+      statut,
       date_echeance: dossier.date_limite,
       date_debut: dossier.date_instruction,
       temps_estime: 3,
       temps_passe: 0,
-      progression: dossier.progression,
+      progression,
       aerodrome_id: dossier.aerodrome_id,
-      lien_id: dossier.id,
+      lien_id: assignment?.inspecteur_id || dossier.inspecteur_id || dossier.id,
+      dossier_id: dossier.id,
+      assignment_id: assignment?.id,
     };
   },
 

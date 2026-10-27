@@ -94,4 +94,24 @@ describe('checklistParser', () => {
     expect(result.hierarchie.length).toBe(1)
     expect(result.hierarchie[0].items![1].numero).toMatch(/QSC1\.2/)
   })
+
+  it('génère des ids uniques quand un numéro d’item est réutilisé dans une autre section', async () => {
+    const content = [
+      'HMG — Homologation',
+      'Version 2025',
+      '1. — Premier domaine',
+      'IT6 — RAS 14 § 5.1 Vérifier le premier point',
+      'S  NS',
+      '2. — Second domaine',
+      'IT6 — RAS 14 § 5.2 Vérifier le second point',
+      'S  NS',
+    ]
+    const { buffer } = await createDocxBlob(content)
+    const file = makeFile(buffer, 'HMG_CHKLIST_GENERAL.docx')
+    const result = await parseChecklistWord(file)
+
+    const ids = result.hierarchie.flatMap(d => (d.items || []).map(i => i.id))
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+  })
 })

@@ -41,6 +41,17 @@ export function canManageRole(role?: string | null): boolean {
   return !!role && (MANAGER_ROLES as readonly string[]).includes(role)
 }
 
+// Rôles habilités à faire partie d'une équipe d'instruction (certification /
+// homologation, enquêtes, exemptions). L'admin désigne l'équipe mais n'en fait
+// pas partie. Les comptes utilisent 'inspector' (anglais, aligné sur ROLES et
+// les policies SQL) ; 'inspecteur' / 'chef_inspecteur' restent acceptés pour
+// les données historiques en français.
+export const ROLES_INSTRUCTION = ['inspector', 'inspecteur', 'chef_inspecteur'] as const
+
+export function peutInstruireRole(role?: string | null): boolean {
+  return !!role && (ROLES_INSTRUCTION as readonly string[]).includes(role)
+}
+
 // Rôles autorisés à écrire dans le portail exploitant : l'admin ANACIM et le
 // point focal (qui soumet preuves, PAC, formulaires, etc.).
 export function canWriteOperatorRole(role?: string | null): boolean {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, memo } from 'react'
 import { FileText, Upload, X, Calendar, User, AlertCircle, Save, Clock, AlertTriangle, Trash2 } from 'lucide-react'
-import { useAppStore, type Aerodrome, type Utilisateur, type DossierAssignment } from '@/lib/store'
+import { useAppStore, type Aerodrome, type Utilisateur, type Dossier, type DossierAssignment } from '@/lib/store'
 import { dossierUtils } from '@/lib/dossierUtils'
 import { uploadDossierFile } from '@/lib/dossierFileUpload'
 
@@ -64,6 +64,7 @@ export const DossierForm = memo(function DossierForm({
   const [dateLimite, setDateLimite] = useState('')
   const [urgence, setUrgence] = useState('normale')
   const [fichiers, setFichiers] = useState<File[]>([])
+  const [fichiersExistants, setFichiersExistants] = useState<Dossier['fichiers']>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -100,6 +101,7 @@ export const DossierForm = memo(function DossierForm({
     setInstructions(d.instructions || '')
     setDateLimite(d.date_limite?.split('T')[0] || '')
     setUrgence((d as any).urgence || 'normale')
+    setFichiersExistants(d.fichiers || [])
     if (d.assignments?.length) {
       setSelectedInspecteurs(d.assignments.map((a: DossierAssignment) => ({ id: a.inspecteur_id, nom: a.inspecteur_nom })))
     }
@@ -152,7 +154,7 @@ export const DossierForm = memo(function DossierForm({
     const e: Record<string, string> = {}
     if (!titre.trim()) e.titre = 'Le titre est requis'
     if (!dateLimite) e.dateLimite = 'La date limite est requise'
-    if (selectedInspecteurs.length === 0) e.inspecteurs = 'Ajoutez au moins un inspecteur'
+    if (mode === 'creation' && selectedInspecteurs.length === 0) e.inspecteurs = 'Ajoutez au moins un inspecteur'
     if (dateLimite) {
       const d = new Date(dateLimite)
       const t = new Date(); t.setHours(0, 0, 0, 0)
@@ -242,7 +244,7 @@ export const DossierForm = memo(function DossierForm({
           service_assigne: serviceAssigne as any,
           instructions,
           date_limite: dateLimite,
-          fichiers: newFichiers,
+          fichiers: [...fichiersExistants, ...newFichiers],
           urgence,
         } as any)
 
@@ -257,7 +259,8 @@ export const DossierForm = memo(function DossierForm({
       console.error('Erreur sauvegarde dossier:', err)
       addNotification({
         user_id: user?.id || '', type: 'danger', title: 'Erreur',
-        message: 'Une erreur est survenue lors de la sauvegarde', canal: 'in_app',
+        message: err instanceof Error ? err.message : 'Une erreur est survenue lors de la sauvegarde',
+        canal: 'in_app',
       })
     } finally {
       setIsSubmitting(false)
@@ -408,29 +411,36 @@ export const DossierForm = memo(function DossierForm({
             <User className="w-3 h-3 inline mr-1" />Assignation des inspecteurs
           </p>
 
-          {/* Sélecteur */}
-          <div className="flex gap-2 items-end">
-            <div className="flex-1 form-field">
-              <label className={labelClass}>Ajouter un inspecteur</label>
-              <select key={selectKey}
-                onChange={e => {
-                  const id = e.target.value;
-                  if (!id) return;
-                  const u = utilisateurs.find(u => u.id === id);
-                  if (!u) return;
-                  setSelectedInspecteurs(prev => [...prev, { id: u.id, nom: `${u.prenom} ${u.nom}` }]);
-                  setSelectKey(k => k + 1);
-                }}
-                className={`form-select ${focusClass}`} style={selectStyle}
-              >
-                <option value="">Sélectionner un inspecteur...</option>
-                {inspecteursDisponibles.map((u: Utilisateur) => (
-                  <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {errors.inspecteurs && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.inspecteurs}</p>}
+          {mode === 'creation' ? (
+            <>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1 form-field">
+                  <label className={labelClass}>Ajouter un inspecteur</label>
+                  <select key={selectKey}
+                    onChange={e => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const u = utilisateurs.find(u => u.id === id);
+                      if (!u) return;
+                      setSelectedInspecteurs(prev => [...prev, { id: u.id, nom: `${u.prenom} ${u.nom}` }]);
+                      setSelectKey(k => k + 1);
+                    }}
+                    className={`form-select ${focusClass}`} style={selectStyle}
+                  >
+                    <option value="">Sélectionner un inspecteur...</option>
+                    {inspecteursDisponibles.map((u: Utilisateur) => (
+                      <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {errors.inspecteurs && <p className="field-error"><AlertCircle className="w-3 h-3 inline mr-1" />{errors.inspecteurs}</p>}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Les inspecteurs assignés se gèrent depuis le détail du dossier.
+            </p>
+          )}
 
           {/* Liste des assignés */}
           {selectedInspecteurs.length > 0 && (
@@ -444,13 +454,17 @@ export const DossierForm = memo(function DossierForm({
                     </div>
                     <div>
                       <p className="font-medium text-sm">{ins.nom}</p>
-                      <p className="text-xs text-muted-foreground">En attente d&apos;accusé réception</p>
+                      {mode === 'creation' && (
+                        <p className="text-xs text-muted-foreground">En attente d&apos;accusé réception</p>
+                      )}
                     </div>
                   </div>
-                  <button type="button" onClick={() => handleRetirerInspecteur(ins.id)}
-                    className="btn btn-ghost btn-sm text-danger">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {mode === 'creation' && (
+                    <button type="button" onClick={() => handleRetirerInspecteur(ins.id)}
+                      className="btn btn-ghost btn-sm text-danger">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -490,6 +504,23 @@ export const DossierForm = memo(function DossierForm({
                     className="btn btn-ghost btn-sm text-danger">
                     <X className="w-4 h-4" />
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {mode === 'modification' && fichiersExistants.length > 0 && (
+            <div className="space-y-2">
+              <label className={labelClass}>Pièces existantes conservées ({fichiersExistants.length})</label>
+              {fichiersExistants.map((f, idx) => (
+                <div key={`${f.url}-${idx}`} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                    <span className="font-medium text-sm truncate">{f.nom}</span>
+                  </div>
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">
+                    Ouvrir
+                  </a>
                 </div>
               ))}
             </div>

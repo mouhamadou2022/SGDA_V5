@@ -7,6 +7,7 @@ import type { AppStore } from '../store'
 import type { DomaineChecklist } from './checklistSlice'
 import type { HelistationData } from '../types/helistation'
 import { inferTypeEntite, mapTypeInstallationToSousType } from '../types/helistation'
+import { ensureUniqueHierarchyItemIds } from '../checklistNormalize'
 
 /** Contexte d'entité pour choisir le template de checklist adapté. */
 export interface EntityContextChecklist {
@@ -56,7 +57,10 @@ export const createMasterChecklistsSlice: StateCreator<AppStore, [], [], MasterC
   templateVersions: {},
 
   setMasterChecklist: (id, checklist) => set((state) => ({
-    masterChecklists: { ...state.masterChecklists, [id]: checklist }
+    masterChecklists: {
+      ...state.masterChecklists,
+      [id]: ensureUniqueHierarchyItemIds(checklist) ?? [],
+    }
   })),
 
   deleteMasterChecklist: (id) => set((state) => {

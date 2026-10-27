@@ -78,7 +78,7 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
   const updateEcart = useAppStore(s => s.updateEcart);
   const updateEvenement = useAppStore(s => s.updateEvenement);
-  const updateDossier = useAppStore(s => s.updateDossier);
+  const updateAssignment = useAppStore(s => s.updateAssignment);
   const updateFormation = useAppStore(s => s.updateFormation);
   const addNotification = useAppStore(s => s.addNotification);
 
@@ -135,8 +135,12 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
     });
 
     dossiers?.forEach(d => {
-      if (d.inspecteur_id) {
-        taches.push({ ...chargeUtils.dossierVersTache(d, aerodromes), lien_id: d.inspecteur_id });
+      if (d.assignments?.length) {
+        d.assignments.forEach(a => {
+          taches.push(chargeUtils.dossierVersTache(d, aerodromes, a));
+        });
+      } else if (d.inspecteur_id) {
+        taches.push(chargeUtils.dossierVersTache(d, aerodromes));
       }
     });
 
@@ -314,8 +318,33 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
         break;
       }
       case 'dossier': {
-        const id = tache.id.replace('dossier-', '');
-        updateDossier(id, { statut: 'termine', progression: 100 } as any);
+        // Clôture uniquement l'assignation de cet inspecteur : la validation
+        // et la clôture du dossier restent à l'admin.
+        if (!tache.dossier_id || !tache.assignment_id) {
+          addNotification({
+            user_id: userId, type: 'warning', title: 'Action impossible',
+            message: 'Ce dossier ne possède pas d\'assignation à clôturer.', canal: 'in_app',
+          });
+          return;
+        }
+        const dossier = useAppStore.getState().dossiers.find(d => d.id === tache.dossier_id);
+        const assignment = dossier?.assignments.find(a => a.id === tache.assignment_id);
+        if (!assignment) {
+          addNotification({
+            user_id: userId, type: 'warning', title: 'Action impossible',
+            message: 'Assignation introuvable.', canal: 'in_app',
+          });
+          return;
+        }
+        updateAssignment(tache.dossier_id, tache.assignment_id, {
+          progression: 100,
+          statut: 'en_validation',
+          historique: [...assignment.historique, {
+            date: new Date().toISOString(),
+            action: 'Travail marqué terminé depuis la charge de travail',
+            details: '',
+          }],
+        });
         break;
       }
       case 'fmt': {
@@ -347,12 +376,23 @@ export default function ChargeTravailModule({ user }: ChargeTravailModuleProps) 
     return (utilisateurs || [])
       .filter(u => ['inspector', 'admin'].includes(u.role) && u.statut === 'actif')
       .map(ins => {
-        const dossiersIns = (dossiers || []).filter(d => d.inspecteur_id === ins.id)
-        const traites = dossiersIns.filter(d => d.statut === 'termine').length
-        const enRetard = dossiersIns.filter(d => d.statut === 'en_cours' && new Date(d.date_limite) < new Date()).length
+        const maintenant = new Date()
+        const assignmentsIns = (dossiers || []).flatMap(d =>
+          (d.assignments || [])
+            .filter(a => a.inspecteur_id === ins.id)
+            .map(a => ({ dossier: d, assignment: a }))
+        )
+        const legacyDossiers = (dossiers || []).filter(d => !d.assignments?.length && d.inspecteur_id === ins.id)
+        const totalDossiers = assignmentsIns.length + legacyDossiers.length
+        const traites = assignmentsIns.filter(({ assignment }) =>
+          assignment.statut === 'termine' || assignment.statut === 'valide'
+        ).length + legacyDossiers.filter(d => d.statut === 'termine').length
+        const enRetard = assignmentsIns.filter(({ dossier, assignment }) =>
+          assignment.statut !== 'termine' && assignment.statut !== 'valide' && new Date(dossier.date_limite) < maintenant
+        ).length + legacyDossiers.filter(d => d.statut === 'en_cours' && new Date(d.date_limite) < maintenant).length
         const surveillancesIns = (surveillances || []).filter(s => (s.equipe_ids || []).includes(ins.id) && s.statut === 'transmise')
         const formationsIns = (formations || []).filter(f => (f.participants || []).includes(ins.id))
-        const perfScore = dossiersIns.length > 0 ? Math.round((traites / (traites + enRetard || 1)) * 50 + Math.min(surveillancesIns.length * 10, 30) + Math.min(formationsIns.length * 5, 20)) : 50
+        const perfScore = totalDossiers > 0 ? Math.round((traites / (traites + enRetard || 1)) * 50 + Math.min(surveillancesIns.length * 10, 30) + Math.min(formationsIns.length * 5, 20)) : 50
         return { id: ins.id, nom: `${ins.prenom} ${ins.nom}`, poste: ins.poste || 'inspecteur', surveillancesCount: surveillancesIns.length, traites, enRetard, formationsCount: formationsIns.length, perfScore }
       })
   }, [utilisateurs, dossiers, surveillances, formations])

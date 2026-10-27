@@ -50,6 +50,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
   const utilisateurs = useAppStore(s => s.utilisateurs);
   const user = useAppStore(s => s.user);
   const userRole = user?.role || _userRole || '';
+  const canManage = canManageRole(userRole)
   const addDossier = useAppStore(s => s.addDossier);
   const updateDossier = useAppStore(s => s.updateDossier);
   const extendreDossier = useAppStore(s => s.extendreDossier);
@@ -85,23 +86,15 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
   const [currentPage, setCurrentPage] = useState<Record<string, number>>({})
   const PAGE_SIZE = 20
 
-  // Par défaut, l'inspecteur ne voit que ses dossiers
-  useEffect(() => {
-    if (!mounted || !user) return;
-    if (userRole === 'inspector') {
-      setFilters(prev => ({ ...prev, inspecteur: user.id }));
-    }
-  }, [mounted, user, userRole]);
-
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
   useEffect(() => { setCurrentPage({}) }, [filters, searchTerm])
 
-  // Archivage automatique des dossiers terminés
+  // Archivage automatique des dossiers terminés (admin uniquement)
   useEffect(() => {
-    if (!dossiers) return;
+    if (!dossiers || !canManage) return;
     
     const dossiersTermines = dossiers.filter(
       d => d.statut === 'termine'
@@ -115,7 +108,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
         archiverDossierAutomatique(dossier.id);
       }
     });
-  }, [dossiers, archiverDossierAutomatique]);
+  }, [dossiers, archiverDossierAutomatique, canManage]);
 
   // Formulaire géré par DossierForm — plus de state local
 
@@ -260,7 +253,6 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
     };
   };
 
-  const canManage = canManageRole(userRole)
   const canCreate = canManageRole(userRole)
 
   const handleMarquerTermine = (dossierId: string) => {

@@ -1,51 +1,70 @@
 -- ============================================================
 -- SGDA V5 — Schéma & politiques RLS (fichier unique, source de vérité DB)
--- Généré le 2026-05-17 | Mis à jour le 2026-09-20
+-- Généré le 2026-05-17 | Réorganisé le 2026-10-23
 --
 -- USAGE
---   1. Base existante (prod) : exécuter tel quel, dans l'ordre.
+--   1. Base existante (prod) : exécuter tel quel, dans l’ordre.
 --      Tout est idempotent (IF NOT EXISTS, DROP IF EXISTS, ON CONFLICT,
 --      WHERE NOT EXISTS) : réexécutable sans risque ni perte de données.
 --   2. Base neuve : ce fichier est un PATCH — il suppose les tables
---      métier de base. Clonez d'abord le schéma de prod
+--      métier de base. Clonez d’abord le schéma de prod
 --      (supabase db dump --schema public), puis exécutez ce fichier.
 --      La SECTION 0 bloque avec un message clair si le socle manque.
+--
+-- STRUCTURE
+--   PARTIE A — SOCLE & SÉCURITÉ ......... sections 0, 2 à 9
+--   PARTIE B — ÉVOLUTIONS MÉTIER ........ sections 12 à 28
+--   PARTIE C — VÉRIFICATIONS ............ section 10
+--   ANNEXES — OPÉRATIONS MANUELLES ...... sections 1 et 11
 --
 -- CONVENTIONS
 --   - Pas de DROP TABLE, pas de DELETE massif (sauf backfills ciblés).
 --   - Chaque CREATE POLICY est précédé de son DROP IF EXISTS.
 --   - Les ALTER fragiles sont enveloppés en DO ... EXCEPTION WHEN OTHERS.
 --   - gen_random_uuid() partout (pgcrypto natif Supabase).
+--   - Les numéros de section sont conservés (références croisées dans
+--     les commentaires et le code) ; seule leur place change.
 --
--- SOMMAIRE
---   SECTION 0   Pré-requis (garde bloquante)
---   SECTION 1   Réparation auth_id / trigger handle_new_user
---   SECTION 2   Colonnes codes_acces (auth par code)
---   SECTION 3   Colonnes checklist préparée (plannings)
---   SECTION 4   Index RLS + fonctions helper (get_user_*)
---   SECTION 5   Trigger corrigé + tables IA (suggestion_feedbacks,
---               ml_model_weights, api_keys, self_assessments) + colonnes
---               dossiers/messages
---   SECTION 6   Activation RLS (tables manquantes)
---   SECTION 7   Politiques RLS complètes (+ storage, seed admin)
---   SECTIONS 8-11  Permissions, seed admin, vérifications, note auth.ts
---   SECTION 12  Évaluation SGS PAOE (Annexe 19 OACI)
---   SECTION 13  Colonnes de cohérence code ↔ SQL
---   SECTION 14  Améliorations session 2026-05-21
---   SECTION 15  Correctif portail exploitant
---   SECTION 16  Workflow instructeur (exemptions)
---   SECTION 17  Nettoyage fichiers orphelins
---   SECTION 18  Checklist templates (+ SECTION 26 nature)
---   SECTION 19  AMDEC — SECTION 20 FTA
---   SECTION 21  IA langage clair & entraînement
---   SECTION 22  Inspecteur virtuel (suivi ML)
---   SECTION 23  Demandes d'accès (portail public)
---   SECTION 24  Boucle d'apprentissage AERORISQ
---   SECTION 25  Persistance serveur des exemptions
---   SECTION 26  Persistance enquêtes + réponses (+ durcissement colonnes)
---   SECTION 27  Nature des templates (checklist/fiche/formulaire/guide)
---   SECTION 28  Mémoire checklist partagée
+-- SOMMAIRE DÉTAILLÉ
+--   PARTIE A — SOCLE & SÉCURITÉ
+--     Section 0   Pré-requis (garde bloquante)
+--     Section 2   Colonnes codes_acces (auth par code)
+--     Section 3   Colonnes checklist préparée (plannings)
+--     Section 4   Index RLS + fonctions helper (get_user_*)
+--     Section 5   Trigger auth + tables IA + colonnes
+--     Section 6   Activation RLS (tables manquantes)
+--     Section 7   Policies RLS complètes
+--     Section 8   Permissions
+--     Section 9   Seed admin
+--   PARTIE B — ÉVOLUTIONS MÉTIER
+--     Section 12  Évaluation SGS PAOE (Annexe 19 OACI)
+--     Section 13  Colonnes de cohérence code ↔ SQL
+--     Section 14  Améliorations session 2026-05-21
+--     Section 15  Correctif portail exploitant
+--     Section 16  Workflow instructeur (exemptions)
+--     Section 17  Nettoyage fichiers orphelins
+--     Section 18  Checklist templates
+--     Section 19  AMDEC
+--     Section 20  FTA
+--     Section 21  IA langage clair & entraînement
+--     Section 22  Inspecteur virtuel (suivi ML)
+--     Section 23  Demandes d’accès (portail public)
+--     Section 24  Boucle d’apprentissage AERORISQ
+--     Section 25  Persistance serveur des exemptions
+--     Section 26  Persistance enquêtes + réponses
+--     Section 27  Nature des templates
+--     Section 28  Mémoire checklist partagée
+--   PARTIE C — VÉRIFICATIONS
+--     Section 10  Vérifications post-exécution
+--   ANNEXES — OPÉRATIONS MANUELLES
+--     Section 1   Réparation auth_id / doublons ghost
+--     Section 11  Note auth.ts (loginWithCode)
 -- ============================================================
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  PARTIE A — SOCLE & SÉCURITÉ                             ║
+-- ╚══════════════════════════════════════════════════════════╝
+
 -- ============================================================
 -- SECTION 0 — PRÉREQUIS (vérification bloquante, message clair)
 -- Ce fichier est un PATCH : il suppose les tables métier de base
@@ -72,37 +91,6 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
-
--- ============================================================
--- SECTION 1 — RÉPARATION URGENTE (à exécuter EN PREMIER)
--- Lie les auth_id manquants aux utilisateurs existants
--- ============================================================
-
--- 1.A Réparer l'admin et tout utilisateur dont auth_id = null
--- Dès qu'un utilisateur se reconnecte après ce fix, le trigger
--- correct va lier son auth_id automatiquement.
--- En attendant, forcer la liaison pour l'admin si vous connaissez
--- son UUID Supabase Auth (cherchez dans Authentication > Users) :
-
--- REMPLACER 'VOTRE-AUTH-UUID-ICI' par l'UUID réel de l'admin
--- dans Supabase Dashboard → Authentication → Users
--- Puis décommenter :
--- UPDATE utilisateurs
--- SET auth_id = 'VOTRE-AUTH-UUID-ICI'::uuid
--- WHERE email = 'admin@anacim.sn' AND auth_id IS NULL;
-
--- 1.B Supprimer les doublons ghost créés par le mauvais trigger
--- (utilisateurs role='guest' créés automatiquement qui doublonnent)
--- Attention : vérifier d'abord avec le SELECT en commentaire
--- SELECT id, email, role, auth_id, created_at FROM utilisateurs
--- WHERE role = 'guest' AND auth_id IS NOT NULL
--- ORDER BY created_at;
--- Puis si ces lignes sont bien des fantômes :
--- DELETE FROM utilisateurs
--- WHERE role = 'guest'
---   AND auth_id IS NOT NULL
---   AND email LIKE '%@anacim.sn'
---   AND created_at > now() - interval '30 days';
 
 -- ============================================================
 -- SECTION 2 — COLONNES MANQUANTES (auth.ts les utilise)
@@ -942,20 +930,10 @@ CREATE POLICY "checklist_ssd_write" ON checklist_sous_sous_domaines
 -- ╔══════════════════════════════════════════════════════════╗
 -- ║  7.14 ENQUÊTES                                           ║
 -- ╚══════════════════════════════════════════════════════════╝
-
-DROP POLICY IF EXISTS "enquetes_select" ON enquetes;
-CREATE POLICY "enquetes_select" ON enquetes
-  FOR SELECT USING (
-    auth.uid() IS NOT NULL
-    AND (
-      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
-      OR "statut" = 'active'
-    )
-  );
-
-DROP POLICY IF EXISTS "enquetes_write" ON enquetes;
-CREATE POLICY "enquetes_write" ON enquetes
-  FOR ALL USING (get_user_role() IN ('admin','inspector'));
+--
+-- Les policies enquetes_select / enquetes_write sont définies dans la
+-- SECTION 26 (après l’ajout de la colonne aerodrome_ids). Ne pas les
+-- dupliquer ici : la dernière définition doit rester la seule.
 
 -- Enquête-Aérodromes (jonction)
 DROP POLICY IF EXISTS "enquete_aerodromes_select" ON enquete_aerodromes;
@@ -1185,22 +1163,123 @@ CREATE POLICY "reg_entries_write" ON registre_entries
 -- ║  7.17 DOSSIERS                                           ║
 -- ╚══════════════════════════════════════════════════════════╝
 
+-- Dossiers = internes ANACIM. Les inspecteurs lisent tout (même niveau
+-- d'information) mais n'agissent que sur leurs dossiers ; l'admin gère
+-- la création, les métadonnées et la suppression. Aucun accès exploitant.
+DROP POLICY IF EXISTS "dossiers_write" ON dossiers;
 DROP POLICY IF EXISTS "dossiers_select" ON dossiers;
 CREATE POLICY "dossiers_select" ON dossiers
   FOR SELECT USING (
     auth.uid() IS NOT NULL
-    AND (
-      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
-      OR inspecteur_id = get_user_internal_id()
+    AND get_user_role() IN ('admin','inspector')
+  );
+
+DROP POLICY IF EXISTS "dossiers_insert" ON dossiers;
+CREATE POLICY "dossiers_insert" ON dossiers
+  FOR INSERT WITH CHECK (get_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "dossiers_update" ON dossiers;
+CREATE POLICY "dossiers_update" ON dossiers
+  FOR UPDATE
+  USING (
+    get_user_role() = 'admin'
+    OR (
+      get_user_role() = 'inspector'
+      AND (
+        inspecteur_id = get_user_internal_id()
+        OR COALESCE(assignments, '[]'::jsonb) @> jsonb_build_array(
+          jsonb_build_object('inspecteur_id', get_user_internal_id()::text)
+        )
+      )
+    )
+  )
+  WITH CHECK (
+    get_user_role() = 'admin'
+    OR (
+      get_user_role() = 'inspector'
+      AND (
+        inspecteur_id = get_user_internal_id()
+        OR COALESCE(assignments, '[]'::jsonb) @> jsonb_build_array(
+          jsonb_build_object('inspecteur_id', get_user_internal_id()::text)
+        )
+      )
     )
   );
 
-DROP POLICY IF EXISTS "dossiers_write" ON dossiers;
-CREATE POLICY "dossiers_write" ON dossiers
-  FOR ALL USING (
-    get_user_role() IN ('admin','inspector')
-    OR inspecteur_id = get_user_internal_id()
-  );
+DROP POLICY IF EXISTS "dossiers_delete" ON dossiers;
+CREATE POLICY "dossiers_delete" ON dossiers
+  FOR DELETE USING (get_user_role() = 'admin');
+
+-- Un inspecteur assigné ne peut modifier que sa propre ligne d'assignation
+-- et les artefacts de traitement (progression, checklist, analyses, historique,
+-- extensions). Les métadonnées restent réservées à l'admin.
+CREATE OR REPLACE FUNCTION protect_dossier_metadata()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id text := get_user_internal_id()::text;
+  v_old_assignment jsonb;
+  v_new_assignment jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR get_user_role() = 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.titre             IS DISTINCT FROM OLD.titre
+     OR NEW.reference         IS DISTINCT FROM OLD.reference
+     OR NEW.categorie         IS DISTINCT FROM OLD.categorie
+     OR NEW.aerodrome_id      IS DISTINCT FROM OLD.aerodrome_id
+     OR NEW.demandeur         IS DISTINCT FROM OLD.demandeur
+     OR NEW.service_assigne   IS DISTINCT FROM OLD.service_assigne
+     OR NEW.inspecteur_id     IS DISTINCT FROM OLD.inspecteur_id
+     OR NEW.instructions      IS DISTINCT FROM OLD.instructions
+     OR NEW.date_instruction  IS DISTINCT FROM OLD.date_instruction
+     OR NEW.date_limite       IS DISTINCT FROM OLD.date_limite
+     OR NEW.urgence           IS DISTINCT FROM OLD.urgence
+     OR NEW.fichiers          IS DISTINCT FROM OLD.fichiers
+     OR NEW.preuve_traitement IS DISTINCT FROM OLD.preuve_traitement
+     OR NEW.statut            IS DISTINCT FROM OLD.statut
+     OR NEW.archived_at       IS DISTINCT FROM OLD.archived_at
+     OR NEW.created_by        IS DISTINCT FROM OLD.created_by
+     OR NEW.created_at        IS DISTINCT FROM OLD.created_at
+     OR NEW.formulaires       IS DISTINCT FROM OLD.formulaires
+  THEN
+    RAISE EXCEPTION 'Seul un administrateur peut modifier les métadonnées d''un dossier';
+  END IF;
+
+  IF COALESCE(NEW.assignments, '[]'::jsonb) IS DISTINCT FROM COALESCE(OLD.assignments, '[]'::jsonb) THEN
+    IF jsonb_array_length(COALESCE(NEW.assignments, '[]'::jsonb)) <> jsonb_array_length(COALESCE(OLD.assignments, '[]'::jsonb)) THEN
+      RAISE EXCEPTION 'Seul un administrateur peut ajouter ou retirer une assignation';
+    END IF;
+
+    FOR v_old_assignment IN
+      SELECT value FROM jsonb_array_elements(COALESCE(OLD.assignments, '[]'::jsonb))
+    LOOP
+      SELECT value INTO v_new_assignment
+      FROM jsonb_array_elements(COALESCE(NEW.assignments, '[]'::jsonb))
+      WHERE COALESCE(value->>'id', '') = COALESCE(v_old_assignment->>'id', '')
+        AND COALESCE(value->>'inspecteur_id', '') = COALESCE(v_old_assignment->>'inspecteur_id', '')
+      LIMIT 1;
+
+      IF (v_new_assignment IS NULL OR v_new_assignment IS DISTINCT FROM v_old_assignment)
+         AND COALESCE(v_old_assignment->>'inspecteur_id', '') <> COALESCE(v_user_id, '')
+      THEN
+        RAISE EXCEPTION 'Un inspecteur ne peut modifier que sa propre assignation';
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_dossier_metadata ON dossiers;
+CREATE TRIGGER trg_protect_dossier_metadata
+  BEFORE UPDATE ON dossiers
+  FOR EACH ROW EXECUTE FUNCTION protect_dossier_metadata();
 
 -- ╔══════════════════════════════════════════════════════════╗
 -- ║  7.18 PROFILS RISQUE & SCORES                            ║
@@ -1719,70 +1798,10 @@ ON CONFLICT (email) DO UPDATE SET
 -- Note : auth_id reste null jusqu'à la première connexion Supabase Auth
 -- Le trigger corrigé (section 5) le liera automatiquement.
 
--- ============================================================
--- SECTION 10 — VÉRIFICATIONS POST-EXÉCUTION
--- ============================================================
 
--- 10.A Tables avec RLS activé mais AUCUNE policy
--- → DOIT retourner 0 ligne après exécution de ce fichier
-SELECT relname AS table_sans_policy
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public'
-  AND c.relkind = 'r'
-  AND c.relrowsecurity = true
-  AND c.relname NOT IN (
-    SELECT tablename FROM pg_policies WHERE schemaname = 'public'
-  );
-
--- 10.B Compter les policies par table
-SELECT tablename, count(*) AS nb_policies
-FROM pg_policies
-WHERE schemaname = 'public'
-GROUP BY tablename
-ORDER BY tablename;
-
--- 10.C Vérifier que l'admin est bien en base
-SELECT id, email, "role", "statut", auth_id,
-       CASE WHEN auth_id IS NULL THEN '⚠ auth_id manquant' ELSE '✅ OK' END AS etat_auth
-FROM utilisateurs
-WHERE email = 'admin@anacim.sn';
-
--- ============================================================
--- ⚠  SECTION 11 — MODIFICATION REQUISE DANS auth.ts
--- CE PROBLÈME NE PEUT PAS ÊTRE RÉSOLU EN SQL SEUL
--- ============================================================
---
--- PROBLÈME : loginWithCode() ne crée pas de session Supabase Auth.
--- Les opérateurs (focal_operator, staff_operator, dg_operator)
--- ont auth.uid() = null → toutes les policies RLS les bloquent.
---
--- SOLUTION : Ajouter signInAnonymously() dans loginWithCode()
--- APRÈS avoir trouvé/créé l'utilisateur :
---
---   // Créer une session Supabase Auth anonyme
---   const { data: anonData, error: anonError } =
---     await supabase.auth.signInAnonymously()
---
---   if (!anonError && anonData?.user) {
---     // Lier cet auth_id à l'utilisateur
---     // (utiliser service_role ou une Edge Function)
---     await supabase
---       .from('utilisateurs')
---       .update({ auth_id: anonData.user.id })
---       .eq('id', utilisateur.id)
---       .eq('statut', 'actif')
---   }
---
--- PRÉREQUIS Supabase : activer "Anonymous sign-ins" dans
--- Dashboard → Authentication → Providers → Anonymous
---
--- ALTERNATIVE (plus robuste) :
--- Créer une Supabase Edge Function "login-with-code" qui
--- utilise le service_role pour lier l'auth_id, puis retourne
--- un custom JWT. Cela évite d'accumuler des sessions anonymes.
---
--- ============================================================
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  PARTIE B — ÉVOLUTIONS MÉTIER                            ║
+-- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
 -- SECTION 12 — ÉVALUATION SGS PAOE (OACI Annexe 19)
@@ -2860,6 +2879,11 @@ GRANT INSERT, UPDATE ON checklist_templates TO authenticated;
 
 -- ============================================================
 -- FIN SECTION 18 — Checklist templates
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  PARTIE B.2 — ANALYSES (AMDEC / FTA)                     ║
+-- ╚══════════════════════════════════════════════════════════╝
+
 -- ============================================================
 
 -- ╔══════════════════════════════════════════════════════════╗
@@ -2969,6 +2993,11 @@ GRANT INSERT, UPDATE, DELETE ON fta_analyses TO authenticated;
 -- ============================================================
 -- FIN SECTION 20 — FTA
 -- ============================================================
+
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  PARTIE B.3 — IA & PERSISTANCE                           ║
+-- ╚══════════════════════════════════════════════════════════╝
 
 -- ============================================================
 -- SECTION 21 — AERORISQ : LANGAGE CLAIR & ENTRAÎNEMENT (2026-08-04)
@@ -3141,7 +3170,7 @@ GRANT INSERT, UPDATE ON inspecteur_feedback TO authenticated;
 -- ============================================================
 
 -- ============================================================
--- SECTION 23 — DEMANDES D'ACCÈS PORTEIL PUBLIC
+-- SECTION 23 — DEMANDES D'ACCÈS PORTAIL PUBLIC
 -- Table utilisée par le bouton "Demander un accès au système"
 -- du dashboard Invité. Un visiteur (anonyme ou guest) soumet une
 -- demande ; l'admin la consulte et la traite (création de compte)
@@ -3761,9 +3790,9 @@ CREATE INDEX IF NOT EXISTS idx_prediction_suivi_date ON prediction_suivi (predic
 
 
 -- ============================================================
--- SECTION 25 � PERSISTANCE SERVEUR DES EXEMPTIONS (2026-09-20)
--- La table existait (RLS + politiques 7.10) mais n'etait ni lue ni ecrite
--- (donnees 100 % locales). Tout en IF NOT EXISTS : reexecutable sans risque.
+-- SECTION 25 — PERSISTANCE SERVEUR DES EXEMPTIONS (2026-09-20)
+-- La table existait (RLS + politiques 7.10) mais n'était ni lue ni écrite
+-- (données 100 % locales). Tout en IF NOT EXISTS : réexécutable sans risque.
 -- ============================================================
 -- Colonnes métier du slice (mesures imbriquées en JSONB, comme
 -- checklist_hierarchy sur surveillances).
@@ -4053,3 +4082,110 @@ CREATE POLICY "checklist_memory_select" ON checklist_memory
 DROP POLICY IF EXISTS "checklist_memory_write" ON checklist_memory;
 CREATE POLICY "checklist_memory_write" ON checklist_memory
   FOR ALL USING (get_user_role() IN ('admin','inspector'));
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  PARTIE C — VÉRIFICATIONS POST-EXÉCUTION                 ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+-- ============================================================
+-- SECTION 10 — VÉRIFICATIONS POST-EXÉCUTION
+-- ============================================================
+
+-- 10.A Tables avec RLS activé mais AUCUNE policy
+-- → DOIT retourner 0 ligne après exécution de ce fichier
+SELECT relname AS table_sans_policy
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind = 'r'
+  AND c.relrowsecurity = true
+  AND c.relname NOT IN (
+    SELECT tablename FROM pg_policies WHERE schemaname = 'public'
+  );
+
+-- 10.B Compter les policies par table
+SELECT tablename, count(*) AS nb_policies
+FROM pg_policies
+WHERE schemaname = 'public'
+GROUP BY tablename
+ORDER BY tablename;
+
+-- 10.C Vérifier que l'admin est bien en base
+SELECT id, email, "role", "statut", auth_id,
+       CASE WHEN auth_id IS NULL THEN '⚠ auth_id manquant' ELSE '✅ OK' END AS etat_auth
+FROM utilisateurs
+WHERE email = 'admin@anacim.sn';
+
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  ANNEXES — OPÉRATIONS MANUELLES                          ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+-- ============================================================
+-- SECTION 1 — RÉPARATION MANUELLE (auth_id / doublons ghost)
+-- Opérations ponctuelles à exécuter manuellement si nécessaire.
+-- Lie les auth_id manquants aux utilisateurs existants.
+-- ============================================================
+
+-- 1.A Réparer l'admin et tout utilisateur dont auth_id = null
+-- Dès qu'un utilisateur se reconnecte après ce fix, le trigger
+-- correct va lier son auth_id automatiquement.
+-- En attendant, forcer la liaison pour l'admin si vous connaissez
+-- son UUID Supabase Auth (cherchez dans Authentication > Users) :
+
+-- REMPLACER 'VOTRE-AUTH-UUID-ICI' par l'UUID réel de l'admin
+-- dans Supabase Dashboard → Authentication → Users
+-- Puis décommenter :
+-- UPDATE utilisateurs
+-- SET auth_id = 'VOTRE-AUTH-UUID-ICI'::uuid
+-- WHERE email = 'admin@anacim.sn' AND auth_id IS NULL;
+
+-- 1.B Supprimer les doublons ghost créés par le mauvais trigger
+-- (utilisateurs role='guest' créés automatiquement qui doublonnent)
+-- Attention : vérifier d'abord avec le SELECT en commentaire
+-- SELECT id, email, role, auth_id, created_at FROM utilisateurs
+-- WHERE role = 'guest' AND auth_id IS NOT NULL
+-- ORDER BY created_at;
+-- Puis si ces lignes sont bien des fantômes :
+-- DELETE FROM utilisateurs
+-- WHERE role = 'guest'
+--   AND auth_id IS NOT NULL
+--   AND email LIKE '%@anacim.sn'
+--   AND created_at > now() - interval '30 days';
+
+-- ============================================================
+-- ⚠  SECTION 11 — MODIFICATION REQUISE DANS auth.ts
+-- CE PROBLÈME NE PEUT PAS ÊTRE RÉSOLU EN SQL SEUL
+-- ============================================================
+--
+-- PROBLÈME : loginWithCode() ne crée pas de session Supabase Auth.
+-- Les opérateurs (focal_operator, staff_operator, dg_operator)
+-- ont auth.uid() = null → toutes les policies RLS les bloquent.
+--
+-- SOLUTION : Ajouter signInAnonymously() dans loginWithCode()
+-- APRÈS avoir trouvé/créé l'utilisateur :
+--
+--   // Créer une session Supabase Auth anonyme
+--   const { data: anonData, error: anonError } =
+--     await supabase.auth.signInAnonymously()
+--
+--   if (!anonError && anonData?.user) {
+--     // Lier cet auth_id à l'utilisateur
+--     // (utiliser service_role ou une Edge Function)
+--     await supabase
+--       .from('utilisateurs')
+--       .update({ auth_id: anonData.user.id })
+--       .eq('id', utilisateur.id)
+--       .eq('statut', 'actif')
+--   }
+--
+-- PRÉREQUIS Supabase : activer "Anonymous sign-ins" dans
+-- Dashboard → Authentication → Providers → Anonymous
+--
+-- ALTERNATIVE (plus robuste) :
+-- Créer une Supabase Edge Function "login-with-code" qui
+-- utilise le service_role pour lier l'auth_id, puis retourne
+-- un custom JWT. Cela évite d'accumuler des sessions anonymes.
+--
+-- ============================================================
+

@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { Save, Lock, FileText, Calendar, Users, AlertCircle } from 'lucide-react'
 import { useAppStore, Homologation } from '@/lib/store'
+import { peutInstruireRole } from '@/lib/config'
 import { Card } from '@/components/ui/card'
 
 const DOCS_REQUIS_HOMO = [
@@ -64,9 +65,7 @@ export function HomoPhase1({ homoId, phaseData, estActive, onUpdate, userRole = 
     return Math.round((coches / DOCS_REQUIS_HOMO.length) * 100)
   }, [form.documents])
 
-  const inspecteurs = utilisateurs.filter(u =>
-    ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)
-  )
+  const inspecteurs = utilisateurs.filter(u => !u.deleted_at && peutInstruireRole(u.role))
 
   const handleSubmit = () => {
     onUpdate({ ...form, completude, cloture_le: new Date().toISOString() })

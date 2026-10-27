@@ -123,7 +123,11 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       // au démarrage). RLS restreint la lecture (audit : admin uniquement).
       supabase.from('presence_entries').select('*').order('signature_date', { ascending: false }).limit(2000),
       supabase.from('audit_logs').select('*').order('date', { ascending: false }).limit(200),
-      supabase.from('dossiers').select('*').order('created_at', { ascending: false }),
+      supabase.from('dossiers')
+        .select('*')
+        .or('statut.is.null,statut.in.(en_attente,en_cours,termine)')
+        .order('date_limite', { ascending: true })
+        .limit(2000),
       supabase.from('utilisateurs').select('*').order('nom'),
       supabase.from('plannings').select('*').order('date_debut', { ascending: false }),
       supabase.from('certifications').select('*'),

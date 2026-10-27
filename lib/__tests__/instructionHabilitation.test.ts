@@ -53,6 +53,14 @@ describe('verifierEquipeInstruction', () => {
     expect(v.blocages.length).toBe(1)
     expect(v.blocages[0]).toContain('titulaires ou principaux')
   })
+  test('rôle inspector (comptes réels) : admis', () => {
+    const v = verifierEquipeInstruction([base({ role: 'inspector' })], 'u1', 0)
+    expect(v.blocages).toEqual([])
+  })
+  test('admin non éligible comme membre d’équipe', () => {
+    const v = verifierEquipeInstruction([base({ role: 'admin' })], undefined, 0)
+    expect(v.blocages.length).toBe(1)
+  })
   test('rôle non inspecteur : bloquant', () => {
     const v = verifierEquipeInstruction([base({ role: 'comptable' })], undefined, 0)
     expect(v.blocages.length).toBe(1)

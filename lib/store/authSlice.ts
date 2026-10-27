@@ -8,7 +8,7 @@ import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
 import type { AuthUser } from '../auth'
 import type { Notification } from './notificationsSlice'
-import { startDossiersSync } from './dossiersSlice'
+import { startDossiersSync, stopDossiersSync } from './dossiersSlice'
 
 // ─────────────────────────────────────────────────────────────
 // Interface publique du slice
@@ -37,6 +37,8 @@ export const createAuthSlice: StateCreator<AppStore, [], [], AuthSlice> = (set, 
           if (res.data) get().setNotifications(res.data as Notification[])
         }).catch((err) => console.error('[Notifications] Échec fetch:', err))
       }).catch((err) => console.error('[Notifications] Échec import datastore:', err))
+    } else {
+      stopDossiersSync()
     }
   },
 

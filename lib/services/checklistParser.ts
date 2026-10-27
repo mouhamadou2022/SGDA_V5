@@ -286,9 +286,9 @@ export async function parseChecklistWord(
   }
 
   const sectionMap = new Map<string, DomaineChecklist>()
-  // Garantir des IDs uniques par section : un numItem répété (ex. QSC08 dans
-  // deux lignes du doc source) produirait des clés React dupliquées.
-  const usedIdsBySection = new Map<string, Set<string>>()
+  // Garantir des IDs uniques dans TOUT le template : un numItem répété
+  // (ex. IT6 dans deux sections) produirait des clés React dupliquées.
+  const usedIds = new Set<string>()
   for (const raw of rawItems) {
     const domaineCode = guessDomaineFromSection(raw.sectionNum, type)
     if (!sectionMap.has(raw.sectionNum)) {
@@ -303,10 +303,8 @@ export async function parseChecklistWord(
         progression: 0,
         ordre: sectionMap.size,
       })
-      usedIdsBySection.set(raw.sectionNum, new Set<string>())
     }
     const domaine = sectionMap.get(raw.sectionNum)!
-    const usedIds = usedIdsBySection.get(raw.sectionNum)!
     const idx = (domaine.items?.length ?? 0) + 1
     const baseId = `${code}_${raw.numItem || raw.ref || idx}`
     let itemId = baseId

@@ -45,7 +45,7 @@ export function TachesAccordeon({ userRole, userId }: TachesAccordeonProps) {
   const updateSurveillance = useAppStore(s => s.updateSurveillance);
   const updateEcart = useAppStore(s => s.updateEcart);
   const updateEvenement = useAppStore(s => s.updateEvenement);
-  const updateDossier = useAppStore(s => s.updateDossier);
+  const updateAssignment = useAppStore(s => s.updateAssignment);
   const updateFormation = useAppStore(s => s.updateFormation);
   const addNotification = useAppStore(s => s.addNotification);
 
@@ -84,8 +84,12 @@ export function TachesAccordeon({ userRole, userId }: TachesAccordeonProps) {
     });
 
     dossiers?.forEach(d => {
-      if (d.inspecteur_id) {
-        taches.push({ ...chargeUtils.dossierVersTache(d, aerodromes), lien_id: d.inspecteur_id });
+      if (d.assignments?.length) {
+        d.assignments.forEach(a => {
+          taches.push(chargeUtils.dossierVersTache(d, aerodromes, a));
+        });
+      } else if (d.inspecteur_id) {
+        taches.push(chargeUtils.dossierVersTache(d, aerodromes));
       }
     });
 
@@ -151,8 +155,33 @@ export function TachesAccordeon({ userRole, userId }: TachesAccordeonProps) {
         break;
       }
       case 'dossier': {
-        const id = tache.id.replace('dossier-', '');
-        updateDossier(id, { statut: 'termine', progression: 100 } as any);
+        // Clôture uniquement l'assignation de cet inspecteur : la validation
+        // et la clôture du dossier restent à l'admin.
+        if (!tache.dossier_id || !tache.assignment_id) {
+          addNotification({
+            user_id: userId, type: 'warning', title: 'Action impossible',
+            message: 'Ce dossier ne possède pas d\'assignation à clôturer.', canal: 'in_app',
+          });
+          return;
+        }
+        const dossier = useAppStore.getState().dossiers.find(d => d.id === tache.dossier_id);
+        const assignment = dossier?.assignments.find(a => a.id === tache.assignment_id);
+        if (!assignment) {
+          addNotification({
+            user_id: userId, type: 'warning', title: 'Action impossible',
+            message: 'Assignation introuvable.', canal: 'in_app',
+          });
+          return;
+        }
+        updateAssignment(tache.dossier_id, tache.assignment_id, {
+          progression: 100,
+          statut: 'en_validation',
+          historique: [...assignment.historique, {
+            date: new Date().toISOString(),
+            action: 'Travail marqué terminé depuis la charge de travail',
+            details: '',
+          }],
+        });
         break;
       }
       case 'fmt': {

@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Save, Lock, Link as LinkIcon, Calendar, Users, FileText, AlertCircle } from 'lucide-react'
 import { useAppStore, Homologation } from '@/lib/store'
+import { peutInstruireRole } from '@/lib/config'
 import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -54,9 +55,7 @@ export function HomoPhase2({ homoId, phaseData, estActive, onUpdate, userRole = 
     setValue('equipe_ids', ids)
   }
 
-  const inspecteurs = utilisateurs.filter(u =>
-    ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)
-  )
+  const inspecteurs = utilisateurs.filter(u => !u.deleted_at && peutInstruireRole(u.role))
   const surveilRef = surveillances.find(s => s.id === form.surveillance_id)
 
   const handleSubmit = () => {

@@ -8,9 +8,11 @@ import type { StateCreator } from 'zustand'
 import { createDossiersSlice, type DossierSlice } from '../store/dossiersSlice'
 import { createFormationsSlice, type FormationSlice } from '../store/formationsSlice'
 import { createKitDocumentsSlice, type KitSlice } from '../store/kitDocumentsSlice'
+import * as datastore from '../datastore'
 
 jest.mock('../datastore', () => ({
-  createDossier: async (d: unknown) => ({ data: d, error: null }),
+  createDossier: jest.fn(async (d: unknown) => ({ data: d, error: null })),
+  listDossierReferences: jest.fn(async () => ({ data: [], error: null })),
   updateDossier: async () => ({ error: null }),
   deleteDossier: async () => ({ error: null }),
   createFormation: async (f: unknown) => ({ data: { ...(f as object), id: 'mock-id' }, error: null }),
@@ -44,6 +46,28 @@ describe('dossiersSlice', () => {
     const created = await s.getState().addDossier(base)
     expect(created?.historique).toHaveLength(1)
     expect(s.getState().getDossiersUrgents()).toHaveLength(1)
+  })
+
+  test('addDossier : erreur serveur → throw et aucun ajout local', async () => {
+    const s = isolated<DossierSlice>(createDossiersSlice)
+    ;(datastore.createDossier as jest.Mock).mockResolvedValueOnce({ data: null, error: 'boom' })
+    await expect(s.getState().addDossier(base)).rejects.toThrow('boom')
+    expect(s.getState().dossiers).toHaveLength(0)
+  })
+
+  test('addDossier : collision de référence → recalcul depuis la base', async () => {
+    const s = isolated<DossierSlice>(createDossiersSlice)
+    const annee = new Date().getFullYear()
+    ;(datastore.createDossier as jest.Mock).mockResolvedValueOnce({
+      data: null,
+      error: 'duplicate key value violates unique constraint "idx_dossiers_reference_unique"',
+    })
+    ;(datastore.listDossierReferences as jest.Mock).mockResolvedValueOnce({
+      data: [`DOS-${annee}-0001`],
+      error: null,
+    })
+    const created = await s.getState().addDossier(base)
+    expect(created?.reference).toBe(`DOS-${annee}-0002`)
   })
 
   test('addAssignment alimente assignments + historique', async () => {

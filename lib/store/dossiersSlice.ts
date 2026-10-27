@@ -11,6 +11,7 @@ import { registreUtils } from '../registreUtils'
 import { supabase } from '../supabase'
 import { storeEvents } from './eventBus'
 import { evaluerRappelsDossier } from '../vigie'
+import { dossierUtils } from '../dossierUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Sync périodique dossiers (démarrée à la connexion — voir authSlice).
@@ -18,38 +19,58 @@ import { evaluerRappelsDossier } from '../vigie'
 // ─────────────────────────────────────────────────────────────
 
 let _syncInterval: ReturnType<typeof setInterval> | null = null
+let _lastSyncAt: string | null = null
 
-export function startDossiersSync(userId?: string) {
-  if (_syncInterval) return
-  _syncInterval = setInterval(async () => {
-    const { data } = await supabase
-      .from('dossiers')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    if (!data) return
-    const { useAppStore } = await import('../store')
-    const existing = useAppStore.getState().dossiers
-    const merged = data.reduce((acc: any[], sup: any) => {
-      const local = acc.find((d: any) => d.id === sup.id)
-      if (local) {
-        // Garder la version la plus récente
-        if (new Date(sup.updated_at || sup.created_at) > new Date(local.updated_at || local.created_at)) {
-          Object.assign(local, sup)
-        }
-      } else {
-        acc.push(sup)
-      }
-      return acc
-    }, [...existing])
-    // Ajouter les dossiers locaux qui manquent dans Supabase
-    for (const local of existing) {
-      if (!merged.find((d: any) => d.id === local.id)) {
-        merged.push(local)
-      }
+const DOSSIERS_SYNC_OVERLAP_MS = 60_000
+
+async function synchroniserDossiers() {
+  const since = new Date(
+    new Date(_lastSyncAt || Date.now() - 24 * 60 * 60 * 1000).getTime() - DOSSIERS_SYNC_OVERLAP_MS,
+  ).toISOString()
+
+  const { data, error } = await supabase
+    .from('dossiers')
+    .select('*')
+    .gt('updated_at', since)
+    .order('updated_at', { ascending: false })
+    .limit(1000)
+
+  if (error || !data?.length) return
+
+  const plusRecent = data.reduce(
+    (max, d) => (String(d.updated_at || '') > max ? String(d.updated_at || '') : max),
+    _lastSyncAt || '',
+  )
+  if (plusRecent) _lastSyncAt = plusRecent
+
+  const { useAppStore } = await import('../store')
+  const map = new Map(useAppStore.getState().dossiers.map((d) => [d.id, d]))
+  for (const distant of data as unknown as Array<Record<string, unknown>>) {
+    const id = String(distant.id || '')
+    if (!id) continue
+    // Les archives ne sont pas chargées au démarrage : une archive distante
+    // signifie qu'il faut la retirer de la liste de travail locale.
+    if (distant.statut === 'archive') {
+      map.delete(id)
+      continue
     }
-    useAppStore.setState({ dossiers: merged as any })
-  }, 10000)
+    const local = map.get(id)
+    const tDistant = new Date(String(distant.updated_at || distant.created_at || 0)).getTime()
+    const tLocal = new Date(local?.updated_at || local?.created_at || 0).getTime()
+    if (!local || !Number.isFinite(tLocal) || tDistant >= tLocal) {
+      map.set(id, distant as unknown as Dossier)
+    }
+  }
+  useAppStore.setState({ dossiers: [...map.values()] })
+}
+
+export function startDossiersSync(_userId?: string) {
+  if (_syncInterval) return
+  _lastSyncAt = null
+  _syncInterval = setInterval(() => {
+    synchroniserDossiers().catch((err) => console.error('[store] Sync dossiers:', err))
+  }, 15_000)
+  synchroniserDossiers().catch((err) => console.error('[store] Sync dossiers:', err))
 }
 
 export function stopDossiersSync() {
@@ -57,6 +78,7 @@ export function stopDossiersSync() {
     clearInterval(_syncInterval)
     _syncInterval = null
   }
+  _lastSyncAt = null
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -279,23 +301,50 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
       assignments: dossier.assignments || []
     } as Dossier
 
-    // Persister dans Supabase (avec l'id explicite pour cohérence avec les assignments)
-    const { created_at: __, updated_at: ___, historique: ____, ...payload } = newDossier
-        const result = await datastore.createDossier({
-          ...payload,
-          id,
-          created_at: now,
-          updated_at: now,
-          assignments: newDossier.assignments || [],
-        })
-    if (result.error) {
-      console.error('[store] Erreur création dossier Supabase:', result.error)
+    const { created_at: __, updated_at: ___, ...payload } = newDossier
+    const construirePayload = (reference: string) => ({
+      ...payload,
+      reference,
+      id,
+      created_at: now,
+      updated_at: now,
+      assignments: newDossier.assignments || [],
+    })
+
+    // Persister dans Supabase. En cas de collision de référence (deux
+    // créations concurrentes), recalculer la référence depuis la base.
+    let reference = dossier.reference
+    let result = await datastore.createDossier(construirePayload(reference))
+    if (result.error && /duplicate key|unique constraint|idx_dossiers_reference_unique/i.test(result.error)) {
+      const { data: references } = await datastore.listDossierReferences()
+      if (references?.length) {
+        reference = dossierUtils.prochaineReference(references)
+        result = await datastore.createDossier(construirePayload(reference))
+      }
     }
 
+    if (result.error) {
+      console.error('[store] Erreur création dossier Supabase:', result.error)
+      throw new Error(result.error)
+    }
+    if (!result.data) {
+      const message = 'Création du dossier refusée par le serveur'
+      console.error('[store]', message)
+      throw new Error(message)
+    }
+
+    const created = {
+      ...newDossier,
+      ...result.data,
+      id,
+      reference,
+      historique: result.data.historique?.length ? result.data.historique : newDossier.historique,
+    } as Dossier
+
     set((state) => ({
-      dossiers: [...state.dossiers, newDossier]
+      dossiers: [...state.dossiers, created]
     }))
-    return newDossier
+    return created
   },
 
   extendreDossier: async (id, extension, superieurNom) => {

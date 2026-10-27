@@ -8,6 +8,7 @@
 //   expirées et couverture spécialités (avertissements).
 
 import { buildHabilitations } from './competences'
+import { peutInstruireRole } from './config'
 import type { Utilisateur } from './store'
 
 export const TYPES_CHEF_AUTORISES = ['inspecteur_titulaire', 'inspecteur_principal']
@@ -100,7 +101,7 @@ export function verifierEquipeInstruction(
   }
 
   for (const m of membres) {
-    if (!['inspecteur', 'chef_inspecteur', 'admin'].includes(m.role)) {
+    if (!peutInstruireRole(m.role)) {
       blocages.push(`${nomCourt(m)} n’a pas un rôle d’inspection (rôle : ${m.role}).`)
     }
     const habs = buildHabilitations(m)

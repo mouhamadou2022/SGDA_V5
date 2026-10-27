@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Shield, X, Plus, Trash2, Edit3, Eye, CheckCircle2, AlertCircle, Clock, FileText, Save, TrendingUp, AlertTriangle, RefreshCw, Upload, XCircle, Loader2, Search, List, UserCheck } from 'lucide-react'
 import { useAppStore } from '@/lib/store';
-import { canManageRole } from '@/lib/config';
+import { canManageRole, peutInstruireRole } from '@/lib/config';
 import { verifierEquipeInstruction, type ExpertExterne } from '@/lib/instructionHabilitation';
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all"
@@ -108,7 +108,7 @@ function AssignationEquipeExemption(props: {
     exemptionId, current, responsables, setResponsable, chef, setChef,
     equipe, setEquipe, externes, setExternes, nomExterne, setNomExterne, utilisateurs,
   } = props;
-  const inspecteurs = (utilisateurs || []).filter(u => ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role));
+  const inspecteurs = (utilisateurs || []).filter(u => peutInstruireRole(u.role));
   const nomDe = (id?: string) => {
     const u = inspecteurs.find(x => x.id === id);
     return u ? `${u.prenom || ''} ${u.nom || ''}`.trim() || (id || '—') : '—';

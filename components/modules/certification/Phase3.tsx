@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react'
 import { Save, Lock, CheckCircle2, AlertCircle, Users, Calendar, Eye, Link as LinkIcon, AlertTriangle } from 'lucide-react'
 import { useOptimizedStore } from '@/lib/performance/globalOptimizer'
+import { peutInstruireRole } from '@/lib/config'
 import { Card } from '@/components/ui/card'
 
 const focusClass = "focus:outline-none focus:shadow-[0_0_0_2px_var(--role-primary)] focus:border-transparent transition-all";
@@ -42,9 +43,7 @@ export function Phase3({ certifId, phaseData, estActive, onUpdate }: Phase3Props
   }
 
   const surveilRef = surveillances?.find(s => s.id === form.surveillance_id)
-  const inspecteurs = utilisateurs?.filter(u =>
-    ['inspecteur', 'chef_inspecteur', 'admin'].includes(u.role)
-  ) || []
+  const inspecteurs = utilisateurs?.filter(u => !u.deleted_at && peutInstruireRole(u.role)) || []
 
   const isComplete = useMemo(() => {
     return form.date_verification && form.chef_id && form.conclusion &&
