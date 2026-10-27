@@ -11,6 +11,11 @@
 import { aiClient } from '@/lib/ia/aiClient'
 import { extractTextFromPDF, rendrePagesPng } from '@/lib/services/pdfExtractor'
 import { MAX_PAGES_VISION } from '@/lib/ia/lectureDocument'
+import {
+  decouperEnLots,
+  estDemandeDocumentEntier,
+  selectionnerLotsPertinents,
+} from '@/lib/ia/documentChunking'
 import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 import { REPONDRE_COPILOTE_PROMPT } from '@/lib/ia/prompts'
 
@@ -57,6 +62,15 @@ export const BUDGET_PIECES_CHARS = 6000
 export const BUDGET_HISTORIQUE_CHARS = 3000
 /** Plafond de génération d'une réponse (tokens) : au-delà, suite automatique. */
 export const MAX_REPONSE_TOKENS = 4096
+/**
+ * Taille d'un lot pour la lecture intégrale d'un document (≈ 3000 tokens).
+ * Chaque lot est lu séparément (map), puis les faits sont fusionnés (reduce).
+ */
+export const LOT_LECTURE_CHARS = 9000
+/** Nombre max de lots lus en profondeur (garde-fou temps/quota). */
+export const MAX_LOTS_LECTURE_INTEGRALE = 12
+/** Pages max lues par vision pour une pièce (garde-fou temps/quota). */
+export const MAX_PAGES_VISION_COPILOTE = 50
 
 export function plafonnerHistorique(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -102,6 +116,77 @@ export function plafonnerTextePieces(
   return { texte: blocs.join('\n\n'), tronque }
 }
 
+/** Concatène les pièces avec leur en-tête, sans rien couper. */
+export function assemblerPieces(pieces: PieceJointeCopilote[]): string {
+  return pieces
+    .map(p => {
+      const entete = `── PIÈCE : ${p.nom}${p.nbPages ? ` (${p.nbPages} pages)` : ''} ──\n`
+      const corps = p.texte.trim() || '(texte indisponible — document scanné)'
+      return entete + corps
+    })
+    .join('\n\n')
+}
+
+/**
+ * Construit le contexte documentaire en lisant TOUT le document : si le texte
+ * dépasse le budget, on découpe l'ensemble en lots puis on garde les lots les
+ * plus pertinents pour la question (au lieu des N premiers caractères).
+ */
+export function construireContextePieces(
+  pieces: PieceJointeCopilote[],
+  requete = '',
+  budget: number = BUDGET_PIECES_CHARS,
+): { texte: string; tronque: boolean; lotsTotal: number; lotsLus: number } {
+  const complet = assemblerPieces(pieces)
+  if (complet.length <= budget) {
+    return { texte: complet, tronque: false, lotsTotal: 1, lotsLus: 1 }
+  }
+  // Lots d'environ la moitié du budget : deux extraits pertinents tiennent
+  // dans la fenêtre, au lieu d'un seul bloc.
+  const lots = decouperEnLots(complet, Math.max(1500, Math.floor(budget / 2)))
+  const sel = selectionnerLotsPertinents(lots, requete, budget)
+  return { texte: sel.texte, tronque: !sel.complet, lotsTotal: sel.lotsTotal, lotsLus: sel.lotsLus }
+}
+
+/**
+ * Lecture intégrale (map) : chaque lot du document est lu séparément pour en
+ * extraire les faits qui répondent à la question. Les notes sont ensuite
+ * transmises au modèle qui rédige la réponse finale (reduce).
+ */
+async function extraireFaitsDesLots(
+  lots: ReturnType<typeof decouperEnLots>,
+  question: string,
+): Promise<{ notes: string; lotsLus: number; lotsTotal: number }> {
+  const traites = lots.slice(0, MAX_LOTS_LECTURE_INTEGRALE)
+  // Budget par extrait : toutes les parties sont représentées dans le prompt
+  // final, sans dépasser la fenêtre du modèle.
+  const budgetParNote = Math.max(300, Math.floor(BUDGET_PIECES_CHARS / Math.max(1, traites.length)))
+  const notes: string[] = []
+  for (const lot of traites) {
+    const res = await aiClient.call({
+      systemPrompt:
+        'Tu es un lecteur de documents réglementaires aéronautiques (OACI, ANACIM). ' +
+        "Tu extrais UNIQUEMENT les faits présents dans le texte fourni. Tu n'inventes rien " +
+        'et tu ne complètes pas avec des connaissances externes.',
+      userMessage: `QUESTION DE L'INSPECTEUR :\n${question}\n\n` +
+        `EXTRAIT ${lot.index + 1}/${lots.length} DU DOCUMENT :\n${lot.texte}\n\n` +
+        'Extrais de cet extrait TOUS les éléments qui aident à répondre (obligations, chiffres, ' +
+        "seuils, références, constats, exceptions). Réponds en 3 à 6 puces concises " +
+        '(600 caractères maximum au total). Si l\'extrait ne contient rien d\'utile, réponds ' +
+        'exactement « (rien de pertinent) ».',
+      temperature: 0.1,
+      maxTokens: 500,
+      responseFormat: 'text',
+      timeoutMs: 180000,
+    })
+    const contenu = res.ok ? (res.content || '').trim() : ''
+    if (contenu && !/^\(rien de pertinent\)$/i.test(contenu)) {
+      notes.push(`— Extrait ${lot.index + 1}/${lots.length} :\n${contenu.slice(0, budgetParNote)}`)
+    }
+  }
+  return { notes: notes.join('\n\n'), lotsLus: traites.length, lotsTotal: lots.length }
+}
+
 class CopiloteAgent {
   /**
    * Lit une pièce PDF : texte natif d'abord (quelques secondes) ; si le
@@ -120,31 +205,62 @@ class CopiloteAgent {
       if (texte.trim().length > 50) {
         return { texte, nbPages: result.nb_pages || 0, statutLecture: 'ok' }
       }
-      // Scan (ou PDF sans texte) : lecture par l'IA de vision.
+      // Scan (ou PDF sans texte) : lecture par l'IA de vision, PAGE PAR PAGE,
+      // sur tout le document (et non plus seulement les 5 premières pages).
       try {
-        const { images, nb_pages } = await rendrePagesPng(url, MAX_PAGES_VISION)
-        const res = await fetch('/api/ia/lire-document', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nom: nomFichier, images }),
-          signal: AbortSignal.timeout(280000),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (res.ok && typeof data.texte === 'string' && data.texte.trim().length > 50) {
-          const suffixe = nb_pages > images.length
-            ? `\n\n[Note : seules les ${images.length} premières pages sur ${nb_pages} ont été lues par l'IA.]`
-            : ''
+        const morceaux: string[] = []
+        let page = 1
+        let nbPages = 0
+        let echec: string | undefined
+        while (page <= MAX_PAGES_VISION_COPILOTE) {
+          const paquet = await rendrePagesPng(
+            url,
+            Math.min(MAX_PAGES_VISION, MAX_PAGES_VISION_COPILOTE - page + 1),
+            page,
+          )
+          nbPages = paquet.nb_pages || nbPages
+          if (paquet.images.length === 0 || (nbPages > 0 && page > nbPages)) break
+
+          const res = await fetch('/api/ia/lire-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nom: nomFichier, images: paquet.images }),
+            signal: AbortSignal.timeout(280000),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok || typeof data.texte !== 'string' || data.texte.trim().length <= 50) {
+            echec = data?.aide || data?.error || 'Document scanné illisible — joignez une version texte du PDF.'
+            break
+          }
+          // La route numérote 1..N par appel : on renumérote en pages absolues.
+          let n = 0
+          const absolu = data.texte.replace(
+            /---\s*Page\s+(\d+)\s*---/gi,
+            () => `--- Page ${page + (n++)} ---`,
+          )
+          morceaux.push(absolu)
+          page += paquet.images.length
+          if (nbPages > 0 && page > nbPages) break
+        }
+
+        const texteLu = morceaux.join('\n\n').trim()
+        if (texteLu.length > 50) {
+          const suffixe = nbPages > MAX_PAGES_VISION_COPILOTE
+            ? `\n\n[Note : seules les ${MAX_PAGES_VISION_COPILOTE} premières pages sur ${nbPages} ont été lues par l'IA.]`
+            : page <= nbPages
+              ? `\n\n[Note : lecture visuelle interrompue à la page ${Math.max(1, page - 1)} sur ${nbPages}.]`
+              : ''
           return {
-            texte: data.texte.trim() + suffixe,
-            nbPages: nb_pages || 0,
+            texte: texteLu + suffixe,
+            nbPages: nbPages || 0,
             statutLecture: 'vision',
           }
         }
         return {
           texte: '',
-          nbPages: nb_pages || 0,
+          nbPages: nbPages || 0,
           statutLecture: 'echec',
-          detailEchec: data?.aide || data?.error || 'Document scanné illisible — joignez une version texte du PDF.',
+          detailEchec: echec || 'Document scanné illisible — joignez une version texte du PDF.',
         }
       } catch (errVision) {
         return {
@@ -181,7 +297,36 @@ class CopiloteAgent {
 
     const pieces = params.pieces || []
 
-    const { texte: piecesContexte, tronque } = plafonnerTextePieces(pieces)
+    // Lecture documentaire : si les pièces dépassent la fenêtre, on ne coupe
+    // plus « les premières pages » — on découpe TOUT le document et on lit soit
+    // les extraits pertinents, soit l'intégralité (map/reduce) pour une demande
+    // globale (synthèse, résumé, analyse complète…).
+    let piecesContexte = ''
+    let noteLecture = ''
+    if (pieces.length > 0) {
+      const complet = assemblerPieces(pieces)
+      if (complet.length <= BUDGET_PIECES_CHARS) {
+        piecesContexte = complet
+      } else if (estDemandeDocumentEntier(params.question)) {
+        const lots = decouperEnLots(complet, LOT_LECTURE_CHARS)
+        const { notes, lotsLus, lotsTotal } = await extraireFaitsDesLots(lots, params.question)
+        piecesContexte = notes
+        noteLecture = lotsLus < lotsTotal
+          ? `[Note : document très volumineux — ${lotsLus} parties sur ${lotsTotal} ont été lues en profondeur.]`
+          : `[Note : document lu intégralement (${lotsTotal} parties).]`
+        // Aucun fait extrait (question hors sujet) : repli sur les extraits les
+        // plus pertinents plutôt que de perdre tout le contexte documentaire.
+        if (!piecesContexte.trim()) {
+          piecesContexte = construireContextePieces(pieces, params.question, BUDGET_PIECES_CHARS).texte
+        }
+      } else {
+        const sel = construireContextePieces(pieces, params.question, BUDGET_PIECES_CHARS)
+        piecesContexte = sel.texte
+        noteLecture = sel.tronque
+          ? `[Note : extraits les plus pertinents sélectionnés dans TOUT le document (${sel.lotsLus}/${sel.lotsTotal} parties) — posez une question ciblée pour explorer une autre section.]`
+          : ''
+      }
+    }
 
     const contexteReg = construireContexteReglementaire({
       requete: `${params.question} ${params.instructions || ''}`,
@@ -193,7 +338,7 @@ class CopiloteAgent {
     const userMessage = [
       params.aerodromeNom ? `Aérodrome concerné : ${params.aerodromeNom}` : '',
       params.instructions ? `Contexte donné par l'inspecteur : ${params.instructions}` : '',
-      pieces.length ? `PIÈCES JOINTES (documents déposés par l'inspecteur) :\n${piecesContexte}${tronque ? '\n[Note : contexte documentaire plafonné pour tenir dans la fenêtre du modèle — posez des questions ciblées pour explorer la suite.]' : ''}` : '(aucune pièce jointe)',
+      pieces.length ? `PIÈCES JOINTES (documents déposés par l'inspecteur) :\n${piecesContexte}${noteLecture ? `\n${noteLecture}` : ''}` : '(aucune pièce jointe)',
       contexteReg ? `RÉFÉRENTIEL OACI / IATA / ANACIM pertinent :\n${contexteReg}` : '',
       `DEMANDE DE L'INSPECTEUR :\n${params.question}`,
     ].filter(s => s.trim()).join('\n\n')

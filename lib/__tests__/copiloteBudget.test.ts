@@ -1,6 +1,6 @@
 // lib/__tests__/copiloteBudget.test.ts — Plafonds de contexte (pur, sans réseau).
 import { aiClient } from '../ia/aiClient';
-import { copiloteAgent, plafonnerHistorique, plafonnerTextePieces, BUDGET_HISTORIQUE_CHARS } from '../ia/agents/copiloteAgent';
+import { copiloteAgent, plafonnerHistorique, plafonnerTextePieces, construireContextePieces, BUDGET_HISTORIQUE_CHARS } from '../ia/agents/copiloteAgent';
 
 jest.mock('../ia/aiClient', () => ({ aiClient: { call: jest.fn() } }));
 const appelIA = aiClient.call as jest.Mock;
@@ -43,6 +43,42 @@ describe('plafonnerTextePieces (non-régression)', () => {
     expect(tronque).toBe(true);
     expect(texte.length).toBeLessThanOrEqual(13000);
     expect(texte).toContain('tronquée');
+  });
+});
+
+describe('construireContextePieces (lecture de TOUT le document)', () => {
+  test('trouve une exigence située à la fin d’une grosse pièce', () => {
+    const texte = 'Début sans rapport avec la question. '.repeat(800) + 'EXIGENCE FINALE : clôture des écarts sous 30 jours.'
+    const { texte: contexte, tronque } = construireContextePieces(
+      [{ id: 'p1', nom: 'gros.pdf', texte }],
+      'Quel est le délai de clôture des écarts ?',
+      6000,
+    );
+    expect(contexte).toContain('30 jours');
+    expect(tronque).toBe(true);
+  });
+  test('petite pièce : contexte intégral, sans troncature', () => {
+    const { texte, tronque } = construireContextePieces([{ id: 'p1', nom: 'a.pdf', texte: 'bonjour' }]);
+    expect(texte).toContain('bonjour');
+    expect(tronque).toBe(false);
+  });
+});
+
+describe('repondre : lecture intégrale d’un gros document', () => {
+  test('demande globale : chaque lot est lu (map) puis la réponse est rédigée (reduce)', async () => {
+    appelIA.mockReset();
+    const texte = Array.from({ length: 20 }, (_, i) => `Section ${i} : ${'x'.repeat(1500)}`).join('\n\n');
+    appelIA.mockResolvedValue({ content: 'Fait pertinent.', ok: true, usage: { completion_tokens: 10 } });
+    const texteFinal = await copiloteAgent.repondre({
+      question: 'Fais une synthèse complète du document.',
+      pieces: [{ id: 'p1', nom: 'gros.pdf', texte }],
+      historique: [],
+    });
+    // 30 000 caractères / 9 000 = 4 lots → 4 lectures + 1 rédaction finale.
+    expect(appelIA.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(texteFinal).toBe('Fait pertinent.');
+    const messagesMap = appelIA.mock.calls.slice(0, -1).map(c => String(c[0].userMessage));
+    expect(messagesMap.some(m => m.includes('EXTRAIT 4/4'))).toBe(true);
   });
 });
 

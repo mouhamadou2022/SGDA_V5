@@ -307,14 +307,19 @@ class AIClientClass {
       }
 
       const parsed = this._tryParseJSON(result.content)
-      if (parsed !== null) {
-        setCached(cacheKey, parsed).catch(() => {})
-        return parsed as T
+      if (parsed !== null && !parsed.repaired) {
+        setCached(cacheKey, parsed.parsed).catch(() => {})
+        return parsed.parsed as T
       }
 
       dernierContenu = result.content
       const complete = result.usage?.completion_tokens ?? 0
-      if (!bonusTente && sembleTronque(result.content, maxTokens, complete)) {
+      // Un JSON qui n'a pu être lu qu'après fermeture des accolades/guillemets
+      // est un JSON tronqué : le renvoyer tel quel coupait les réponses IA
+      // (message et/ou checklist partiels). On retente avec une fenêtre plus
+      // grande avant d'accepter un repli.
+      const tronque = parsed?.repaired === true || sembleTronque(result.content, maxTokens, complete)
+      if (!bonusTente && tronque) {
         bonusTente = true
         const plusGrand = Math.min(32768, Math.ceil(maxTokens * 1.5))
         if (plusGrand > maxTokens) {
@@ -329,9 +334,9 @@ class AIClientClass {
           i++
           if (gros.ok && gros.content) {
             const reparsed = this._tryParseJSON(gros.content)
-            if (reparsed !== null) {
-              setCached(cacheKey, reparsed).catch(() => {})
-              return reparsed as T
+            if (reparsed !== null && !reparsed.repaired) {
+              setCached(cacheKey, reparsed.parsed).catch(() => {})
+              return reparsed.parsed as T
             }
             dernierContenu = gros.content
           }
@@ -339,31 +344,31 @@ class AIClientClass {
         }
       }
 
-      console.warn(`[aiClient] JSON invalide avec maxTokens=${maxTokens}, retry...`)
+      console.warn(`[aiClient] JSON ${parsed?.repaired ? 'réparé (probablement tronqué)' : 'invalide'} avec maxTokens=${maxTokens}, retry...`)
     }
 
     console.error(`[aiClient] Échec après tous les paliers maxTokens [${tokenTiers.join('/')}] — prompt : ${(options.systemPrompt || '').slice(0, 80)} — dernier contenu : ${(dernierContenu || '').slice(0, 200)} — erreurs : ${erreursPaliers.join(' | ').slice(0, 500)}`)
     return fallback
   }
 
-  private _tryParseJSON<T>(content: string): T | null {
+  private _tryParseJSON<T>(content: string): { parsed: T; repaired: boolean } | null {
     // Prétraitement : apostrophes échappées (courant en sortie LLM française) — `\'` est invalide en JSON.
     const cleaned = content.replace(/\\'/g, "'")
     const tryParse = (s: string): T => JSON.parse(s) as T
-    const tentatives = [
-      () => tryParse(cleaned),
+    const tentatives: Array<{ run: () => T | null; repaired: boolean }> = [
+      { repaired: false, run: () => tryParse(cleaned) },
       // Bloc markdown ```json ... ```
-      () => {
+      { repaired: false, run: () => {
         const m = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
         return m ? tryParse(m[1]) : null
-      },
+      } },
       // Premier objet JSON { ... } — extraction par comptage d'accolades (supporte l'imbrication)
-      () => {
+      { repaired: false, run: () => {
         const json = extractBalancedJSON(cleaned)
         return json ? tryParse(json) : null
-      },
+      } },
       // Réparation JSON tronqué : ferme les guillemets/accolades/crochets manquants
-      () => {
+      { repaired: true, run: () => {
         let fixed = cleaned.trim()
         const stack: string[] = []
         let inString = false
@@ -381,21 +386,21 @@ class AIClientClass {
         if (inString) fixed += '"'
         for (let i = stack.length - 1; i >= 0; i--) fixed += stack[i]
         return tryParse(fixed)
-      },
+      } },
       // Très robuste : supprime les caractères non-JSON hors des chaînes, puis retente
-      () => {
+      { repaired: true, run: () => {
         let fixed = cleaned.trim()
         if (fixed.startsWith('{') && !fixed.endsWith('}')) {
           fixed = fixed.slice(0, fixed.lastIndexOf('}') + 1)
         }
         return tryParse(fixed)
-      },
+      } },
     ]
 
     for (const t of tentatives) {
       try {
-        const parsed = t()
-        if (parsed !== null) return parsed as T
+        const parsed = t.run()
+        if (parsed !== null) return { parsed, repaired: t.repaired }
       } catch {
         continue
       }

@@ -21,6 +21,7 @@ import { RISK_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT } from '@/lib/ia/pro
 import { kitAerorisqBridge } from '@/lib/ia/bridge/kitAerorisqBridge'
 import { modelOrchestrator } from '@/lib/ia/engines/modelOrchestrator'
 import { decouperChapitres, filtrerChapitresParMapping, filtrerChapitresParDomaine } from '@/lib/services/pdfExtractor'
+import { decouperEnLots, normaliserTexte, selectionnerLotsPertinents } from '@/lib/ia/documentChunking'
 import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
 export interface RiskAnalysisRequest {
@@ -88,6 +89,14 @@ export interface RiskAnalysisData {
   profil: ProfilRisque | null
   ecarts: Ecart[]
   aerodrome: Aerodrome | null
+}
+
+/** Clé de déduplication d'un item généré (point de vérification normalisé). */
+function cleItem(pointVerification: string): string {
+  return normaliserTexte(pointVerification || '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
 }
 
 export class RiskAgent {
@@ -650,26 +659,41 @@ ${JSON.stringify(contextData, null, 2)}`,
       sourcesInfo = `Chapitres ${mapping.numerosTrouves.join(', ')} du document ${doc.reference_base || doc.nom}`
     }
 
-    // Plafond contexte : 35000 car. ≈ 13000 tokens → 503 partout (Groq refuse,
-    // local avorte). 12000 ≈ 4000 tokens + prompt ≈ 5000 : Groq retente
-    // (cap 6000), le local tient. Mesuré : 15000 car. + prompt = 6125 tokens.
-    const contexteTexte = chapitresPertinents.length > 0
-      ? chapitresPertinents.join('\n\n').substring(0, 12000)
-      : texte.substring(0, 8000)
+    // Lecture INTÉGRALE : chapitres pertinents découpés en lots, ou extraits
+    // répartis sur TOUT le document si aucun chapitre ne correspond au domaine.
+    // On ne se limite plus aux 8000/12000 premiers caractères.
+    const lotsTexte = chapitresPertinents.length > 0
+      ? decouperEnLots(chapitresPertinents.join('\n\n'), 12000)
+      : (() => {
+          const lotsDoc = decouperEnLots(texte, 12000)
+          const sel = selectionnerLotsPertinents(lotsDoc, params.domaine, 12000)
+          return sel.texte.trim()
+            ? [{ index: 0, texte: sel.texte, debut: 0, fin: sel.texte.length }]
+            : []
+        })()
 
     const aerodromeType = aerodrome?.type_entite === 'helistation' ? 'helistation' : 'aerodrome'
     const modelSelection = profil
       ? modelOrchestrator.selectModel({ profil, entityType: aerodromeType, historicalLength: chapitresPertinents.length })
       : null
 
-    const userMessage = `Document: "${doc.nom}" (${doc.reference_base || ''})
+    const origine = chapitresPertinents.length > 0
+      ? 'chapitres pertinents'
+      : `extraits répartis sur tout le document — aucun chapitre spécifique au domaine ${params.domaine} n'a été détecté`
+
+    const nouveauxItems: KitChecklistItemGenere[] = []
+    const clesVues = new Set<string>()
+
+    for (const lot of lotsTexte) {
+      const position = lotsTexte.length > 1 ? ` (partie ${lot.index + 1}/${lotsTexte.length})` : ''
+      const userMessage = `Document: "${doc.nom}" (${doc.reference_base || ''})
 Domaine cible: ${params.domaine}
 ${sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''}
 ${aerorisqContext ? `\n${aerorisqContext}` : ''}
 ${modelSelection ? `\nModèle sélectionné: ${modelSelection.selected} (confiance ${modelSelection.confidence}%)` : ''}
 
-Texte réglementaire :
-${contexteTexte}
+Texte réglementaire (${origine}${position}) :
+${lot.texte}
 
 Génère les items de checklist standard pour le domaine ${params.domaine}.
 Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
@@ -692,26 +716,28 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
   ]
 }`
 
-    const aiResult = await aiClient.callJSON<{ items: any[] }>(
-      {
-        systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
-        userMessage,
-        temperature: 0.15,
-        maxTokens: 32768,
-        responseFormat: 'json_object',
-      },
-      { items: [] }
-    )
+      const aiResult = await aiClient.callJSON<{ items: any[] }>(
+        {
+          systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
+          userMessage,
+          temperature: 0.15,
+          maxTokens: 8192,
+          responseFormat: 'json_object',
+        },
+        { items: [] }
+      )
 
-    const nouveauxItems: KitChecklistItemGenere[] = []
-    if (aiResult.items && aiResult.items.length > 0) {
-      for (let i = 0; i < aiResult.items.length; i++) {
-        const item = aiResult.items[i]
-        const itemGenere: KitChecklistItemGenere = {
+      for (const item of aiResult.items || []) {
+        const pointVerification = item.point_verification || `Vérification ${params.domaine} — ${doc.nom}`
+        const cle = cleItem(pointVerification)
+        if (clesVues.has(cle)) continue
+        clesVues.add(cle)
+        const i = nouveauxItems.length
+        nouveauxItems.push({
           id: `${doc.id}_${params.domaine}_${String(i + 1).padStart(2, '0')}`,
           numero: item.numero || `${String(i + 1).padStart(2, '0')}`,
           reference_reglementaire: item.reference_reglementaire || `${doc.reference_base || 'RAS 14 I'}`,
-          point_verification: item.point_verification || `Vérification ${params.domaine} — ${doc.nom}`,
+          point_verification: pointVerification,
           directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
           directive_sa: item.directive_sa,
           directive_ns: item.directive_ns,
@@ -721,8 +747,7 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
           sous_domaine: item.sous_domaine,
           type_entite_cible: item.type_entite_cible || 'tous',
           source_document_id: doc.id,
-        }
-        nouveauxItems.push(itemGenere)
+        })
       }
     }
 

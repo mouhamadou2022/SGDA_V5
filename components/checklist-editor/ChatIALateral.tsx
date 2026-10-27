@@ -14,8 +14,9 @@ Tu aides un inspecteur à **construire et affiner une checklist** de surveillanc
 - Tu NE DOIS JAMAIS SUPPRIMER des items, domaines, sous-domaines ou sous-sous-domaines existants.
 - Tu NE DOIS JAMAIS renvoyer updatedChecklist sans tous les items existants.
 - Réponds TOUJOURS en JSON uniquement avec le format ci-dessous.
-- Si tu modifies la checklist, renvoie SEULEMENT les domaines/items modifiés ou ajoutés (le système fusionnera avec l'existant).
+- Si tu modifies la checklist, renvoie SEULEMENT les domaines modifiés ou ajoutés, mais chaque domaine renvoyé doit contenir TOUS ses items existants (même inchangés) : le système remplace le domaine par la version renvoyée.
 - Si tu ne fais que répondre à une question, mets updatedChecklist: null.
+- Le champ "message" doit être concis (2-3 phrases) et ne pas recopier la checklist.
 - Conserve scrupuleusement les IDs existants des domaines, sous-domaines et sous-sous-domaines.
 - Pour les nouveaux items, génère un ID unique (ex: "ai_item_{Date.now()}_{index}").
 - Les nouveaux items doivent avoir ces champs : id, numero, reference_reglementaire, point_verification, directive_preuve, directive_sa, directive_ns, directive_nv, directive_na, type_entite_cible, sous_domaine, prediction ("NV"), confiance (50), justification, alerte (false), prefilled (true).
@@ -114,7 +115,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: Cha
           systemPrompt: CHAT_SYSTEM_PROMPT(contexte),
           userMessage: `Question: ${msg}\n\nDomaines de la checklist:\n${domainesInfos}\n\nRéponds UNIQUEMENT en JSON. Si tu ajoutes ou modifies des items, renvoie SEULEMENT les domaines modifiés dans updatedChecklist.`,
           temperature: 0.3,
-          maxTokens: 4096,
+          maxTokens: 8192,
           responseFormat: 'json_object',
         },
         { message: "Je n'ai pas pu traiter votre demande. Veuillez réessayer.", updatedChecklist: null }

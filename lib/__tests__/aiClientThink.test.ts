@@ -94,6 +94,48 @@ describe('garde-fou taille et retry JSON', () => {
     expect(res).toEqual({ items: ['repli'] });
     expect(f.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
+  test('JSON réparé (tronqué) : retry plus grand, jamais de réponse partielle', async () => {
+    const f = global.fetch as jest.Mock;
+    f.mockReset();
+    f.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '{"message":"Voici les items ajoutés","updatedChecklist":[{"id":"PHY","items":[{"id":"a"}]}]',
+        usage: { completion_tokens: 1000 },
+      }),
+    }).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        content: '{"message":"Voici les items ajoutés","updatedChecklist":[{"id":"PHY","items":[{"id":"a"},{"id":"b"}]}]}',
+        usage: { completion_tokens: 100 },
+      }),
+    });
+    const res = await aiClient.callJSON<{ message: string; updatedChecklist: Array<{ items: unknown[] }> }>(
+      { systemPrompt: 'prompt-json-repare-tronque', userMessage: 'genere', maxTokens: 1000 },
+      { message: 'fallback', updatedChecklist: [] },
+    );
+    expect(res.updatedChecklist[0].items).toHaveLength(2);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(f.mock.calls[1][1].body).maxTokens).toBe(1536);
+  });
+  test('JSON toujours tronqué : repli complet, jamais de réponse partielle', async () => {
+    const f = global.fetch as jest.Mock;
+    f.mockReset();
+    f.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: '{"message":"Voici","updatedChecklist":[{"id":"PHY","items":[{"id":"a"}]}]',
+        usage: { completion_tokens: 1000 },
+      }),
+    });
+    const fallback = { message: 'repli', updatedChecklist: [] as unknown[] };
+    const res = await aiClient.callJSON(
+      { systemPrompt: 'prompt-json-toujours-tronque', userMessage: 'genere', maxTokens: 1000 },
+      fallback,
+    );
+    expect(res).toEqual(fallback);
+    expect(f.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe('erreurIaEnClair', () => {

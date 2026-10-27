@@ -4,7 +4,7 @@
 
 import localforage from 'localforage'
 
-export const CACHE_VERSION = 1
+export const CACHE_VERSION = 2
 
 const forage = localforage.createInstance({
   name: 'sgda-llm-cache',

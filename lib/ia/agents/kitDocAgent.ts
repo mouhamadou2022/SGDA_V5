@@ -19,6 +19,7 @@ import { KITDOC_SYSTEM_PROMPT, GENERER_ITEMS_CHECKLIST_PROMPT, ANALYSER_DOCUMENT
 import { expandDomaines, DOMAINES_SURVEILLANCE } from '@/lib/domaines'
 import { getSourcesForDomaine, getMappingForDomaine } from '@/lib/kitDocMapping'
 import { extractTextFromPDF, decouperChapitres, filtrerChapitresParDomaine, filtrerChapitresParMapping } from '@/lib/services/pdfExtractor'
+import { decouperEnLots, normaliserTexte, selectionnerLotsPertinents } from '@/lib/ia/documentChunking'
 import { construireContexteReglementaire } from '@/lib/ia/rag/reglementaireRagClient'
 import { inferTypeEntite } from '@/lib/types/helistation'
 
@@ -575,6 +576,82 @@ export function normaliserReferenceBriefing(refIA: unknown, planningId?: string)
   return `BRIEF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`
 }
 
+// ============================================================
+// LECTURE INTÉGRALE DES DOCUMENTS LONGS (map → reduce)
+// ============================================================
+
+export interface AnalyseDocumentLot {
+  score_global: number
+  criteres: Array<{ nom: string; score: number; satisfait: boolean; commentaire: string }>
+  reserves: string[]
+  recommandations: string[]
+  confiance: number
+}
+
+function uniques(valeurs: string[]): string[] {
+  const vus = new Set<string>()
+  const out: string[] = []
+  for (const v of valeurs) {
+    const propre = (v || '').trim()
+    if (!propre) continue
+    const cle = normaliserTexte(propre)
+    if (vus.has(cle)) continue
+    vus.add(cle)
+    out.push(propre)
+  }
+  return out
+}
+
+/** Fusionne les analyses de tous les lots d'un document (map → reduce). */
+export function fusionnerAnalysesDocument(lots: AnalyseDocumentLot[]): AnalyseDocumentLot {
+  if (lots.length === 0) {
+    return { score_global: 50, criteres: [], reserves: [], recommandations: [], confiance: 40 }
+  }
+  if (lots.length === 1) return lots[0]
+
+  const moyenne = (valeurs: number[]) =>
+    Math.round(valeurs.reduce((s, v) => s + v, 0) / Math.max(valeurs.length, 1))
+
+  const parCritere = new Map<string, { nom: string; scores: number[]; satisfaits: boolean[]; commentaires: string[] }>()
+  for (const lot of lots) {
+    for (const c of lot.criteres || []) {
+      const cle = normaliserTexte(c.nom || '')
+      if (!cle) continue
+      const entree = parCritere.get(cle) || { nom: c.nom, scores: [], satisfaits: [], commentaires: [] }
+      entree.scores.push(Number(c.score) || 0)
+      entree.satisfaits.push(!!c.satisfait)
+      if (c.commentaire) entree.commentaires.push(c.commentaire)
+      parCritere.set(cle, entree)
+    }
+  }
+
+  const criteres = [...parCritere.values()].map(e => {
+    const score = moyenne(e.scores)
+    return {
+      nom: e.nom,
+      score,
+      satisfait: e.satisfaits.filter(Boolean).length >= Math.ceil(e.satisfaits.length / 2),
+      commentaire: uniques(e.commentaires).slice(0, 2).join(' '),
+    }
+  })
+
+  return {
+    score_global: moyenne(lots.map(l => Number(l.score_global) || 0)),
+    criteres,
+    reserves: uniques(lots.flatMap(l => l.reserves || [])).slice(0, 5),
+    recommandations: uniques(lots.flatMap(l => l.recommandations || [])).slice(0, 5),
+    confiance: moyenne(lots.map(l => Number(l.confiance) || 40)),
+  }
+}
+
+/** Clé de déduplication d'un item généré (point de vérification normalisé). */
+export function cleItemGenere(pointVerification: string): string {
+  return normaliserTexte(pointVerification || '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
 export class KitDocAgent {
   private initialized = false
   private analysisCache = new Map<string, KitDocAnalysis>()
@@ -634,12 +711,22 @@ export class KitDocAgent {
       detecte_le: new Date().toISOString(),
     }))
 
-    // Enrichissement via IA : sur le TEXTE extrait (6000 premiers car.) en
-    // priorité — le résumé seul est presque toujours vide (mesuré : 0 car.
-    // sur 10 docs) et ne donnait que des génériques « §X.X ».
-    const sourceIA = (doc.contenu_complet && doc.contenu_complet.trim().length > 200)
-      ? doc.contenu_complet.trim().substring(0, 6000)
-      : (doc.resume && doc.resume.length > 20 ? doc.resume : '')
+    // Enrichissement via IA : sur le TEXTE extrait, en sélectionnant les
+    // passages les plus pertinents dans TOUT le document (et non plus les
+    // 6000 premiers caractères). Le résumé seul est presque toujours vide
+    // (mesuré : 0 car. sur 10 docs) et ne donnait que des génériques « §X.X ».
+    const texteComplet = (doc.contenu_complet || '').trim()
+    let sourceIA = ''
+    if (texteComplet.length > 200) {
+      const lots = decouperEnLots(texteComplet, 6000)
+      sourceIA = selectionnerLotsPertinents(
+        lots,
+        `${doc.domaines.join(' ')} ${doc.mots_cles.join(' ')}`,
+        12000,
+      ).texte
+    } else if (doc.resume && doc.resume.length > 20) {
+      sourceIA = doc.resume
+    }
     if (sourceIA) {
       type ExtraitAI = { reference: string; titre: string; resume: string; seuil?: string }
       const aiResult = await aiClient.callJSON<{ extraits: ExtraitAI[] }>(
@@ -1462,36 +1549,26 @@ Génère un JSON avec cette structure exacte (guide_etapes = tirets, PAS de num�
       maxChars: 3500,
     })
 
-    // Plafond du texte injecté : 30000 car. ≈ 10000 tokens + prompt + RAG
-    // ≈ 13958 tokens — refusé par le tier gratuit Groq (> 6000), abort du
-    // local CPU (pré-remplissage 14k), puis 429 en cascade → 503 partout
-    // (mesuré en prod). 10000 car. ≈ 3300 tokens, total ≈ 5100 < 6000 :
-    // Groq sert vite au lieu de sauter vers le local.
+    // Lecture INTÉGRALE : le document est découpé en lots ; chaque lot est
+    // évalué (map), puis les résultats sont fusionnés (reduce). On ne se
+    // contente plus des 10000 premiers caractères.
     const TEXTE_MAX_CHARS = 10000
-    const textePlafonne = texte
-      ? texte.substring(0, TEXTE_MAX_CHARS) + (texte.length > TEXTE_MAX_CHARS ? '\n[… suite du document tronquée pour tenir dans la fenêtre du modèle …]' : '')
-      : '(texte non disponible — document probablement scanné, non OCRisé)'
-    const userMessage = `DOCUMENT À ÉVALUER :
+    const lotsTexte = texte.trim().length > 50 ? decouperEnLots(texte, TEXTE_MAX_CHARS) : []
+
+    const analyserLot = async (texteLot: string, position: string): Promise<AnalyseDocumentLot> => {
+      const userMessage = `DOCUMENT À ÉVALUER :
 Nom du fichier : ${params.nomFichier}
 Titre du dossier : ${params.titre}
 Catégorie du dossier : ${params.categorie}
 ${params.instructions ? `Instructions du dossier : ${params.instructions}` : ''}
 
-TEXTE DU DOCUMENT (début du document) :
-${textePlafonne}
+TEXTE DU DOCUMENT ${position} :
+${texteLot}
 
 ${contexteReg}
 
 Évalue ce document et retourne le JSON demandé.`
-
-    const typePred = async () => {
-      const result = await aiClient.callJSON<{
-        score_global: number
-        criteres: Array<{ nom: string; score: number; satisfait: boolean; commentaire: string }>
-        reserves: string[]
-        recommandations: string[]
-        confiance: number
-      }>(
+      return aiClient.callJSON<AnalyseDocumentLot>(
         {
           systemPrompt: ANALYSER_DOCUMENT_DOSSIER_PROMPT,
           userMessage,
@@ -1507,15 +1584,27 @@ ${contexteReg}
           confiance: 40,
         }
       )
-      return result
     }
 
-    let result: Awaited<ReturnType<typeof typePred>>
-    try {
-      result = await typePred()
-    } catch {
-      result = { score_global: 50, criteres: [], reserves: [], recommandations: [], confiance: 40 }
+    const analyses: AnalyseDocumentLot[] = []
+    if (lotsTexte.length === 0) {
+      try {
+        analyses.push(await analyserLot('(texte non disponible — document probablement scanné, non OCRisé)', ''))
+      } catch {
+        analyses.push({ score_global: 50, criteres: [], reserves: [], recommandations: [], confiance: 40 })
+      }
+    } else {
+      for (const lot of lotsTexte) {
+        const position = lotsTexte.length > 1 ? `(partie ${lot.index + 1}/${lotsTexte.length})` : ''
+        try {
+          analyses.push(await analyserLot(lot.texte, position))
+        } catch {
+          analyses.push({ score_global: 50, criteres: [], reserves: [], recommandations: [], confiance: 40 })
+        }
+      }
     }
+
+    const result = fusionnerAnalysesDocument(analyses)
 
     // Noms de critères canoniques
     const CRITERES_NOMS = ['Lisibilité', 'Exhaustivité', 'Réglementaire', 'Cohérence', 'Pertinence']
@@ -2284,18 +2373,41 @@ Génère la fiche de briefing de cette mission et retourne le JSON demandé.`
         console.log(`[genererItemsPourDocument] ${domaine}: keywords → ${chapitresPertinents.length} chapitres trouvés`)
       }
 
-      if (chapitresPertinents.length === 0) {
-        const contexteFallback = texte.substring(0, 8000)
-        if (contexteFallback.length < 50) continue
+      // Textes à parcourir : chapitres pertinents si le mapping/keywords en a
+      // trouvé. Sinon, on sélectionne des extraits répartis sur TOUT le
+      // document (au lieu des 8000 premiers caractères).
+      const lotsTexte = chapitresPertinents.length > 0
+        ? decouperEnLots(chapitresPertinents.join('\n\n'), 12000)
+        : (() => {
+            const lotsDoc = decouperEnLots(texte, 12000)
+            const sel = selectionnerLotsPertinents(lotsDoc, domaine, 12000)
+            return sel.texte.trim()
+              ? [{ index: 0, texte: sel.texte, debut: 0, fin: sel.texte.length }]
+              : []
+          })()
+      if (lotsTexte.length === 0) continue
 
+      const indicationSources = sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''
+      const origine = chapitresPertinents.length > 0
+        ? 'chapitres pertinents'
+        : `extraits répartis sur tout le document — aucun chapitre spécifique au domaine ${domaine} n'a été détecté`
+
+      const clesVues = new Set(
+        nouveauxItems.filter(i => i.domaine === domaine).map(i => cleItemGenere(i.point_verification)),
+      )
+      let compteurDomaine = nouveauxItems.filter(i => i.domaine === domaine).length
+
+      // On parcourt TOUS les lots : plus aucune partie du document n'est ignorée.
+      for (const lot of lotsTexte) {
+        const position = lotsTexte.length > 1 ? ` (partie ${lot.index + 1}/${lotsTexte.length})` : ''
         const aiResult = await aiClient.callJSON<{ items: any[] }>(
           {
             systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
             userMessage: `Document: "${docMaj.nom}" (${docMaj.reference_base || ''})
-Domaine cible: ${domaine}
+Domaine cible: ${domaine}${indicationSources}
 
-Texte réglementaire (début du document — aucun chapitre spécifique au domaine ${domaine} n'a été détecté) :
-${contexteFallback}
+Texte réglementaire (${origine}${position}) :
+${lot.texte}
 
 Génère les items de checklist standard pour le domaine ${domaine}.
 Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
@@ -2319,100 +2431,32 @@ Format attendu (génère autant d'items que d'exigences distinctes dans le texte
   ]
 }`,
             temperature: 0.15,
-            // Borné (8192) : les items d'UN domaine tiennent largement —
-            // 32768 par domaine épuisait le quota Groq et tuait le local.
             maxTokens: 8192,
             responseFormat: 'json_object',
           },
           { items: [] }
         )
 
-        if (aiResult.items && aiResult.items.length > 0) {
-          for (let i = 0; i < aiResult.items.length; i++) {
-            const item = aiResult.items[i]
-            const { reference, question } = this.extraireReferenceQuestion(item.point_verification)
-            const refBase = item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`
-            nouveauxItems.push({
-              id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
-              numero: reference || item.numero || `${String(i + 1).padStart(2, '0')}`,
-              reference_reglementaire: reference ? `${reference} — ${refBase}` : refBase,
-              point_verification: question || `Vérification ${domaine} — ${docMaj.nom}`,
-              directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
-              directive_sa: item.directive_sa,
-              directive_ns: item.directive_ns,
-              directive_nv: item.directive_nv,
-              directive_na: item.directive_na,
-              domaine,
-              sous_domaine: this.cleanSousDomaine(item.sous_domaine),
-              type_entite_cible: item.type_entite_cible || 'tous',
-              source_document_id: docId,
-            })
-          }
-        }
-        continue
-      }
-
-      // Plafond contexte : 35000 car. ≈ 13000 tokens → 503 partout (Groq refuse,
-      // local avorte). 12000 car. ≈ 4000 tokens + prompt ≈ 5000 : Groq retente
-      // (cap 6000), le local tient dans son budget. Mesuré : 15000 car. + prompt
-      // = 6125 tokens, encore refusé. Couverture intégrale = lots (chantier).
-      const contexteTexte = chapitresPertinents.join('\n\n').substring(0, 12000)
-      const indicationSources = sourcesInfo ? `\nSources identifiées: ${sourcesInfo}` : ''
-
-      const aiResult = await aiClient.callJSON<{ items: any[] }>(
-        {
-          systemPrompt: GENERER_ITEMS_CHECKLIST_PROMPT,
-          userMessage: `Document: "${docMaj.nom}" (${docMaj.reference_base || ''})
-Domaine cible: ${domaine}${indicationSources}
-
-Texte réglementaire (chapitres pertinents) :
-${contexteTexte}
-
-Génère les items de checklist standard pour le domaine ${domaine}.
-Parcours tout le texte fourni article par article, et crée un item distinct pour chaque exigence réglementaire vérifiable.
-${consigneRetouches}
-
-Format attendu (génère autant d'items que d'exigences distinctes dans le texte) :
-{
-  "items": [
-    {
-      "numero": "01",
-      "reference_reglementaire": "réf. précise",
-      "sous_domaine": "Pistes",
-      "point_verification": "question claire ?",
-      "directive_preuve": "guide détaillé étape par étape",
-      "directive_sa": "critère objectif satisfaisant",
-      "directive_ns": "critère objectif non satisfaisant",
-      "directive_nv": "quand impossible",
-      "directive_na": "quand non applicable",
-      "type_entite_cible": "aerodrome|helistation|tous"
-    }
-  ]
-}`,
-          temperature: 0.15,
-          maxTokens: 32768,
-          responseFormat: 'json_object',
-        },
-        { items: [] }
-      )
-
-      if (aiResult.items && aiResult.items.length > 0) {
-        for (let i = 0; i < aiResult.items.length; i++) {
-          const item = aiResult.items[i]
+        for (const item of aiResult.items || []) {
           const { reference, question } = this.extraireReferenceQuestion(item.point_verification)
+          const pointVerification = question || `Vérification ${domaine} — ${docMaj.nom}`
+          const cle = cleItemGenere(pointVerification)
+          if (clesVues.has(cle)) continue
+          clesVues.add(cle)
+          compteurDomaine++
           const refBase = item.reference_reglementaire || `${docMaj.reference_base || 'RAS 14 I'}`
           nouveauxItems.push({
-            id: `${docId}_${domaine}_${String(i + 1).padStart(2, '0')}`,
-            numero: reference || item.numero || `${String(i + 1).padStart(2, '0')}`,
+            id: `${docId}_${domaine}_${String(compteurDomaine).padStart(2, '0')}`,
+            numero: reference || item.numero || `${String(compteurDomaine).padStart(2, '0')}`,
             reference_reglementaire: reference ? `${reference} — ${refBase}` : refBase,
-            point_verification: question || `Vérification ${domaine} — ${docMaj.nom}`,
-            directive_preuve: item.directive_preuve || item.guide_etapes || '',
+            point_verification: pointVerification,
+            directive_preuve: Array.isArray(item.directive_preuve) ? item.directive_preuve.join('\n') : (typeof item.directive_preuve === 'string' ? item.directive_preuve : item.guide_etapes || ''),
             directive_sa: item.directive_sa,
             directive_ns: item.directive_ns,
             directive_nv: item.directive_nv,
             directive_na: item.directive_na,
             domaine,
-            sous_domaine: item.sous_domaine,
+            sous_domaine: this.cleanSousDomaine(item.sous_domaine),
             type_entite_cible: item.type_entite_cible || 'tous',
             source_document_id: docId,
           })

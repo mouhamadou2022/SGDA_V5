@@ -7,6 +7,7 @@
 import { useAppStore, type KitDocument, type Surveillance } from '@/lib/store'
 import { aiClient } from '@/lib/ia/aiClient'
 import { decouperChapitres } from '@/lib/services/pdfExtractor'
+import { decouperEnLots, normaliserTexte } from '@/lib/ia/documentChunking'
 import { getMappingForDomaine } from '@/lib/kitDocMapping'
 
 export interface ChapitreCoverage {
@@ -230,33 +231,53 @@ export class ChecklistVerificationEngine {
   private async detecterGaps(texteComplet: string, items: string[]): Promise<CoverageGap[]> {
     if (!texteComplet || texteComplet.length < 200) return []
 
-    // Découpage en chapitres pour contexte réduit
+    // Découpage en chapitres, puis en lots : on parcourt TOUS les chapitres
+    // (auparavant seuls les 15 premiers étaient analysés).
     const chapitres = decouperChapitres(texteComplet)
     if (chapitres.length === 0) return []
 
-    // Contexte limité pour la requête IA
-    const contexte = chapitres.slice(0, 15).join('\n\n---\n\n').substring(0, 25000)
-    if (!contexte) return []
+    const texteChapitres = chapitres
+      .map(c => `--- ${c.titre} ---\n${c.contenu}`)
+      .join('\n\n---\n\n')
+    const lots = decouperEnLots(texteChapitres, 15000)
+    if (lots.length === 0) return []
 
     const itemsTexte = items.length > 0
       ? items.join('\n')
       : 'Aucun item existant pour ce document'
 
-    try {
-      const result = await aiClient.callJSON<{ gaps: CoverageGap[] }>(
-        {
-          systemPrompt: VERIFICATION_PROMPT,
-          userMessage: `Texte règlementaire :\n${contexte}\n\nItems existants :\n${itemsTexte}`,
-          temperature: 0.1,
-          maxTokens: 4096,
-          responseFormat: 'json_object',
-        },
-        { gaps: [] }
-      )
-      return result.gaps || []
-    } catch {
-      return []
+    const gaps: CoverageGap[] = []
+    const vus = new Set<string>()
+    // Conserve l'esprit du prompt (« 10 gaps les plus importants ») tout en
+    // répartissant la lecture sur tous les lots du document.
+    const maxParLot = Math.max(1, Math.floor(10 / lots.length))
+
+    for (const lot of lots) {
+      const position = lots.length > 1 ? ` (partie ${lot.index + 1}/${lots.length})` : ''
+      try {
+        const result = await aiClient.callJSON<{ gaps: CoverageGap[] }>(
+          {
+            systemPrompt: VERIFICATION_PROMPT,
+            userMessage: `Texte règlementaire${position} :\n${lot.texte}\n\nItems existants :\n${itemsTexte}`,
+            temperature: 0.1,
+            maxTokens: 4096,
+            responseFormat: 'json_object',
+          },
+          { gaps: [] }
+        )
+        let ajoutes = 0
+        for (const gap of result.gaps || []) {
+          if (ajoutes >= maxParLot) break
+          const cle = normaliserTexte(`${gap.chapitre || ''}|${gap.extrait || gap.recommandation || ''}`)
+          if (!cle || vus.has(cle)) continue
+          vus.add(cle)
+          gaps.push(gap)
+          ajoutes++
+        }
+      } catch { /* lot suivant : un échec ne bloque pas la vérification */ }
     }
+
+    return gaps.slice(0, 10)
   }
 
   private async verifierNS(surveillance: Surveillance): Promise<NSFeedbackCheck[]> {

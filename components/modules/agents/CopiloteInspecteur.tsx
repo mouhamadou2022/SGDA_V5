@@ -26,7 +26,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { copiloteAgent } from '@/lib/ia/agents/copiloteAgent'
+import { copiloteAgent, construireContextePieces } from '@/lib/ia/agents/copiloteAgent'
 import type { MessageCopilote, PieceJointeCopilote } from '@/lib/ia/agents/copiloteAgent'
 import { detecterFormatOffice, extractTextFromOffice } from '@/lib/services/officeExtractor'
 import { Markdown, markdownVersTexte } from '@/components/ui/markdown'
@@ -494,10 +494,9 @@ export function CopiloteInspecteur() {
       if (modePilote) {
         // MODE PILOTE : AERORISQ agit via ses outils (confirmations humaines).
         // Le texte s'affiche au fil de la génération (placeholder mis à jour).
-        const textesPieces = pieces
-          .filter(p => p.texte.trim().length > 50)
-          .map(p => `── PIÈCE : ${p.nom} ──\n${p.texte.trim().substring(0, 4000)}`)
-          .join('\n\n')
+        const textesPieces = pieces.some(p => p.texte.trim().length > 50)
+          ? construireContextePieces(pieces, q, 9000).texte
+          : ''
         const indexPlaceHolder = historique.length
         setMessages([...historique, { role: 'assistant' as const, content: '' }])
         const controleur = new AbortController()
