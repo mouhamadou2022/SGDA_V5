@@ -161,6 +161,114 @@ export function assurerReferencesUniques<T extends NoeudRef>(
   return { domaines: traiterNoeuds(source) as T[], renommes }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Numéros d'items restés dans le texte de la question
+//
+// À l'import, le numéro de l'item du document Word (« 11 la pente … »,
+// « 7.2.4 L'exploitant … ») n'est pas toujours reconnu comme référence : il
+// reste collé au début de la question. Résultat : la question commence par des
+// chiffres (« 11 la pente … ») alors que ces chiffres font partie de la
+// référence (« IT1.2.11 »).
+//
+// On les extrait : la question est nettoyée et le numéro rejoint la référence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Unités qui ne doivent jamais être prises pour un numéro d'item. */
+const UNITES = new Set([
+  'm', 'km', 'cm', 'mm', 'h', 'mn', 'min', 's', 'sec', 'ft', 'kg', 't', 'ha',
+  'kt', 'nm', 'l', 'lx', 'cd', 'db', 'm2', 'm3', 'cm2', '%', '°', 'n',
+])
+
+/** « 11 la pente … » → { numero: '11', question: 'la pente …' } */
+export function extraireNumeroQuestion(
+  question: string | null | undefined,
+): { numero: string; question: string } {
+  const brut = String(question ?? '').trim()
+  const m = brut.match(/^(\d{1,3}(?:\.\d{1,3}){0,3})(?:\s*[.)\-–—:]\s*|\s+)([\s\S]+)$/)
+  if (!m) return { numero: '', question: brut }
+  const numero = m[1]
+  const reste = m[2].trim()
+  if (!reste) return { numero: '', question: brut }
+  // La suite doit commencer par une lettre (ou une ouverture) : « 24 h »,
+  // « 3 % » ou « 2 500 m » ne sont pas des numéros d'item.
+  if (!/^[A-Za-zÀ-ÖØ-öø-ÿ«"(]/.test(reste)) return { numero: '', question: brut }
+  const unite = reste.match(/^([A-Za-zÀ-ÖØ-öø-ÿ%°]+)(?=\s|$)/)
+  // Un mot-unité (« 24 h », « 3 % ») n'est pas un numéro d'item ; en revanche
+  // « L’exploitant » ne doit pas être confondu avec l'unité « l » (litre).
+  if (unite && UNITES.has(unite[1].toLowerCase())) return { numero: '', question: brut }
+  return { numero, question: reste }
+}
+
+export interface ResultatNormalisation<T> extends ResultatUnicite<T> {
+  /** Nombre de questions dont le numéro de tête a été retiré. */
+  questionsNettoyees: number
+}
+
+/**
+ * Nettoie les questions qui commencent par leur numéro d'item et intègre ce
+ * numéro à la référence (colonne « Réf »), puis garantit l'unicité.
+ *
+ * Un nombre suivi d'un texte de question est un numéro d'item resté dans la
+ * question (les documents Word numérotent leurs items) ; un numéro de
+ * paragraphe pointé (« 7.2.4 ») est retiré sans être ajouté à la référence.
+ * Les nombres qui font partie de la question (« 24 h », « 2 500 m », « 3 % »)
+ * sont conservés.
+ */
+export function normaliserQuestionsEtReferences<T extends NoeudRef>(
+  domaines: T[] | null | undefined,
+): ResultatNormalisation<T> {
+  const source = Array.isArray(domaines) ? domaines : []
+  let questionsNettoyees = 0
+
+  const traiterSection = (items: any[]): any[] => {
+    const extraits = items.map(item => extraireNumeroQuestion(item?.point_verification ?? item?.description))
+    const compteRefs = new Map<string, number>()
+    for (const item of items) {
+      const ref = String(item?.numero ?? '').trim()
+      if (ref) compteRefs.set(ref, (compteRefs.get(ref) ?? 0) + 1)
+    }
+
+    return items.map((item, i) => {
+      const { numero: extrait, question } = extraits[i]
+      if (!extrait) return item
+
+      const base = String(item?.numero ?? '').trim()
+      const duplique = base ? (compteRefs.get(base) ?? 0) > 1 : false
+      // Un numéro pointé (« 7.2.4 ») est un paragraphe réglementaire : on le
+      // retire de la question sans l'ajouter à la référence.
+      const paragraphe = extrait.includes('.')
+
+      let nouvelleRef = base
+      if (!paragraphe) {
+        const dejaSuffixe = !!base && (base === extrait || base.endsWith(`.${extrait}`))
+        if (!dejaSuffixe || duplique) {
+          nouvelleRef = base ? `${base}.${extrait}` : extrait
+        }
+      }
+
+      const maj: Record<string, unknown> = { numero: nouvelleRef, point_verification: question }
+      // Le parser recopiait la question dans `description` : on la nettoie aussi.
+      if (typeof item?.description === 'string' && item.description.trim() === String(item?.point_verification ?? '').trim()) {
+        maj.description = question
+      }
+      questionsNettoyees++
+      return { ...item, ...maj }
+    })
+  }
+
+  const traiterNoeuds = (noeuds: NoeudRef[] | undefined): any[] =>
+    (noeuds || []).map(noeud => ({
+      ...noeud,
+      items: traiterSection(noeud.items || []),
+      sousDomaines: traiterNoeuds(noeud.sousDomaines),
+      sousSousDomaines: traiterNoeuds(noeud.sousSousDomaines),
+    }))
+
+  const nettoyes = traiterNoeuds(source)
+  const resultat = assurerReferencesUniques(nettoyes as T[])
+  return { ...resultat, questionsNettoyees }
+}
+
 /** Vrai si la checklist contient au moins une référence vide ou dupliquée. */
 export function aDesReferencesNonUniques(domaines: NoeudRef[] | null | undefined): boolean {
   const vus = new Set<string>()

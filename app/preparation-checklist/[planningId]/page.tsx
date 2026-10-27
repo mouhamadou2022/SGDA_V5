@@ -36,7 +36,7 @@ import { getCellColor, isSGSApplicable } from '@/lib/risque';
 import { buildSGSTemplateFromMaster } from '@/lib/services/checklistParser';
 import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral';
 import { fusionnerDomainesIA } from '@/lib/checklistMerge';
-import { assurerReferencesUniques } from '@/lib/checklistNumerotation';
+import { normaliserQuestionsEtReferences } from '@/lib/checklistNumerotation';
 import { checklistAgent } from '@/lib/ia/agents/checklistAgent';
 
 // ─────────────────────────────────────────────────────────────
@@ -62,8 +62,9 @@ function normalizeDomaines(domaines: DomaineChecklist[]): DomaineChecklist[] {
     })),
   }));
   // Références de questions uniques (colonne « Réf ») : les doublons
-  // (« 01 » répété dans chaque section, QSC08 en double) sont renumérotés.
-  return assurerReferencesUniques(normalises).domaines;
+  // (« 01 » répété dans chaque section, QSC08 en double) sont renumérotés et
+  // les numéros d'items restés en tête de question sont déplacés dans la réf.
+  return normaliserQuestionsEtReferences(normalises).domaines;
 }
 
 function excludeSGSDomaines(domaines: DomaineChecklist[], _portee: string[]): DomaineChecklist[] {
@@ -1267,7 +1268,7 @@ export default function PreparationChecklistPage() {
     // Fusion SANS PERTE (partagée avec l'éditeur du Kit Inspecteur) : items
     // modifiés fusionnés champ par champ, items/domaines/sous-domaines absents
     // de la réponse conservés, nouveaux éléments ajoutés.
-    setStandardDomaines(prev => assurerReferencesUniques(fusionnerDomainesIA(prev, aiDomaines)).domaines as DomaineChecklist[])
+    setStandardDomaines(prev => normaliserQuestionsEtReferences(fusionnerDomainesIA(prev, aiDomaines)).domaines as DomaineChecklist[])
     setHasChanges(true)
   }, [isExecutee])
 

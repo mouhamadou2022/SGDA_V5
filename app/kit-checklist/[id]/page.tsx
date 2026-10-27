@@ -6,7 +6,7 @@ import { useAppStore } from '@/lib/store'
 import { ChecklistTableEditor } from '@/components/checklist-editor/ChecklistTableEditor'
 import { ChatIALateral } from '@/components/checklist-editor/ChatIALateral'
 import { fusionnerDomainesIA, domainesTouchesIA, domaineEstTouche } from '@/lib/checklistMerge'
-import { assurerReferencesUniques } from '@/lib/checklistNumerotation'
+import { normaliserQuestionsEtReferences } from '@/lib/checklistNumerotation'
 import { SGSEvaluationContent } from '@/components/modules/surveillance/SGSEvaluation'
 import { buildSGSTemplateFromImport } from '@/lib/services/checklistParser'
 import { inspecteurVirtuel } from '@/lib/ia/agents/inspecteurVirtuelAgent'
@@ -54,8 +54,10 @@ function normalizeChecklistIds(domaines: DomaineChecklist[]): DomaineChecklist[]
     })),
   }))
   // Références de questions UNIQUES (colonne « Réf ») : les doublons importés
-  // (QSC08 en double, « 01 » répété dans chaque section) sont renumérotés.
-  return assurerReferencesUniques(dedupeIds).domaines
+  // (QSC08 en double, « 01 » répété dans chaque section) sont renumérotés, et
+  // les numéros d'items restés en tête de question (« 11 la pente … ») sont
+  // déplacés dans la référence.
+  return normaliserQuestionsEtReferences(dedupeIds).domaines
 }
 
 // Chemin d'accès d'un item dans l'arbre : domaines → sousDomaines → sousSousDomaines
@@ -445,7 +447,7 @@ export default function KitChecklistEditorPage() {
       const touches = domainesTouchesIA(updated)
       // Références uniques : les items proposés par l'IA peuvent réutiliser une
       // référence existante (ou aucune) → renumérotation selon le schéma local.
-      const fusion = assurerReferencesUniques(fusionnerDomainesIA(prev, updated)).domaines
+      const fusion = normaliserQuestionsEtReferences(fusionnerDomainesIA(prev, updated)).domaines
       return fusion.map(d =>
         // Marque comme "proposé par l'IA" les domaines touchés → brillance en attente de validation
         domaineEstTouche(d, touches) ? markDomaineProposed(d) : d

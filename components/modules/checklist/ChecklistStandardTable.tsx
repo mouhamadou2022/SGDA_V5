@@ -704,13 +704,13 @@ function ItemRow({ item, onUpdate, onDelete, onAdd, onSplitDomaine, domaines, re
         className={`border-b border-blue-100 hover:bg-blue-50/20 transition-colors group scroll-mt-32 ${isProposed ? 'ai-proposed-row' : ''}`}>
 
         {/* ── Réf (structureLocked) ── */}
-        <td className="p-1.5 border-r border-blue-100 bg-white w-14 min-w-[3.5rem] max-w-[3.5rem] align-top overflow-hidden">
+        <td className="p-1.5 border-r border-blue-100 bg-white w-16 min-w-[4rem] max-w-[4rem] align-top overflow-hidden">
           <InlineEdit
             value={item.numero}
             onChange={v => onUpdate({ ...item, numero: v })}
             readOnly={structureReadOnly}
-            className="text-[13px] font-mono text-foreground break-all"
-            inputClassName="text-[13px] font-mono"
+            className="text-[11px] leading-tight font-mono text-foreground break-all"
+            inputClassName="text-[11px] font-mono"
             placeholder="Réf"
           />
           {item.prefilled && <span className="text-[9px] text-purple-500 font-semibold block">IA</span>}
@@ -988,7 +988,7 @@ function ItemsTableBody({ items, onUpdate, onDeleteItem, onAddItem, onSplitDomai
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 border-b border-blue-200">
-              <th className="text-left p-1.5 text-[13px] font-bold text-foreground w-14 min-w-[3.5rem] max-w-[3.5rem] border-r border-blue-100">Réf</th>
+              <th className="text-left p-1.5 text-[13px] font-bold text-foreground w-16 min-w-[4rem] max-w-[4rem] border-r border-blue-100">Réf</th>
               <th className="text-left p-1.5 text-[13px] font-bold text-foreground w-28 min-w-[7rem] max-w-[7rem] border-r border-blue-100">Réf. réglementaire</th>
               <th className="text-left p-1.5 text-[13px] font-bold text-foreground min-w-[10rem] max-w-[15rem] border-r border-blue-100">Question</th>
               <th className="text-center p-1.5 text-[13px] font-bold text-foreground w-28 min-w-[7rem] max-w-[7rem] border-r border-blue-100">État</th>
