@@ -860,7 +860,7 @@ export function registerStoreSubscriptions(): void {
   // Sans lui, les refus passés (overwrite de evaluation_pac/validation_preuves)
   // ne sont visibles que sur le poste d'évaluation : l'exploitant resoumet à
   // l'aveugle. Déclenché uniquement quand la référence change (coût nul sinon),
-  // debounce 2 s, upsert idempotent par id.
+  // debounce 2 s, insertion idempotente (doublons ignorés).
   const longueursSync: Record<string, number> = {};
   let minuteurHist: ReturnType<typeof setTimeout> | null = null;
   useAppStore.subscribe((state, prev) => {
