@@ -146,7 +146,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
       date: ecart.evaluation_pac.evalue_le,
       acteur: ecart.evaluation_pac.evalue_par,
       role_acteur: 'inspector',
-      description: `PAC ${ecart.evaluation_pac.decision === 'accepte' ? 'accepté' : 'refusé'} — Note globale : ${ecart.evaluation_pac.note_globale}/5`,
+      description: `PAC ${ecart.evaluation_pac.decision === 'accepte' ? 'accepté' : 'refusé'} — Note globale : ${ecart.evaluation_pac.note_globale}/4`,
       details: ecart.evaluation_pac,
       icon: ecart.evaluation_pac.decision === 'accepte' ? CheckCircle2 : XCircle,
       color: ecart.evaluation_pac.decision === 'accepte' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600',
@@ -456,7 +456,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium text-foreground">
                               {entry.type === 'evaluation_pac' && entry.details?.note_globale
-                                ? `PAC évalué (${entry.details.note_globale}/5)`
+                                ? `PAC évalué (${entry.details.note_globale}/4)`
                                 : entry.type === 'validation_preuves'
                                   ? `Preuves ${entry.details?.decision === 'valide' ? 'validées' : entry.details?.decision === 'reserve' ? 'acceptées avec réserves' : 'refusées'}`
                                   : LABEL_TYPE_HISTORIQUE[entry.type] ?? entry.type}
@@ -468,7 +468,7 @@ export function HistoriqueEcartModal({ isOpen, onClose, ecartId, userRole }: His
                             )}
                             {entry.type === 'evaluation_pac' && entry.details?.note_globale && (
                               <span className="badge primary text-[10px]">
-                                Note: {entry.details.note_globale}/5
+                                Note: {entry.details.note_globale}/4
                               </span>
                             )}
                             {entry.type === 'evaluation_pac' && entry.details?.decision && (

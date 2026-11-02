@@ -88,7 +88,7 @@ function construireTimelineSurveillance(s: any): TimelineStep[] {
 function construireTimelineEcart(e: any): TimelineStep[] {
   const steps: TimelineStep[] = [{ id: '1', etape: 'Création', date: e.created_at, acteur: '—', acteur_role: 'Système', details: e.libelle }]
   if (e.statut !== 'ouvert') steps.push({ id: '2', etape: 'PAC soumis', date: e.pac?.soumis_le || e.updated_at, acteur: e.pac?.soumis_par || '—', acteur_role: 'Exploitant', details: 'PAC soumis pour évaluation' })
-  if (e.evaluation_pac) steps.push({ id: '3', etape: 'PAC évalué', date: e.evaluation_pac.evalue_le, acteur: e.evaluation_pac.evalue_par || '—', acteur_role: 'Inspecteur', details: `Note: ${e.evaluation_pac.note_globale}/10 — ${e.evaluation_pac.decision}` })
+  if (e.evaluation_pac) steps.push({ id: '3', etape: 'PAC évalué', date: e.evaluation_pac.evalue_le, acteur: e.evaluation_pac.evalue_par || '—', acteur_role: 'Inspecteur', details: `Note: ${e.evaluation_pac.note_globale}/4 — ${e.evaluation_pac.decision}` })
   if (e.cloture_le) steps.push({ id: '4', etape: 'Clôturé', date: e.cloture_le, acteur: '—', acteur_role: 'Système', details: 'Écart clôturé' })
   return steps
 }
@@ -1240,7 +1240,7 @@ function EcartsTab() {
                 <CheckCircle className="w-4 h-4 text-role-primary" />Évaluation du PAC
               </h4>
               <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                <span>Note globale : <strong>{selectedEcart.evaluation_pac.note_globale}/10</strong></span>
+                <span>Note globale : <strong>{selectedEcart.evaluation_pac.note_globale}/4</strong></span>
                 <span>Décision : <span className={selectedEcart.evaluation_pac.decision === 'refuse' ? 'badge danger' : 'badge success'}>{selectedEcart.evaluation_pac.decision === 'accepte' ? 'Accepté' : selectedEcart.evaluation_pac.decision === 'reserve' ? 'Accepté avec rés.' : 'Refusé'}</span></span>
               </div>
               {selectedEcart.evaluation_pac.commentaire_refus && (

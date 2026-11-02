@@ -244,7 +244,7 @@ export function SoumissionPACForm({
                 Retour de l'inspecteur — {ecart.evaluation_pac.decision === 'accepte' ? 'accepté' : ecart.evaluation_pac.decision === 'reserve' ? 'avec réserves' : 'refusé'}
               </p>
               {typeof ecart.evaluation_pac.note_globale === 'number' && (
-                <span className="badge neutral text-xs">Note : {ecart.evaluation_pac.note_globale}/100</span>
+                <span className="badge neutral text-xs">Note : {ecart.evaluation_pac.note_globale}/4</span>
               )}
             </div>
             <div className="flex flex-wrap gap-1.5 mb-2">

@@ -144,7 +144,7 @@ export async function exporterRegistreEcartPDF(
   if (e?.evaluation_pac) {
     section('ÉVALUATION DU PAC')
     pdf.kvTable([
-      ['Note globale', `${e.evaluation_pac.note_globale}/10`],
+      ['Note globale', `${e.evaluation_pac.note_globale}/4 (${Math.round((e.evaluation_pac.note_globale || 0) * 25)}/100)`],
       ['Décision', decisionLabel(e.evaluation_pac.decision)],
       ['Évalué par', e.evaluation_pac.evalue_par || '—'],
       ['Date d\'évaluation', fmtDate(e.evaluation_pac.evalue_le)],

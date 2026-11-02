@@ -451,17 +451,22 @@ export function buildEvaluationSGS(
   questionsByElement: { [elementId: string]: SGSQuestion[] }
 ): EvaluationSGS {
   const composantes: SGSComposante[] = SGS_COMPOSANTES_STRUCTURE.map(compDef => {
-    const elements = compDef.elements.map(elemDef => {
-      const questions: SGSQuestion[] = questionsByElement[elemDef.id] || [];
-      const { score, niveauGlobal } = computeSGSElementScore(questions);
-      return {
-        elementId: elemDef.id,
-        label: elemDef.label,
-        questions,
-        score,
-        niveauGlobal,
-      };
-    });
+    const elements = compDef.elements
+      .map(elemDef => {
+        const questions: SGSQuestion[] = questionsByElement[elemDef.id] || [];
+        const { score, niveauGlobal } = computeSGSElementScore(questions);
+        return {
+          elementId: elemDef.id,
+          label: elemDef.label,
+          questions,
+          score,
+          niveauGlobal,
+        };
+      })
+      // Un élément sans question n'est pas évalué (absent du template de
+      // l'aérodrome) : l'inclure le notait 0/« absent », ce qui créait un écart
+      // fantôme (ex. 5.2 « Coordinations ») et faisait chuter la composante.
+      .filter(el => el.questions.length > 0);
 
     const { score: compScore, niveauGlobal: compNiveau } = computeSGSComposanteScore(elements);
 

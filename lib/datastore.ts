@@ -40,6 +40,7 @@ import type { ArbreFTA } from './risque/ftaEngine'
 import {
   DatastoreResult,
   groupEquipeIds,
+  groupSurveillanceEquipeIds,
   normalizeInspecteurCompetences,
   sanitizeEcart,
   unmarshalMessage,
@@ -111,6 +112,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       enquetesRes,
       reponsesEnquetesRes,
       checklistMemoryRes,
+      surveillanceEquipeRes,
     ] = await Promise.all([
       supabase.from('aerodromes').select('*').order('nom'),
       supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
@@ -150,11 +152,18 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       supabase.from('enquetes').select('*').order('updated_at', { ascending: false }),
       supabase.from('reponses_enquetes').select('*').order('submitted_at', { ascending: false }),
       supabase.from('checklist_memory').select('*').order('updated_at', { ascending: false }).limit(5000),
+      supabase.from('surveillance_equipe').select('*'),
     ])
 
     const planningsData = (planningsRes.data ?? []) as Planning[]
     const equipeRows = (planningEquipeRes?.data ?? []) as { planning_id: string; utilisateur_id: string }[]
     const planningsAvecEquipe = groupEquipeIds(planningsData, equipeRows)
+    // Équipe de surveillance : source de vérité = table junction. Sans cette
+    // jointure, l'UI affiche « Équipe non désignée » / « 0 inspecteur(s) ».
+    const surveillancesAvecEquipe = groupSurveillanceEquipeIds(
+      (surveillancesRes.data ?? []) as Surveillance[],
+      (surveillanceEquipeRes?.data ?? []) as { surveillance_id: string; utilisateur_id: string }[],
+    )
 
     const errors = [
       aerodromesRes.error,
@@ -166,6 +175,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       dossiersRes.error,
       utilisateursRes.error,
       planningsRes.error,
+      surveillanceEquipeRes?.error,
       certificationsRes.error,
       homologationsRes.error,
       profilsRes.error,
@@ -212,7 +222,7 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
     return {
       data: {
         aerodromes: aerodromes,
-        surveillances: (surveillancesRes.data ?? []) as Surveillance[],
+        surveillances: surveillancesAvecEquipe as Surveillance[],
         ecarts: ((ecartsRes.data ?? []) as Ecart[]).map(sanitizeEcart),
         evenements: (evenementsRes.data ?? []) as EvenementSecurite[],
         fichesPresence: (presenceRes.data ?? []) as PresenceEntry[],

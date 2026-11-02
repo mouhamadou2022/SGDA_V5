@@ -25,6 +25,30 @@ export function groupEquipeIds(plannings: Planning[], equipeRows: { planning_id:
   return Array.from(byId.values())
 }
 
+/**
+ * Joint la table de jonction `surveillance_equipe` sur les surveillances.
+ * Sans cette jointure, l'UI affiche « Équipe non désignée » / « 0 inspecteur(s) »
+ * alors que la table contient bien les membres (le champ `equipe_ids` de la
+ * ligne surveillances reste vide : la source de vérité est la table junction).
+ */
+export function groupSurveillanceEquipeIds<T extends { id: string }>(
+  surveillances: T[],
+  equipeRows: { surveillance_id: string; utilisateur_id: string }[],
+): (T & { equipe_ids: string[] })[] {
+  const map = new Map<string, string[]>()
+  for (const row of equipeRows) {
+    if (!map.has(row.surveillance_id)) map.set(row.surveillance_id, [])
+    map.get(row.surveillance_id)!.push(row.utilisateur_id)
+  }
+  // Dédoublonnage par id : deux lectures concurrentes ne doivent jamais
+  // produire deux entrées (clés React dupliquées).
+  const byId = new Map<string, T & { equipe_ids: string[] }>()
+  for (const s of surveillances) {
+    byId.set(s.id, { ...s, equipe_ids: map.get(s.id) || [] })
+  }
+  return Array.from(byId.values())
+}
+
 export function marshalMessage(msg: Partial<Message>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   // to_id : toujours une string simple (UUID) — la colonne est uuid en DB

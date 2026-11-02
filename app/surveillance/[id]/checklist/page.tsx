@@ -195,6 +195,17 @@ export default function ChecklistPage() {
   // peuvent saisir en brouillon (tampon auteur, reprise signataire).
   const stQualite = useAppStore.getState();
   const observateurReadOnly = qualiteCompte(stQualite.inspecteurs || [], stQualite.utilisateurs.find(u => u.id === user?.id)) === 'observateur';
+  // Évaluation SGS : son verrou est SA propre signature, pas le statut global.
+  // Sur une portée mixte, la checklist standard peut être signée avant l'éval
+  // SGS (statut → checklist_signee) : avec l'ancien `checklistReadOnly`, l'éval
+  // SGS devenait alors définitivement non saisissable → sgs_ecarts_signes_le
+  // jamais posé → signature des écarts impossible (impasse de workflow).
+  // On ne reverrouille qu'une fois les écarts signés (statut ≥ ecarts_signes).
+  const sgsEvaluationReadOnly =
+    equipeReadOnly ||
+    observateurReadOnly ||
+    !!surveillance?.sgs_evaluation_signee_le ||
+    STATUT_ORDER.indexOf(surveillance?.statut ?? '') >= 3;
 
   const deriveUiFromDecisionChecklist = (
     typesChecklist: TypeChecklist[]
@@ -403,7 +414,7 @@ export default function ChecklistPage() {
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
-            readOnly={checklistReadOnly || observateurReadOnly}
+            readOnly={sgsEvaluationReadOnly}
             structureReadOnly={sgsStructureReadOnly || observateurReadOnly}
             onComplete={() => {
               const portee = surveillance?.portee || [];
@@ -607,7 +618,7 @@ component: (
             onSigner={handleSignSGSEvaluation}
             onSaveSGSTemplate={handleSaveSGSTemplate}
             sgsTemplate={sgsTemplate as any}
-            readOnly={checklistReadOnly || observateurReadOnly}
+            readOnly={sgsEvaluationReadOnly}
             structureReadOnly={sgsStructureReadOnly || observateurReadOnly}
             onComplete={() => {
               router.push(`/surveillance/${surveillanceId}`);

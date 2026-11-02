@@ -742,13 +742,31 @@ export const createEcartsSlice: StateCreator<AppStore, [], [], EcartSlice> = (se
                   created_by: currentUser?.id || '',
                   updated_by: currentUser?.id || '',
                 }
-                set((s) => ({ surveillances: [...s.surveillances, newSurveillance] }))
+                // Persistance Supabase AVANT l'ajout local : sans elle, la
+                // surveillance de suivi PAC n'existait que dans le store et
+                // disparaissait au rechargement de la page.
+                let surveillanceSuivi = newSurveillance
+                try {
+                  const {
+                    id: _id, created_at: _createdAt, updated_at: _updatedAt,
+                    ...payloadSuivi
+                  } = newSurveillance
+                  const syncSuivi = await datastore.createSurveillance(payloadSuivi)
+                  if (syncSuivi.error) {
+                    console.error('Erreur création surveillance suivi PAC:', syncSuivi.error)
+                  } else if (syncSuivi.data) {
+                    surveillanceSuivi = { ...newSurveillance, ...syncSuivi.data }
+                  }
+                } catch (errSuivi) {
+                  console.error('Erreur création surveillance suivi PAC:', errSuivi)
+                }
+                set((s) => ({ surveillances: [...s.surveillances, surveillanceSuivi] }))
                 storeEvents.emit('notification:envoyer', {
                   user_id: surveillanceOriginale.chef_id,
                   type: 'info',
                   title: 'Surveillance de suivi PAC créée',
                   message: `Suivi PAC automatique pour l'écart ${ecart.reference}`,
-                  link: `/surveillance/${newSurveillance.id}/checklist`,
+                  link: `/surveillance/${surveillanceSuivi.id}/checklist`,
                   canal: 'in_app',
                 })
               }

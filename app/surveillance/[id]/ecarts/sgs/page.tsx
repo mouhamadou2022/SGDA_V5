@@ -233,6 +233,9 @@ export default function SGSEcartsPage() {
 
     sgsEvaluation.composantes.forEach(composante => {
       composante.elements.forEach(element => {
+        // Élément non évalué (aucune question dans le template de l'aérodrome) :
+        // ne jamais générer d'écart fantôme (cf. buildEvaluationSGS).
+        if (!element.questions || element.questions.length === 0) return;
         if (!NIVEAUX_COLLECTES.includes(element.niveauGlobal)) return;
 
         // Référence SGS (ex: "SGS-1.2" pour composante 1, element 2)

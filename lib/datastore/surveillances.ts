@@ -3,27 +3,36 @@
 
 import { supabase } from '../supabase';
 import type { Surveillance } from '../store';
-import { DatastoreResult } from './_shared';
+import { DatastoreResult, groupSurveillanceEquipeIds } from './_shared';
 
 // ─────────────────────────────────────────────────────────────
 // SURVEILLANCES
 // ─────────────────────────────────────────────────────────────
 
 export async function fetchSurveillances(): Promise<DatastoreResult<Surveillance[]>> {
-  const { data, error } = await supabase
-    .from('surveillances')
-    .select('*')
-    .order('date_debut', { ascending: false })
-  return { data: data as Surveillance[] | null, error: error?.message ?? null }
+  const [survRes, equipeRes] = await Promise.all([
+    supabase.from('surveillances').select('*').order('date_debut', { ascending: false }),
+    supabase.from('surveillance_equipe').select('*'),
+  ])
+  if (survRes.error) return { data: null, error: survRes.error.message }
+  const data = groupSurveillanceEquipeIds(
+    survRes.data as Surveillance[],
+    (equipeRes.data ?? []) as { surveillance_id: string; utilisateur_id: string }[],
+  )
+  return { data: data as Surveillance[], error: null }
 }
 
 export async function fetchSurveillanceById(id: string): Promise<DatastoreResult<Surveillance>> {
-  const { data, error } = await supabase
-    .from('surveillances')
-    .select('*')
-    .eq('id', id)
-    .single()
-  return { data: data as Surveillance | null, error: error?.message ?? null }
+  const [survRes, equipeRes] = await Promise.all([
+    supabase.from('surveillances').select('*').eq('id', id).single(),
+    supabase.from('surveillance_equipe').select('*').eq('surveillance_id', id),
+  ])
+  if (survRes.error) return { data: null, error: survRes.error.message }
+  const [data] = groupSurveillanceEquipeIds(
+    [survRes.data as Surveillance],
+    (equipeRes.data ?? []) as { surveillance_id: string; utilisateur_id: string }[],
+  )
+  return { data: (data as Surveillance) ?? null, error: null }
 }
 
 // ── Auto-réparation des écritures surveillances ──────────────────────────────
