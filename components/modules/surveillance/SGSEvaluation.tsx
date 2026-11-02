@@ -1389,7 +1389,7 @@ export function SGSEvaluationModal({
               </div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold flex items-center gap-2">
-                  Niveau de maturité :
+                  Niveau PAOE · Maturité SGS :
                   <span className={`badge font-semibold ${
                     (() => {
                       const n = totalQuestions > 0 ? getPAOENiveauFromScore(evaluation.scoreGlobal) : 'absent';
@@ -2044,7 +2044,7 @@ export function SGSEvaluationContent({
             ))}
           </div>
           <div className="p-3 border-t border-border bg-gray-50 flex items-center justify-between">
-            <span className="text-sm font-semibold">Niveau de maturité</span>
+            <span className="text-sm font-semibold">Niveau PAOE · Maturité SGS</span>
             <div className="flex items-center gap-2">
               {/* Badge niveau PAOE (Absent / Présent / Approprié / Opérationnel / Efficace) */}
               <span className={`badge badge-icon font-semibold ${

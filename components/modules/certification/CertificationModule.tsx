@@ -1746,7 +1746,10 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
     if (filterStatut !== 'all') {
       list = list.filter(a => {
         const cert = getCertification(a.id);
-        return cert?.statut_global === filterStatut || (!cert && filterStatut === 'non_certifie');
+        // Même priorité que le badge : dossier > champ legacy.
+        const statut = cert?.statut_global
+          ?? (a.statut_certification === 'certifie' ? 'certifie' : 'non_certifie');
+        return statut === filterStatut;
       });
     }
 
@@ -1757,8 +1760,14 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
 
   const stats = useMemo(() => {
     const total = internationalAerodromes.length;
+    // Une certification préexistante (champ legacy `statut_certification`,
+    // sans dossier) reste une certification valide : sans elle, les cartes
+    // affichaient « Certifié » alors que le KPI restait à 0.
+    const certifiesLegacy = internationalAerodromes.filter(
+      a => a.statut_certification === 'certifie' && !getCertification(a.id)
+    ).length;
     const enCours = allCertifications.filter(c => c.statut_global === 'en_cours').length;
-    const certifies = allCertifications.filter(c => c.statut_global === 'certifie').length;
+    const certifies = allCertifications.filter(c => c.statut_global === 'certifie').length + certifiesLegacy;
     const { expiringSoon, expired } = checkExpiringCertifications(allCertifications);
 
     const blockedPhases = allCertifications.reduce((acc, cert) => {
@@ -2095,12 +2104,20 @@ export default function CertificationModule({ userRole: userRoleProp, user: user
           const certification = getCertification(aerodrome.id);
           const phaseActive = certification?.phase_active || 1;
 
-          const statutBadge = aerodrome.statut_certification === 'certifie' ? 'success' :
+          // Le dossier de certification prime sur le champ legacy
+          // `aerodromes.statut_certification` : un dossier actif (phase 1/5)
+          // ne doit pas s'afficher « Certifié ». Le champ legacy ne sert que
+          // de repli pour les certifications préexistantes (sans dossier).
+          const statutBadge = certification?.statut_global === 'certifie' ? 'success' :
             certification?.statut_global === 'expire' ? 'danger' :
-            certification?.statut_global === 'suspendu' ? 'warning' : certification ? 'primary' : 'neutral';
-          const statutLabel = aerodrome.statut_certification === 'certifie' ? 'Certifié' :
+            certification?.statut_global === 'suspendu' ? 'warning' :
+            certification ? (certification.statut_global === 'archive' ? 'neutral' : 'primary') :
+            aerodrome.statut_certification === 'certifie' ? 'success' : 'neutral';
+          const statutLabel = certification?.statut_global === 'certifie' ? 'Certifié' :
             certification?.statut_global === 'expire' ? 'Expiré' :
-            certification?.statut_global === 'suspendu' ? 'Suspendu' : certification ? 'En cours' : 'Non certifié';
+            certification?.statut_global === 'suspendu' ? 'Suspendu' :
+            certification ? (certification.statut_global === 'archive' ? 'Archivé' : 'En cours') :
+            aerodrome.statut_certification === 'certifie' ? 'Certifié' : 'Non certifié';
 
           const bloque = estDossierBloque(certification ?? null);
           return (
