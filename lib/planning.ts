@@ -179,8 +179,28 @@ export function estPlanningEnRetard(
   if (planning.statut === 'en_retard') return true
   if (planning.est_proposition) return false
   if (isPlanningTerminal(planning, surveillances)) return false
-  const dFin = new Date(planning.date_fin || planning.date_debut || '').getTime()
+  const dFin = echeanceMs(planning.date_fin || planning.date_debut)
   return !Number.isNaN(dFin) && dFin < now
+}
+
+/**
+ * Convertit une échéance en timestamp de comparaison.
+ *
+ * Les colonnes `date_fin` de la base sont encore de type `date` (drift, voir
+ * SGDA_v5_FINAL_COMPLET.sql 13.A.0/13.C.0) : PostgREST renvoie alors
+ * « AAAA-MM-JJ ». `new Date('2026-11-03')` vaut minuit UTC → la mission était
+ * marquée en retard dès 00:00 le jour de son échéance. Une date seule est donc
+ * interprétée comme une fin de journée locale ; les timestamps complets ne
+ * changent pas de comportement.
+ */
+export function echeanceMs(valeur: string | null | undefined): number {
+  if (!valeur) return NaN
+  const dateSeule = /^\d{4}-\d{2}-\d{2}$/.test(valeur)
+  if (dateSeule) {
+    const [y, m, d] = valeur.split('-').map(Number)
+    return new Date(y, m - 1, d, 23, 59, 59, 999).getTime()
+  }
+  return new Date(valeur).getTime()
 }
 
 // ─────────────────────────────────────────────────────────────

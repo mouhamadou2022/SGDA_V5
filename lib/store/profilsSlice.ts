@@ -15,7 +15,6 @@ import { toFiniteNumber } from '../utils'
 import { risqueUtils } from '../risque'
 import { computeInfrastructureComplexite } from '../risque/infrastructureComplexite'
 import * as datastore from '../datastore'
-import { supabase } from '../supabase'
 
 export function assainirProfilRisque(profil: ProfilRisque): ProfilRisque {
   const nb = (v: unknown, def: number, min = -Infinity, max = Infinity) => toFiniteNumber(v, def, min, max)
@@ -549,13 +548,21 @@ export const createProfilsSlice: StateCreator<AppStore, [], [], ProfilRisqueSlic
         }))
         if (scoreChange) {
           try {
-            await supabase.from('score_history').insert({
-              aerodrome_id: aerodromeId,
-              score_global: profilFinal.score_global,
-              c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5,
-              niveau: profilFinal.niveau,
-              tendance: profilFinal.tendance,
-              computed_at: now,
+            // Passage par une route serveur (clé service_role) : la table
+            // score_history n'a pas de policy RLS d'écriture pour le client,
+            // l'insert direct renvoyait 403 et l'historique n'était jamais
+            // persisté. Best-effort : un échec ne bloque pas le calcul.
+            await fetch('/api/risque/score-history', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                aerodrome_id: aerodromeId,
+                score_global: profilFinal.score_global,
+                c1: profilFinal.c1, c2: profilFinal.c2, c3: profilFinal.c3, c4: profilFinal.c4, c5: profilFinal.c5,
+                niveau: profilFinal.niveau,
+                tendance: profilFinal.tendance,
+                computed_at: now,
+              }),
             })
           } catch { /* Échec insert score_history — non bloquant */ }
         }

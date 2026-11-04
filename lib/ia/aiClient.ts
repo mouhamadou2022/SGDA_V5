@@ -154,14 +154,21 @@ class AIClientClass {
       // Délai navigateur aligné sur les timeouts serveur : AERORISQ peut être
       // servi en inférence locale (Ollama/mistral sur CPU) — chargement du
       // modèle au premier appel + génération lente, surtout sur les écarts
-      // multi-items (watch-dog : avis + nb_ecarts + libellé long). Le budget
-      // serveur de callWithFallback est cloud 20s + local 120s par défaut ; on
-      // laisse une marge au-delà pour ne jamais couper le navigateur avant la
-      // fin d'une réponse locale légitime. Surchargable via env.
-      const baseTimeout = Number(process.env.NEXT_PUBLIC_IA_TIMEOUT_MS) || 180000
+      // multi-items (watch-dog : avis + nb_ecarts + libellé long).
+      // Budget navigateur aligné sur le pire cas SERVEUR de callWithFallback :
+      // CLOUD_BUDGET_MS (20 s) + LOCAL_BUDGET_MS (240 s) = 260 s. L'ancien
+      // défaut (180 s) coupait l'appel AVANT la fin de la fenêtre locale :
+      // dès que les providers cloud étaient en quota, l'inférence Ollama
+      // (lente sur CPU) était abandonnée côté client alors que le serveur
+      // allait répondre → « Appel abandonné (délai dépassé) » systématique.
+      // On garde une marge sous le maxDuration 300 s de /api/ia/analyze.
+      // Surchargable via NEXT_PUBLIC_IA_TIMEOUT_MS.
+      const baseTimeout = Number(process.env.NEXT_PUBLIC_IA_TIMEOUT_MS) || 285000
       // Timeout explicite pour cet appel (ex. paliers de retry JSON) sinon dérivé de maxTokens.
+      // Plafonné sous le maxDuration (300 s) de /api/ia/analyze : au-delà, le
+      // serveur est déjà coupé — inutile de laisser le navigateur attendre plus.
       const timeout = options.timeoutMs
-        ?? (options.maxTokens && options.maxTokens > 12000 ? baseTimeout * 2 : baseTimeout)
+        ?? Math.min(options.maxTokens && options.maxTokens > 12000 ? baseTimeout * 2 : baseTimeout, 295000)
       const res = await fetch('/api/ia/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

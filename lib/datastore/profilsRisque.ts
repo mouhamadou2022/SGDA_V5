@@ -36,7 +36,11 @@ export async function upsertProfilRisque(profil: ProfilRisque): Promise<Datastor
   }
   const { data, error } = await supabase
     .from('profils_risque')
-    .upsert(payload)
+    // La table a une clé primaire `id` ET une contrainte unique sur
+    // `aerodrome_id`. Sans `onConflict`, PostgREST tentait un INSERT (l'`id`
+    // n'est pas dans le payload) → violation d'unicité (409) et le profil
+    // n'était jamais mis à jour.
+    .upsert(payload, { onConflict: 'aerodrome_id' })
     .select()
     .single()
   return { data: data as ProfilRisque | null, error: error?.message ?? null }

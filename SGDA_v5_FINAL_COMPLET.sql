@@ -1951,6 +1951,28 @@ ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS rapport_versions         text
 ALTER TABLE surveillances ADD COLUMN IF NOT EXISTS deleted_by             uuid;
 END $$;
 
+-- 13.A.0 DRIFT DE TYPE — date_debut/date_fin doivent être timestamptz.
+-- Sur les bases existantes ces colonnes ont été créées en `date` : un
+-- ADD COLUMN IF NOT EXISTS ne change pas un type existant, donc l'heure de
+-- début/fin était tronquée à la journée. Idempotent : ne convertit que si la
+-- colonne est encore de type date.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'surveillances'
+      AND column_name = 'date_debut' AND data_type = 'date'
+  ) THEN
+    ALTER TABLE surveillances ALTER COLUMN date_debut TYPE timestamptz USING date_debut::timestamptz;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'surveillances'
+      AND column_name = 'date_fin' AND data_type = 'date'
+  ) THEN
+    ALTER TABLE surveillances ALTER COLUMN date_fin TYPE timestamptz USING date_fin::timestamptz;
+  END IF;
+END $$;
+
 -- 13.A.b RAPPORT_TYPE — contrainte d'intégrité
 -- Le rapport peut être soit rédigé (redige/importe) soit chargé tel quel (charge).
 -- 'importe' = document externe (.docx) importé et modifiable (éditeur TipTap/Word libre).
@@ -2061,6 +2083,24 @@ DO $$ BEGIN
   ALTER TABLE plannings ADD COLUMN IF NOT EXISTS motif_report            text;
   -- Permettre chef_id NULL pour les surveillances auto-créées
   ALTER TABLE plannings ALTER COLUMN chef_id DROP NOT NULL;
+END $$;
+
+-- 13.C.0 DRIFT DE TYPE — mêmes colonnes que surveillances (voir 13.A.0).
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'plannings'
+      AND column_name = 'date_debut' AND data_type = 'date'
+  ) THEN
+    ALTER TABLE plannings ALTER COLUMN date_debut TYPE timestamptz USING date_debut::timestamptz;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'plannings'
+      AND column_name = 'date_fin' AND data_type = 'date'
+  ) THEN
+    ALTER TABLE plannings ALTER COLUMN date_fin TYPE timestamptz USING date_fin::timestamptz;
+  END IF;
 END $$;
 
 -- 13.D AERODROMES — colonnes manquantes
@@ -3589,6 +3629,30 @@ CREATE TABLE IF NOT EXISTS score_history (
 
 CREATE INDEX IF NOT EXISTS idx_score_history_aerodrome ON score_history(aerodrome_id);
 CREATE INDEX IF NOT EXISTS idx_score_history_computed ON score_history(aerodrome_id, computed_at);
+
+-- RLS score_history — sans policy d'écriture, tout insert client renvoie 403
+-- et l'historique n'est alimenté que par le cron (service_role).
+ALTER TABLE score_history ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "score_history_select" ON score_history;
+CREATE POLICY "score_history_select" ON score_history
+  FOR SELECT USING (
+    auth.uid() IS NOT NULL
+    AND (
+      get_user_role() IN ('admin','inspector','dg_anacim','dg_operator')
+      OR aerodrome_id = get_user_aerodrome_id()
+    )
+  );
+
+DROP POLICY IF EXISTS "score_history_write" ON score_history;
+CREATE POLICY "score_history_write" ON score_history
+  FOR ALL USING (
+    get_user_role() IN ('admin','inspector')
+    OR (
+      get_user_role() = 'focal_operator'
+      AND aerodrome_id = get_user_aerodrome_id()
+    )
+  );
 
 -- Fonction d'évaluation automatique
 CREATE OR REPLACE FUNCTION evaluate_decision_outcomes()

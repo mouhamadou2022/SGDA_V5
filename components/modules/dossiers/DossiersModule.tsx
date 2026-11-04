@@ -140,7 +140,10 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
       if (filters.statut !== 'tous' && d.statut !== filters.statut) return false;
 
       if (filters.urgence !== 'tous') {
+        // Même règle que le KPI « URGENTS » et dossierUtils.estUrgent :
+        // un dossier terminé n'est plus urgent même si son échéance est passée.
         const { jours } = dossierUtils.getDelaiRestant(d.date_limite);
+        if (d.statut === 'termine') return false;
         if (filters.urgence === 'urgent' && jours >= 7) return false;
         if (filters.urgence === 'critique' && jours >= 3) return false;
       }
@@ -187,10 +190,7 @@ export default function DossiersModule({ userRole: _userRole, aerodromeId }: Dos
       enCours: filteredDossiers.filter(d => d.statut === 'en_cours').length,
       enAttente: filteredDossiers.filter(d => d.statut === 'en_attente').length,
       termines: filteredDossiers.filter(d => d.statut === 'termine').length,
-      urgents: filteredDossiers.filter(d => {
-        const { jours } = dossierUtils.getDelaiRestant(d.date_limite);
-        return jours < 7 && d.statut !== 'termine';
-      }).length,
+      urgents: filteredDossiers.filter(d => dossierUtils.estUrgent(d)).length,
     };
   }, [filteredDossiers]);
 

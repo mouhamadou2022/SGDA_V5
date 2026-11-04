@@ -208,7 +208,9 @@ export async function loadInitialData(userId: string, role: string): Promise<Dat
       .map(async (aero) => {
         try {
           const result = calculerProfilInitial(aero as Aerodrome, refsFlotte);
-          await supabase.from('profils_risque').upsert(result.profil);
+          // `onConflict: 'aerodrome_id'` : sans lui, PostgREST insère (pas d'`id`
+          // dans le payload) et la contrainte unique sur aerodrome_id renvoie 409.
+          await supabase.from('profils_risque').upsert(result.profil, { onConflict: 'aerodrome_id' });
           console.log(`[Datastore] Profil calculé pour ${aero.code_oaci}`);
           return result.profil;
         } catch (err) {

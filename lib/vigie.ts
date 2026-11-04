@@ -2,7 +2,7 @@
 // Extraites des tranches (comportement identique) : les slices appliquent
 // (set/emit), ici on décide. Testé : lib/__tests__/vigie.test.ts.
 
-import { isPlanningTerminal } from './planning';
+import { isPlanningTerminal, echeanceMs } from './planning';
 import { joursRestants } from './ecarts-rappels';
 import type { Planning } from './store/planningsSlice';
 import type { Surveillance } from './store/surveillancesSlice';
@@ -52,7 +52,7 @@ export function evaluerDepassementPlanning(
   if (planning.deleted_at || planning.est_proposition) return neutre
   if (isPlanningTerminal(planning, surveillances)) return neutre
   if (planning.rappels_envoyes?.overdue) return neutre
-  const dFin = new Date(planning.date_fin || planning.date_debut).getTime()
+  const dFin = echeanceMs(planning.date_fin || planning.date_debut)
   if (Number.isNaN(dFin) || dFin >= maintenantMs) return neutre
   return { depasse: true, joursRetard: Math.max(1, Math.ceil((maintenantMs - dFin) / (1000 * 60 * 60 * 24))) }
 }

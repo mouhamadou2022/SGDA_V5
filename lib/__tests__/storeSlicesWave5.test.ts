@@ -15,6 +15,7 @@ jest.mock('../datastore', () => ({
   listDossierReferences: jest.fn(async () => ({ data: [], error: null })),
   updateDossier: async () => ({ error: null }),
   deleteDossier: async () => ({ error: null }),
+  saveRegistreEntry: async (e: unknown) => ({ data: e, error: null }),
   createFormation: async (f: unknown) => ({ data: { ...(f as object), id: 'mock-id' }, error: null }),
   updateFormation: async () => ({ error: null }),
   deleteFormation: async () => ({ error: null }),
@@ -79,6 +80,38 @@ describe('dossiersSlice', () => {
     expect(dossier.assignments).toHaveLength(1)
     expect(dossier.assignments[0].statut).toBe('attribue')
     expect(dossier.historique.length).toBeGreaterThan(1)
+  })
+
+  test('accuserReceptionAssignment : le dossier quitte « En attente »', async () => {
+    const s = isolated<DossierSlice>(createDossiersSlice)
+    const created = await s.getState().addDossier(base)
+    await s.getState().addAssignment(created!.id, {
+      inspecteur_id: 'i1', inspecteur_nom: 'I', statut: 'attribue', progression: 0,
+    })
+    const d0 = s.getState().dossiers[0]
+    expect(d0.statut).toBe('en_attente')
+    await s.getState().accuserReceptionAssignment(d0.id, d0.assignments[0].id, 'vu')
+    const d = s.getState().dossiers[0]
+    expect(d.statut).toBe('en_cours')
+    expect(d.assignments[0].statut).toBe('accuse')
+  })
+
+  test('evaluerTravailInspecteur « Retourner » : progression dossier recalculée', async () => {
+    const s = isolated<DossierSlice>(createDossiersSlice)
+    s.setState({ user: { id: 'u1', nom: 'Chef' } } as unknown as Partial<DossierSlice>)
+    const created = await s.getState().addDossier(base)
+    await s.getState().addAssignment(created!.id, {
+      inspecteur_id: 'i1', inspecteur_nom: 'I', statut: 'attribue', progression: 0,
+    })
+    const d0 = s.getState().dossiers[0]
+    await s.getState().updateAssignment(d0.id, d0.assignments[0].id, {
+      progression: 100, statut: 'en_validation',
+    })
+    expect(s.getState().dossiers[0].progression).toBe(100)
+    await s.getState().evaluerTravailInspecteur(d0.id, d0.assignments[0].id, 'retour', 'à compléter')
+    const d = s.getState().dossiers[0]
+    expect(d.assignments[0].progression).toBe(75)
+    expect(d.progression).toBe(75)
   })
 
   test('archiverDossierAutomatique : terminé → archive + registre', async () => {

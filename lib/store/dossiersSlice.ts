@@ -11,7 +11,7 @@ import { registreUtils } from '../registreUtils'
 import { supabase } from '../supabase'
 import { storeEvents } from './eventBus'
 import { evaluerRappelsDossier } from '../vigie'
-import { dossierUtils } from '../dossierUtils'
+import { dossierUtils, fusionnerHistorique, ajouterJours } from '../dossierUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Sync périodique dossiers (démarrée à la connexion — voir authSlice).
@@ -392,9 +392,15 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
     if (ext.statut !== 'en_attente') return
 
     const estApprouve = statut === 'approuve'
+    // `ajouterJours` préserve le format `date` (AAAA-MM-JJ) sans dérive de
+    // fuseau ; l'ancien calcul repartait de minuit UTC et rendait un timestamp.
     const newDateLimite = estApprouve
-      ? new Date(new Date(dossier.date_limite).getTime() + ext.jours * 86400000).toISOString()
+      ? ajouterJours(dossier.date_limite, ext.jours)
       : dossier.date_limite
+    // Mémorisée à la première approbation : permet d'afficher le délai
+    // initial (et le nombre de jours obtenus) dans le dossier.
+    const dateLimiteInitiale = dossier.date_limite_initiale
+      || (estApprouve ? dossier.date_limite : undefined)
 
     const updatedExtensions = dossier.extensions.map((e, i) =>
       i === extensionIndex
@@ -402,28 +408,38 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
         : e
     )
 
+    const entreeHistorique = {
+      date: now,
+      action: `Extension ${statut === 'approuve' ? 'approuvée' : 'refusée'} (${ext.jours}j) : ${ext.motif}`,
+      utilisateur: get().user?.nom || 'Système',
+    }
+    const historique = [...(dossier.historique || []), entreeHistorique]
+
     set((state) => ({
       dossiers: state.dossiers.map(d =>
         d.id === dossierId
           ? {
               ...d,
               date_limite: newDateLimite,
+              date_limite_initiale: dateLimiteInitiale,
               extensions: updatedExtensions,
-              historique: [...d.historique, { date: now, action: `Extension ${statut === 'approuve' ? 'approuvée' : 'refusée'} (${ext.jours}j) : ${ext.motif}`, utilisateur: state.user?.nom || 'Système' }],
+              historique,
               updated_at: now,
             }
           : d
       ),
     }))
 
-    const updatedDossier = get().dossiers.find(d => d.id === dossierId)
-    if (updatedDossier) {
-      await datastore.updateDossier(dossierId, {
-        date_limite: newDateLimite,
-        extensions: updatedExtensions,
-        updated_at: now,
-      })
-    }
+    const result = await datastore.updateDossier(dossierId, {
+      date_limite: newDateLimite,
+      date_limite_initiale: dateLimiteInitiale,
+      extensions: updatedExtensions,
+      // L'historique d'audit était mis à jour en local seulement : l'entrée
+      // disparaissait au rechargement.
+      historique,
+      updated_at: now,
+    })
+    if (result.error) console.error('[store] Erreur persistance traiterExtension:', result.error)
   },
 
   updateDossier: async (id, data) => {
@@ -477,7 +493,35 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
       dossiers: state.dossiers.map((d) =>
         d.id === dossierId ? { ...d, statut: 'archive', archived_at: now } : d
       ),
-      registreEntries: [...(state.registreEntries || []), { ...entry, id: crypto.randomUUID(), created_at: now, timeline: entry.timeline || [] } as RegistreEntry],
+    }))
+
+    // L'entrée de registre n'était ajoutée qu'au state local : elle
+    // disparaissait au rechargement (les dossiers archivés ne sont pas
+    // rechargés) et le Registre ne conservait pas la trace de l'archivage.
+    //
+    // On persiste directement avec l'id du dossier comme id d'entrée :
+    // l'upsert est alors idempotent (double clic, ré-archivage après
+    // restauration) sans dépendre du cache local. Le cache pouvait en effet
+    // contenir une entrée fantôme issue de l'ancien code (ajout local jamais
+    // persisté), ce qui faisait sauter l'archivage via la déduplication.
+    const entreeRegistre = {
+      ...entry,
+      id: dossierId,
+      created_at: now,
+      timeline: entry.timeline || [],
+    } as RegistreEntry
+    const saved = await datastore.saveRegistreEntry(entreeRegistre)
+    if (saved.error) {
+      console.error('[store] Erreur sauvegarde registre Supabase:', saved.error)
+      return
+    }
+    set((state) => ({
+      registreEntries: [
+        ...(state.registreEntries || []).filter(
+          e => !(e.source_id === dossierId && e.source_type === 'dossier'),
+        ),
+        (saved.data as RegistreEntry) || entreeRegistre,
+      ],
     }))
   },
 
@@ -548,16 +592,38 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
   updateAssignment: async (dossierId, assignmentId, data) => {
     const state = get()
     const now = new Date().toISOString()
-    const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
-      a.id === assignmentId ? { ...a, ...data, historique: [...a.historique, ...(data.historique || [])] } : a
-    ) || []
+    const dossier = state.dossiers.find(d => d.id === dossierId)
+    if (!dossier) return
+
+    const updatedAssignments = dossier.assignments.map(a => {
+      if (a.id !== assignmentId) return a
+      // `data.historique` peut contenir tout l'historique (append depuis une
+      // copie locale) ou seulement les nouvelles entrées : on dédoublonne
+      // sinon chaque mise à jour duplique l'historique entier.
+      return {
+        ...a,
+        ...data,
+        historique: fusionnerHistorique(a.historique, data.historique),
+      }
+    })
     const total = updatedAssignments.reduce((s, a) => s + a.progression, 0)
     const dossierProgression = Math.round(total / Math.max(updatedAssignments.length, 1))
-    const result = await datastore.updateDossier(dossierId, { assignments: updatedAssignments, progression: dossierProgression, updated_at: now })
+    // Dès qu'un travail démarre (progression > 0), le dossier quitte
+    // « En attente » : sinon il restait « En attente » jusqu'à la validation,
+    // y compris pendant « En validation ».
+    const nouveauStatut = dossierProgression > 0 && dossier.statut === 'en_attente'
+      ? 'en_cours' as const
+      : dossier.statut
+    const result = await datastore.updateDossier(dossierId, {
+      assignments: updatedAssignments,
+      progression: dossierProgression,
+      statut: nouveauStatut,
+      updated_at: now,
+    })
     if (result.error) console.error('[store] Erreur persistance updateAssignment:', result.error)
     set((state) => ({
       dossiers: state.dossiers.map(d =>
-        d.id === dossierId ? { ...d, assignments: updatedAssignments, progression: dossierProgression, updated_at: now } : d
+        d.id === dossierId ? { ...d, assignments: updatedAssignments, progression: dossierProgression, statut: nouveauStatut, updated_at: now } : d
       ),
     }))
   },
@@ -657,16 +723,25 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
   accuserReceptionAssignment: async (dossierId, assignmentId, commentaire) => {
     const state = get()
     const now = new Date().toISOString()
-    const updatedAssignments = state.dossiers.find(d => d.id === dossierId)?.assignments.map(a =>
+    const dossier = state.dossiers.find(d => d.id === dossierId)
+    const updatedAssignments = dossier?.assignments.map(a =>
       a.id === assignmentId
         ? { ...a, statut: 'accuse' as const, accuse_reception: { date: now, commentaire }, historique: [...a.historique, { date: now, action: 'Accusé réception', details: commentaire }] }
         : a
     ) || []
-    await datastore.updateDossier(dossierId, { assignments: updatedAssignments, updated_at: now })
+    // L'accusé de réception marque le démarrage du traitement : sans ce
+    // passage le dossier restait « En attente » alors que l'inspecteur avait
+    // commencé (même règle que updateAssignment pour progression > 0).
+    const nouveauStatut = dossier?.statut === 'en_attente' ? 'en_cours' as const : undefined
+    await datastore.updateDossier(dossierId, {
+      assignments: updatedAssignments,
+      ...(nouveauStatut ? { statut: nouveauStatut } : {}),
+      updated_at: now,
+    })
     set((state) => ({
       dossiers: state.dossiers.map(d =>
         d.id === dossierId
-          ? { ...d, assignments: updatedAssignments, updated_at: now }
+          ? { ...d, assignments: updatedAssignments, ...(nouveauStatut ? { statut: nouveauStatut } : {}), updated_at: now }
           : d
       ),
     }))
@@ -759,6 +834,10 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
       return {
         ...a,
         statut: 'en_cours' as const,
+        // Travail renvoyé : le dossier n'est plus « terminé à 100 % ». Sans ce
+        // retour au palier précédent, l'UI affichait « En cours · 100 % » et
+        // l'inspecteur ne voyait pas qu'il devait resoumettre.
+        progression: 75 as const,
         historique: [...a.historique, { date: now, action: 'Travail retourné pour corrections', details: commentaire }],
         feedbacks: [...a.feedbacks, { id: crypto.randomUUID(), date: now, auteur_id: state.user?.id || '', auteur_nom: auteur, role: 'chef' as const, type: 'retour_travail' as const, message: commentaire || 'Corrections demandées' }],
       }
@@ -766,9 +845,15 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
 
     const allValides = updatedAssignments.length > 0 && updatedAssignments.every(a => a.statut === 'valide' || a.statut === 'termine')
     const nouveauStatut = allValides ? ('termine' as const) : dossier.statut
+    // Un « Retourner » fait redescendre l'assignation à 75 % : la progression
+    // du dossier doit suivre, sinon il restait affiché à 100 %.
+    const dossierProgression = Math.round(
+      updatedAssignments.reduce((s, a) => s + a.progression, 0) / Math.max(updatedAssignments.length, 1),
+    )
 
     const result = await datastore.updateDossier(dossierId, {
       assignments: updatedAssignments,
+      progression: dossierProgression,
       statut: nouveauStatut,
       updated_at: now,
       historique: [...dossier.historique, { date: now, action: decision === 'valide' ? `Travail de ${auteur} validé` : `Travail retourné pour corrections`, utilisateur: auteur, commentaire }],
@@ -777,7 +862,7 @@ export const createDossiersSlice: StateCreator<AppStore, [], [], DossierSlice> =
     set((state) => ({
       dossiers: state.dossiers.map(d =>
         d.id === dossierId
-          ? { ...d, assignments: updatedAssignments, statut: nouveauStatut, updated_at: now, historique: [...d.historique, { date: now, action: decision === 'valide' ? `Travail de ${auteur} validé` : `Travail retourné pour corrections`, utilisateur: auteur, commentaire }] }
+          ? { ...d, assignments: updatedAssignments, progression: dossierProgression, statut: nouveauStatut, updated_at: now, historique: [...d.historique, { date: now, action: decision === 'valide' ? `Travail de ${auteur} validé` : `Travail retourné pour corrections`, utilisateur: auteur, commentaire }] }
           : d
       ),
     }))
