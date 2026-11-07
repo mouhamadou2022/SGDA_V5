@@ -363,7 +363,7 @@ export function EcartCard({
                     </button>
                     {showMenu && (
                       <div
-                        className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-lg shadow-lg py-1 min-w-[160px]"
+                        className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border border-border dark:border-slate-700 rounded-lg shadow-lg py-1 min-w-[160px]"
                         onMouseLeave={() => setShowMenu(false)}
                       >
                         <button className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-role-primary-soft flex items-center gap-2" onClick={() => { onViewHistory(); setShowMenu(false) }}>

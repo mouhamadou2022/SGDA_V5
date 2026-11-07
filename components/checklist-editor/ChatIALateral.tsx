@@ -130,7 +130,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: Cha
       )}
     </div>
   ) : (
-    <div className="w-80 h-full shrink-0 border-r border-blue-200 flex flex-col bg-white">
+    <div className="w-80 h-full shrink-0 border-r border-blue-200 dark:border-slate-700 flex flex-col bg-white dark:bg-slate-900">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-blue-100 bg-blue-50">
         <div className="flex items-center gap-2">
@@ -221,7 +221,7 @@ export function ChatIALateral({ checklistJson, onChecklistUpdate, onClose }: Cha
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
             placeholder="Ajouter, modifier, supprimer..."
             disabled={loading}
-            className="flex-1 h-9 px-3 text-xs rounded-lg border border-blue-200 bg-white placeholder:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400/50 disabled:opacity-50"
+            className="flex-1 h-9 px-3 text-xs rounded-lg border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 placeholder:text-blue-300 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400/50 disabled:opacity-50"
           />
           <button onClick={handleSend} disabled={loading || !input.trim()}
             className="h-9 w-9 flex items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0">
